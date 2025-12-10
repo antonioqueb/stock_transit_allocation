@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields, api
+from odoo import models, fields
 
 class StockTransitLine(models.Model):
     _name = 'stock.transit.line'
@@ -8,15 +8,17 @@ class StockTransitLine(models.Model):
     voyage_id = fields.Many2one('stock.transit.voyage', string='Viaje', required=True, ondelete='cascade')
     company_id = fields.Many2one(related='voyage_id.company_id', store=True)
     
+    # Datos del Lote
     product_id = fields.Many2one('product.product', string='Producto', required=True)
-    lot_id = fields.Many2one('stock.lot', string='Lote / Placa', required=True,
-        help="El lote creado durante la carga del BL")
+    lot_id = fields.Many2one('stock.lot', string='Lote / Placa', required=True)
     
-    # Vinculación técnica
-    quant_id = fields.Many2one('stock.quant', string='Quant Físico', 
-        help="Referencia al stock físico en la ubicación de tránsito")
+    # Aquí guardamos el contenedor específico de ESTA línea/placa
+    container_number = fields.Char(string='Contenedor', help="Contenedor específico donde viaja este lote")
 
-    # Dimensiones (Traídas del módulo anterior para visualización rápida)
+    # Vinculación técnica
+    quant_id = fields.Many2one('stock.quant', string='Quant Físico')
+
+    # Dimensiones
     x_grosor = fields.Float(related='lot_id.x_grosor', string='Grosor')
     x_alto = fields.Float(related='lot_id.x_alto', string='Alto')
     x_ancho = fields.Float(related='lot_id.x_ancho', string='Ancho')
@@ -31,7 +33,6 @@ class StockTransitLine(models.Model):
     ], string='Estado Asignación', default='available', required=True)
 
     def action_reassign_wizard(self):
-        """Abre el wizard para reasignar esta línea específica"""
         return {
             'name': 'Reasignar en Tránsito',
             'type': 'ir.actions.act_window',

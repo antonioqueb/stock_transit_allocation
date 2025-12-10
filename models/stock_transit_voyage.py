@@ -9,9 +9,14 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
+    # Cabecera: Representa el BL o el Viaje General
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
-    container_number = fields.Char(string='Contenedor', required=True, tracking=True)
+    
+    # Ya no es obligatorio aquí porque puede haber múltiples, se vuelve informativo o principal
+    container_number = fields.Char(string='Contenedor (Principal)', tracking=True, 
+        help="Si hay múltiples contenedores, ver detalle en líneas.")
+        
     bl_number = fields.Char(string='BL Number', tracking=True)
     
     etd = fields.Date(string='ETD (Salida Estimada)')
@@ -30,7 +35,7 @@ class StockTransitVoyage(models.Model):
         domain=[('picking_type_code', '=', 'incoming')])
     
     company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
-    line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido del Contenedor')
+    line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
     
     # Computados
     total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True)
@@ -79,46 +84,53 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        Carga INTELIGENTE:
-        1. Lee líneas del picking.
-        2. Rastrea si vienen de una Orden de Venta (SO -> PO -> Move).
-        3. Si la línea de venta tiene el check 'Asignar en Tránsito', asigna el partner.
+        Carga INTELIGENTE V2:
+        1. Soporte Multi-Contenedor (Extrae info del lote).
+        2. Rastreo Robusto de Venta (Usa Procurement Group).
         """
         self.ensure_one()
         if not self.picking_id:
             return
         
-        # Solo limpiar si estamos re-cargando manualmente en borrador
         if self.state == 'draft':
             self.line_ids.unlink()
 
         transit_lines = []
-        # Importamos TransitManager aquí para usar la lógica de Hold si fuese necesario al crear
         from .utils.transit_manager import TransitManager
+
+        # Sets para detectar si hay múltiples contenedores
+        containers_found = set()
 
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
                 continue
             
-            # --- LÓGICA DE RASTREO (Traceability) ---
+            # --- 1. LÓGICA DE ASIGNACIÓN (CORREGIDA) ---
             partner_to_assign = False
-            # El move_line pertenece a un move
             move = move_line.move_id
             
-            # Si el movimiento viene de una compra (purchase_line_id)
-            if move.purchase_line_id:
-                # Verificar si esa línea de compra viene de una línea de venta (MTO / Buy to Order)
-                sale_line = move.purchase_line_id.sale_line_id
+            # Intentar encontrar la venta a través del Grupo de Abastecimiento (Método más seguro)
+            # El Picking tiene un group_id, y el Move también.
+            procurement_group = move.group_id or move.picking_id.group_id
+            
+            if procurement_group and procurement_group.sale_id:
+                # ¡Bingo! Encontramos la venta origen
+                sale_order = procurement_group.sale_id
                 
-                if sale_line:
-                    # Verificar el booleano en la SO (que agregaremos en el nuevo archivo)
-                    # Usamos getattr por seguridad si no han actualizado el módulo de ventas aún
-                    auto_assign = getattr(sale_line, 'auto_transit_assign', True) 
-                    
-                    if auto_assign:
-                        partner_to_assign = sale_line.order_id.partner_id
+                # Buscamos la línea específica si es posible, o usamos la cabecera
+                # Para simplificar y asegurar, usamos el partner de la orden
+                if sale_order.partner_id:
+                    # Opcional: Validar el booleano en líneas si es crítico, 
+                    # pero generalmente si viene de una SO específica, es para ese cliente.
+                    partner_to_assign = sale_order.partner_id
 
-            # Crear diccionario de línea
+            # --- 2. LÓGICA DE CONTENEDOR (NUEVA) ---
+            # Asumimos que el contenedor viene en la 'ref' del lote (común en importaciones)
+            # o si usas un campo específico, cámbialo aquí.
+            lot_container = move_line.lot_id.ref or False
+            if lot_container:
+                containers_found.add(lot_container)
+
             line_vals = {
                 'voyage_id': self.id,
                 'product_id': move_line.product_id.id,
@@ -129,18 +141,24 @@ class StockTransitVoyage(models.Model):
                 ], limit=1).id,
                 'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
-                'allocation_status': 'reserved' if partner_to_assign else 'available'
+                'allocation_status': 'reserved' if partner_to_assign else 'available',
+                'container_number': lot_container, # Guardamos el contenedor en la línea
             }
             transit_lines.append(line_vals)
         
-        # Crear líneas en lote
+        # Crear líneas
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
-        # IMPORTANTE: Si se asignaron partners, debemos crear los "Holds" (Reservas técnicas)
-        # Esto asegura que nadie más venda ese material.
+        # Actualizar cabecera con información resumen
+        updates = {}
+        if containers_found:
+            # Si encontramos contenedores en los lotes, ponemos una referencia en la cabecera
+            updates['container_number'] = ', '.join(list(containers_found))[:50] # Cortar si es muy largo
+        
+        if updates:
+            self.write(updates)
+
+        # Crear Holds para lo asignado
         for line in created_lines:
             if line.partner_id:
-                TransitManager.reassign_lot(self.env, line, line.partner_id, notes="Asignación Automática desde Compra (SO vinculada)")
-
-    def _expand_states(self, states, domain, order=None):
-        return [key for key, val in type(self).state.selection]
+                TransitManager.reassign_lot(self.env, line, line.partner_id, notes="Asignación Automática (Origen Venta)")
