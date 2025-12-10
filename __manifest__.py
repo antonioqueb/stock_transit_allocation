@@ -1,18 +1,17 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.2.0.0',
+    'version': '19.0.3.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
         
-        Novedades v2.0:
-        - Campo "Mandar Pedir" en Ventas.
-        - Independencia de líneas manuales en Compras (No afectan la SO original).
-        - Validación estricta: Cliente requiere Orden de Venta.
-        - Ubicación ajustada a SOM/Transit.
-        - Corrección en barras de progreso y referencias de Compra.
+        Novedades v3.0:
+        - PROTECCIÓN DE VENTAS: Se evita que productos agregados manualmente a la Compra/Recepción
+          se agreguen automáticamente a la Orden de Venta.
+        - Corrección de errores en validación de Holds (Quant perdido).
+        - Validación estricta de asignación.
     """,
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
