@@ -48,11 +48,12 @@ class StockTransitVoyage(models.Model):
     # Campo para el Widget JS de Progreso
     transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress')
 
-    @api.model
-    def create(self, vals):
-        if vals.get('name', _('Nuevo')) == _('Nuevo'):
-            vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
-        return super(StockTransitVoyage, self).create(vals)
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('name', _('Nuevo')) == _('Nuevo'):
+                vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
+        return super(StockTransitVoyage, self).create(vals_list)
 
     @api.depends('line_ids.product_uom_qty', 'line_ids.allocation_status')
     def _compute_totals(self):
