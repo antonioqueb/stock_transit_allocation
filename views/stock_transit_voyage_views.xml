@@ -6,13 +6,13 @@
         <field name="name">stock.transit.voyage.search</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
-            <search string="Buscar Viaje">
+            <search>
                 <field name="container_number"/>
                 <field name="vessel_name"/>
                 <field name="bl_number"/>
                 <filter string="En Tránsito" name="in_transit" domain="[('state', '=', 'in_transit')]"/>
                 <filter string="En Puerto" name="at_port" domain="[('state', '=', 'at_port')]"/>
-                <group expand="0" string="Agrupar Por">
+                <group string="Agrupar Por">
                     <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
                     <filter string="ETA" name="group_by_eta" context="{'group_by': 'eta'}"/>
                 </group>
@@ -20,7 +20,7 @@
         </field>
     </record>
 
-    <!-- LIST VIEW (Odoo 19 usa <list> en lugar de <tree>) -->
+    <!-- LIST VIEW -->
     <record id="view_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
@@ -118,19 +118,19 @@
 
                     <notebook>
                         <page string="Asignación de Lotes (Torre de Control)" name="lots">
-                            <!-- CORRECCIÓN: La lista debe estar dentro del campo line_ids -->
                             <field name="line_ids">
-                                <list name="transit_lines_list" create="0" delete="0" decoration-success="allocation_status == 'reserved'">
+                                <!-- Usamos 'tree' aquí para compatibilidad máxima con el widget One2many -->
+                                <tree name="transit_lines_list" create="0" delete="0" decoration-success="allocation_status == 'reserved'">
                                     <field name="product_id"/>
                                     <field name="lot_id"/>
-                                    <field name="x_grosor"/>
-                                    <field name="x_alto"/>
-                                    <field name="x_ancho"/>
+                                    <field name="x_grosor" optional="show"/>
+                                    <field name="x_alto" optional="show"/>
+                                    <field name="x_ancho" optional="show"/>
                                     <field name="product_uom_qty" string="m²"/>
                                     <field name="partner_id" widget="many2one_avatar"/>
                                     <field name="allocation_status" widget="badge" decoration-success="allocation_status == 'reserved'" decoration-info="allocation_status == 'available'"/>
                                     <button name="action_reassign_wizard" string="🔄 Reasignar" type="object" class="btn-link"/>
-                                </list>
+                                </tree>
                             </field>
                         </page>
                         <page string="Estadísticas">
