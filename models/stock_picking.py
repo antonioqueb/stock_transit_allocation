@@ -66,7 +66,7 @@ class StockPicking(models.Model):
         # Cargar líneas y ejecutar lógica de asignación
         voyage.action_load_from_picking()
         
-        self.message_post(body=f"🚢 <b>Registro de Tránsito creado:</b> {voyage.name}")
+        self.message_post(body=f"🚢 Registro de Tránsito creado: {voyage.name}")
 
     def action_view_transit_voyage(self):
         self.ensure_one()

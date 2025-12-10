@@ -13,7 +13,7 @@ class StockTransitVoyage(models.Model):
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     
-    # Ya no es obligatorio aquí porque puede haber múltiples, se vuelve informativo o principal
+    # Campo informativo o principal
     container_number = fields.Char(string='Contenedor (Principal)', tracking=True, 
         help="Si hay múltiples contenedores, ver detalle en líneas.")
         
@@ -84,9 +84,10 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        Carga INTELIGENTE V2:
-        1. Soporte Multi-Contenedor (Extrae info del lote).
-        2. Rastreo Robusto de Venta (Usa Procurement Group).
+        Carga INTELIGENTE V3 (Corrección AttributeError):
+        1. Busca la venta usando 'sale_line_id' del movimiento (Directo).
+        2. Si falla, busca 'group_id' en el PICKING (no en el move).
+        3. Soporte Multi-Contenedor (Extrae info del lote).
         """
         self.ensure_one()
         if not self.picking_id:
@@ -109,24 +110,26 @@ class StockTransitVoyage(models.Model):
             partner_to_assign = False
             move = move_line.move_id
             
-            # Intentar encontrar la venta a través del Grupo de Abastecimiento (Método más seguro)
-            # El Picking tiene un group_id, y el Move también.
-            procurement_group = move.group_id or move.picking_id.group_id
-            
-            if procurement_group and procurement_group.sale_id:
-                # ¡Bingo! Encontramos la venta origen
-                sale_order = procurement_group.sale_id
-                
-                # Buscamos la línea específica si es posible, o usamos la cabecera
-                # Para simplificar y asegurar, usamos el partner de la orden
-                if sale_order.partner_id:
-                    # Opcional: Validar el booleano en líneas si es crítico, 
-                    # pero generalmente si viene de una SO específica, es para ese cliente.
-                    partner_to_assign = sale_order.partner_id
+            # ESTRATEGIA A: Vínculo Directo (Más preciso)
+            # El módulo sale_stock añade el campo sale_line_id al stock.move
+            if getattr(move, 'sale_line_id', False):
+                sale_line = move.sale_line_id
+                # Validamos el booleano que creamos en ventas
+                auto_assign = getattr(sale_line, 'auto_transit_assign', True)
+                if auto_assign and sale_line.order_id.partner_id:
+                    partner_to_assign = sale_line.order_id.partner_id
 
-            # --- 2. LÓGICA DE CONTENEDOR (NUEVA) ---
-            # Asumimos que el contenedor viene en la 'ref' del lote (común en importaciones)
-            # o si usas un campo específico, cámbialo aquí.
+            # ESTRATEGIA B: Vínculo por Grupo (Fallback)
+            # Si A falla, buscamos el Grupo de Abastecimiento en el PICKING
+            elif not partner_to_assign and move.picking_id.group_id:
+                procurement_group = move.picking_id.group_id
+                # El grupo tiene sale_id si viene de una venta
+                if getattr(procurement_group, 'sale_id', False):
+                    sale_order = procurement_group.sale_id
+                    if sale_order.partner_id:
+                         partner_to_assign = sale_order.partner_id
+
+            # --- 2. LÓGICA DE CONTENEDOR ---
             lot_container = move_line.lot_id.ref or False
             if lot_container:
                 containers_found.add(lot_container)
@@ -142,7 +145,7 @@ class StockTransitVoyage(models.Model):
                 'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
-                'container_number': lot_container, # Guardamos el contenedor en la línea
+                'container_number': lot_container,
             }
             transit_lines.append(line_vals)
         
@@ -152,8 +155,7 @@ class StockTransitVoyage(models.Model):
         # Actualizar cabecera con información resumen
         updates = {}
         if containers_found:
-            # Si encontramos contenedores en los lotes, ponemos una referencia en la cabecera
-            updates['container_number'] = ', '.join(list(containers_found))[:50] # Cortar si es muy largo
+            updates['container_number'] = ', '.join(list(containers_found))[:50]
         
         if updates:
             self.write(updates)
@@ -162,3 +164,6 @@ class StockTransitVoyage(models.Model):
         for line in created_lines:
             if line.partner_id:
                 TransitManager.reassign_lot(self.env, line, line.partner_id, notes="Asignación Automática (Origen Venta)")
+
+    def _expand_states(self, states, domain, order=None):
+        return [key for key, val in type(self).state.selection]
