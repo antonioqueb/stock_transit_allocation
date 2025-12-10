@@ -84,10 +84,10 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        Carga INTELIGENTE V3 (Corrección AttributeError):
-        1. Busca la venta usando 'sale_line_id' del movimiento (Directo).
-        2. Si falla, busca 'group_id' en el PICKING (no en el move).
-        3. Soporte Multi-Contenedor (Extrae info del lote).
+        Carga INTELIGENTE V4 (Lógica Estricta de Negocio):
+        1. Asignación solo por 'sale_line_id' directo.
+        2. ELIMINADA la asignación global por Grupo de Picking (corrige el error de Cuarcita).
+        3. Control de Cantidad: No asigna más de lo que la SO solicitó.
         """
         self.ensure_one()
         if not self.picking_id:
@@ -99,37 +99,46 @@ class StockTransitVoyage(models.Model):
         transit_lines = []
         from .utils.transit_manager import TransitManager
 
-        # Sets para detectar si hay múltiples contenedores
         containers_found = set()
+        
+        # Diccionario para controlar cuánto llevamos asignado a cada línea de venta en esta carga
+        # Clave: sale_line_id, Valor: cantidad_acumulada_asignada
+        assigned_qty_tracker = {}
 
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
                 continue
             
-            # --- 1. LÓGICA DE ASIGNACIÓN (CORREGIDA) ---
             partner_to_assign = False
             move = move_line.move_id
+            line_qty = move_line.qty_done or move_line.reserved_uom_qty
             
-            # ESTRATEGIA A: Vínculo Directo (Más preciso)
-            # El módulo sale_stock añade el campo sale_line_id al stock.move
+            # --- LÓGICA DE ASIGNACIÓN ESTRICTA ---
+            # Solo asignamos si hay un vínculo directo con una línea de venta.
+            # Si se compró material extra manual (Cuarcita), move.sale_line_id será False y saltará esto.
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
-                # Validamos el booleano que creamos en ventas
+                
+                # 1. Verificar configuración del producto/linea
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
+                
                 if auto_assign and sale_line.order_id.partner_id:
-                    partner_to_assign = sale_line.order_id.partner_id
+                    # 2. CONTROL DE CANTIDAD (PRESUPUESTO)
+                    # ¿Cuánto pidió el cliente?
+                    qty_ordered = sale_line.product_uom_qty
+                    
+                    # ¿Cuánto hemos asignado ya en este proceso?
+                    current_assigned = assigned_qty_tracker.get(sale_line.id, 0.0)
+                    
+                    # Verificamos si aún "cabe" más material en el pedido del cliente
+                    # Permitimos asignar si todavía no hemos cubierto la cantidad ordenada.
+                    # Nota: Al ser placas (lotes), si faltan 2m y la placa es de 5m, se asignará la placa entera.
+                    if current_assigned < qty_ordered:
+                        partner_to_assign = sale_line.order_id.partner_id
+                        # Actualizamos el contador
+                        assigned_qty_tracker[sale_line.id] = current_assigned + line_qty
 
-            # ESTRATEGIA B: Vínculo por Grupo (Fallback)
-            # Si A falla, buscamos el Grupo de Abastecimiento en el PICKING
-            elif not partner_to_assign and move.picking_id.group_id:
-                procurement_group = move.picking_id.group_id
-                # El grupo tiene sale_id si viene de una venta
-                if getattr(procurement_group, 'sale_id', False):
-                    sale_order = procurement_group.sale_id
-                    if sale_order.partner_id:
-                         partner_to_assign = sale_order.partner_id
-
-            # --- 2. LÓGICA DE CONTENEDOR ---
+            # --- LÓGICA DE CONTENEDOR ---
             lot_container = move_line.lot_id.ref or False
             if lot_container:
                 containers_found.add(lot_container)
@@ -142,7 +151,7 @@ class StockTransitVoyage(models.Model):
                     ('lot_id', '=', move_line.lot_id.id), 
                     ('location_id', '=', move_line.picking_id.location_dest_id.id)
                 ], limit=1).id,
-                'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
+                'product_uom_qty': line_qty,
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
                 'container_number': lot_container,
