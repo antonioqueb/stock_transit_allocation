@@ -82,10 +82,11 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        Carga INTELIGENTE V5 (Trazabilidad Profunda):
-        1. Busca Venta en el Movimiento (Directo).
-        2. Si falla, busca Venta a través de la Línea de Compra (Indirecto -> SOLUCIÓN A TU PROBLEMA).
-        3. Controla presupuesto (cantidades).
+        Carga INTELIGENTE V6 (Lógica de Tolerancia "Hacia Arriba"):
+        1. Busca Venta en el Movimiento o vía Orden de Compra.
+        2. Controla presupuesto: Asigna lotes hasta completar lo pedido.
+        3. TOLERANCIA: Si falta aunque sea 0.01m, asigna el siguiente lote completo.
+           Esto garantiza que 208m se asignen para un pedido de 200m, pero el siguiente lote ya no.
         """
         self.ensure_one()
         if not self.picking_id:
@@ -99,7 +100,7 @@ class StockTransitVoyage(models.Model):
 
         containers_found = set()
         
-        # Diccionario para controlar asignaciones por línea de venta
+        # Diccionario para controlar cuánto llevamos asignado a cada línea de venta
         assigned_qty_tracker = {}
 
         for move_line in self.picking_id.move_line_ids:
@@ -113,28 +114,34 @@ class StockTransitVoyage(models.Model):
             # --- 1. ENCONTRAR LA LÍNEA DE VENTA ORIGEN ---
             sale_line = False
             
-            # Opción A: Vínculo Directo (A veces falla en recepciones)
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
-            
-            # Opción B: Vínculo vía Orden de Compra (SOLUCIÓN)
-            # Stock Move -> Purchase Line -> Sale Line
             elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
                 sale_line = move.purchase_line_id.sale_line_id
 
             # --- 2. VALIDAR Y ASIGNAR ---
             if sale_line:
-                # Verificar configuración del producto/linea
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
                 
                 if auto_assign and sale_line.order_id.partner_id:
-                    # Control de Cantidad (Presupuesto)
+                    # Cantidad pedida en la Venta
                     qty_ordered = sale_line.product_uom_qty
+                    
+                    # Cantidad que ya hemos asignado en este loop
                     current_assigned = assigned_qty_tracker.get(sale_line.id, 0.0)
                     
-                    if current_assigned < qty_ordered:
+                    # LÓGICA DE NEGOCIO:
+                    # Usamos una tolerancia de 0.001 para evitar errores de punto flotante.
+                    # Si 'lo que llevo' < 'lo que pidieron', significa que TODAVÍA FALTA material.
+                    # Entonces asignamos ESTE lote completo, aunque nos pasemos un poco.
+                    # Ejemplo: Pidieron 200. Llevo 195. Faltan 5. Este lote es de 13.
+                    # 195 < 200 -> Verdadero -> Asigno 13. Total 208.
+                    # Siguiente lote: Llevo 208. 208 < 200 -> Falso -> No asigno.
+                    if current_assigned < (qty_ordered - 0.001):
                         partner_to_assign = sale_line.order_id.partner_id
                         assigned_qty_tracker[sale_line.id] = current_assigned + line_qty
+                    
+                    # Si no entra en el if, partner_to_assign se queda como False (Stock Libre)
 
             # --- 3. LÓGICA DE CONTENEDOR ---
             lot_container = move_line.lot_id.ref or False
