@@ -6,17 +6,20 @@
         <field name="arch" type="xml">
             <form string="Reasignación en Tránsito">
                 <group>
-                    <div class="alert alert-info" role="alert">
-                        Esta acción cambiará la asignación de las placas seleccionadas y actualizará las reservas (Holds) correspondientes en el sistema.
+                    <div class="alert alert-warning" role="alert" invisible="not new_partner_id">
+                        ¡Atención! Debe seleccionar la Orden de Venta del cliente para guardar.
                     </div>
                 </group>
                 <group>
-                    <group>
+                    <group string="Estado Actual">
                         <field name="current_partner_id"/>
+                        <field name="current_order_id" readonly="1"/>
                         <field name="line_ids" widget="many2many_tags" readonly="1"/>
                     </group>
-                    <group>
+                    <group string="Nueva Asignación">
                         <field name="new_partner_id" placeholder="Seleccione para asignar, vacío para liberar"/>
+                        <field name="new_order_id" required="new_partner_id" invisible="not new_partner_id"
+                               placeholder="Seleccione el pedido..."/>
                     </group>
                 </group>
                 <group>

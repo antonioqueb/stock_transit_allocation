@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-
     <!-- 1. VISTA DE LISTA -->
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
@@ -8,8 +7,8 @@
         <field name="arch" type="xml">
             <list decoration-info="state == 'in_transit'" decoration-success="state == 'arrived'">
                 <field name="name"/>
-                <field name="container_number" string="Contenedor(es)"/>
-                <field name="vessel_name"/>
+                <field name="container_number" string="Contenedores"/>
+                <field name="bl_number" string="Folio Compra / BL"/>
                 <field name="eta" widget="remaining_days"/>
                 <field name="total_m2" sum="Total"/>
                 <field name="allocation_percent" widget="progressbar" string="% Asig."/>
@@ -32,18 +31,13 @@
                 </header>
                 <sheet>
                     <div class="oe_title">
-                        <h1>
-                            <field name="name"/>
-                        </h1>
-                        <h3>
-                            <field name="container_number" placeholder="Contenedor(es)"/>
-                        </h3>
+                        <h1><field name="name"/></h1>
+                        <h3><field name="container_number" placeholder="Contenedor(es)"/></h3>
                     </div>
                     <group>
                         <group string="Detalles de Logística">
                             <field name="vessel_name"/>
-                            <field name="voyage_number"/>
-                            <field name="bl_number"/>
+                            <field name="bl_number" string="Folio Compra / BL"/>
                             <field name="picking_id" readonly="1"/>
                         </group>
                         <group string="Itinerario">
@@ -61,11 +55,12 @@
                                     <field name="container_number" optional="show"/> 
                                     <field name="product_id"/>
                                     <field name="lot_id"/>
-                                    <field name="x_grosor" optional="hide"/>
-                                    <field name="x_alto" optional="hide"/>
-                                    <field name="x_ancho" optional="hide"/>
                                     <field name="product_uom_qty" string="m²"/>
+                                    
+                                    <!-- Nuevas Columnas Solicitadas -->
                                     <field name="partner_id" widget="many2one_avatar"/>
+                                    <field name="order_id" optional="show" widget="badge" decoration-info="order_id"/>
+                                    
                                     <field name="allocation_status" widget="badge" decoration-success="allocation_status == 'reserved'" decoration-info="allocation_status == 'available'"/>
                                     <button name="action_reassign_wizard" string="🔄 Reasignar" type="object" class="btn-link"/>
                                 </list>
@@ -97,6 +92,8 @@
                 <field name="container_number"/>
                 <field name="eta"/>
                 <field name="allocation_percent"/>
+                <!-- Se requiere transit_progress en kanban para que calcule bien -->
+                <field name="transit_progress"/> 
                 <templates>
                     <t t-name="card">
                         <div class="d-flex flex-column">
@@ -112,18 +109,15 @@
                                 <field name="vessel_name"/>
                             </div>
                             
-                            <div class="text-truncate mb-2" title="Contenedor">
-                                <i class="fa fa-cube me-1"/>
-                                <field name="container_number"/>
-                            </div>
-
                             <div class="d-flex justify-content-between align-items-center mt-auto">
                                 <span class="text-muted small">
                                     ETA: <field name="eta" widget="remaining_days"/>
                                 </span>
                             </div>
                             
-                            <div class="mt-2" title="Porcentaje Asignado">
+                            <!-- Barra de Asignación (Ventas) -->
+                            <div class="mt-2" title="Porcentaje Asignado a Cliente">
+                                <small>Asignado:</small>
                                 <field name="allocation_percent" widget="progressbar"/>
                             </div>
                         </div>
@@ -132,33 +126,4 @@
             </kanban>
         </field>
     </record>
-
-    <!-- 4. ACCIÓN DE VENTANA -->
-    <record id="action_stock_transit_voyage" model="ir.actions.act_window">
-        <field name="name">Gestión de Tránsito (Control Tower)</field>
-        <field name="res_model">stock.transit.voyage</field>
-        <field name="view_mode">kanban,list,form</field>
-        <field name="help" type="html">
-          <p class="o_view_nocontent_smiling_face">
-            Crea tu primer Viaje en Tránsito
-          </p>
-          <p>
-            Gestiona la asignación de mercancía que viene en contenedores antes de que llegue al puerto.
-          </p>
-        </field>
-    </record>
-
-    <!-- 5. MENÚS -->
-    <menuitem id="menu_stock_transit_voyage_root"
-              name="Torre de Control (Tránsito)"
-              parent="stock.menu_stock_root"
-              sequence="25"
-              groups="stock_transit_allocation.group_transit_user"/>
-
-    <menuitem id="menu_stock_transit_voyage"
-              name="Viajes / Contenedores"
-              parent="menu_stock_transit_voyage_root"
-              action="action_stock_transit_voyage"
-              sequence="1"/>
-
 </odoo>

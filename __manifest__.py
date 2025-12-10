@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.1.0.0',
+    'version': '19.0.2.0.0',
     'category': 'Inventory/Logistics',
-    'summary': 'Gestión visual y reasignación de mercancía en tránsito marítimo',
+    'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
-        Módulo profesional para la gestión de contenedores y asignación de stock en tránsito.
+        Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
         
-        Características:
-        - Vinculación con Recepciones (Pickings) creados desde BL.
-        - Gestión de "Viajes" (Voyages) y Contenedores.
-        - Interfaz visual con seguimiento de ETA (Widget de Barco).
-        - Reasignación dinámica de lotes a clientes (integra con stock_lot_hold).
-        - Trazabilidad completa en el chatter.
+        Novedades v2.0:
+        - Campo "Mandar Pedir" en Ventas.
+        - Independencia de líneas manuales en Compras (No afectan la SO original).
+        - Validación estricta: Cliente requiere Orden de Venta.
+        - Ubicación ajustada a SOM/Transit.
+        - Corrección en barras de progreso y referencias de Compra.
     """,
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
-    'depends': ['stock', 'web', 'stock_lot_dimensions'],
+    'depends': ['stock', 'sale_management', 'purchase', 'web', 'stock_lot_dimensions'],
     'data': [
         'security/transit_security.xml',
         'security/ir.model.access.csv',
