@@ -2,16 +2,17 @@
 <odoo>
     
     <!-- SEARCH VIEW -->
-    <record id="stock_transit_voyage_search" model="ir.ui.view">
+    <record id="view_transit_voyage_search" model="ir.ui.view">
         <field name="name">stock.transit.voyage.search</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
-            <search>
+            <search string="Buscar Viaje">
                 <field name="container_number"/>
                 <field name="vessel_name"/>
                 <field name="bl_number"/>
                 <filter string="En Tránsito" name="in_transit" domain="[('state', '=', 'in_transit')]"/>
                 <filter string="En Puerto" name="at_port" domain="[('state', '=', 'at_port')]"/>
+                <separator/>
                 <group string="Agrupar Por">
                     <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
                     <filter string="ETA" name="group_by_eta" context="{'group_by': 'eta'}"/>
@@ -21,7 +22,7 @@
     </record>
 
     <!-- LIST VIEW -->
-    <record id="stock_transit_voyage_list" model="ir.ui.view">
+    <record id="view_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
@@ -38,7 +39,7 @@
     </record>
 
     <!-- KANBAN VIEW -->
-    <record id="stock_transit_voyage_kanban" model="ir.ui.view">
+    <record id="view_transit_voyage_kanban" model="ir.ui.view">
         <field name="name">stock.transit.voyage.kanban</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
@@ -61,6 +62,7 @@
                             <i class="fa fa-ship me-1"></i> <field name="vessel_name"/>
                         </div>
                         
+                        <!-- Widget de Progreso Visual -->
                         <div class="mt-2">
                             <field name="transit_progress" widget="transit_ship_progress"/>
                         </div>
@@ -80,7 +82,7 @@
     </record>
 
     <!-- FORM VIEW -->
-    <record id="stock_transit_voyage_form" model="ir.ui.view">
+    <record id="view_transit_voyage_form" model="ir.ui.view">
         <field name="name">stock.transit.voyage.form</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
@@ -118,7 +120,7 @@
                     <notebook>
                         <page string="Asignación de Lotes (Torre de Control)" name="lots">
                             <field name="line_ids">
-                                <list create="0" delete="0" decoration-success="allocation_status == 'reserved'">
+                                <tree name="transit_lines_list" create="0" delete="0" decoration-success="allocation_status == 'reserved'">
                                     <field name="product_id"/>
                                     <field name="lot_id"/>
                                     <field name="x_grosor" optional="show"/>
@@ -128,7 +130,7 @@
                                     <field name="partner_id" widget="many2one_avatar"/>
                                     <field name="allocation_status" widget="badge" decoration-success="allocation_status == 'reserved'" decoration-info="allocation_status == 'available'"/>
                                     <button name="action_reassign_wizard" string="🔄 Reasignar" type="object" class="btn-link"/>
-                                </list>
+                                </tree>
                             </field>
                         </page>
                         <page string="Estadísticas">
