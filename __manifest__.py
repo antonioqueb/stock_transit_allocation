@@ -23,6 +23,7 @@
         'data/ir_sequence_data.xml',
         'views/stock_transit_voyage_views.xml',
         'views/stock_picking_views.xml',
+        'views/sale_order_views.xml',
         'wizard/transit_reassign_wizard_views.xml',
     ],
     'assets': {

@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
-from datetime import timedelta
 
 class StockTransitVoyage(models.Model):
     _name = 'stock.transit.voyage'
@@ -10,18 +9,15 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
-    # Datos Naviera/Logística
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     container_number = fields.Char(string='Contenedor', required=True, tracking=True)
     bl_number = fields.Char(string='BL Number', tracking=True)
     
-    # Fechas
-    etd = fields.Date(string='ETD (Salida Estimada)', help='Estimated Time of Departure')
-    eta = fields.Date(string='ETA (Llegada Estimada)', required=True, tracking=True, help='Estimated Time of Arrival')
+    etd = fields.Date(string='ETD (Salida Estimada)')
+    eta = fields.Date(string='ETA (Llegada Estimada)', required=True, tracking=True)
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
     
-    # Estado y Progreso
     state = fields.Selection([
         ('draft', 'Borrador'),
         ('in_transit', 'En Tránsito (Altamar)'),
@@ -30,22 +26,16 @@ class StockTransitVoyage(models.Model):
         ('cancel', 'Cancelado')
     ], string='Estado', default='draft', tracking=True, group_expand='_expand_states')
 
-    # Integración con Odoo Stock
     picking_id = fields.Many2one('stock.picking', string='Recepción Vinculada', 
-        domain=[('picking_type_code', '=', 'incoming')],
-        help="El picking donde se cargó el Packing List previamente.")
+        domain=[('picking_type_code', '=', 'incoming')])
     
     company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
-    
-    # Líneas de Contenido (Lotes)
     line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido del Contenedor')
     
-    # Computed fields for Dashboard
+    # Computados
     total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True)
     allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True)
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
-    
-    # Campo para el Widget JS de Progreso
     transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress')
 
     @api.model_create_multi
@@ -66,7 +56,6 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('etd', 'eta')
     def _compute_transit_progress(self):
-        """Calcula un porcentaje estimado basado en fechas para la barra visual"""
         today = fields.Date.today()
         for rec in self:
             if rec.state == 'arrived':
@@ -76,7 +65,7 @@ class StockTransitVoyage(models.Model):
             elif today < rec.etd:
                 rec.transit_progress = 0
             elif today > rec.eta:
-                rec.transit_progress = 95 # Casi llegando, aunque retrasado
+                rec.transit_progress = 95
             else:
                 total_days = (rec.eta - rec.etd).days
                 elapsed = (today - rec.etd).days
@@ -90,34 +79,68 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        Carga mágica: Lee las líneas del Picking vinculado (que ya tiene lotes gracias al BL)
-        y crea las líneas de tránsito.
+        Carga INTELIGENTE:
+        1. Lee líneas del picking.
+        2. Rastrea si vienen de una Orden de Venta (SO -> PO -> Move).
+        3. Si la línea de venta tiene el check 'Asignar en Tránsito', asigna el partner.
         """
         self.ensure_one()
         if not self.picking_id:
             return
         
-        # Limpiar líneas anteriores si está en borrador
+        # Solo limpiar si estamos re-cargando manualmente en borrador
         if self.state == 'draft':
             self.line_ids.unlink()
 
         transit_lines = []
+        # Importamos TransitManager aquí para usar la lógica de Hold si fuese necesario al crear
+        from .utils.transit_manager import TransitManager
+
         for move_line in self.picking_id.move_line_ids:
-            # Solo nos interesan líneas con lotes (placas identificadas)
             if not move_line.lot_id:
                 continue
+            
+            # --- LÓGICA DE RASTREO (Traceability) ---
+            partner_to_assign = False
+            # El move_line pertenece a un move
+            move = move_line.move_id
+            
+            # Si el movimiento viene de una compra (purchase_line_id)
+            if move.purchase_line_id:
+                # Verificar si esa línea de compra viene de una línea de venta (MTO / Buy to Order)
+                sale_line = move.purchase_line_id.sale_line_id
                 
-            transit_lines.append({
+                if sale_line:
+                    # Verificar el booleano en la SO (que agregaremos en el nuevo archivo)
+                    # Usamos getattr por seguridad si no han actualizado el módulo de ventas aún
+                    auto_assign = getattr(sale_line, 'auto_transit_assign', True) 
+                    
+                    if auto_assign:
+                        partner_to_assign = sale_line.order_id.partner_id
+
+            # Crear diccionario de línea
+            line_vals = {
                 'voyage_id': self.id,
                 'product_id': move_line.product_id.id,
                 'lot_id': move_line.lot_id.id,
-                'quant_id': self.env['stock.quant'].search([('lot_id', '=', move_line.lot_id.id), ('location_id', '=', move_line.picking_id.location_dest_id.id)], limit=1).id,
+                'quant_id': self.env['stock.quant'].search([
+                    ('lot_id', '=', move_line.lot_id.id), 
+                    ('location_id', '=', move_line.picking_id.location_dest_id.id)
+                ], limit=1).id,
                 'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
-                'allocation_status': 'available' # Por defecto disponible
-            })
+                'partner_id': partner_to_assign.id if partner_to_assign else False,
+                'allocation_status': 'reserved' if partner_to_assign else 'available'
+            }
+            transit_lines.append(line_vals)
         
-        self.env['stock.transit.line'].create(transit_lines)
-    
-    # CORRECCIÓN: order=None hace el argumento opcional
+        # Crear líneas en lote
+        created_lines = self.env['stock.transit.line'].create(transit_lines)
+        
+        # IMPORTANTE: Si se asignaron partners, debemos crear los "Holds" (Reservas técnicas)
+        # Esto asegura que nadie más venda ese material.
+        for line in created_lines:
+            if line.partner_id:
+                TransitManager.reassign_lot(self.env, line, line.partner_id, notes="Asignación Automática desde Compra (SO vinculada)")
+
     def _expand_states(self, states, domain, order=None):
         return [key for key, val in type(self).state.selection]
