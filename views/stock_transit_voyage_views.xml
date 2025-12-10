@@ -61,7 +61,6 @@
                             <i class="fa fa-ship me-1"></i> <field name="vessel_name"/>
                         </div>
                         
-                        <!-- Widget de Progreso Visual -->
                         <div class="mt-2">
                             <field name="transit_progress" widget="transit_ship_progress"/>
                         </div>
