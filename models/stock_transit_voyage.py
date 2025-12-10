@@ -110,12 +110,13 @@ class StockTransitVoyage(models.Model):
                 'voyage_id': self.id,
                 'product_id': move_line.product_id.id,
                 'lot_id': move_line.lot_id.id,
-                'quant_id': self.env['stock.quant'].search([('lot_id', '=', move_line.lot_id.id), ('location_id', '=', move_line.picking_id.location_dest_id.id)], limit=1).id, # Link al quant si ya se validó el picking a Transito
+                'quant_id': self.env['stock.quant'].search([('lot_id', '=', move_line.lot_id.id), ('location_id', '=', move_line.picking_id.location_dest_id.id)], limit=1).id,
                 'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
                 'allocation_status': 'available' # Por defecto disponible
             })
         
         self.env['stock.transit.line'].create(transit_lines)
     
-    def _expand_states(self, states, domain, order):
+    # CORRECCIÓN: order=None hace el argumento opcional
+    def _expand_states(self, states, domain, order=None):
         return [key for key, val in type(self).state.selection]
