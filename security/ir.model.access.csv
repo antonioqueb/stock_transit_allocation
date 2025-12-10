@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_transit_voyage_user,stock.transit.voyage user,model_stock_transit_voyage,group_transit_user,1,1,1,0
+access_transit_voyage_manager,stock.transit.voyage manager,model_stock_transit_voyage,group_transit_manager,1,1,1,1
+access_transit_line_user,stock.transit.line user,model_stock_transit_line,group_transit_user,1,1,1,0
+access_transit_reassign_wizard,transit.reassign.wizard user,model_transit_reassign_wizard,group_transit_user,1,1,1,1

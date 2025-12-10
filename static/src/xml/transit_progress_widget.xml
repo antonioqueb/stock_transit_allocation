@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_transit_allocation.TransitShipProgress" owl="1">
+        <div class="o_transit_progress_container" t-att-title="'Progreso estimado: ' + props.value + '%'">
+            <div class="o_transit_water"></div>
+            <div class="o_transit_bar" t-attf-style="width: {{ props.value }}%;"></div>
+            <div class="o_transit_ship_icon" t-attf-style="left: {{ props.value }}%;">
+                🚢
+            </div>
+            <div class="o_transit_label">
+                <t t-esc="props.value"/>%
+            </div>
+        </div>
+    </t>
+</templates>

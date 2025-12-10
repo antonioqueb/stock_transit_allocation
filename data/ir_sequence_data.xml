@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="seq_stock_transit_voyage" model="ir.sequence">
+        <field name="name">Viaje en Tránsito</field>
+        <field name="code">stock.transit.voyage</field>
+        <field name="prefix">VOY/%(year)s/</field>
+        <field name="padding">4</field>
+        <field name="company_id" eval="False"/>
+    </record>
+</odoo>
