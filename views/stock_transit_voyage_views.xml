@@ -1,23 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    
-    <!-- SEARCH VIEW -->
-    <record id="view_stock_transit_voyage_search" model="ir.ui.view">
-        <field name="name">stock.transit.voyage.search</field>
-        <field name="model">stock.transit.voyage</field>
-        <field name="arch" type="xml">
-            <search>
-                <field name="container_number"/>
-                <field name="vessel_name"/>
-                <field name="bl_number"/>
-                <filter string="En Tránsito" name="filter_in_transit" domain="[('state', '=', 'in_transit')]"/>
-                <filter string="En Puerto" name="filter_at_port" domain="[('state', '=', 'at_port')]"/>
-                <separator/>
-                <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
-                <filter string="ETA" name="group_by_eta" context="{'group_by': 'eta'}"/>
-            </search>
-        </field>
-    </record>
 
     <!-- LIST VIEW -->
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
