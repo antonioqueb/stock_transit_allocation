@@ -14,6 +14,6 @@
     <record id="group_transit_manager" model="res.groups">
         <field name="name">Gerente Tránsito</field>
         <field name="implied_ids" eval="[(4, ref('group_transit_user'))]"/>
-        <field name="users" eval="[(4, ref('base.user_root')), (4, ref('base.user_admin'))]"/>
+        <!-- CORRECCIÓN: Se eliminó el campo 'users' que causaba el conflicto en Odoo 19 -->
     </record>
 </odoo>
