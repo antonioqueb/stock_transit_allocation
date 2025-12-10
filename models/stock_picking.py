@@ -7,7 +7,6 @@ class StockPicking(models.Model):
     transit_voyage_ids = fields.One2many('stock.transit.voyage', 'picking_id', string='Viajes de Tránsito')
     transit_count = fields.Integer(compute='_compute_transit_count')
     
-    # Estos campos quedan como informativos
     transit_container_number = fields.Char(string='No. Contenedor (Ref)', 
         help="Referencia opcional. Si se deja vacío, el sistema intentará leerlo de los lotes.")
     transit_bl_number = fields.Char(string='BL Number (Tránsito)')
@@ -17,57 +16,63 @@ class StockPicking(models.Model):
             pick.transit_count = len(pick.transit_voyage_ids)
 
     def button_validate(self):
-        # 1. Validación estándar
         res = super(StockPicking, self).button_validate()
-
         for pick in self:
-            # 2. Detectar ubicación de tránsito (ID 128 o nombre)
             is_transit_location = pick.location_dest_id.id == 128 or 'Tránsito' in pick.location_dest_id.name
-
             if is_transit_location and pick.picking_type_code == 'incoming':
-                # Crear el Viaje Automáticamente SIN preguntar nada
                 pick._create_automatic_transit_voyage()
-
         return res
 
     def _ensure_sale_id_link(self):
         """
-        Lógica para FORZAR la vinculación de la Orden de Venta en la Recepción.
-        Si Odoo nativo no llenó el campo 'sale_id', lo buscamos a través de la Compra.
+        Lógica ROBUSTA para recuperar la Orden de Venta.
+        Si la PO fue editada manualmente, el 'origin' puede fallar.
+        Aquí escaneamos los movimientos: Si UN movimiento viene de una SO, 
+        esa es la SO del Picking.
         """
-        if not self.sale_id and self.purchase_id and self.purchase_id.origin:
-            # Buscamos la SO cuyo nombre coincida con el origen de la PO (Ej. S00016)
-            # Usamos 'ilike' por si el origen tiene texto extra, aunque '=' es más seguro para 1 a 1.
-            sale_order = self.env['sale.order'].search([
-                ('name', '=', self.purchase_id.origin)
-            ], limit=1)
+        if self.sale_id:
+            return
+
+        found_sale_id = False
+        
+        # Estrategia 1: Buscar en los movimientos del picking
+        for move in self.move_ids:
+            # Caso A: Vínculo directo sale_line_id (Sale Stock)
+            if getattr(move, 'sale_line_id', False):
+                found_sale_id = move.sale_line_id.order_id
+                break
             
-            if sale_order:
-                # Escribimos explícitamente el ID de la venta en el picking
-                self.write({'sale_id': sale_order.id})
+            # Caso B: Vínculo indirecto vía Compra (Purchase Line -> Sale Line)
+            if move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
+                found_sale_id = move.purchase_line_id.sale_line_id.order_id
+                break
+        
+        # Estrategia 2: Si falló lo anterior, intentar por el Grupo de Abastecimiento
+        if not found_sale_id and self.group_id and getattr(self.group_id, 'sale_id', False):
+             found_sale_id = self.group_id.sale_id
+
+        # Si encontramos la venta, la forzamos en la cabecera
+        if found_sale_id:
+            self.write({'sale_id': found_sale_id.id})
 
     def _create_automatic_transit_voyage(self):
         self.ensure_one()
         
-        # --- PASO CRÍTICO: Reparar el vínculo con la Venta si falta ---
+        # 1. Reparar vínculo SO (Ahora es capaz de detectar ventas en POs mixtas)
         self._ensure_sale_id_link()
         
         Voyage = self.env['stock.transit.voyage']
-        
         if self.transit_voyage_ids:
             return
 
-        # DEFINICIÓN DEL NOMBRE DEL CONTENEDOR
         container_ref = self.transit_container_number or self.origin or 'TBD'
 
-        # DEFINICIÓN DEL BL / REFERENCIA
         bl_ref = self.transit_bl_number
         if not bl_ref and self.purchase_id:
             bl_ref = self.purchase_id.partner_ref
         if not bl_ref:
             bl_ref = self.origin
 
-        # Creamos la cabecera del viaje
         voyage = Voyage.create({
             'picking_id': self.id,
             'container_number': container_ref,
@@ -77,7 +82,6 @@ class StockPicking(models.Model):
             'state': 'in_transit',
         })
 
-        # Cargar líneas y ejecutar lógica de asignación
         voyage.action_load_from_picking()
         
         self.message_post(body=f"🚢 Registro de Tránsito creado: {voyage.name}")
