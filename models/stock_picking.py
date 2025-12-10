@@ -7,7 +7,7 @@ class StockPicking(models.Model):
     transit_voyage_ids = fields.One2many('stock.transit.voyage', 'picking_id', string='Viajes de Tránsito')
     transit_count = fields.Integer(compute='_compute_transit_count')
     
-    # Estos campos quedan como informativos, pero ya no bloqueantes
+    # Estos campos quedan como informativos
     transit_container_number = fields.Char(string='No. Contenedor (Ref)', 
         help="Referencia opcional. Si se deja vacío, el sistema intentará leerlo de los lotes.")
     transit_bl_number = fields.Char(string='BL Number (Tránsito)')
@@ -37,14 +37,27 @@ class StockPicking(models.Model):
         if self.transit_voyage_ids:
             return
 
-        # Intentamos adivinar un nombre de contenedor inicial basado en el origen, o ponemos "Varios"
+        # DEFINICIÓN DEL NOMBRE DEL CONTENEDOR (Referencia inicial)
+        # Usamos el campo manual, o el origen, o un texto por defecto.
         container_ref = self.transit_container_number or self.origin or 'TBD'
+
+        # DEFINICIÓN DEL BL / REFERENCIA (Corrección del error anterior)
+        # 1. Usamos el campo manual de tránsito si existe
+        bl_ref = self.transit_bl_number
+        
+        # 2. Si no, intentamos obtener la 'Referencia del Proveedor' desde la Orden de Compra vinculada
+        if not bl_ref and self.purchase_id:
+            bl_ref = self.purchase_id.partner_ref
+            
+        # 3. Si no hay referencia de proveedor, usamos el campo 'origin' (Documento Origen)
+        if not bl_ref:
+            bl_ref = self.origin
 
         # Creamos la cabecera del viaje
         voyage = Voyage.create({
             'picking_id': self.id,
-            'container_number': container_ref, # Se actualizará al leer líneas si encuentra info
-            'bl_number': self.transit_bl_number or self.partner_ref, # Usar ref del proveedor como BL si no hay
+            'container_number': container_ref,
+            'bl_number': bl_ref, 
             'vessel_name': 'Por Definir',
             'eta': fields.Date.add(fields.Date.today(), days=21),
             'state': 'in_transit',
