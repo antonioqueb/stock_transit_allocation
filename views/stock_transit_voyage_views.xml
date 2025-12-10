@@ -10,12 +10,11 @@
                 <field name="container_number"/>
                 <field name="vessel_name"/>
                 <field name="bl_number"/>
-                <filter string="En Tránsito" name="in_transit" domain="[('state', '=', 'in_transit')]"/>
-                <filter string="En Puerto" name="at_port" domain="[('state', '=', 'at_port')]"/>
-                <group string="Agrupar Por">
-                    <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
-                    <filter string="ETA" name="group_by_eta" context="{'group_by': 'eta'}"/>
-                </group>
+                <filter string="En Tránsito" name="filter_in_transit" domain="[('state', '=', 'in_transit')]"/>
+                <filter string="En Puerto" name="filter_at_port" domain="[('state', '=', 'at_port')]"/>
+                <separator/>
+                <filter string="Estado" name="group_by_state" context="{'group_by': 'state'}"/>
+                <filter string="ETA" name="group_by_eta" context="{'group_by': 'eta'}"/>
             </search>
         </field>
     </record>
