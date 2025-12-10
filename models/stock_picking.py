@@ -30,26 +30,40 @@ class StockPicking(models.Model):
 
         return res
 
+    def _ensure_sale_id_link(self):
+        """
+        Lógica para FORZAR la vinculación de la Orden de Venta en la Recepción.
+        Si Odoo nativo no llenó el campo 'sale_id', lo buscamos a través de la Compra.
+        """
+        if not self.sale_id and self.purchase_id and self.purchase_id.origin:
+            # Buscamos la SO cuyo nombre coincida con el origen de la PO (Ej. S00016)
+            # Usamos 'ilike' por si el origen tiene texto extra, aunque '=' es más seguro para 1 a 1.
+            sale_order = self.env['sale.order'].search([
+                ('name', '=', self.purchase_id.origin)
+            ], limit=1)
+            
+            if sale_order:
+                # Escribimos explícitamente el ID de la venta en el picking
+                self.write({'sale_id': sale_order.id})
+
     def _create_automatic_transit_voyage(self):
         self.ensure_one()
+        
+        # --- PASO CRÍTICO: Reparar el vínculo con la Venta si falta ---
+        self._ensure_sale_id_link()
+        
         Voyage = self.env['stock.transit.voyage']
         
         if self.transit_voyage_ids:
             return
 
-        # DEFINICIÓN DEL NOMBRE DEL CONTENEDOR (Referencia inicial)
-        # Usamos el campo manual, o el origen, o un texto por defecto.
+        # DEFINICIÓN DEL NOMBRE DEL CONTENEDOR
         container_ref = self.transit_container_number or self.origin or 'TBD'
 
-        # DEFINICIÓN DEL BL / REFERENCIA (Corrección del error anterior)
-        # 1. Usamos el campo manual de tránsito si existe
+        # DEFINICIÓN DEL BL / REFERENCIA
         bl_ref = self.transit_bl_number
-        
-        # 2. Si no, intentamos obtener la 'Referencia del Proveedor' desde la Orden de Compra vinculada
         if not bl_ref and self.purchase_id:
             bl_ref = self.purchase_id.partner_ref
-            
-        # 3. Si no hay referencia de proveedor, usamos el campo 'origin' (Documento Origen)
         if not bl_ref:
             bl_ref = self.origin
 

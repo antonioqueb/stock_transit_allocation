@@ -9,16 +9,14 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
-    # Cabecera: Representa el BL o el Viaje General
+    # Cabecera
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
-    
-    # Campo informativo o principal
     container_number = fields.Char(string='Contenedor (Principal)', tracking=True, 
         help="Si hay múltiples contenedores, ver detalle en líneas.")
-        
     bl_number = fields.Char(string='BL Number', tracking=True)
     
+    # Fechas
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', required=True, tracking=True)
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
@@ -84,10 +82,10 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        Carga INTELIGENTE V4 (Lógica Estricta de Negocio):
-        1. Asignación solo por 'sale_line_id' directo.
-        2. ELIMINADA la asignación global por Grupo de Picking (corrige el error de Cuarcita).
-        3. Control de Cantidad: No asigna más de lo que la SO solicitó.
+        Carga INTELIGENTE V5 (Trazabilidad Profunda):
+        1. Busca Venta en el Movimiento (Directo).
+        2. Si falla, busca Venta a través de la Línea de Compra (Indirecto -> SOLUCIÓN A TU PROBLEMA).
+        3. Controla presupuesto (cantidades).
         """
         self.ensure_one()
         if not self.picking_id:
@@ -101,8 +99,7 @@ class StockTransitVoyage(models.Model):
 
         containers_found = set()
         
-        # Diccionario para controlar cuánto llevamos asignado a cada línea de venta en esta carga
-        # Clave: sale_line_id, Valor: cantidad_acumulada_asignada
+        # Diccionario para controlar asignaciones por línea de venta
         assigned_qty_tracker = {}
 
         for move_line in self.picking_id.move_line_ids:
@@ -113,32 +110,33 @@ class StockTransitVoyage(models.Model):
             move = move_line.move_id
             line_qty = move_line.qty_done or move_line.reserved_uom_qty
             
-            # --- LÓGICA DE ASIGNACIÓN ESTRICTA ---
-            # Solo asignamos si hay un vínculo directo con una línea de venta.
-            # Si se compró material extra manual (Cuarcita), move.sale_line_id será False y saltará esto.
+            # --- 1. ENCONTRAR LA LÍNEA DE VENTA ORIGEN ---
+            sale_line = False
+            
+            # Opción A: Vínculo Directo (A veces falla en recepciones)
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
-                
-                # 1. Verificar configuración del producto/linea
+            
+            # Opción B: Vínculo vía Orden de Compra (SOLUCIÓN)
+            # Stock Move -> Purchase Line -> Sale Line
+            elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
+                sale_line = move.purchase_line_id.sale_line_id
+
+            # --- 2. VALIDAR Y ASIGNAR ---
+            if sale_line:
+                # Verificar configuración del producto/linea
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
                 
                 if auto_assign and sale_line.order_id.partner_id:
-                    # 2. CONTROL DE CANTIDAD (PRESUPUESTO)
-                    # ¿Cuánto pidió el cliente?
+                    # Control de Cantidad (Presupuesto)
                     qty_ordered = sale_line.product_uom_qty
-                    
-                    # ¿Cuánto hemos asignado ya en este proceso?
                     current_assigned = assigned_qty_tracker.get(sale_line.id, 0.0)
                     
-                    # Verificamos si aún "cabe" más material en el pedido del cliente
-                    # Permitimos asignar si todavía no hemos cubierto la cantidad ordenada.
-                    # Nota: Al ser placas (lotes), si faltan 2m y la placa es de 5m, se asignará la placa entera.
                     if current_assigned < qty_ordered:
                         partner_to_assign = sale_line.order_id.partner_id
-                        # Actualizamos el contador
                         assigned_qty_tracker[sale_line.id] = current_assigned + line_qty
 
-            # --- LÓGICA DE CONTENEDOR ---
+            # --- 3. LÓGICA DE CONTENEDOR ---
             lot_container = move_line.lot_id.ref or False
             if lot_container:
                 containers_found.add(lot_container)
@@ -161,7 +159,7 @@ class StockTransitVoyage(models.Model):
         # Crear líneas
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
-        # Actualizar cabecera con información resumen
+        # Actualizar cabecera
         updates = {}
         if containers_found:
             updates['container_number'] = ', '.join(list(containers_found))[:50]
@@ -169,7 +167,7 @@ class StockTransitVoyage(models.Model):
         if updates:
             self.write(updates)
 
-        # Crear Holds para lo asignado
+        # Crear Holds
         for line in created_lines:
             if line.partner_id:
                 TransitManager.reassign_lot(self.env, line, line.partner_id, notes="Asignación Automática (Origen Venta)")
