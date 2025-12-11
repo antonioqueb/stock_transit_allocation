@@ -37,59 +37,64 @@ class StockPicking(models.Model):
 
     def button_validate(self):
         """
-        Validación personalizada para:
-        1. Evitar que items extra ensucien la Orden de Venta.
-        2. Crear registros de Tránsito automáticamente.
+        Validación personalizada:
+        1. Limpia vínculos con ventas para productos NO solicitados (evita ensuciar la SO).
+        2. Valida la recepción.
+        3. Crea el registro en la Torre de Control.
         """
-        # 1. LIMPIEZA PREVENTIVA: Evitar agregar líneas extra a la SO
+        # 1. LIMPIEZA: Romper vínculo con la SO para productos extra
+        # Esto previene que Odoo agregue líneas nuevas a la Orden de Venta
         self._clean_unwanted_so_links()
 
-        # 2. Validación nativa
+        # 2. Validación estándar de Odoo
         res = super(StockPicking, self).button_validate()
         
-        # 3. Lógica de Tránsito
+        # 3. Creación de Tránsito (Torre de Control)
+        # Solo si la validación fue exitosa y es una recepción en tránsito
         for pick in self:
-            # Búsqueda segura de ubicación (SOM/Transit)
+            # Detectar ubicación SOM/Transit
             is_transit = False
             dest_loc = pick.location_dest_id
             
             if dest_loc:
+                # Buscamos por ID 128 o por nombre (insensible a mayúsculas/tildes)
                 if dest_loc.id == 128:
                     is_transit = True
-                elif 'Trancit' in dest_loc.name or 'Transit' in dest_loc.name or 'Tránsito' in dest_loc.name:
-                    is_transit = True
+                else:
+                    loc_name = dest_loc.name.lower() if dest_loc.name else ''
+                    if 'trancit' in loc_name or 'transit' in loc_name or 'tránsito' in loc_name:
+                        is_transit = True
             
             if is_transit and pick.picking_type_code == 'incoming':
                 pick._create_automatic_transit_voyage()
+        
         return res
 
     def _clean_unwanted_so_links(self):
         """
-        Rompe el vínculo con la Orden de Venta para los movimientos de productos
-        que NO estaban en el pedido original.
-        Esto evita que Odoo agregue líneas nuevas a la Venta automáticamente.
+        Elimina el 'sale_line_id' de los movimientos que contienen productos
+        que NO existen en la Orden de Venta original.
+        
+        Esto corrige el error donde items agregados manualmente a la recepción
+        aparecían en la Orden de Venta como "Entregados" sin haber sido pedidos.
         """
         for pick in self:
             if not pick.sale_id:
                 continue
 
-            # Obtener IDs de productos que SÍ están en la orden de venta
-            # Usamos mapped para obtener lista plana de IDs
+            # Obtener lista de IDs de productos que SÍ están en la orden de venta
             valid_product_ids = pick.sale_id.order_line.mapped('product_id.id')
             
             for move in pick.move_ids:
-                # Si es un producto que NO está en la venta (agregado manual por stock)
+                # Si el producto del movimiento NO está en la lista de productos de la venta...
                 if move.product_id.id not in valid_product_ids:
-                    # LE QUITAMOS LA IDENTIDAD DE VENTA
-                    # 1. sale_line_id: Para que no sepa a qué linea actualizar
-                    # 2. group_id: Para que no lo considere parte del mismo abastecimiento
-                    move.write({
-                        'sale_line_id': False,
-                        'group_id': False 
-                    })
+                    # ... rompemos el vínculo.
+                    # CORRECCIÓN: Eliminamos 'group_id' de aquí porque causaba error en Odoo 19.
+                    # Solo borrando 'sale_line_id' es suficiente para proteger la SO.
+                    move.write({'sale_line_id': False})
 
     def _ensure_sale_id_link(self):
-        """Propaga sale_id de forma segura (Defensivo contra AttributeErrors)"""
+        """Propaga sale_id de forma segura"""
         if getattr(self, 'sale_id', False):
             return
 
@@ -153,6 +158,7 @@ class StockPicking(models.Model):
             'state': 'in_transit',
         })
 
+        # Cargar y ASIGNAR CLIENTE
         voyage.action_load_from_picking()
         
         try:
