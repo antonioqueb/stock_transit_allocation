@@ -53,22 +53,37 @@ class StockTransitVoyage(models.Model):
             rec.allocated_m2 = allocated
             rec.allocation_percent = (allocated / total) * 100 if total > 0 else 0
 
-    @api.depends('etd', 'eta', 'state')
+    @api.depends('etd', 'eta', 'state', 'create_date')
     def _compute_transit_progress(self):
         today = fields.Date.today()
         for rec in self:
             if rec.state == 'arrived':
                 rec.transit_progress = 100
-            elif not rec.etd or not rec.eta:
+                continue
+
+            # Determinamos la fecha de inicio (ETD o fecha de creación como fallback)
+            start_date = rec.etd
+            if not start_date and rec.create_date:
+                start_date = rec.create_date.date()
+            
+            # Si no hay fecha de inicio o no hay ETA, es 0%
+            if not start_date or not rec.eta:
                 rec.transit_progress = 0
-            elif today < rec.etd:
+                continue
+
+            if today < start_date:
                 rec.transit_progress = 0
             elif today > rec.eta:
-                rec.transit_progress = 95
+                rec.transit_progress = 95 # Retrasado
             else:
-                total_days = (rec.eta - rec.etd).days
-                elapsed = (today - rec.etd).days
-                rec.transit_progress = int((elapsed / total_days) * 100) if total_days > 0 else 0
+                total_days = (rec.eta - start_date).days
+                elapsed = (today - start_date).days
+                
+                if total_days > 0:
+                    progress = int((elapsed / total_days) * 100)
+                    rec.transit_progress = max(0, min(95, progress)) # Limitar entre 0 y 95 antes de llegar
+                else:
+                    rec.transit_progress = 0
 
     def action_confirm_transit(self):
         self.write({'state': 'in_transit'})
@@ -80,10 +95,6 @@ class StockTransitVoyage(models.Model):
         })
 
     def action_load_from_picking(self):
-        """
-        Carga y Asignación Automática V4:
-        Simplificada para confiar en los datos de origen de la venta.
-        """
         self.ensure_one()
         if not self.picking_id:
             return
@@ -106,22 +117,18 @@ class StockTransitVoyage(models.Model):
             move = move_line.move_id
             line_qty = move_line.qty_done or move_line.reserved_uom_qty
             
-            # 1. Determinar ORIGEN real
             sale_line = False
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
             elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
                 sale_line = move.purchase_line_id.sale_line_id
 
-            # 2. Lógica de Asignación DIRECTA
-            # Si hay línea de venta y el check 'Mandar Pedir' está activo -> ASIGNAR
             if sale_line:
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
                 if auto_assign and sale_line.order_id.partner_id:
                     partner_to_assign = sale_line.order_id.partner_id
                     order_to_assign = sale_line.order_id
 
-            # 3. Búsqueda PRELIMINAR de Quant (Mejor esfuerzo)
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
@@ -129,7 +136,6 @@ class StockTransitVoyage(models.Model):
                 ('location_id.usage', '=', 'internal')
             ], limit=1)
 
-            # 4. Datos Contenedor
             lot_container = move_line.lot_id.ref or False
             if lot_container:
                 containers_found.add(lot_container)
@@ -147,18 +153,14 @@ class StockTransitVoyage(models.Model):
             }
             transit_lines.append(line_vals)
         
-        # Crear líneas
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
-        # Actualizar info cabecera
         updates = {}
         if containers_found:
             updates['container_number'] = ', '.join(list(containers_found))[:50]
         if updates:
             self.write(updates)
 
-        # Crear Holds (Reservas)
-        # El TransitManager.reassign_lot se encargará de buscar el Quant si falta
         for line in created_lines:
             if line.partner_id and line.order_id:
                 TransitManager.reassign_lot(
