@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
 from odoo import fields, _
-from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -10,91 +9,89 @@ class TransitManager:
     @staticmethod
     def reassign_lot(env, transit_line, new_partner_id, new_order_id=False, notes=None):
         """
-        Lógica central para reasignar.
-        Ahora incluye BÚSQUEDA INTELIGENTE de Quants perdidos.
+        Lógica central para reasignar y crear reservas (Holds).
+        V4.0: Búsqueda agresiva de Quant y tolerancia a fallos.
         """
-        old_partner = transit_line.partner_id
         lot = transit_line.lot_id
+        product = transit_line.product_id
         
-        # 1. Recuperación de Quant (Fix Missing required value)
+        # 1. RECUPERACIÓN DE QUANT (CRÍTICO)
+        # Forzamos una búsqueda en la base de datos ignorando caché.
         quant = transit_line.quant_id
         
-        if not quant:
-            # Estrategia de Rescate: Buscar el quant en ubicaciones de Tránsito
-            # Solicitado: SOM/Transit
-            _logger.info(f"TransitManager: Quant no vinculado en línea {transit_line.id}. Buscando en Tránsito...")
+        if not quant or not quant.exists():
+            # Estrategia 1: Buscar por ubicación destino exacta
+            _logger.info(f"TransitManager: Buscando Quant perdido para lote {lot.name}...")
             
-            domain = [
+            # Buscamos en TODAS las ubicaciones internas donde pueda estar este lote con stock positivo
+            quant = env['stock.quant'].sudo().search([
                 ('lot_id', '=', lot.id),
-                ('product_id', '=', transit_line.product_id.id),
+                ('product_id', '=', product.id),
                 ('quantity', '>', 0),
-                # Buscamos en cualquier ubicación que parezca ser de tránsito
-                '|', ('location_id.name', 'ilike', 'Transit'), ('location_id.name', 'ilike', 'Trancit')
-            ]
-            
-            # Intentar encontrarlo
-            quant = env['stock.quant'].search(domain, order='id desc', limit=1)
+                ('location_id.usage', '=', 'internal') 
+            ], order='create_date desc, id desc', limit=1)
             
             if quant:
-                # Si lo encontramos, lo vinculamos para el futuro
-                transit_line.write({'quant_id': quant.id})
+                # ¡Encontrado! Lo vinculamos.
+                transit_line.sudo().write({'quant_id': quant.id})
                 _logger.info(f"TransitManager: Quant encontrado y vinculado: {quant.id} en {quant.location_id.name}")
             else:
-                # Si de plano no existe, es un error de datos físicos (no se recibió correctamente)
-                # Intentamos una última búsqueda amplia en cualquier ubicación interna
-                quant = env['stock.quant'].search([
-                    ('lot_id', '=', lot.id),
-                    ('location_id.usage', '=', 'internal'),
-                    ('quantity', '>', 0)
-                ], limit=1)
-                
-                if quant:
-                     transit_line.write({'quant_id': quant.id})
-        
-        # Validación final antes de intentar crear el Hold
-        if new_partner_id and not quant:
-            # Si a pesar de todo no hay quant, no podemos crear el hold porque el módulo
-            # stock_lot_dimensions lo requiere obligatoriamente.
-            # Logueamos error pero no rompemos la transacción para no detener la validación del picking.
-            _logger.error(f"CRITICAL: No se pudo crear Hold para Lote {lot.name}. No hay stock físico (Quant) detectado.")
-            return False
+                _logger.warning(f"TransitManager: IMPOSIBLE encontrar Quant físico para lote {lot.name}. Se procederá solo con asignación visual.")
 
-        # 2. Actualizar línea de tránsito
+        # 2. Actualizar línea de tránsito (Asignación visual en Torre de Control)
+        # Esto SIEMPRE debe suceder, tenga o no tenga Quant físico.
         transit_line.write({
             'partner_id': new_partner_id.id if new_partner_id else False,
             'order_id': new_order_id.id if new_partner_id else False,
             'allocation_status': 'reserved' if new_partner_id else 'available'
         })
 
-        # 3. Gestionar Hold en stock_lot_dimensions
-        # Ahora estamos seguros de que 'quant' existe si llegamos aquí
-        existing_hold = env['stock.lot.hold'].search([
+        # 3. GESTIÓN DE LA RESERVA (HOLD) EN EL MÓDULO DE DIMENSIONES
+        # Solo podemos crear el Hold si tenemos un Quant físico real.
+        if not quant:
+            return True # Terminamos aquí si no hay stock físico, pero ya guardamos la asignación visual.
+
+        HoldModel = env['stock.lot.hold'].sudo()
+        
+        existing_hold = HoldModel.search([
             ('quant_id', '=', quant.id),
             ('estado', '=', 'activo')
         ], limit=1)
 
         if new_partner_id:
+            # Obtener datos extra de la Orden de Venta
+            project_id = False
+            architect_id = False
+            
+            if new_order_id:
+                project_id = new_order_id.x_project_id.id if new_order_id.x_project_id else False
+                architect_id = new_order_id.x_architect_id.id if new_order_id.x_architect_id else False
+
             nota_final = notes or ''
             if new_order_id:
-                nota_final += f" [Orden: {new_order_id.name}]"
+                nota_final += f"\nOrigen: Pedido {new_order_id.name} (Asignación Automática)"
 
             hold_vals = {
                 'lot_id': lot.id,
-                'quant_id': quant.id, # Aquí va el valor recuperado
+                'quant_id': quant.id,
                 'partner_id': new_partner_id.id,
                 'user_id': env.user.id,
                 'fecha_inicio': fields.Datetime.now(),
                 'fecha_expiracion': fields.Datetime.add(fields.Datetime.now(), days=30), 
                 'notas': nota_final,
-                'company_id': transit_line.company_id.id,
-                'estado': 'activo'
+                'company_id': transit_line.company_id.id or env.company.id,
+                'estado': 'activo',
+                'project_id': project_id,
+                'arquitecto_id': architect_id,
             }
 
             if existing_hold:
-                existing_hold.action_cancelar_hold()
-                env['stock.lot.hold'].create(hold_vals)
+                if existing_hold.partner_id.id != new_partner_id.id:
+                    existing_hold.action_cancelar_hold()
+                    HoldModel.create(hold_vals)
             else:
-                env['stock.lot.hold'].create(hold_vals)
+                HoldModel.create(hold_vals)
+                _logger.info(f"TransitManager: Hold creado exitosamente para {lot.name}")
         
         elif not new_partner_id and existing_hold:
             existing_hold.action_cancelar_hold()

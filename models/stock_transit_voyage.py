@@ -80,6 +80,10 @@ class StockTransitVoyage(models.Model):
         })
 
     def action_load_from_picking(self):
+        """
+        Carga y Asignación Automática V4:
+        Simplificada para confiar en los datos de origen de la venta.
+        """
         self.ensure_one()
         if not self.picking_id:
             return
@@ -91,54 +95,41 @@ class StockTransitVoyage(models.Model):
         from .utils.transit_manager import TransitManager
 
         containers_found = set()
-        assigned_qty_tracker = {}
 
-        # Pre-cargar quants en memoria para optimizar
-        # Buscamos quants creados en las ubicaciones destino de los movimientos
-        dest_locations = self.picking_id.move_line_ids.mapped('location_dest_id')
-        
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
                 continue
             
-            # --- DATOS DE VENTA ---
             partner_to_assign = False
             order_to_assign = False
             
             move = move_line.move_id
             line_qty = move_line.qty_done or move_line.reserved_uom_qty
             
-            # Determinar Origen Venta
+            # 1. Determinar ORIGEN real
             sale_line = False
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
             elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
                 sale_line = move.purchase_line_id.sale_line_id
 
+            # 2. Lógica de Asignación DIRECTA
+            # Si hay línea de venta y el check 'Mandar Pedir' está activo -> ASIGNAR
             if sale_line:
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
                 if auto_assign and sale_line.order_id.partner_id:
-                    qty_ordered = sale_line.product_uom_qty
-                    current_assigned = assigned_qty_tracker.get(sale_line.id, 0.0)
-                    
-                    if current_assigned < (qty_ordered - 0.001):
-                        partner_to_assign = sale_line.order_id.partner_id
-                        order_to_assign = sale_line.order_id
-                        assigned_qty_tracker[sale_line.id] = current_assigned + line_qty
+                    partner_to_assign = sale_line.order_id.partner_id
+                    order_to_assign = sale_line.order_id
 
-            # --- BÚSQUEDA PRECISA DEL QUANT ---
-            # Intentamos encontrar el Quant EXACTO que acaba de crear este movimiento
-            # Usamos la ubicación destino específica de la línea
-            target_location_id = move_line.location_dest_id.id or move_line.picking_id.location_dest_id.id
-            
+            # 3. Búsqueda PRELIMINAR de Quant (Mejor esfuerzo)
             found_quant = self.env['stock.quant'].search([
-                ('lot_id', '=', move_line.lot_id.id),
+                ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
-                ('location_id', '=', target_location_id),
-                ('quantity', '>', 0) # Asegurar que tiene stock positivo
+                ('quantity', '>', 0),
+                ('location_id.usage', '=', 'internal')
             ], limit=1)
 
-            # --- DATOS CONTENEDOR ---
+            # 4. Datos Contenedor
             lot_container = move_line.lot_id.ref or False
             if lot_container:
                 containers_found.add(lot_container)
@@ -167,10 +158,16 @@ class StockTransitVoyage(models.Model):
             self.write(updates)
 
         # Crear Holds (Reservas)
-        # El TransitManager ahora es robusto y buscará el quant si falta
+        # El TransitManager.reassign_lot se encargará de buscar el Quant si falta
         for line in created_lines:
             if line.partner_id and line.order_id:
-                TransitManager.reassign_lot(self.env, line, line.partner_id, line.order_id, notes="Asignación Automática (Origen Venta)")
+                TransitManager.reassign_lot(
+                    self.env, 
+                    line, 
+                    line.partner_id, 
+                    line.order_id, 
+                    notes="Asignación Automática (Origen Venta)"
+                )
 
     def _expand_states(self, states, domain, order=None):
         return [key for key, val in type(self).state.selection]
