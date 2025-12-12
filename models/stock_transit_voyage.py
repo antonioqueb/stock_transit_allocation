@@ -9,7 +9,7 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
-    # --- NUEVOS CAMPOS SOLICITADOS (EXCEL ANA) ---
+    # --- NUEVOS CAMPOS (SÁBANA DE SEGUIMIENTO) ---
     custom_status = fields.Selection([
         ('production', 'Producción'),
         ('booked', 'Booking Solicitado'),
@@ -109,6 +109,14 @@ class StockTransitVoyage(models.Model):
         })
 
     def action_load_from_picking(self):
+        """
+        LÓGICA ACTUALIZADA PARA CONSOLIDACIÓN DE COMPRAS:
+        
+        Analiza cada línea de movimiento (Stock Move) para detectar su origen real.
+        Gracias al wizard de consolidación, el movimiento traerá la referencia exacta
+        a la línea de venta (sale_line_id), permitiendo separar mercancía de
+        diferentes vendedores dentro de un mismo contenedor.
+        """
         self.ensure_one()
         if not self.picking_id:
             return
@@ -129,22 +137,36 @@ class StockTransitVoyage(models.Model):
             order_to_assign = False
             
             move = move_line.move_id
-            line_qty = move_line.qty_done or move_line.reserved_uom_qty
             
-            # Intentar vincular con Venta
+            # --- INICIO DETECCIÓN INTELIGENTE ---
+            
+            # 1. Intentar obtener la Línea de Venta directamente
+            # El Wizard de Consolidación o MTO estándar llenan este campo.
             sale_line = False
+            
+            # a) Link directo en el movimiento (Priority 1 - Seteado por purchase_order_inherit)
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
+            
+            # b) Link a través de la Línea de Compra (Priority 2)
             elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
                 sale_line = move.purchase_line_id.sale_line_id
 
             if sale_line:
+                # Si encontramos línea de venta, verificamos si está marcada para asignación
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
-                if auto_assign and sale_line.order_id.partner_id:
-                    partner_to_assign = sale_line.order_id.partner_id
+                if auto_assign and sale_line.order_id:
                     order_to_assign = sale_line.order_id
+                    partner_to_assign = sale_line.order_id.partner_id
+            
+            # 2. Fallback: Grupo de Abastecimiento (Para flujos antiguos o stock puro)
+            elif move.group_id and move.group_id.sale_id:
+                order_to_assign = move.group_id.sale_id
+                partner_to_assign = order_to_assign.partner_id
+            
+            # --- FIN DETECCIÓN ---
 
-            # Búsqueda de Quant
+            # Búsqueda de Quant Físico para vincular el Hold
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
@@ -152,32 +174,34 @@ class StockTransitVoyage(models.Model):
                 ('location_id.usage', '=', 'internal')
             ], limit=1)
 
-            lot_container = move_line.lot_id.ref or False
-            if lot_container:
-                containers_found.add(lot_container)
+            if move_line.lot_id.ref:
+                containers_found.add(move_line.lot_id.ref)
 
             line_vals = {
                 'voyage_id': self.id,
                 'product_id': move_line.product_id.id,
                 'lot_id': move_line.lot_id.id,
                 'quant_id': found_quant.id if found_quant else False,
-                'product_uom_qty': line_qty,
+                'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
+                
+                # Asignación correcta por línea
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'order_id': order_to_assign.id if order_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
-                'container_number': lot_container,
-                # NOTA: Los campos related se llenarán automáticamente al guardar
+                'container_number': move_line.lot_id.ref,
             }
             transit_lines.append(line_vals)
         
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
-        updates = {}
         if containers_found:
-            updates['container_number'] = ', '.join(list(containers_found))[:50]
-        if updates:
-            self.write(updates)
+            # Actualizamos el contenedor en el encabezado (informativo)
+            current_conts = self.container_number or ''
+            new_conts = ', '.join(list(containers_found))
+            if new_conts not in current_conts:
+                self.write({'container_number': new_conts[:50]})
 
+        # Generar Reservas (Holds) Automáticas
         for line in created_lines:
             if line.partner_id and line.order_id:
                 TransitManager.reassign_lot(
@@ -185,7 +209,7 @@ class StockTransitVoyage(models.Model):
                     line, 
                     line.partner_id, 
                     line.order_id, 
-                    notes="Asignación Automática (Origen Venta)"
+                    notes=f"Asignación Automática - Pedido {line.order_id.name}"
                 )
 
     def _expand_states(self, states, domain, order=None):

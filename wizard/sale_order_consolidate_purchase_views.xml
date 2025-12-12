@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_sale_order_consolidate_purchase_form" model="ir.ui.view">
+        <field name="name">sale.order.consolidate.purchase.form</field>
+        <field name="model">sale.order.consolidate.purchase</field>
+        <field name="arch" type="xml">
+            <form string="Consolidar Compras">
+                <group>
+                    <field name="vendor_id"/>
+                    <field name="only_mto_lines"/>
+                </group>
+                <group string="Pedidos Seleccionados">
+                    <field name="sale_order_ids" widget="many2many_tags" readonly="1"/>
+                </group>
+                <footer>
+                    <button name="action_create_consolidated_po" string="Crear Orden de Compra Global" type="object" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Acción de Servidor para agregar el botón en "Acción" de Ventas -->
+    <record id="action_consolidate_sales_to_po" model="ir.actions.act_window">
+        <field name="name">Crear Compra Global (Consolidada)</field>
+        <field name="res_model">sale.order.consolidate.purchase</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">list</field>
+    </record>
+</odoo>

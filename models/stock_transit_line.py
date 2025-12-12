@@ -38,7 +38,6 @@ class StockTransitLine(models.Model):
     # --- CAMPOS PLANOS PARA VISTA "SÁBANA DE SEGUIMIENTO" (EXCEL) ---
     
     # 1. Datos de Compra (OC Sistema)
-    # Se obtienen navegando Voyage -> Picking -> Purchase Order
     purchase_id = fields.Many2one('purchase.order', related='voyage_id.picking_id.purchase_id', string='OC Sistema', store=True)
     date_order = fields.Datetime(related='purchase_id.date_order', string='Fecha OC', store=True)
     vendor_id = fields.Many2one('res.partner', related='purchase_id.partner_id', string='Proveedor', store=True)
@@ -46,17 +45,13 @@ class StockTransitLine(models.Model):
     proforma_ref = fields.Char(related='purchase_id.partner_ref', string='Proforma / Ref Prov', store=True)
     currency_id = fields.Many2one('res.currency', related='purchase_id.currency_id', string='Moneda', store=True)
     
-    # Precio (Aprox. tomamos el costo del producto o de la línea de compra si pudiéramos vincularla exactamente)
-    # Usaremos el costo estándar del producto como referencia rápida o si es posible vincular a la línea de compra
     price_unit = fields.Float(related='product_id.standard_price', string='Precio / M2 (Est.)')
 
     # 2. Datos de Venta Extra
     salesperson_id = fields.Many2one('res.users', related='order_id.user_id', string='Vendedor', store=True)
     
     # 3. Metrajes Teóricos
-    # Metraje Proforma (Tomado de lo que se pidió en la OC globalmente para este producto - Aprox)
     qty_proforma = fields.Float(string='Metraje Proforma', help="Cantidad total en la OC original", compute='_compute_po_so_qty', store=True)
-    # Metraje Pedido Original (Tomado de la SO)
     qty_original_demand = fields.Float(string='Metraje Pedido Original', help="Cantidad original demandada en la SO", compute='_compute_po_so_qty', store=True)
 
     # 4. Datos de Logística (Viaje)
@@ -74,13 +69,11 @@ class StockTransitLine(models.Model):
     @api.depends('purchase_id', 'order_id', 'product_id')
     def _compute_po_so_qty(self):
         for line in self:
-            # Lógica simple: Sumar líneas de la OC para este producto
             po_qty = 0.0
             if line.purchase_id:
                 po_lines = line.purchase_id.order_line.filtered(lambda l: l.product_id == line.product_id)
                 po_qty = sum(po_lines.mapped('product_qty'))
             
-            # Lógica simple: Sumar líneas de la SO para este producto
             so_qty = 0.0
             if line.order_id:
                 so_lines = line.order_id.order_line.filtered(lambda l: l.product_id == line.product_id)
@@ -121,7 +114,7 @@ class StockTransitSheet(models.Model):
     """
     _name = 'stock.transit.sheet'
     _description = 'Sábana de Seguimiento (Resumen)'
-    _auto = False  # Indica que se basa en una vista SQL, no una tabla física
+    _auto = False
     _order = 'eta asc, voyage_id desc'
 
     # Claves de Agrupación
@@ -132,7 +125,6 @@ class StockTransitSheet(models.Model):
     partner_id = fields.Many2one('res.partner', string='Cliente / Proyecto', readonly=True)
     container_number = fields.Char(string='Contenedor', readonly=True)
     
-    # Datos Informativos (Tomados del primer registro del grupo)
     date_order = fields.Datetime(string='Fecha OC', readonly=True)
     proforma_ref = fields.Char(string='Proforma / Ref Prov', readonly=True)
     vendor_id = fields.Many2one('res.partner', string='Proveedor', readonly=True)
@@ -159,7 +151,6 @@ class StockTransitSheet(models.Model):
     qty_proforma = fields.Float(string='Metraje Proforma', readonly=True)
     qty_original_demand = fields.Float(string='Metraje Pedido Original', readonly=True)
     
-    # Para mostrar el vendedor
     salesperson_id = fields.Many2one('res.users', string='Vendedor', readonly=True)
 
     def init(self):
@@ -176,7 +167,6 @@ class StockTransitSheet(models.Model):
                     l.partner_id,
                     l.container_number,
                     
-                    -- Datos agrupados (MAX selecciona el valor representativo del grupo)
                     MAX(l.date_order) as date_order,
                     MAX(l.proforma_ref) as proforma_ref,
                     MAX(l.vendor_id) as vendor_id,
@@ -189,10 +179,7 @@ class StockTransitSheet(models.Model):
                     MAX(l.arrival_date) as arrival_date,
                     MAX(l.salesperson_id) as salesperson_id,
                     
-                    -- Sumatorias y Cálculos
                     SUM(l.product_uom_qty) as product_uom_qty,
-                    -- Usamos MAX para proforma y demanda original porque es un valor global por pedido, 
-                    -- si sumamos duplicaríamos el valor por cada placa.
                     MAX(l.qty_proforma) as qty_proforma,
                     MAX(l.qty_original_demand) as qty_original_demand
                     
