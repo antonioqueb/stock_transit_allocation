@@ -9,6 +9,21 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
+    # --- NUEVOS CAMPOS SOLICITADOS (EXCEL ANA) ---
+    custom_status = fields.Selection([
+        ('production', 'Producción'),
+        ('booked', 'Booking Solicitado'),
+        ('loaded', 'Cargado'),
+        ('on_sea', 'En Altamar / Mar'),
+        ('at_port', 'En Puerto'),
+        ('delivered', 'Entregado'),
+    ], string='Status (Manual)', default='production', tracking=True, 
+       help="Estatus operativo similar al Excel de seguimiento.")
+    
+    shipping_line = fields.Char(string='Naviera', tracking=True, help="Ej. MSC, Maersk, CMA CGM")
+    transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)', help="Días estimados desde origen a destino")
+    
+    # Campos existentes
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     container_number = fields.Char(string='Contenedor(es)', tracking=True)
@@ -24,7 +39,7 @@ class StockTransitVoyage(models.Model):
         ('at_port', 'En Puerto'),
         ('arrived', 'Recibido en Almacén'),
         ('cancel', 'Cancelado')
-    ], string='Estado', default='draft', tracking=True, group_expand='_expand_states')
+    ], string='Estado Sistema', default='draft', tracking=True, group_expand='_expand_states')
 
     picking_id = fields.Many2one('stock.picking', string='Recepción Vinculada', 
         domain=[('picking_type_code', '=', 'incoming')])
@@ -61,12 +76,10 @@ class StockTransitVoyage(models.Model):
                 rec.transit_progress = 100
                 continue
 
-            # Determinamos la fecha de inicio (ETD o fecha de creación como fallback)
             start_date = rec.etd
             if not start_date and rec.create_date:
                 start_date = rec.create_date.date()
             
-            # Si no hay fecha de inicio o no hay ETA, es 0%
             if not start_date or not rec.eta:
                 rec.transit_progress = 0
                 continue
@@ -74,24 +87,25 @@ class StockTransitVoyage(models.Model):
             if today < start_date:
                 rec.transit_progress = 0
             elif today > rec.eta:
-                rec.transit_progress = 95 # Retrasado
+                rec.transit_progress = 95 
             else:
                 total_days = (rec.eta - start_date).days
                 elapsed = (today - start_date).days
                 
                 if total_days > 0:
                     progress = int((elapsed / total_days) * 100)
-                    rec.transit_progress = max(0, min(95, progress)) # Limitar entre 0 y 95 antes de llegar
+                    rec.transit_progress = max(0, min(95, progress))
                 else:
                     rec.transit_progress = 0
 
     def action_confirm_transit(self):
-        self.write({'state': 'in_transit'})
+        self.write({'state': 'in_transit', 'custom_status': 'on_sea'})
 
     def action_arrive(self):
         self.write({
             'state': 'arrived', 
-            'arrival_date': fields.Date.today()
+            'arrival_date': fields.Date.today(),
+            'custom_status': 'delivered'
         })
 
     def action_load_from_picking(self):
@@ -117,6 +131,7 @@ class StockTransitVoyage(models.Model):
             move = move_line.move_id
             line_qty = move_line.qty_done or move_line.reserved_uom_qty
             
+            # Intentar vincular con Venta
             sale_line = False
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
@@ -129,6 +144,7 @@ class StockTransitVoyage(models.Model):
                     partner_to_assign = sale_line.order_id.partner_id
                     order_to_assign = sale_line.order_id
 
+            # Búsqueda de Quant
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
@@ -150,6 +166,7 @@ class StockTransitVoyage(models.Model):
                 'order_id': order_to_assign.id if order_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
                 'container_number': lot_container,
+                # NOTA: Los campos related se llenarán automáticamente al guardar
             }
             transit_lines.append(line_vals)
         

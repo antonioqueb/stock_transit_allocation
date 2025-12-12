@@ -1,23 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- 1. VISTA DE LISTA -->
+    <!-- ========================================================== -->
+    <!-- VISTAS DEL MODELO STOCK.TRANSIT.VOYAGE (VIAJES)           -->
+    <!-- ========================================================== -->
+    
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
             <list decoration-info="state == 'in_transit'" decoration-success="state == 'arrived'">
                 <field name="name"/>
+                <field name="custom_status" widget="badge" decoration-warning="custom_status=='production'" decoration-info="custom_status=='on_sea'"/>
                 <field name="container_number" string="Contenedores"/>
-                <field name="bl_number" string="Folio Compra / BL"/>
+                <field name="bl_number"/>
+                <field name="shipping_line"/>
                 <field name="eta" widget="remaining_days"/>
-                <field name="total_m2" sum="Total"/>
                 <field name="allocation_percent" widget="progressbar" string="% Asig."/>
-                <field name="state" widget="badge" decoration-info="state == 'in_transit'" decoration-warning="state == 'at_port'"/>
+                <field name="state" optional="hide"/>
             </list>
         </field>
     </record>
 
-    <!-- 2. VISTA DE FORMULARIO -->
     <record id="view_stock_transit_voyage_form" model="ir.ui.view">
         <field name="name">stock.transit.voyage.form</field>
         <field name="model">stock.transit.voyage</field>
@@ -35,12 +38,15 @@
                         <h3><field name="container_number" placeholder="Contenedor(es)"/></h3>
                     </div>
                     <group>
-                        <group string="Detalles de Logística">
+                        <group string="Logística y Estatus">
+                            <field name="custom_status"/>
+                            <field name="shipping_line" placeholder="Ej. MSC"/>
                             <field name="vessel_name"/>
-                            <field name="bl_number" string="Folio Compra / BL"/>
+                            <field name="bl_number"/>
                             <field name="picking_id" readonly="1"/>
                         </group>
                         <group string="Itinerario">
+                            <field name="transit_days_expected"/>
                             <field name="etd"/>
                             <field name="eta"/>
                             <field name="arrival_date" readonly="1"/>
@@ -51,18 +57,16 @@
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
                             <field name="line_ids">
-                                <list create="0" delete="0" decoration-success="allocation_status == 'reserved'">
+                                <list create="0" delete="0" decoration-success="allocation_status == 'reserved'" editable="bottom">
                                     <field name="container_number" optional="show"/> 
                                     <field name="product_id"/>
                                     <field name="lot_id"/>
                                     <field name="product_uom_qty" string="m²"/>
-                                    
-                                    <!-- Nuevas Columnas Solicitadas -->
                                     <field name="partner_id" widget="many2one_avatar"/>
-                                    <field name="order_id" optional="show" widget="badge" decoration-info="order_id"/>
-                                    
-                                    <field name="allocation_status" widget="badge" decoration-success="allocation_status == 'reserved'" decoration-info="allocation_status == 'available'"/>
-                                    <button name="action_reassign_wizard" string="🔄 Reasignar" type="object" class="btn-link"/>
+                                    <field name="order_id" optional="show" widget="badge"/>
+                                    <field name="notes" optional="hide"/>
+                                    <field name="allocation_status" widget="badge"/>
+                                    <button name="action_reassign_wizard" string="🔄" type="object" class="btn-link"/>
                                 </list>
                             </field>
                         </page>
@@ -80,7 +84,6 @@
         </field>
     </record>
 
-    <!-- 3. VISTA KANBAN -->
     <record id="view_stock_transit_voyage_kanban" model="ir.ui.view">
         <field name="name">stock.transit.voyage.kanban</field>
         <field name="model">stock.transit.voyage</field>
@@ -89,10 +92,11 @@
                 <field name="state"/>
                 <field name="name"/>
                 <field name="vessel_name"/>
+                <field name="shipping_line"/>
+                <field name="custom_status"/>
                 <field name="container_number"/>
                 <field name="eta"/>
                 <field name="allocation_percent"/>
-                <!-- Se requiere transit_progress en kanban para que calcule bien -->
                 <field name="transit_progress"/> 
                 <templates>
                     <t t-name="card">
@@ -101,22 +105,20 @@
                                 <strong class="o_kanban_record_title text-primary">
                                     <field name="name"/>
                                 </strong>
-                                <field name="state" widget="label_selection" options="{'classes': {'draft': 'default', 'in_transit': 'info', 'at_port': 'warning', 'arrived': 'success'}}"/>
+                                <field name="custom_status" widget="label_selection" options="{'classes': {'production': 'warning', 'on_sea': 'info', 'delivered': 'success'}}"/>
                             </div>
-                            
+                            <div class="text-muted mb-1" invisible="not shipping_line">
+                                <small><field name="shipping_line"/></small>
+                            </div>
                             <div class="text-muted mb-1" invisible="not vessel_name">
-                                <i class="fa fa-ship me-1" title="Barco"/>
-                                <field name="vessel_name"/>
+                                <i class="fa fa-ship me-1"/> <field name="vessel_name"/>
                             </div>
-                            
                             <div class="d-flex justify-content-between align-items-center mt-auto">
                                 <span class="text-muted small">
                                     ETA: <field name="eta" widget="remaining_days"/>
                                 </span>
                             </div>
-                            
-                            <!-- Barra de Asignación (Ventas) -->
-                            <div class="mt-2" title="Porcentaje Asignado a Cliente">
+                            <div class="mt-2" title="Porcentaje Asignado">
                                 <small>Asignado:</small>
                                 <field name="allocation_percent" widget="progressbar"/>
                             </div>
@@ -128,37 +130,143 @@
     </record>
 
     <!-- ========================================================== -->
-    <!-- 4. ACCIONES Y MENÚS (NUEVO)                               -->
+    <!-- NUEVA VISTA: SÁBANA DE SEGUIMIENTO (EXCEL REPLICATION)    -->
+    <!-- Apunta a stock.transit.line para desglose detallado       -->
     <!-- ========================================================== -->
 
-    <!-- Acción de Ventana Principal -->
-    <record id="action_stock_transit_voyage_main" model="ir.actions.act_window">
-        <field name="name">Torre de Control</field>
-        <field name="res_model">stock.transit.voyage</field>
-        <field name="view_mode">kanban,list,form</field>
+    <record id="view_transit_line_tracking_list" model="ir.ui.view">
+        <field name="name">stock.transit.line.tracking.list</field>
+        <field name="model">stock.transit.line</field>
+        <field name="arch" type="xml">
+            <list string="Sábana de Seguimiento" create="0" delete="0" edit="1" editable="bottom"
+                  decoration-success="voyage_status == 'delivered'"
+                  decoration-info="voyage_status == 'on_sea'"
+                  decoration-warning="voyage_status == 'production'">
+                
+                <!-- 1. OC SISTEMA / FECHA -->
+                <field name="purchase_id" string="OC SISTEMA" optional="show"/>
+                <field name="date_order" string="FECHA OC" widget="date" optional="show"/>
+                
+                <!-- 2. STATUS / VENDEDOR -->
+                <field name="voyage_status" string="Status"/>
+                <field name="salesperson_id" string="Vendedor" widget="many2one_avatar_user"/>
+                
+                <!-- 3. SALES ORDER / CLIENTE -->
+                <field name="order_id" string="SALES ORDER"/>
+                <field name="partner_id" string="Cliente / Proyecto"/>
+                
+                <!-- 4. INFO PROVEEDOR -->
+                <field name="proforma_ref" string="Proforma"/>
+                <field name="vendor_id" string="Proveedor"/>
+                <field name="vendor_country_id" string="País" optional="hide"/>
+                <field name="transit_days" string="Tiempo Tránsito"/>
+                
+                <!-- 5. METRAJES -->
+                <field name="qty_proforma" string="Metraje Proforma" optional="hide"/>
+                <field name="qty_original_demand" string="Metraje Pedido Orig." optional="hide"/>
+                
+                <!-- 6. PRODUCTO -->
+                <field name="product_id" string="Descripción"/>
+                <field name="product_uom_qty" string="M2 Embarcados" sum="Total M2"/>
+                <field name="price_unit" string="Precio / M2"/>
+                <field name="currency_id" string="Moneda" invisible="1"/>
+                
+                <!-- 7. LOGÍSTICA -->
+                <field name="container_number" string="Contenedor"/>
+                <field name="shipping_line" string="Naviera"/>
+                <field name="bl_number" string="Factura de Carga"/>
+                
+                <!-- 8. FECHAS -->
+                <field name="write_date" string="Última Revisión" widget="date" optional="hide"/>
+                <field name="etd" string="ETD"/>
+                <field name="eta" string="ETA"/>
+                <field name="arrival_date" string="Llegada Real" optional="show"/>
+                
+                <!-- 9. COMENTARIOS -->
+                <field name="notes" string="COMENTARIOS" placeholder="Escriba notas..."/>
+                
+                <!-- Acciones -->
+                <button name="action_reassign_wizard" icon="fa-refresh" title="Reasignar" type="object"/>
+            </list>
+        </field>
+    </record>
+    
+    <!-- Filtros de Búsqueda para la Sábana -->
+    <record id="view_transit_line_search" model="ir.ui.view">
+        <field name="name">stock.transit.line.search</field>
+        <field name="model">stock.transit.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="container_number"/>
+                <field name="purchase_id"/>
+                <field name="order_id"/>
+                <field name="partner_id"/>
+                <field name="product_id"/>
+                <field name="voyage_status"/>
+                
+                <filter string="En Producción" name="status_prod" domain="[('voyage_status','=','production')]"/>
+                <filter string="En Altamar" name="status_sea" domain="[('voyage_status','=','on_sea')]"/>
+                <filter string="Por Llegar (7 Días)" name="eta_soon" domain="[('eta','&lt;=', (context_today() + datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                
+                <group expand="0" string="Agrupar Por">
+                    <filter string="Contenedor" name="grp_cont" context="{'group_by': 'container_number'}"/>
+                    <filter string="Naviera" name="grp_ship" context="{'group_by': 'shipping_line'}"/>
+                    <filter string="Proveedor" name="grp_vendor" context="{'group_by': 'vendor_id'}"/>
+                    <filter string="Cliente" name="grp_partner" context="{'group_by': 'partner_id'}"/>
+                    <filter string="Status" name="grp_status" context="{'group_by': 'voyage_status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ACCIÓN: Sábana de Seguimiento (Lista Detallada) -->
+    <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
+        <field name="name">Sábana de Seguimiento</field>
+        <field name="res_model">stock.transit.line</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_transit_line_tracking_list"/>
+        <field name="search_view_id" ref="view_transit_line_search"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Cree el primer registro de Tránsito Marítimo
-            </p>
-            <p>
-                Gestione contenedores, fechas de arribo (ETA) y asignación de mercancía en tránsito.
+                Aquí verá el seguimiento detallado tipo Excel.
             </p>
         </field>
     </record>
 
-    <!-- Menú Raíz (Aparecerá en el dashboard principal de Odoo) -->
-    <!-- Nota: web_icon asume que tienes una imagen en /static/description/icon.png -->
+    <!-- ACCIÓN: Tablero de Viajes (Original Agrupado) -->
+    <record id="action_stock_transit_voyage_main" model="ir.actions.act_window">
+        <field name="name">Viajes (Agrupado)</field>
+        <field name="res_model">stock.transit.voyage</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Gestión por Viaje/Contenedor
+            </p>
+        </field>
+    </record>
+
+    <!-- ========================================================== -->
+    <!-- MENÚS                                                     -->
+    <!-- ========================================================== -->
+
     <menuitem id="menu_transit_root"
               name="Torre de Control"
               web_icon="stock_transit_allocation,static/description/icon.png"
               sequence="10"
               groups="stock_transit_allocation.group_transit_user"/>
 
-    <!-- Submenú Principal -->
+    <!-- 1. Menú "Sábana" (Vista Excel) - PRIORIDAD 1 -->
+    <menuitem id="menu_transit_sheet"
+              name="Sábana de Seguimiento"
+              parent="menu_transit_root"
+              action="action_transit_tracking_sheet"
+              sequence="1"/>
+
+    <!-- 2. Menú "Viajes" (Vista Kanban/Agrupada) -->
     <menuitem id="menu_transit_voyage_dashboard"
-              name="Tablero de Viajes"
+              name="Viajes y Contenedores"
               parent="menu_transit_root"
               action="action_stock_transit_voyage_main"
-              sequence="1"/>
+              sequence="2"/>
 
 </odoo>
