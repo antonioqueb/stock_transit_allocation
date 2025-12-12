@@ -25,15 +25,20 @@ class StockPicking(models.Model):
         """Calcula la lista completa de pedidos involucrados"""
         for picking in self:
             orders = picking.move_ids.sale_line_id.order_id
-            if not orders and picking.group_id and hasattr(picking.group_id, 'sale_id'):
-                orders = picking.group_id.sale_id
+            
+            # CORRECCIÓN DE SEGURIDAD:
+            # Usamos getattr() para 'group_id' para evitar AttributeError durante la instalación/actualización
+            # si el campo aún no está mapeado en el registro.
+            group = getattr(picking, 'group_id', False)
+            
+            if not orders and group and getattr(group, 'sale_id', False):
+                orders = group.sale_id
+            
             picking.transit_sale_order_ids = orders
 
     # -------------------------------------------------------------------------
     # CORRECCIÓN DEL ERROR DE CONSOLIDACIÓN (Validación de múltiples SO)
     # -------------------------------------------------------------------------
-    # CORRECCIÓN: Eliminamos 'group_id' del depends para evitar el ValueError.
-    # Odoo recalculará esto cuando cambien los movimientos, lo cual es suficiente.
     @api.depends('move_ids.sale_line_id')
     def _compute_sale_id(self):
         """
@@ -45,9 +50,12 @@ class StockPicking(models.Model):
         for picking in self:
             sale_orders = picking.move_ids.sale_line_id.order_id
             
+            # CORRECCIÓN DE SEGURIDAD: getattr para group_id
+            group = getattr(picking, 'group_id', False)
+            
             # Intentamos obtener del grupo si no hay líneas directas
-            if not sale_orders and picking.group_id and hasattr(picking.group_id, 'sale_id'):
-                sale_orders = picking.group_id.sale_id
+            if not sale_orders and group and getattr(group, 'sale_id', False):
+                sale_orders = group.sale_id
 
             if not sale_orders:
                 picking.sale_id = False
@@ -122,6 +130,8 @@ class StockPicking(models.Model):
             return
 
         found_sale_id = False
+        
+        # Uso seguro de group_id también aquí
         group = getattr(self, 'group_id', False)
         if group and getattr(group, 'sale_id', False):
             found_sale_id = group.sale_id
