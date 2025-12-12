@@ -66,7 +66,7 @@ class TransitManager:
             if price_unit <= 0:
                 price_unit = product.list_price
 
-            # B. Gestión de la Orden Padre (Header)
+            # B. Gestión de la Orden Padre (Header) - Si no viene del wizard
             order = hold_order_obj
             created_local_order = False
 
@@ -75,13 +75,14 @@ class TransitManager:
                 project_id = False
                 architect_id = False
                 
-                # Intentamos sacar datos del Sale Order si existe
+                # Intentamos sacar datos del Sale Order si existe de forma segura
                 if new_order_id:
-                    project_id = getattr(new_order_id, 'x_project_id', False)
-                    architect_id = getattr(new_order_id, 'x_architect_id', False)
-                    # Extraer IDs
-                    project_id = project_id.id if project_id else False
-                    architect_id = architect_id.id if architect_id else False
+                    # Usamos getattr para evitar errores si los campos no existen
+                    project_rel = getattr(new_order_id, 'x_project_id', False)
+                    architect_rel = getattr(new_order_id, 'x_architect_id', False)
+                    
+                    project_id = project_rel.id if project_rel else False
+                    architect_id = architect_rel.id if architect_rel else False
 
                 # Buscar moneda USD o fallback a compañía
                 currency = env['res.currency'].search([('name', '=', 'USD')], limit=1)

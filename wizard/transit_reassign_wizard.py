@@ -32,7 +32,7 @@ class TransitReassignWizard(models.TransientModel):
 
         # 1. Si hay cliente nuevo, creamos la cabecera de la Orden de Reserva UNA SOLA VEZ
         if self.new_partner_id:
-            # Datos opcionales del proyecto/arquitecto desde la Sale Order
+            # Datos opcionales del proyecto/arquitecto desde la Sale Order (si existen)
             project_id = getattr(self.new_order_id, 'x_project_id', False)
             architect_id = getattr(self.new_order_id, 'x_architect_id', False)
             
@@ -60,7 +60,7 @@ class TransitReassignWizard(models.TransientModel):
                 self.new_partner_id, 
                 self.new_order_id, 
                 self.reason,
-                hold_order_obj=hold_order # <--- Pasamos la orden creada
+                hold_order_obj=hold_order # <--- Pasamos la orden creada para que inserte las líneas
             )
             
             # Log en el chatter del viaje
@@ -70,7 +70,7 @@ class TransitReassignWizard(models.TransientModel):
 
         # 3. Confirmar la Orden de Reserva al finalizar el bucle
         if hold_order:
-            # Verificar si se crearon líneas (puede que algunos quants no existieran)
+            # Verificar si se crearon líneas (puede que algunos quants no existieran y se saltaron)
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()
                 
@@ -86,7 +86,7 @@ class TransitReassignWizard(models.TransientModel):
                     }
                 }
             else:
-                # Si no se crearon líneas (ej. no había quants), borramos la cabecera vacía
+                # Si no se crearon líneas (ej. no había quants físicos), borramos la cabecera vacía
                 hold_order.unlink()
 
         return {'type': 'ir.actions.act_window_close'}
