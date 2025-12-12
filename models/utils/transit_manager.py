@@ -19,15 +19,32 @@ class TransitManager:
         
         if not quant or not quant.exists():
             _logger.info(f"TransitManager: Buscando Quant perdido para lote {lot.name}...")
-            quant = env['stock.quant'].sudo().search([
+            
+            # --- CORRECCIÓN: Búsqueda flexible ---
+            # 1. Intentar ubicación del picking original del viaje
+            domain = [
                 ('lot_id', '=', lot.id),
                 ('product_id', '=', product.id),
                 ('quantity', '>', 0),
-                ('location_id.usage', '=', 'internal') 
-            ], order='create_date desc, id desc', limit=1)
+            ]
+            
+            location_dest = False
+            if transit_line.voyage_id.picking_id:
+                location_dest = transit_line.voyage_id.picking_id.location_dest_id
+            
+            if location_dest:
+                # Búsqueda específica en la ubicación destino real
+                search_domain = domain + [('location_id', '=', location_dest.id)]
+                quant = env['stock.quant'].sudo().search(search_domain, limit=1)
+            
+            if not quant:
+                # 2. Búsqueda amplia (Internal OR Transit)
+                search_domain = domain + ['|', ('location_id.usage', '=', 'internal'), ('location_id.usage', '=', 'transit')]
+                quant = env['stock.quant'].sudo().search(search_domain, order='create_date desc, id desc', limit=1)
             
             if quant:
                 transit_line.sudo().write({'quant_id': quant.id})
+                _logger.info(f"TransitManager: Quant recuperado: {quant.id}")
             else:
                 _logger.warning(f"TransitManager: IMPOSIBLE encontrar Quant físico para lote {lot.name}.")
 
@@ -53,38 +70,31 @@ class TransitManager:
                 h.action_cancelar_hold()
             return True
 
-        # === NUEVA LÓGICA: CREAR ORDEN DE RESERVA ===
+        # === CREAR ORDEN DE RESERVA ===
         if new_partner_id:
             
             # A. Obtener Precio Máximo (USD 1)
-            # Intentamos obtener x_price_usd_1, si no existe usamos list_price
             price_unit = 0.0
             if hasattr(product.product_tmpl_id, 'x_price_usd_1'):
                 price_unit = product.product_tmpl_id.x_price_usd_1
             
-            # Fallback a precio de lista si es 0
             if price_unit <= 0:
                 price_unit = product.list_price
 
-            # B. Gestión de la Orden Padre (Header) - Si no viene del wizard
+            # B. Gestión de la Orden Padre (Header)
             order = hold_order_obj
             created_local_order = False
 
             if not order:
-                # Si no nos pasaron una orden (ej. asignación automática), creamos una individual
                 project_id = False
                 architect_id = False
                 
-                # Intentamos sacar datos del Sale Order si existe de forma segura
                 if new_order_id:
-                    # Usamos getattr para evitar errores si los campos no existen
-                    project_rel = getattr(new_order_id, 'x_project_id', False)
-                    architect_rel = getattr(new_order_id, 'x_architect_id', False)
-                    
-                    project_id = project_rel.id if project_rel else False
-                    architect_id = architect_rel.id if architect_rel else False
+                    project_id_obj = getattr(new_order_id, 'x_project_id', False)
+                    architect_id_obj = getattr(new_order_id, 'x_architect_id', False)
+                    project_id = project_id_obj.id if project_id_obj else False
+                    architect_id = architect_id_obj.id if architect_id_obj else False
 
-                # Buscar moneda USD o fallback a compañía
                 currency = env['res.currency'].search([('name', '=', 'USD')], limit=1)
                 if not currency:
                     currency = env.company.currency_id
@@ -98,7 +108,6 @@ class TransitManager:
                     'currency_id': currency.id,
                     'fecha_orden': fields.Datetime.now(),
                     'notas': (notes or '') + " (Generado desde Tránsito)",
-                    # La fecha de expiración se calcula automáticamente en el create del modelo hold.order
                 })
                 created_local_order = True
 
@@ -108,11 +117,11 @@ class TransitManager:
                 'quant_id': quant.id,
                 'lot_id': lot.id,
                 'product_id': product.id,
-                'cantidad_m2': transit_line.product_uom_qty, # Usamos la cantidad del tránsito
+                'cantidad_m2': transit_line.product_uom_qty, 
                 'precio_unitario': price_unit,
             })
 
-            # D. Si creamos la orden aquí mismo (no vino del wizard), la confirmamos ya
+            # D. Confirmar si es local
             if created_local_order:
                 order.action_confirm()
                 _logger.info(f"TransitManager: Orden de Reserva {order.name} creada y confirmada para {lot.name}")

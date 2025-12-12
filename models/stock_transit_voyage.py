@@ -9,7 +9,6 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
-    # --- NUEVOS CAMPOS (SÁBANA DE SEGUIMIENTO) ---
     custom_status = fields.Selection([
         ('production', 'Producción'),
         ('booked', 'Booking Solicitado'),
@@ -23,7 +22,6 @@ class StockTransitVoyage(models.Model):
     shipping_line = fields.Char(string='Naviera', tracking=True, help="Ej. MSC, Maersk, CMA CGM")
     transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)', help="Días estimados desde origen a destino")
     
-    # Campos existentes
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     container_number = fields.Char(string='Contenedor(es)', tracking=True)
@@ -110,12 +108,7 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        LÓGICA ACTUALIZADA PARA CONSOLIDACIÓN DE COMPRAS:
-        
-        Analiza cada línea de movimiento (Stock Move) para detectar su origen real.
-        Gracias al wizard de consolidación, el movimiento traerá la referencia exacta
-        a la línea de venta (sale_line_id), permitiendo separar mercancía de
-        diferentes vendedores dentro de un mismo contenedor.
+        LÓGICA ACTUALIZADA: Búsqueda robusta de Quants.
         """
         self.ensure_one()
         if not self.picking_id:
@@ -139,39 +132,30 @@ class StockTransitVoyage(models.Model):
             move = move_line.move_id
             
             # --- INICIO DETECCIÓN INTELIGENTE ---
-            
-            # 1. Intentar obtener la Línea de Venta directamente
-            # El Wizard de Consolidación o MTO estándar llenan este campo.
             sale_line = False
-            
-            # a) Link directo en el movimiento (Priority 1 - Seteado por purchase_order_inherit)
             if getattr(move, 'sale_line_id', False):
                 sale_line = move.sale_line_id
-            
-            # b) Link a través de la Línea de Compra (Priority 2)
             elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
                 sale_line = move.purchase_line_id.sale_line_id
 
             if sale_line:
-                # Si encontramos línea de venta, verificamos si está marcada para asignación
                 auto_assign = getattr(sale_line, 'auto_transit_assign', True)
                 if auto_assign and sale_line.order_id:
                     order_to_assign = sale_line.order_id
                     partner_to_assign = sale_line.order_id.partner_id
-            
-            # 2. Fallback: Grupo de Abastecimiento (Para flujos antiguos o stock puro)
             elif move.group_id and move.group_id.sale_id:
                 order_to_assign = move.group_id.sale_id
                 partner_to_assign = order_to_assign.partner_id
-            
             # --- FIN DETECCIÓN ---
 
-            # Búsqueda de Quant Físico para vincular el Hold
+            # === CORRECCIÓN CRÍTICA: Búsqueda del Quant ===
+            # Buscamos EXACTAMENTE en la ubicación destino del movimiento.
+            # Esto evita fallos si la ubicación es de tipo 'Transit' o 'Internal'.
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
                 ('quantity', '>', 0),
-                ('location_id.usage', '=', 'internal')
+                ('location_id', '=', move_line.location_dest_id.id) # <--- CLAVE
             ], limit=1)
 
             if move_line.lot_id.ref:
@@ -183,8 +167,6 @@ class StockTransitVoyage(models.Model):
                 'lot_id': move_line.lot_id.id,
                 'quant_id': found_quant.id if found_quant else False,
                 'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
-                
-                # Asignación correcta por línea
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'order_id': order_to_assign.id if order_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
@@ -195,7 +177,6 @@ class StockTransitVoyage(models.Model):
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
         if containers_found:
-            # Actualizamos el contenedor en el encabezado (informativo)
             current_conts = self.container_number or ''
             new_conts = ', '.join(list(containers_found))
             if new_conts not in current_conts:
