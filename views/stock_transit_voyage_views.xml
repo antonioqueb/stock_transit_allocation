@@ -190,34 +190,6 @@
             </list>
         </field>
     </record>
-    
-    <!-- Filtros de Búsqueda para la Sábana -->
-    <record id="view_transit_line_search" model="ir.ui.view">
-        <field name="name">stock.transit.line.search</field>
-        <field name="model">stock.transit.line</field>
-        <field name="arch" type="xml">
-            <search>
-                <field name="container_number"/>
-                <field name="purchase_id"/>
-                <field name="order_id"/>
-                <field name="partner_id"/>
-                <field name="product_id"/>
-                <field name="voyage_status"/>
-                
-                <filter string="En Producción" name="status_prod" domain="[('voyage_status','=','production')]"/>
-                <filter string="En Altamar" name="status_sea" domain="[('voyage_status','=','on_sea')]"/>
-                <filter string="Por Llegar (7 Días)" name="eta_soon" domain="[('eta','&lt;=', (context_today() + datetime.timedelta(days=7)).strftime('%Y-%m-%d'))]"/>
-                
-                <group expand="0" string="Agrupar Por">
-                    <filter string="Contenedor" name="grp_cont" context="{'group_by': 'container_number'}"/>
-                    <filter string="Naviera" name="grp_ship" context="{'group_by': 'shipping_line'}"/>
-                    <filter string="Proveedor" name="grp_vendor" context="{'group_by': 'vendor_id'}"/>
-                    <filter string="Cliente" name="grp_partner" context="{'group_by': 'partner_id'}"/>
-                    <filter string="Status" name="grp_status" context="{'group_by': 'voyage_status'}"/>
-                </group>
-            </search>
-        </field>
-    </record>
 
     <!-- ACCIÓN: Sábana de Seguimiento (Lista Detallada) -->
     <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
