@@ -4,6 +4,7 @@
     <!-- VISTAS DEL MODELO STOCK.TRANSIT.VOYAGE (VIAJES)           -->
     <!-- ========================================================== -->
     
+    <!-- 1. VISTA DE LISTA (VIAJES) -->
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
@@ -21,6 +22,7 @@
         </field>
     </record>
 
+    <!-- 2. VISTA DE FORMULARIO (VIAJES) -->
     <record id="view_stock_transit_voyage_form" model="ir.ui.view">
         <field name="name">stock.transit.voyage.form</field>
         <field name="model">stock.transit.voyage</field>
@@ -84,6 +86,7 @@
         </field>
     </record>
 
+    <!-- 3. VISTA KANBAN (VIAJES) -->
     <record id="view_stock_transit_voyage_kanban" model="ir.ui.view">
         <field name="name">stock.transit.voyage.kanban</field>
         <field name="model">stock.transit.voyage</field>
@@ -197,7 +200,7 @@
         <field name="res_model">stock.transit.line</field>
         <field name="view_mode">list,form</field>
         <field name="view_id" ref="view_transit_line_tracking_list"/>
-        <field name="search_view_id" ref="view_transit_line_search"/>
+        <!-- CORRECCIÓN: Se eliminó la línea <field name="search_view_id" ... /> que causaba el error -->
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
                 Aquí verá el seguimiento detallado tipo Excel.
