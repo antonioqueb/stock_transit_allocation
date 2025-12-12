@@ -20,19 +20,21 @@ class StockPicking(models.Model):
         help="Muestra todos los pedidos de venta vinculados a esta recepción (Consolidación)."
     )
 
-    @api.depends('move_ids.sale_line_id', 'group_id')
+    @api.depends('move_ids.sale_line_id')
     def _compute_transit_sale_orders(self):
         """Calcula la lista completa de pedidos involucrados"""
         for picking in self:
             orders = picking.move_ids.sale_line_id.order_id
-            if not orders and picking.group_id and picking.group_id.sale_id:
+            if not orders and picking.group_id and hasattr(picking.group_id, 'sale_id'):
                 orders = picking.group_id.sale_id
             picking.transit_sale_order_ids = orders
 
     # -------------------------------------------------------------------------
     # CORRECCIÓN DEL ERROR DE CONSOLIDACIÓN (Validación de múltiples SO)
     # -------------------------------------------------------------------------
-    @api.depends('move_ids.sale_line_id', 'group_id')
+    # CORRECCIÓN: Eliminamos 'group_id' del depends para evitar el ValueError.
+    # Odoo recalculará esto cuando cambien los movimientos, lo cual es suficiente.
+    @api.depends('move_ids.sale_line_id')
     def _compute_sale_id(self):
         """
         Sobrescribimos este método nativo de 'sale_stock'.
@@ -43,7 +45,8 @@ class StockPicking(models.Model):
         for picking in self:
             sale_orders = picking.move_ids.sale_line_id.order_id
             
-            if not sale_orders and picking.group_id:
+            # Intentamos obtener del grupo si no hay líneas directas
+            if not sale_orders and picking.group_id and hasattr(picking.group_id, 'sale_id'):
                 sale_orders = picking.group_id.sale_id
 
             if not sale_orders:
