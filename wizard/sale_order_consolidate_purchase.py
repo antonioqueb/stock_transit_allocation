@@ -42,8 +42,6 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
 
     def action_create_consolidated_po(self):
         self.ensure_one()
-        
-        # Esta validación ahora pasará correctamente gracias al default_get
         if not self.sale_order_ids:
             raise UserError(_("No hay pedidos seleccionados para consolidar."))
 
@@ -95,17 +93,20 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
                 if line.product_uom_qty <= 0:
                     continue
 
-                # Lógica de "Agregar a línea existente" vs "Crear nueva línea"
-                # Para la Torre de Control, es MEJOR crear líneas nuevas separadas para mantener
-                # la trazabilidad 1 a 1 entre Venta y Compra (sale_line_id).
-                # Si agrupamos, perdemos la referencia exacta de qué cantidad es para quién.
+                # CORRECCIÓN AQUÍ:
+                # Odoo 19 usa 'product_uom_id' en sale.order.line en lugar de 'product_uom'
+                uom_id = line.product_uom_id.id if hasattr(line, 'product_uom_id') else line.product_id.uom_id.id
                 
                 pol_vals = {
                     'order_id': purchase_order.id,
                     'product_id': line.product_id.id,
                     'name': line.name or line.product_id.name,
                     'product_qty': line.product_uom_qty, # Cantidad completa de la venta
-                    'product_uom': line.product_uom.id,
+                    
+                    # Usamos la clave 'product_uom' para purchase.order.line (campo heredado/estándar)
+                    # pero el valor viene de sale.order.line.product_uom_id
+                    'product_uom': uom_id,
+                    
                     'price_unit': line.product_id.standard_price, 
                     'date_planned': fields.Datetime.now(),
                     
