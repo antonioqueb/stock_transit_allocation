@@ -6,6 +6,21 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
     _name = 'sale.order.consolidate.purchase'
     _description = 'Consolidar Ventas en una Compra Global'
 
+    @api.model
+    def default_get(self, fields_list):
+        """
+        Método crucial: Recupera los IDs de los pedidos seleccionados en la vista de lista (active_ids)
+        y pre-llena el campo sale_order_ids antes de mostrar la ventana al usuario.
+        """
+        res = super(SaleOrderConsolidatePurchase, self).default_get(fields_list)
+        
+        # Validamos si venimos de Ventas y hay registros seleccionados
+        if self.env.context.get('active_model') == 'sale.order' and self.env.context.get('active_ids'):
+            # El formato (6, 0, [ids]) es el comando de escritura estándar para campos Many2many en Odoo
+            res['sale_order_ids'] = [(6, 0, self.env.context.get('active_ids'))]
+            
+        return res
+
     vendor_id = fields.Many2one('res.partner', string='Proveedor', required=True, 
         domain=[('supplier_rank', '>', 0)],
         help="Seleccione al proveedor al que se le enviará la orden global.")
@@ -27,6 +42,8 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
 
     def action_create_consolidated_po(self):
         self.ensure_one()
+        
+        # Esta validación ahora pasará correctamente gracias al default_get
         if not self.sale_order_ids:
             raise UserError(_("No hay pedidos seleccionados para consolidar."))
 
