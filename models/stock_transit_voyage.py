@@ -108,7 +108,7 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         """
-        LÓGICA ACTUALIZADA: Búsqueda robusta de Quants.
+        LÓGICA ACTUALIZADA: Búsqueda robusta de Quants y Generación Agrupada de Reservas.
         """
         self.ensure_one()
         if not self.picking_id:
@@ -182,16 +182,59 @@ class StockTransitVoyage(models.Model):
             if new_conts not in current_conts:
                 self.write({'container_number': new_conts[:50]})
 
-        # Generar Reservas (Holds) Automáticas
+        # ---------------------------------------------------------
+        # NUEVA LÓGICA DE AGRUPACIÓN (SOLUCIÓN)
+        # ---------------------------------------------------------
+        
+        # 1. Agrupar líneas por (Cliente, Pedido)
+        lines_by_order = {}
         for line in created_lines:
             if line.partner_id and line.order_id:
+                key = (line.partner_id, line.order_id)
+                if key not in lines_by_order:
+                    lines_by_order[key] = []
+                lines_by_order[key].append(line)
+        
+        # 2. Procesar cada grupo generando UNA sola cabecera de Reserva
+        for (partner, order), lines in lines_by_order.items():
+            
+            # A. Preparar datos de cabecera
+            project_id = getattr(order, 'x_project_id', False)
+            architect_id = getattr(order, 'x_architect_id', False)
+            
+            currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
+            if not currency:
+                currency = self.env.company.currency_id
+
+            # B. Crear la Orden de Reserva (Header)
+            hold_order = self.env['stock.lot.hold.order'].create({
+                'partner_id': partner.id,
+                'user_id': self.env.user.id,
+                'company_id': self.env.company.id,
+                'project_id': project_id.id if project_id else False,
+                'arquitecto_id': architect_id.id if architect_id else False,
+                'currency_id': currency.id,
+                'fecha_orden': fields.Datetime.now(),
+                'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
+            })
+
+            # C. Agregar las líneas a esa cabecera
+            for line in lines:
                 TransitManager.reassign_lot(
                     self.env, 
                     line, 
-                    line.partner_id, 
-                    line.order_id, 
-                    notes=f"Asignación Automática - Pedido {line.order_id.name}"
+                    partner, 
+                    order, 
+                    notes=False, # La nota ya está en la cabecera
+                    hold_order_obj=hold_order # <--- CLAVE: Pasamos la orden creada para que no cree nuevas
                 )
+            
+            # D. Confirmar la Orden de Reserva globalmente
+            if hold_order.hold_line_ids:
+                hold_order.action_confirm()
+            else:
+                # Si por alguna razón no se generaron líneas (ej. no había quants físicos), borramos la cabecera vacía
+                hold_order.unlink()
 
     def _expand_states(self, states, domain, order=None):
         return [key for key, val in type(self).state.selection]
