@@ -93,8 +93,7 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
                 if line.product_uom_qty <= 0:
                     continue
 
-                # CORRECCIÓN AQUÍ:
-                # Odoo 19 usa 'product_uom_id' en sale.order.line en lugar de 'product_uom'
+                # Odoo 19: Obtener ID de la unidad de medida desde Ventas
                 uom_id = line.product_uom_id.id if hasattr(line, 'product_uom_id') else line.product_id.uom_id.id
                 
                 pol_vals = {
@@ -103,9 +102,9 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
                     'name': line.name or line.product_id.name,
                     'product_qty': line.product_uom_qty, # Cantidad completa de la venta
                     
-                    # Usamos la clave 'product_uom' para purchase.order.line (campo heredado/estándar)
-                    # pero el valor viene de sale.order.line.product_uom_id
-                    'product_uom': uom_id,
+                    # CORRECCIÓN FINAL:
+                    # En Odoo 19, el campo en purchase.order.line TAMBIÉN se llama 'product_uom_id'
+                    'product_uom_id': uom_id,
                     
                     'price_unit': line.product_id.standard_price, 
                     'date_planned': fields.Datetime.now(),
