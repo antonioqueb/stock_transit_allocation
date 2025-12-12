@@ -20,8 +20,11 @@ class PurchaseOrderLine(models.Model):
             if self.sale_line_id:
                 move_vals['sale_line_id'] = self.sale_line_id.id
                 
-                # También intentamos propagar el Grupo de Abastecimiento si existe en la venta
-                if self.sale_line_id.order_id.procurement_group_id:
-                    move_vals['group_id'] = self.sale_line_id.order_id.procurement_group_id.id
+                # CORRECCIÓN DE SEGURIDAD (V19):
+                # Validamos si la orden de venta tiene el campo 'procurement_group_id' antes de usarlo.
+                # Esto evita el crash si 'sale_stock' no está instalado o si el campo cambió de nombre.
+                order = self.sale_line_id.order_id
+                if order and hasattr(order, 'procurement_group_id') and order.procurement_group_id:
+                    move_vals['group_id'] = order.procurement_group_id.id
         
         return res
