@@ -6,23 +6,30 @@
         <field name="arch" type="xml">
             <form string="Consolidar Compras">
                 <group>
-                    <field name="vendor_id"/>
-                    <field name="only_mto_lines"/>
+                    <group>
+                        <field name="vendor_id"/>
+                        <field name="target_type" widget="radio"/>
+                        <field name="purchase_order_id" 
+                               invisible="target_type == 'new'"
+                               required="target_type == 'exist'"/>
+                    </group>
+                    <group>
+                        <field name="only_mto_lines"/>
+                    </group>
                 </group>
                 <group string="Pedidos Seleccionados">
                     <field name="sale_order_ids" widget="many2many_tags" readonly="1"/>
                 </group>
                 <footer>
-                    <button name="action_create_consolidated_po" string="Crear Orden de Compra Global" type="object" class="btn-primary"/>
+                    <button name="action_create_consolidated_po" string="Procesar Compra" type="object" class="btn-primary"/>
                     <button string="Cancelar" class="btn-secondary" special="cancel"/>
                 </footer>
             </form>
         </field>
     </record>
 
-    <!-- Acción de Servidor para agregar el botón en "Acción" de Ventas -->
     <record id="action_consolidate_sales_to_po" model="ir.actions.act_window">
-        <field name="name">Crear Compra Global (Consolidada)</field>
+        <field name="name">Crear / Agregar a Compra Global</field>
         <field name="res_model">sale.order.consolidate.purchase</field>
         <field name="view_mode">form</field>
         <field name="target">new</field>
