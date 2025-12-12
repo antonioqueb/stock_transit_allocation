@@ -3,14 +3,14 @@
     <record id="view_purchase_order_form_inherit_transit" model="ir.ui.view">
         <field name="name">purchase.order.form.inherit.transit</field>
         <field name="model">purchase.order</field>
-        <field name="inherit_id" ref="purchase.view_order_form"/>
+        <!-- CORRECCIÓN: El ID correcto es purchase.purchase_order_form -->
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
         <field name="arch" type="xml">
-            <!-- Agregamos la columna 'Venta Origen' dentro del detalle de productos de la Compra -->
-            <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
+            <!-- CORRECCIÓN: Usamos 'tree' en vez de 'list' para asegurar compatibilidad -->
+            <xpath expr="//field[@name='order_line']/tree/field[@name='name']" position="after">
                 <field name="sale_line_id" string="Ref. Venta (Origen)" optional="show" readonly="1"/>
             </xpath>
             
-            <!-- También en la vista de formulario de la línea (el popup) -->
             <xpath expr="//field[@name='order_line']/form//field[@name='name']" position="after">
                 <field name="sale_line_id" readonly="1"/>
             </xpath>

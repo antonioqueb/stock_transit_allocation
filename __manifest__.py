@@ -23,7 +23,7 @@
         'views/stock_transit_voyage_views.xml',
         'views/stock_picking_views.xml',
         'views/sale_order_views.xml',
-        'views/purchase_order_views.xml', # <--- NUEVO ARCHIVO AGREGADO
+        'views/purchase_order_views.xml',
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
 
