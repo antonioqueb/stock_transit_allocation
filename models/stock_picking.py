@@ -11,6 +11,54 @@ class StockPicking(models.Model):
         help="Referencia opcional manual.")
     transit_bl_number = fields.Char(string='BL Number (Tránsito)')
 
+    # --- NUEVO CAMPO PARA SOPORTAR MÚLTIPLES PEDIDOS ---
+    transit_sale_order_ids = fields.Many2many(
+        'sale.order', 
+        string='Pedidos Consolidados', 
+        compute='_compute_transit_sale_orders', 
+        store=True,
+        help="Muestra todos los pedidos de venta vinculados a esta recepción (Consolidación)."
+    )
+
+    @api.depends('move_ids.sale_line_id', 'group_id')
+    def _compute_transit_sale_orders(self):
+        """Calcula la lista completa de pedidos involucrados"""
+        for picking in self:
+            orders = picking.move_ids.sale_line_id.order_id
+            if not orders and picking.group_id and picking.group_id.sale_id:
+                orders = picking.group_id.sale_id
+            picking.transit_sale_order_ids = orders
+
+    # -------------------------------------------------------------------------
+    # CORRECCIÓN DEL ERROR DE CONSOLIDACIÓN (Validación de múltiples SO)
+    # -------------------------------------------------------------------------
+    @api.depends('move_ids.sale_line_id', 'group_id')
+    def _compute_sale_id(self):
+        """
+        Sobrescribimos este método nativo de 'sale_stock'.
+        El original falla cuando hay múltiples Órdenes de Venta.
+        Aquí asignamos el PRIMERO al campo nativo (para evitar el crash)
+        mientras que el campo nuevo 'transit_sale_order_ids' guarda TODOS.
+        """
+        for picking in self:
+            sale_orders = picking.move_ids.sale_line_id.order_id
+            
+            if not sale_orders and picking.group_id:
+                sale_orders = picking.group_id.sale_id
+
+            if not sale_orders:
+                picking.sale_id = False
+            elif len(sale_orders) == 1:
+                picking.sale_id = sale_orders.id
+            else:
+                # CASO CONSOLIDACIÓN:
+                # El campo nativo sale_id es Many2one (solo acepta 1).
+                # Tomamos el primero [0] para satisfacer al sistema y evitar el ValueError.
+                # La referencia completa queda en 'transit_sale_order_ids'.
+                picking.sale_id = sale_orders[0].id
+
+    # -------------------------------------------------------------------------
+
     def _compute_transit_count(self):
         for pick in self:
             pick.transit_count = len(pick.transit_voyage_ids)

@@ -17,8 +17,13 @@
                 </button>
             </div>
 
-            <!-- Campos de información de Tránsito (Solo visibles en Recepciones) -->
+            <!-- Campos de información de Tránsito -->
             <xpath expr="//field[@name='origin']" position="after">
+                <field name="transit_sale_order_ids" 
+                       widget="many2many_tags" 
+                       invisible="picking_type_code != 'incoming'"
+                       string="Pedidos (Consolidado)"/>
+                       
                 <field name="transit_container_number" 
                        invisible="picking_type_code != 'incoming'"
                        placeholder="Ej. MSKU1234567"/>
