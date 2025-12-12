@@ -3,11 +3,10 @@
     <record id="view_purchase_order_form_inherit_transit" model="ir.ui.view">
         <field name="name">purchase.order.form.inherit.transit</field>
         <field name="model">purchase.order</field>
-        <!-- CORRECCIÓN: El ID correcto es purchase.purchase_order_form -->
         <field name="inherit_id" ref="purchase.purchase_order_form"/>
         <field name="arch" type="xml">
-            <!-- CORRECCIÓN: Usamos 'tree' en vez de 'list' para asegurar compatibilidad -->
-            <xpath expr="//field[@name='order_line']/tree/field[@name='name']" position="after">
+            <!-- CORRECCIÓN: En Odoo 19 usamos 'list' en lugar de 'tree' para purchase.order -->
+            <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="sale_line_id" string="Ref. Venta (Origen)" optional="show" readonly="1"/>
             </xpath>
             
