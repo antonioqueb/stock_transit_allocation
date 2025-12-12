@@ -126,4 +126,39 @@
             </kanban>
         </field>
     </record>
+
+    <!-- ========================================================== -->
+    <!-- 4. ACCIONES Y MENÚS (NUEVO)                               -->
+    <!-- ========================================================== -->
+
+    <!-- Acción de Ventana Principal -->
+    <record id="action_stock_transit_voyage_main" model="ir.actions.act_window">
+        <field name="name">Torre de Control</field>
+        <field name="res_model">stock.transit.voyage</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Cree el primer registro de Tránsito Marítimo
+            </p>
+            <p>
+                Gestione contenedores, fechas de arribo (ETA) y asignación de mercancía en tránsito.
+            </p>
+        </field>
+    </record>
+
+    <!-- Menú Raíz (Aparecerá en el dashboard principal de Odoo) -->
+    <!-- Nota: web_icon asume que tienes una imagen en /static/description/icon.png -->
+    <menuitem id="menu_transit_root"
+              name="Torre de Control"
+              web_icon="stock_transit_allocation,static/description/icon.png"
+              sequence="10"
+              groups="stock_transit_allocation.group_transit_user"/>
+
+    <!-- Submenú Principal -->
+    <menuitem id="menu_transit_voyage_dashboard"
+              name="Tablero de Viajes"
+              parent="menu_transit_root"
+              action="action_stock_transit_voyage_main"
+              sequence="1"/>
+
 </odoo>
