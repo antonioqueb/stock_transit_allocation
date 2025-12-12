@@ -4,7 +4,7 @@
     <!-- VISTAS DEL MODELO STOCK.TRANSIT.VOYAGE (VIAJES)           -->
     <!-- ========================================================== -->
     
-    <!-- 1. VISTA DE LISTA (VIAJES) -->
+    <!-- 1. VISTA DE LISTA (VIAJES / CONTENEDORES) -->
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
@@ -58,6 +58,7 @@
 
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
+                            <!-- Aquí SÍ mostramos placa por placa para gestión detallada -->
                             <field name="line_ids">
                                 <list create="0" delete="0" decoration-success="allocation_status == 'reserved'" editable="bottom">
                                     <field name="container_number" optional="show"/> 
@@ -133,15 +134,15 @@
     </record>
 
     <!-- ========================================================== -->
-    <!-- NUEVA VISTA: SÁBANA DE SEGUIMIENTO (EXCEL REPLICATION)    -->
-    <!-- Apunta a stock.transit.line para desglose detallado       -->
+    <!-- NUEVA VISTA: SÁBANA DE SEGUIMIENTO (AGRUPADO / EXCEL)     -->
+    <!-- Apunta a stock.transit.sheet (Vista SQL) para sumar M2    -->
     <!-- ========================================================== -->
 
-    <record id="view_transit_line_tracking_list" model="ir.ui.view">
-        <field name="name">stock.transit.line.tracking.list</field>
-        <field name="model">stock.transit.line</field>
+    <record id="view_transit_sheet_list" model="ir.ui.view">
+        <field name="name">stock.transit.sheet.list</field>
+        <field name="model">stock.transit.sheet</field> <!-- Importante: Modelo SQL -->
         <field name="arch" type="xml">
-            <list string="Sábana de Seguimiento" create="0" delete="0" edit="1" editable="bottom"
+            <list string="Sábana de Seguimiento" create="0" delete="0" edit="0"
                   decoration-success="voyage_status == 'delivered'"
                   decoration-info="voyage_status == 'on_sea'"
                   decoration-warning="voyage_status == 'production'">
@@ -151,8 +152,8 @@
                 <field name="date_order" string="FECHA OC" widget="date" optional="show"/>
                 
                 <!-- 2. STATUS / VENDEDOR -->
-                <field name="voyage_status" string="Status"/>
-                <field name="salesperson_id" string="Vendedor" widget="many2one_avatar_user"/>
+                <field name="voyage_status" widget="badge" decoration-warning="voyage_status=='production'" decoration-info="voyage_status=='on_sea'"/>
+                <field name="salesperson_id" widget="many2one_avatar_user"/>
                 
                 <!-- 3. SALES ORDER / CLIENTE -->
                 <field name="order_id" string="SALES ORDER"/>
@@ -161,49 +162,42 @@
                 <!-- 4. INFO PROVEEDOR -->
                 <field name="proforma_ref" string="Proforma"/>
                 <field name="vendor_id" string="Proveedor"/>
-                <field name="vendor_country_id" string="País" optional="hide"/>
-                <field name="transit_days" string="Tiempo Tránsito"/>
+                <field name="transit_days" string="Días T." optional="hide"/>
                 
                 <!-- 5. METRAJES -->
-                <field name="qty_proforma" string="Metraje Proforma" optional="hide"/>
-                <field name="qty_original_demand" string="Metraje Pedido Orig." optional="hide"/>
+                <field name="qty_proforma" string="Metraje Prof." optional="hide"/>
+                <field name="qty_original_demand" string="Metraje Orig." optional="hide"/>
                 
-                <!-- 6. PRODUCTO -->
+                <!-- 6. PRODUCTO (RESUMEN AGRUPADO) -->
                 <field name="product_id" string="Descripción"/>
-                <field name="product_uom_qty" string="M2 Embarcados" sum="Total M2"/>
-                <field name="price_unit" string="Precio / M2"/>
-                <field name="currency_id" string="Moneda" invisible="1"/>
+                <!-- AQUÍ ESTÁ LA SUMA TOTAL DE M2 DEL PRODUCTO -->
+                <field name="product_uom_qty" string="M2 Embarcados" sum="Total"/>
                 
                 <!-- 7. LOGÍSTICA -->
-                <field name="container_number" string="Contenedor"/>
-                <field name="shipping_line" string="Naviera"/>
-                <field name="bl_number" string="Factura de Carga"/>
+                <field name="container_number"/>
+                <field name="shipping_line"/>
+                <field name="bl_number"/>
                 
                 <!-- 8. FECHAS -->
-                <field name="write_date" string="Última Revisión" widget="date" optional="hide"/>
-                <field name="etd" string="ETD"/>
-                <field name="eta" string="ETA"/>
-                <field name="arrival_date" string="Llegada Real" optional="show"/>
-                
-                <!-- 9. COMENTARIOS -->
-                <field name="notes" string="COMENTARIOS" placeholder="Escriba notas..."/>
-                
-                <!-- Acciones -->
-                <button name="action_reassign_wizard" icon="fa-refresh" title="Reasignar" type="object"/>
+                <field name="etd"/>
+                <field name="eta"/>
+                <field name="arrival_date" optional="show"/>
             </list>
         </field>
     </record>
 
-    <!-- ACCIÓN: Sábana de Seguimiento (Lista Detallada) -->
+    <!-- ACCIÓN: Sábana de Seguimiento (Apunta al Reporte SQL) -->
     <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
         <field name="name">Sábana de Seguimiento</field>
-        <field name="res_model">stock.transit.line</field>
-        <field name="view_mode">list,form</field>
-        <field name="view_id" ref="view_transit_line_tracking_list"/>
-        <!-- CORRECCIÓN: Se eliminó la línea <field name="search_view_id" ... /> que causaba el error -->
+        <field name="res_model">stock.transit.sheet</field> <!-- Apunta al modelo de reporte -->
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_transit_sheet_list"/>
         <field name="help" type="html">
             <p class="o_view_nocontent_smiling_face">
-                Aquí verá el seguimiento detallado tipo Excel.
+                Sábana de seguimiento de importaciones.
+            </p>
+            <p>
+                Esta vista agrupa automáticamente los materiales por Producto, Pedido y Contenedor.
             </p>
         </field>
     </record>
@@ -230,7 +224,7 @@
               sequence="10"
               groups="stock_transit_allocation.group_transit_user"/>
 
-    <!-- 1. Menú "Sábana" (Vista Excel) - PRIORIDAD 1 -->
+    <!-- 1. Menú "Sábana" (Vista Excel Agrupada) - PRIORIDAD 1 -->
     <menuitem id="menu_transit_sheet"
               name="Sábana de Seguimiento"
               parent="menu_transit_root"
