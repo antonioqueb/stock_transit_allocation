@@ -14,7 +14,7 @@ class ToBePurchasedLogic(models.AbstractModel):
             ('display_type', '=', False)
         ])
         
-        # Filtramos las pendientes de entrega en Python para evitar el error de comparación SQL
+        # Filtramos las pendientes de entrega
         sale_lines = all_sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
         
         product_ids = sale_lines.mapped('product_id.id')
@@ -28,12 +28,12 @@ class ToBePurchasedLogic(models.AbstractModel):
             # A: Disponible (Ubicaciones Internas)
             qty_a = sum(quants.filtered(lambda q: q.location_id.usage == 'internal').mapped('quantity'))
             
-            # I: En tránsito (Ubicaciones tipo transit)
+            # I: En tránsito
             qty_i = sum(quants.filtered(lambda q: q.location_id.usage == 'transit' or 
                                                'transit' in q.location_id.name.lower() or 
                                                'tránsito' in q.location_id.name.lower()).mapped('quantity'))
             
-            # P: En órdenes de compra abiertas (Cant. Pedida - Cant. Recibida)
+            # P: En órdenes de compra abiertas
             all_po_lines = self.env['purchase.order.line'].search([
                 ('product_id', '=', product.id),
                 ('state', 'in', ['draft', 'sent', 'purchase'])
@@ -50,7 +50,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                 pending = sol.product_uom_qty - sol.qty_delivered
                 total_demanded += pending
                 
-                # Buscar si ya existe una PO vinculada a esta línea
                 linked_po_line = self.env['purchase.order.line'].search([('sale_line_id', '=', sol.id)], limit=1)
                 
                 so_details.append({
@@ -69,8 +68,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'po_qty': linked_po_line.product_qty if linked_po_line else 0,
                 })
 
-            # Uso de 'type' en lugar de 'detailed_type' para Odoo 19
-            # Y acceso seguro al proveedor
             vendor_name = 'SIN PROVEEDOR'
             if product.seller_ids:
                 vendor_name = product.seller_ids[0].partner_id.name
@@ -78,7 +75,7 @@ class ToBePurchasedLogic(models.AbstractModel):
             result.append({
                 'id': product.id,
                 'name': product.display_name,
-                'type': product.type, 
+                'type': product.type,
                 'group': getattr(product, 'x_grupo', 'N/A'),
                 'category': product.categ_id.name,
                 'vendor': vendor_name,
@@ -120,8 +117,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'order_id': po.id,
                     'product_id': l.product_id.id,
                     'product_qty': l.product_uom_qty - l.qty_delivered,
-                    # --- CORRECCIÓN AQUÍ: Usar product_uom_id ---
-                    'product_uom_id': l.product_uom_id.id, 
+                    'product_uom_id': l.product_uom_id.id,
                     'price_unit': l.product_id.standard_price,
                     'sale_line_id': l.id,
                     'name': l.name,
@@ -129,11 +125,14 @@ class ToBePurchasedLogic(models.AbstractModel):
                 })
             po_ids.append(po.id)
             
+        # CORRECCIÓN PARA EL WEB CLIENT (Odoo 19)
+        # Se agrega explícitamente el campo 'views' para evitar el TypeError: views.map
         return {
             'name': 'Órdenes de Compra Generadas',
             'type': 'ir.actions.act_window',
             'res_model': 'purchase.order',
             'view_mode': 'list,form',
+            'views': [[False, 'list'], [False, 'form']], # <-- CLAVE DE LA SOLUCIÓN
             'domain': [('id', 'in', po_ids)],
             'target': 'current',
         }
