@@ -20,7 +20,11 @@ export class ToBePurchased extends Component {
     }
 
     async loadData() {
-        this.state.data = await this.orm.call("purchase.manager.logic", "get_data", []);
+        try {
+            this.state.data = await this.orm.call("purchase.manager.logic", "get_data", []);
+        } catch (error) {
+            console.error("Error al cargar datos:", error);
+        }
     }
 
     toggleExpand(productId) {
@@ -41,6 +45,7 @@ export class ToBePurchased extends Component {
         try {
             const resultAction = await this.orm.call("purchase.manager.logic", "create_purchase_orders", [this.state.selectedLines]);
             this.notification.add("Órdenes de Compra generadas correctamente", { type: "success" });
+            this.state.selectedLines = []; // Limpiar selección
             this.action.doAction(resultAction);
         } catch (error) {
             this.notification.add("Error al generar compras: " + error.message, { type: "danger" });
@@ -48,6 +53,6 @@ export class ToBePurchased extends Component {
     }
 }
 
-// IMPORTANTE: El nombre del template debe coincidir con el XML
+// CORRECCIÓN CRÍTICA: El nombre aquí debe coincidir con el XML
 ToBePurchased.template = "stock_transit_allocation.ToBePurchased"; 
 registry.category("actions").add("action_to_be_purchased", ToBePurchased);
