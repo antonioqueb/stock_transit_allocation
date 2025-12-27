@@ -7,14 +7,43 @@
                 <h5 class="fw-bold text-primary mb-0">
                     <i class="fa fa-industry me-2"/>To Be Purchased
                 </h5>
-                <div class="d-flex gap-2">
-                    <button class="btn btn-sm btn-outline-secondary" t-on-click="loadData">
-                        <i class="fa fa-refresh"/>
-                    </button>
-                    <button class="btn btn-sm btn-primary" t-on-click="openPurchaseModal" t-att-disabled="state.selectedLines.length === 0">
-                        <i class="fa fa-cart-plus me-1"/> Generar OC (<t t-esc="state.selectedLines.length"/>)
+                <button class="btn btn-sm btn-primary" t-on-click="openPurchaseModal" t-att-disabled="state.selectedLines.length === 0">
+                    <i class="fa fa-cart-plus me-1"/> Generar OC (<t t-esc="state.selectedLines.length"/>)
+                </button>
+            </div>
+
+            <!-- BARRA DE FILTROS -->
+            <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
+                <!-- Búsqueda por producto -->
+                <div class="input-group input-group-sm" style="max-width: 300px;">
+                    <span class="input-group-text bg-white">
+                        <i class="fa fa-search text-muted"/>
+                    </span>
+                    <input type="text" 
+                           class="form-control" 
+                           placeholder="Buscar producto..."
+                           t-att-value="state.searchQuery"
+                           t-on-input="onSearchInput"/>
+                    <button class="btn btn-outline-secondary" 
+                            type="button" 
+                            t-on-click="clearSearch"
+                            t-att-disabled="!state.searchQuery">
+                        <i class="fa fa-times"/>
                     </button>
                 </div>
+
+                <!-- Toggle Solo Pendientes -->
+                <button t-attf-class="btn btn-sm #{state.showOnlyPending ? 'btn-warning' : 'btn-outline-secondary'}"
+                        t-on-click="togglePendingFilter">
+                    <i t-attf-class="fa #{state.showOnlyPending ? 'fa-filter' : 'fa-list'} me-1"/>
+                    <t t-if="state.showOnlyPending">Solo Pendientes</t>
+                    <t t-else="">Mostrar Todo</t>
+                </button>
+
+                <!-- Contador de resultados -->
+                <span class="text-muted small ms-auto">
+                    <t t-esc="state.filteredData.length"/> producto(s)
+                </span>
             </div>
 
             <!-- TABLA PRINCIPAL -->
@@ -37,7 +66,15 @@
                         </tr>
                     </thead>
                     <tbody>
-                        <t t-foreach="state.data" t-as="product" t-key="product.id">
+                        <t t-if="state.filteredData.length === 0">
+                            <tr>
+                                <td colspan="12" class="text-center text-muted py-4">
+                                    <i class="fa fa-check-circle fa-2x mb-2 d-block text-success"/>
+                                    No hay productos pendientes por comprar
+                                </td>
+                            </tr>
+                        </t>
+                        <t t-foreach="state.filteredData" t-as="product" t-key="product.id">
                             <!-- Fila de Producto -->
                             <tr class="table-light" t-on-click="() => this.toggleExpand(product.id)" style="cursor: pointer;">
                                 <td class="text-center p-1">

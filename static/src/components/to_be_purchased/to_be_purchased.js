@@ -10,8 +10,12 @@ export class ToBePurchased extends Component {
         this.notification = useService("notification");
         this.state = useState({
             data: [],
+            filteredData: [],
             expanded: {},
             selectedLines: [],
+            // Filtros
+            searchQuery: "",
+            showOnlyPending: true, // Por defecto solo pendientes
             // Modal state
             showModal: false,
             allVendors: [],
@@ -30,6 +34,7 @@ export class ToBePurchased extends Component {
     async loadData() {
         try {
             this.state.data = await this.orm.call("purchase.manager.logic", "get_data", []);
+            this.applyFilters();
         } catch (error) {
             console.error("Error al cargar datos:", error);
         }
@@ -41,6 +46,47 @@ export class ToBePurchased extends Component {
         } catch (error) {
             console.error("Error al cargar proveedores:", error);
         }
+    }
+
+    applyFilters() {
+        let result = [...this.state.data];
+        
+        // Filtro por búsqueda de producto
+        if (this.state.searchQuery.trim()) {
+            const query = this.state.searchQuery.toLowerCase().trim();
+            result = result.filter(p => p.name.toLowerCase().includes(query));
+        }
+        
+        // Filtro solo pendientes (sin OC)
+        if (this.state.showOnlyPending) {
+            result = result.map(product => {
+                const filteredLines = product.so_lines.filter(line => !line.po_id);
+                if (filteredLines.length === 0) return null;
+                return {
+                    ...product,
+                    so_lines: filteredLines,
+                    qty_so: filteredLines.reduce((sum, l) => sum + l.qty_pending, 0),
+                    qty_to_buy: Math.max(0, filteredLines.reduce((sum, l) => sum + l.qty_pending, 0) - (product.qty_a + product.qty_i + product.qty_p))
+                };
+            }).filter(p => p !== null);
+        }
+        
+        this.state.filteredData = result;
+    }
+
+    onSearchInput(ev) {
+        this.state.searchQuery = ev.target.value;
+        this.applyFilters();
+    }
+
+    togglePendingFilter() {
+        this.state.showOnlyPending = !this.state.showOnlyPending;
+        this.applyFilters();
+    }
+
+    clearSearch() {
+        this.state.searchQuery = "";
+        this.applyFilters();
     }
 
     toggleExpand(productId) {
@@ -55,7 +101,6 @@ export class ToBePurchased extends Component {
         }
     }
 
-    // Abrir modal de selección
     openPurchaseModal() {
         if (this.state.selectedLines.length === 0) {
             this.notification.add("Seleccione al menos una línea", { type: "warning" });
@@ -124,7 +169,6 @@ export class ToBePurchased extends Component {
         }
     }
 
-    // Navegar a la OC
     async openPurchaseOrder(poId, ev) {
         ev.stopPropagation();
         if (!poId) return;
@@ -138,7 +182,6 @@ export class ToBePurchased extends Component {
         });
     }
 
-    // Navegar a la SO
     async openSaleOrder(soId, ev) {
         ev.stopPropagation();
         if (!soId) return;
