@@ -87,7 +87,7 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
                 new_qty = po_line.product_qty + total_qty
                 po_line.write({'product_qty': new_qty})
             else:
-                uom_id = product.uom_po_id.id if product.uom_po_id else product.uom_id.id
+                uom_id = product.uom_id.id
                 so_refs = list(set([d['sale_line'].order_id.name for d in sale_line_data]))
                 
                 po_line = self.env['purchase.order.line'].create({
