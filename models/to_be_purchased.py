@@ -44,7 +44,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                 pending = sol.product_uom_qty - sol.qty_delivered
                 total_demanded += pending
                 
-                # Buscar allocation vinculada (nuevo sistema)
                 allocation = self.env['purchase.order.line.allocation'].search([
                     ('sale_line_id', '=', sol.id),
                     ('state', 'not in', ['cancelled', 'done'])
@@ -115,12 +114,10 @@ class ToBePurchasedLogic(models.AbstractModel):
     def get_open_purchase_orders(self, vendor_id):
         if not vendor_id:
             return []
-        
         pos = self.env['purchase.order'].search([
             ('partner_id', '=', vendor_id),
             ('state', 'in', ['draft', 'sent'])
         ], order='create_date desc')
-        
         return [{
             'id': po.id,
             'name': po.name,
@@ -136,20 +133,15 @@ class ToBePurchasedLogic(models.AbstractModel):
             ('supplier_rank', '>', 0),
             ('active', '=', True)
         ], order='name')
-        
         return [{'id': p.id, 'name': p.name} for p in partners]
 
     @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
-        """CONSOLIDACIÓN: Una línea por producto, múltiples allocations por cliente."""
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids)
-        
         if not sale_lines:
             return {'error': 'No hay líneas seleccionadas'}
-
         if not vendor_id:
             return {'error': 'Debe seleccionar un proveedor'}
-
         vendor = self.env['res.partner'].browse(vendor_id)
         if not vendor.exists():
             return {'error': 'Proveedor no encontrado'}
@@ -158,7 +150,6 @@ class ToBePurchasedLogic(models.AbstractModel):
             po = self.env['purchase.order'].browse(existing_po_id)
             if not po.exists() or po.state not in ['draft', 'sent']:
                 return {'error': 'La orden de compra no existe o ya fue confirmada'}
-            
             new_origins = sale_lines.mapped('order_id.name')
             current_origin = po.origin or ''
             for name in new_origins:
@@ -172,7 +163,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'company_id': self.env.company.id,
             })
         
-        # CONSOLIDACIÓN POR PRODUCTO
         lines_by_product = defaultdict(list)
         for line in sale_lines:
             qty_pending = line.product_uom_qty - line.qty_delivered
@@ -185,7 +175,6 @@ class ToBePurchasedLogic(models.AbstractModel):
         for product_id, sale_line_data in lines_by_product.items():
             product = self.env['product.product'].browse(product_id)
             total_qty = sum(d['qty_pending'] for d in sale_line_data)
-            
             existing_po_line = po.order_line.filtered(lambda l: l.product_id.id == product_id)
             
             if existing_po_line:
@@ -193,9 +182,11 @@ class ToBePurchasedLogic(models.AbstractModel):
                 new_qty = po_line.product_qty + total_qty
                 po_line.write({'product_qty': new_qty})
             else:
-                uom_id = product.uom_po_id.id if product.uom_po_id else product.uom_id.id
-                so_refs = ', '.join([d['sale_line'].order_id.name for d in sale_line_data])
+                # FIX: Acceso seguro a la UdM de compra
+                product_tmpl = product.product_tmpl_id
+                uom_id = product_tmpl.uom_po_id.id if product_tmpl.uom_po_id else product_tmpl.uom_id.id
                 
+                so_refs = ', '.join([d['sale_line'].order_id.name for d in sale_line_data])
                 po_line = self.env['purchase.order.line'].create({
                     'order_id': po.id,
                     'product_id': product_id,
@@ -206,7 +197,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'date_planned': fields.Datetime.now(),
                 })
             
-            # Crear ALLOCATIONS para cada línea de venta
             for data in sale_line_data:
                 self.env['purchase.order.line.allocation'].create({
                     'purchase_line_id': po_line.id,
