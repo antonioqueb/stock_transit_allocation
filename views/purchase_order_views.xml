@@ -82,12 +82,10 @@
                 <filter name="pending" string="Pendientes" domain="[('state', '=', 'pending')]"/>
                 <filter name="in_transit" string="En Tránsito" domain="[('state', '=', 'in_transit')]"/>
                 <filter name="done" string="Recibidas" domain="[('state', '=', 'done')]"/>
-                <group expand="0" string="Agrupar por">
                     <filter name="group_by_purchase" string="Orden de Compra" context="{'group_by': 'purchase_order_id'}"/>
                     <filter name="group_by_sale" string="Orden de Venta" context="{'group_by': 'sale_order_id'}"/>
                     <filter name="group_by_partner" string="Cliente" context="{'group_by': 'partner_id'}"/>
                     <filter name="group_by_state" string="Estado" context="{'group_by': 'state'}"/>
-                </group>
             </search>
         </field>
     </record>
