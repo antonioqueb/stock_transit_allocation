@@ -7,12 +7,16 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def get_data(self):
-        # 1. Buscar líneas de venta que tengan el check "Mandar Pedir" y no estén entregadas
-        sale_lines = self.env['sale.order.line'].search([
+        # 1. Buscar líneas de venta que tengan el check "Mandar Pedir"
+        # Usamos filtered en lugar de search para comparar campos entre sí
+        all_sale_lines = self.env['sale.order.line'].search([
             ('auto_transit_assign', '=', True),
             ('state', '=', 'sale'),
-            ('qty_delivered', '<', ('product_uom_qty'))
+            ('display_type', '=', False) # Evitar secciones y notas
         ])
+        
+        # Filtramos en Python las que aún tienen cantidades pendientes de entrega
+        sale_lines = all_sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
         
         product_ids = sale_lines.mapped('product_id.id')
         products = self.env['product.product'].browse(product_ids)
@@ -20,19 +24,23 @@ class ToBePurchasedLogic(models.AbstractModel):
         result = []
         for product in products:
             # Cálculos de stock (A, I, P)
-            # A: Disponible (Internal)
-            # I: En tránsito (Locations tipo transit)
-            # P: En PO abierta (Purchase line qty - received)
             quants = self.env['stock.quant'].search([('product_id', '=', product.id)])
-            qty_a = sum(quants.filtered(lambda q: q.location_id.usage == 'internal').mapped('quantity'))
-            qty_i = sum(quants.filtered(lambda q: 'transit' in q.location_id.name.lower() or 'tránsito' in q.location_id.name.lower()).mapped('quantity'))
             
-            # Cantidad en órdenes de compra (P)
-            po_lines_open = self.env['purchase.order.line'].search([
+            # A: Disponible (Internal)
+            qty_a = sum(quants.filtered(lambda q: q.location_id.usage == 'internal').mapped('quantity'))
+            
+            # I: En tránsito (Ubicaciones tipo transit o con nombre Tránsito)
+            qty_i = sum(quants.filtered(lambda q: q.location_id.usage == 'transit' or 
+                                               'transit' in q.location_id.name.lower() or 
+                                               'tránsito' in q.location_id.name.lower()).mapped('quantity'))
+            
+            # P: En órdenes de compra abiertas (Cant. Pedida - Cant. Recibida)
+            all_po_lines = self.env['purchase.order.line'].search([
                 ('product_id', '=', product.id),
-                ('state', 'in', ['draft', 'sent', 'purchase']),
-                ('qty_received', '<', ('product_qty'))
+                ('state', 'in', ['draft', 'sent', 'purchase'])
             ])
+            # Filtramos las que tienen pendiente por recibir
+            po_lines_open = all_po_lines.filtered(lambda pol: pol.product_qty > pol.qty_received)
             qty_p = sum(po_lines_open.mapped('product_qty')) - sum(po_lines_open.mapped('qty_received'))
 
             # Detalle de Pedidos (SO)
@@ -56,7 +64,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'location': sol.order_id.partner_shipping_id.city or '',
                     'description': sol.name or '',
                     'qty_orig': sol.product_uom_qty,
-                    'qty_assigned': sol.qty_delivered, # O lógica de reserva según tu proceso
+                    'qty_assigned': sol.qty_delivered,
                     'qty_pending': pending,
                     'note': sol.order_id.note or '',
                     'po_name': linked_po_line.order_id.name if linked_po_line else '',
@@ -67,7 +75,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'id': product.id,
                 'name': product.display_name,
                 'type': product.detailed_type,
-                'group': getattr(product, 'x_grupo', 'N/A'), # Asumiendo campo de stock_lot_dimensions
+                'group': getattr(product, 'x_grupo', 'N/A'),
                 'category': product.categ_id.name,
                 'vendor': product.seller_ids[0].partner_id.name if product.seller_ids else 'SIN PROVEEDOR',
                 'qty_a': qty_a,
@@ -82,15 +90,10 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def create_purchase_orders(self, selected_line_ids):
-        """
-        Crea Órdenes de Compra agrupadas por proveedor desde las líneas de SO.
-        CORRECCIÓN: Valida proveedores individuales por producto.
-        """
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids)
         vendor_map = {}
         
         for line in sale_lines:
-            # Obtener el proveedor preferido del producto
             seller = line.product_id._select_seller(quantity=line.product_uom_qty)
             vendor = seller.partner_id if seller else False
             
@@ -115,7 +118,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'product_qty': l.product_uom_qty - l.qty_delivered,
                     'product_uom': l.product_uom.id,
                     'price_unit': l.product_id.standard_price,
-                    'sale_line_id': l.id, # Vínculo para Tránsito (Control Tower)
+                    'sale_line_id': l.id,
                     'name': l.name,
                     'date_planned': fields.Datetime.now(),
                 })
