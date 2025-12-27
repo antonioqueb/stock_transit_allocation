@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.3.1.0',
+    'version': '19.0.4.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
         
-        Novedades v3.0:
-        - PROTECCIÓN DE VENTAS: Se evita que productos agregados manualmente a la Compra/Recepción
-          se agreguen automáticamente a la Orden de Venta.
-        - Corrección de errores en validación de Holds (Quant perdido).
-        - Validación estricta de asignación.
+        Novedades v4.0:
+        - CONSOLIDACIÓN DE LÍNEAS: Una sola línea por producto en la OC.
+        - ALLOCATIONS: Modelo intermedio para trackear qué cantidad va a cada cliente.
+        - Reasignación en tránsito funcionando con allocations.
+        - Vista de asignaciones en la orden de compra.
     """,
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
@@ -27,7 +27,6 @@
         'views/to_be_purchased_views.xml', 
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
-
     ],
     'assets': {
         'web.assets_backend': [
@@ -36,7 +35,6 @@
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
-
         ],
     },
     'installable': True,

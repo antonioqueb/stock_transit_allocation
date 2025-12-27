@@ -16,16 +16,15 @@ class StockTransitVoyage(models.Model):
         ('on_sea', 'En Altamar / Mar'),
         ('at_port', 'En Puerto'),
         ('delivered', 'Entregado'),
-    ], string='Status (Manual)', default='production', tracking=True, 
-       help="Estatus operativo similar al Excel de seguimiento.")
+    ], string='Status (Manual)', default='production', tracking=True)
     
-    shipping_line = fields.Char(string='Naviera', tracking=True, help="Ej. MSC, Maersk, CMA CGM")
-    transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)', help="Días estimados desde origen a destino")
+    shipping_line = fields.Char(string='Naviera', tracking=True)
+    transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)')
     
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     container_number = fields.Char(string='Contenedor(es)', tracking=True)
-    bl_number = fields.Char(string='Folio Compra / BL', tracking=True, help="Referencia de la Compra o BL Marítimo")
+    bl_number = fields.Char(string='Folio Compra / BL', tracking=True)
     
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', required=True, tracking=True)
@@ -98,6 +97,13 @@ class StockTransitVoyage(models.Model):
 
     def action_confirm_transit(self):
         self.write({'state': 'in_transit', 'custom_status': 'on_sea'})
+        
+        if self.picking_id and self.picking_id.purchase_id:
+            allocations = self.env['purchase.order.line.allocation'].search([
+                ('purchase_order_id', '=', self.picking_id.purchase_id.id),
+                ('state', '=', 'pending')
+            ])
+            allocations.action_mark_in_transit()
 
     def action_arrive(self):
         self.write({
@@ -105,10 +111,16 @@ class StockTransitVoyage(models.Model):
             'arrival_date': fields.Date.today(),
             'custom_status': 'delivered'
         })
+        
+        # Marcar allocations como recibidas
+        for line in self.line_ids:
+            if line.allocation_id and line.allocation_id.state != 'done':
+                line.allocation_id.action_mark_received(line.product_uom_qty)
 
     def action_load_from_picking(self):
         """
-        LÓGICA ACTUALIZADA: Búsqueda robusta de Quants y Generación Agrupada de Reservas.
+        Usa allocations para determinar asignaciones.
+        DISTRIBUCIÓN INTELIGENTE: Asigna lotes a diferentes clientes según sus allocations.
         """
         self.ensure_one()
         if not self.picking_id:
@@ -121,6 +133,23 @@ class StockTransitVoyage(models.Model):
         from .utils.transit_manager import TransitManager
 
         containers_found = set()
+        
+        # Obtener allocations de la OC agrupadas por producto
+        purchase = self.picking_id.purchase_id
+        allocations_map = {}  # {product_id: [allocations ordenadas]}
+        allocation_consumed = {}  # {allocation_id: qty_ya_asignada_en_esta_carga}
+        
+        if purchase:
+            allocations = self.env['purchase.order.line.allocation'].search([
+                ('purchase_order_id', '=', purchase.id),
+                ('state', 'not in', ['done', 'cancelled'])
+            ], order='id asc')  # Ordenar por ID para consistencia FIFO
+            
+            for alloc in allocations:
+                if alloc.product_id.id not in allocations_map:
+                    allocations_map[alloc.product_id.id] = []
+                allocations_map[alloc.product_id.id].append(alloc)
+                allocation_consumed[alloc.id] = 0.0
 
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
@@ -128,34 +157,47 @@ class StockTransitVoyage(models.Model):
             
             partner_to_assign = False
             order_to_assign = False
+            allocation_to_use = False
             
-            move = move_line.move_id
+            product_id = move_line.product_id.id
+            qty_done = move_line.qty_done or move_line.reserved_uom_qty
             
-            # --- INICIO DETECCIÓN INTELIGENTE ---
-            sale_line = False
-            if getattr(move, 'sale_line_id', False):
-                sale_line = move.sale_line_id
-            elif move.purchase_line_id and getattr(move.purchase_line_id, 'sale_line_id', False):
-                sale_line = move.purchase_line_id.sale_line_id
+            # =====================================================================
+            # DISTRIBUCIÓN INTELIGENTE DE ALLOCATIONS
+            # =====================================================================
+            if product_id in allocations_map:
+                for alloc in allocations_map[product_id]:
+                    # Calcular cuánto queda disponible en esta allocation
+                    already_received = alloc.qty_received
+                    consumed_this_load = allocation_consumed.get(alloc.id, 0.0)
+                    total_consumed = already_received + consumed_this_load
+                    remaining = alloc.quantity - total_consumed
+                    
+                    if remaining > 0:
+                        # Esta allocation tiene capacidad
+                        allocation_to_use = alloc
+                        partner_to_assign = alloc.partner_id
+                        order_to_assign = alloc.sale_order_id
+                        
+                        # Verificar auto_transit_assign
+                        if alloc.sale_line_id:
+                            auto_assign = getattr(alloc.sale_line_id, 'auto_transit_assign', True)
+                            if not auto_assign:
+                                partner_to_assign = False
+                                order_to_assign = False
+                                allocation_to_use = False
+                                continue  # Probar siguiente allocation
+                        
+                        # Marcar como consumida para esta carga
+                        allocation_consumed[alloc.id] = consumed_this_load + qty_done
+                        break
+            # =====================================================================
 
-            if sale_line:
-                auto_assign = getattr(sale_line, 'auto_transit_assign', True)
-                if auto_assign and sale_line.order_id:
-                    order_to_assign = sale_line.order_id
-                    partner_to_assign = sale_line.order_id.partner_id
-            elif move.group_id and move.group_id.sale_id:
-                order_to_assign = move.group_id.sale_id
-                partner_to_assign = order_to_assign.partner_id
-            # --- FIN DETECCIÓN ---
-
-            # === CORRECCIÓN CRÍTICA: Búsqueda del Quant ===
-            # Buscamos EXACTAMENTE en la ubicación destino del movimiento.
-            # Esto evita fallos si la ubicación es de tipo 'Transit' o 'Internal'.
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
                 ('quantity', '>', 0),
-                ('location_id', '=', move_line.location_dest_id.id) # <--- CLAVE
+                ('location_id', '=', move_line.location_dest_id.id)
             ], limit=1)
 
             if move_line.lot_id.ref:
@@ -166,11 +208,12 @@ class StockTransitVoyage(models.Model):
                 'product_id': move_line.product_id.id,
                 'lot_id': move_line.lot_id.id,
                 'quant_id': found_quant.id if found_quant else False,
-                'product_uom_qty': move_line.qty_done or move_line.reserved_uom_qty,
+                'product_uom_qty': qty_done,
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'order_id': order_to_assign.id if order_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
                 'container_number': move_line.lot_id.ref,
+                'allocation_id': allocation_to_use.id if allocation_to_use else False,
             }
             transit_lines.append(line_vals)
         
@@ -182,11 +225,21 @@ class StockTransitVoyage(models.Model):
             if new_conts not in current_conts:
                 self.write({'container_number': new_conts[:50]})
 
-        # ---------------------------------------------------------
-        # NUEVA LÓGICA DE AGRUPACIÓN (SOLUCIÓN)
-        # ---------------------------------------------------------
-        
-        # 1. Agrupar líneas por (Cliente, Pedido)
+        # =====================================================================
+        # ACTUALIZAR qty_received EN ALLOCATIONS
+        # =====================================================================
+        for alloc_id, qty_consumed in allocation_consumed.items():
+            if qty_consumed > 0:
+                alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
+                new_received = alloc.qty_received + qty_consumed
+                if new_received >= alloc.quantity:
+                    alloc.write({'qty_received': alloc.quantity, 'state': 'in_transit'})
+                else:
+                    alloc.write({'qty_received': new_received, 'state': 'in_transit'})
+
+        # =====================================================================
+        # CREAR RESERVAS AGRUPADAS POR CLIENTE/PEDIDO
+        # =====================================================================
         lines_by_order = {}
         for line in created_lines:
             if line.partner_id and line.order_id:
@@ -195,10 +248,7 @@ class StockTransitVoyage(models.Model):
                     lines_by_order[key] = []
                 lines_by_order[key].append(line)
         
-        # 2. Procesar cada grupo generando UNA sola cabecera de Reserva
         for (partner, order), lines in lines_by_order.items():
-            
-            # A. Preparar datos de cabecera
             project_id = getattr(order, 'x_project_id', False)
             architect_id = getattr(order, 'x_architect_id', False)
             
@@ -206,7 +256,6 @@ class StockTransitVoyage(models.Model):
             if not currency:
                 currency = self.env.company.currency_id
 
-            # B. Crear la Orden de Reserva (Header)
             hold_order = self.env['stock.lot.hold.order'].create({
                 'partner_id': partner.id,
                 'user_id': self.env.user.id,
@@ -218,22 +267,14 @@ class StockTransitVoyage(models.Model):
                 'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
             })
 
-            # C. Agregar las líneas a esa cabecera
             for line in lines:
                 TransitManager.reassign_lot(
-                    self.env, 
-                    line, 
-                    partner, 
-                    order, 
-                    notes=False, # La nota ya está en la cabecera
-                    hold_order_obj=hold_order # <--- CLAVE: Pasamos la orden creada para que no cree nuevas
+                    self.env, line, partner, order, notes=False, hold_order_obj=hold_order
                 )
             
-            # D. Confirmar la Orden de Reserva globalmente
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()
             else:
-                # Si por alguna razón no se generaron líneas (ej. no había quants físicos), borramos la cabecera vacía
                 hold_order.unlink()
 
     def _expand_states(self, states, domain, order=None):

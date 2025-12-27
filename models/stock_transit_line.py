@@ -11,33 +11,34 @@ class StockTransitLine(models.Model):
     voyage_id = fields.Many2one('stock.transit.voyage', string='Viaje', required=True, ondelete='cascade')
     company_id = fields.Many2one(related='voyage_id.company_id', store=True)
     
-    # --- INFO DE CARGA ---
     product_id = fields.Many2one('product.product', string='Descripción / Producto', required=True)
     lot_id = fields.Many2one('stock.lot', string='Lote / Placa', required=True)
-    container_number = fields.Char(string='Contenedor', help="Contenedor específico")
+    container_number = fields.Char(string='Contenedor')
     quant_id = fields.Many2one('stock.quant', string='Quant Físico')
 
     x_grosor = fields.Float(related='lot_id.x_grosor', string='Grosor')
     x_alto = fields.Float(related='lot_id.x_alto', string='Alto')
     x_ancho = fields.Float(related='lot_id.x_ancho', string='Ancho')
     
-    # M2 Embarcados (Real)
     product_uom_qty = fields.Float(string='M2 Embarcados', digits='Product Unit of Measure')
     
-    # --- ASIGNACIÓN (VENTAS) ---
     partner_id = fields.Many2one('res.partner', string='Cliente / Proyecto', tracking=True, index=True)
     order_id = fields.Many2one('sale.order', string='Sales Order', 
         domain="[('partner_id', '=', partner_id), ('state', 'in', ['sale', 'done'])]",
-        tracking=True, help="Pedido específico del cliente.")
+        tracking=True)
+
+    # NUEVO: Referencia a la allocation original
+    allocation_id = fields.Many2one(
+        'purchase.order.line.allocation',
+        string='Asignación Origen',
+        help="Referencia a la asignación original de la línea de compra"
+    )
 
     allocation_status = fields.Selection([
         ('available', 'Disponible (Stock)'),
         ('reserved', 'Reservado / Vendido')
     ], string='Estado Asignación', default='available', required=True)
 
-    # --- CAMPOS PLANOS PARA VISTA "SÁBANA DE SEGUIMIENTO" (EXCEL) ---
-    
-    # 1. Datos de Compra (OC Sistema)
     purchase_id = fields.Many2one('purchase.order', related='voyage_id.picking_id.purchase_id', string='OC Sistema', store=True)
     date_order = fields.Datetime(related='purchase_id.date_order', string='Fecha OC', store=True)
     vendor_id = fields.Many2one('res.partner', related='purchase_id.partner_id', string='Proveedor', store=True)
@@ -46,15 +47,11 @@ class StockTransitLine(models.Model):
     currency_id = fields.Many2one('res.currency', related='purchase_id.currency_id', string='Moneda', store=True)
     
     price_unit = fields.Float(related='product_id.standard_price', string='Precio / M2 (Est.)')
-
-    # 2. Datos de Venta Extra
     salesperson_id = fields.Many2one('res.users', related='order_id.user_id', string='Vendedor', store=True)
     
-    # 3. Metrajes Teóricos
-    qty_proforma = fields.Float(string='Metraje Proforma', help="Cantidad total en la OC original", compute='_compute_po_so_qty', store=True)
-    qty_original_demand = fields.Float(string='Metraje Pedido Original', help="Cantidad original demandada en la SO", compute='_compute_po_so_qty', store=True)
+    qty_proforma = fields.Float(string='Metraje Proforma', compute='_compute_po_so_qty', store=True)
+    qty_original_demand = fields.Float(string='Metraje Pedido Original', compute='_compute_po_so_qty', store=True)
 
-    # 4. Datos de Logística (Viaje)
     voyage_status = fields.Selection(related='voyage_id.custom_status', string='Status', store=True)
     shipping_line = fields.Char(related='voyage_id.shipping_line', string='Naviera', store=True)
     bl_number = fields.Char(related='voyage_id.bl_number', string='Factura de Carga / BL', store=True)
@@ -63,21 +60,25 @@ class StockTransitLine(models.Model):
     eta = fields.Date(related='voyage_id.eta', string='ETA', store=True)
     arrival_date = fields.Date(related='voyage_id.arrival_date', string='Llegada Real', store=True)
     
-    # 5. Comentarios
-    notes = fields.Text(string='Comentarios', help="Notas libres de seguimiento")
+    notes = fields.Text(string='Comentarios')
 
-    @api.depends('purchase_id', 'order_id', 'product_id')
+    @api.depends('purchase_id', 'order_id', 'product_id', 'allocation_id')
     def _compute_po_so_qty(self):
         for line in self:
             po_qty = 0.0
-            if line.purchase_id:
-                po_lines = line.purchase_id.order_line.filtered(lambda l: l.product_id == line.product_id)
-                po_qty = sum(po_lines.mapped('product_qty'))
-            
             so_qty = 0.0
-            if line.order_id:
-                so_lines = line.order_id.order_line.filtered(lambda l: l.product_id == line.product_id)
-                so_qty = sum(so_lines.mapped('product_uom_qty'))
+            
+            if line.allocation_id:
+                po_qty = line.allocation_id.quantity
+                so_qty = line.allocation_id.quantity
+            else:
+                if line.purchase_id:
+                    po_lines = line.purchase_id.order_line.filtered(lambda l: l.product_id == line.product_id)
+                    po_qty = sum(po_lines.mapped('product_qty'))
+                
+                if line.order_id:
+                    so_lines = line.order_id.order_line.filtered(lambda l: l.product_id == line.product_id)
+                    so_qty = sum(so_lines.mapped('product_uom_qty'))
             
             line.qty_proforma = po_qty
             line.qty_original_demand = so_qty
@@ -106,18 +107,13 @@ class StockTransitLine(models.Model):
             }
         }
 
+
 class StockTransitSheet(models.Model):
-    """
-    Modelo de Reporte (Vista SQL) para la Sábana de Seguimiento.
-    Agrupa las líneas de tránsito por Producto y Pedido para mostrar totales
-    en lugar de placas individuales.
-    """
     _name = 'stock.transit.sheet'
     _description = 'Sábana de Seguimiento (Resumen)'
     _auto = False
     _order = 'eta asc, voyage_id desc'
 
-    # Claves de Agrupación
     voyage_id = fields.Many2one('stock.transit.voyage', string='Viaje', readonly=True)
     product_id = fields.Many2one('product.product', string='Descripción / Producto', readonly=True)
     order_id = fields.Many2one('sale.order', string='Sales Order', readonly=True)
@@ -146,7 +142,6 @@ class StockTransitSheet(models.Model):
     eta = fields.Date(string='ETA', readonly=True)
     arrival_date = fields.Date(string='Llegada Real', readonly=True)
     
-    # MÉTRICAS SUMADAS
     product_uom_qty = fields.Float(string='M2 Embarcados', readonly=True)
     qty_proforma = fields.Float(string='Metraje Proforma', readonly=True)
     qty_original_demand = fields.Float(string='Metraje Pedido Original', readonly=True)
@@ -154,7 +149,6 @@ class StockTransitSheet(models.Model):
     salesperson_id = fields.Many2one('res.users', string='Vendedor', readonly=True)
 
     def init(self):
-        """Creación de la Vista SQL"""
         drop_view_if_exists(self.env.cr, self._table)
         self.env.cr.execute("""
             CREATE OR REPLACE VIEW stock_transit_sheet AS (

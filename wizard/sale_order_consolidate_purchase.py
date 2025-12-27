@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from collections import defaultdict
 
 class SaleOrderConsolidatePurchase(models.TransientModel):
     _name = 'sale.order.consolidate.purchase'
@@ -8,115 +9,105 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
 
     @api.model
     def default_get(self, fields_list):
-        """
-        Método crucial: Recupera los IDs de los pedidos seleccionados en la vista de lista (active_ids)
-        y pre-llena el campo sale_order_ids antes de mostrar la ventana al usuario.
-        """
         res = super(SaleOrderConsolidatePurchase, self).default_get(fields_list)
-        
-        # Validamos si venimos de Ventas y hay registros seleccionados
         if self.env.context.get('active_model') == 'sale.order' and self.env.context.get('active_ids'):
-            # El formato (6, 0, [ids]) es el comando de escritura estándar para campos Many2many en Odoo
             res['sale_order_ids'] = [(6, 0, self.env.context.get('active_ids'))]
-            
         return res
 
     vendor_id = fields.Many2one('res.partner', string='Proveedor', required=True, 
-        domain=[('supplier_rank', '>', 0)],
-        help="Seleccione al proveedor al que se le enviará la orden global.")
+        domain=[('supplier_rank', '>', 0)])
     
-    # OPCIÓN NUEVA: Elegir si crear nueva o agregar a existente
     target_type = fields.Selection([
         ('new', 'Crear Nueva Orden de Compra'),
         ('exist', 'Agregar a Orden Existente')
     ], string="Acción", default='new', required=True)
 
-    # Campo para seleccionar la compra existente (solo borradores)
     purchase_order_id = fields.Many2one('purchase.order', string="Orden de Compra Existente",
         domain="[('partner_id', '=', vendor_id), ('state', 'in', ['draft', 'sent'])]")
 
     sale_order_ids = fields.Many2many('sale.order', string='Pedidos a Consolidar')
     
-    only_mto_lines = fields.Boolean(string='Solo productos "Mandar Pedir"', default=True,
-        help="Si se marca, solo se agregarán a la compra los productos que tengan el check 'Mandar Pedir'.")
+    only_mto_lines = fields.Boolean(string='Solo productos "Mandar Pedir"', default=True)
 
     def action_create_consolidated_po(self):
         self.ensure_one()
         if not self.sale_order_ids:
             raise UserError(_("No hay pedidos seleccionados para consolidar."))
 
-        purchase_order = False
-
-        # CASO 1: Crear Nueva Orden de Compra
         if self.target_type == 'new':
             origin_names = ', '.join(self.sale_order_ids.mapped('name'))
-            po_vals = {
+            purchase_order = self.env['purchase.order'].create({
                 'partner_id': self.vendor_id.id,
                 'origin': origin_names,
                 'date_order': fields.Datetime.now(),
                 'company_id': self.env.company.id,
-            }
-            purchase_order = self.env['purchase.order'].create(po_vals)
-        
-        # CASO 2: Agregar a Existente
-        elif self.target_type == 'exist':
+            })
+        else:
             if not self.purchase_order_id:
                 raise UserError(_("Debe seleccionar una Orden de Compra existente."))
             
             purchase_order = self.purchase_order_id
-            
-            # Actualizar el campo origen para incluir los nuevos pedidos (sin duplicar)
             new_origins = self.sale_order_ids.mapped('name')
             current_origin = purchase_order.origin or ''
             
-            combined_origin = current_origin
             for name in new_origins:
                 if name not in current_origin:
-                    combined_origin += f", {name}" if combined_origin else name
+                    current_origin += f", {name}" if current_origin else name
             
-            purchase_order.write({'origin': combined_origin})
+            purchase_order.write({'origin': current_origin})
 
-        # --- CREACIÓN DE LÍNEAS ---
-        lines_created = 0
+        # CONSOLIDACIÓN POR PRODUCTO
+        lines_by_product = defaultdict(list)
         
         for so in self.sale_order_ids:
             for line in so.order_line:
-                # Ignorar secciones, notas o servicios
                 if line.display_type or line.product_id.type == 'service':
                     continue
-                
-                # Filtro: Solo lo que está marcado para pedir
                 if self.only_mto_lines and not line.auto_transit_assign:
                     continue
-
-                # Evitar cantidades cero o negativas
                 if line.product_uom_qty <= 0:
                     continue
 
-                # Odoo 19: Obtener ID de la unidad de medida desde Ventas
-                uom_id = line.product_uom_id.id if hasattr(line, 'product_uom_id') else line.product_id.uom_id.id
-                
-                pol_vals = {
-                    'order_id': purchase_order.id,
-                    'product_id': line.product_id.id,
-                    'name': line.name or line.product_id.name,
-                    'product_qty': line.product_uom_qty, # Cantidad completa de la venta
-                    
-                    # CORRECCIÓN FINAL:
-                    # En Odoo 19, el campo en purchase.order.line TAMBIÉN se llama 'product_uom_id'
-                    'product_uom_id': uom_id,
-                    
-                    'price_unit': line.product_id.standard_price, 
-                    'date_planned': fields.Datetime.now(),
-                    
-                    # VINCULACIÓN CLAVE:
-                    'sale_line_id': line.id, 
-                }
-                self.env['purchase.order.line'].create(pol_vals)
-                lines_created += 1
+                lines_by_product[line.product_id.id].append({
+                    'sale_line': line,
+                    'qty': line.product_uom_qty,
+                })
+        
+        if not lines_by_product:
+            raise UserError(_("No se encontraron líneas válidas para generar la compra."))
 
-        if lines_created == 0:
-            raise UserError(_("No se encontraron líneas válidas para generar la compra (Revise el check 'Mandar Pedir')."))
+        for product_id, sale_line_data in lines_by_product.items():
+            product = self.env['product.product'].browse(product_id)
+            total_qty = sum(d['qty'] for d in sale_line_data)
+            
+            existing_po_line = purchase_order.order_line.filtered(lambda l: l.product_id.id == product_id)
+            
+            if existing_po_line:
+                po_line = existing_po_line[0]
+                new_qty = po_line.product_qty + total_qty
+                po_line.write({'product_qty': new_qty})
+            else:
+                uom_id = product.uom_po_id.id or product.uom_id.id
+                so_refs = list(set([d['sale_line'].order_id.name for d in sale_line_data]))
+                
+                po_line = self.env['purchase.order.line'].create({
+                    'order_id': purchase_order.id,
+                    'product_id': product_id,
+                    'name': f"[{', '.join(so_refs)}] {product.name}",
+                    'product_qty': total_qty,
+                    'product_uom_id': uom_id,
+                    'price_unit': product.standard_price, 
+                    'date_planned': fields.Datetime.now(),
+                })
+            
+            # Crear ALLOCATIONS
+            for data in sale_line_data:
+                self.env['purchase.order.line.allocation'].create({
+                    'purchase_line_id': po_line.id,
+                    'sale_line_id': data['sale_line'].id,
+                    'quantity': data['qty'],
+                    'state': 'pending',
+                })
 
         return {
             'name': 'Orden de Compra Global',
