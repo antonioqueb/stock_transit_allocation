@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Acción que invoca el componente JS -->
+    <record id="action_to_be_purchased_client" model="ir.actions.client">
+        <field name="name">To Be Purchased</field>
+        <field name="tag">action_to_be_purchased</field>
+    </record>
+
+    <!-- Menú en Compras -->
+    <menuitem id="menu_purchase_to_be_purchased"
+              name="To Be Purchased"
+              parent="purchase.menu_procurement_management"
+              action="action_to_be_purchased_client"
+              sequence="0"/>
+
+    <!-- ELIMINAR EL BINDING DEL WIZARD VIEJO (Si existía en sale.order) -->
+    <delete model="ir.actions.act_window" search="[('res_model','=','sale.order.consolidate.purchase')]"/>
+</odoo>

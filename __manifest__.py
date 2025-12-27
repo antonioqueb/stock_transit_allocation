@@ -24,6 +24,7 @@
         'views/stock_picking_views.xml',
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
+        'views/to_be_purchased_views.xml', 
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
 
@@ -33,6 +34,9 @@
             'stock_transit_allocation/static/src/css/transit_style.css',
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
+            'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',
+            'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
+
         ],
     },
     'installable': True,

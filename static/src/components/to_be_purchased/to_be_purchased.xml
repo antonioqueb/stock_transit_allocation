@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="purchase_stock_logic.ToBePurchased" owl="1">
+        <div class="o_purchase_tbp_container p-4 bg-white">
+            <div class="d-flex justify-content-between mb-3">
+                <h2>Tablero: To Be Purchased</h2>
+                <button class="btn btn-primary" t-on-click="createPOs" t-att-disabled="state.selectedLines.length === 0">
+                    <i class="fa fa-cart-plus me-2"/> Generar Órdenes de Compra (<t t-esc="state.selectedLines.length"/>)
+                </button>
+            </div>
+
+            <table class="table table-bordered table-hover">
+                <thead class="table-dark">
+                    <tr>
+                        <th style="width: 40px;"></th>
+                        <th>Nombre del artículo</th>
+                        <th>Tipo</th>
+                        <th>Grupo</th>
+                        <th>Categoría</th>
+                        <th>Proveedor preferido</th>
+                        <th>Disponible (A)</th>
+                        <th>Tránsito (I)</th>
+                        <th>OC (P)</th>
+                        <th>Total A+I+P</th>
+                        <th>Retenido (SO)</th>
+                        <th>Por comprar</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <t t-foreach="state.data" t-as="product" t-key="product.id">
+                        <tr class="table-info fw-bold" t-on-click="() => this.toggleExpand(product.id)" style="cursor: pointer;">
+                            <td><i t-attf-class="fa #{state.expanded[product.id] ? 'fa-chevron-down' : 'fa-chevron-right'}"/></td>
+                            <td><t t-esc="product.name"/></td>
+                            <td><t t-esc="product.type"/></td>
+                            <td><t t-esc="product.group"/></td>
+                            <td><t t-esc="product.category"/></td>
+                            <td><t t-esc="product.vendor"/></td>
+                            <td><t t-esc="product.qty_a"/></td>
+                            <td><t t-esc="product.qty_i"/></td>
+                            <td><t t-esc="product.qty_p"/></td>
+                            <td><t t-esc="product.qty_total"/></td>
+                            <td><t t-esc="product.qty_so"/></td>
+                            <td class="text-danger"><t t-esc="product.qty_to_buy"/></td>
+                        </tr>
+                        <!-- Detalle de SO# -->
+                        <tr t-if="state.expanded[product.id]">
+                            <td colspan="12" class="p-0">
+                                <table class="table table-sm mb-0 bg-light">
+                                    <thead class="text-muted">
+                                        <tr>
+                                            <th class="ps-5">Select</th>
+                                            <th>SO#</th>
+                                            <th>Fecha OV</th>
+                                            <th>Requerido</th>
+                                            <th>Cliente</th>
+                                            <th>Ubicación</th>
+                                            <th>Descripción</th>
+                                            <th>Cant. Original</th>
+                                            <th>Asignada</th>
+                                            <th>Pendiente</th>
+                                            <th>Nota Soporte</th>
+                                            <th>OC# / Cant.</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <t t-foreach="product.so_lines" t-as="so" t-key="so.id">
+                                            <tr>
+                                                <td class="text-center">
+                                                    <input type="checkbox" 
+                                                           t-att-checked="state.selectedLines.includes(so.id)"
+                                                           t-on-change="(ev) => this.toggleSelection(so.id, ev)"/>
+                                                </td>
+                                                <td><t t-esc="so.so_name"/></td>
+                                                <td><t t-esc="so.date"/></td>
+                                                <td><t t-esc="so.commitment_date"/></td>
+                                                <td><t t-esc="so.customer"/></td>
+                                                <td><t t-esc="so.location"/></td>
+                                                <td><t t-esc="so.description"/></td>
+                                                <td><t t-esc="so.qty_orig"/></td>
+                                                <td><t t-esc="so.qty_assigned"/></td>
+                                                <td><t t-esc="so.qty_pending"/></td>
+                                                <td><t t-esc="so.note"/></td>
+                                                <td>
+                                                    <span t-if="so.po_name" class="badge bg-success">
+                                                        <t t-esc="so.po_name"/> (<t t-esc="so.po_qty"/>)
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        </t>
+                                    </tbody>
+                                </table>
+                            </td>
+                        </tr>
+                    </t>
+                </tbody>
+            </table>
+        </div>
+    </t>
+</templates>

@@ -45,3 +45,28 @@
     color: #555;
     z-index: 2;
 }
+
+
+
+.o_purchase_tbp_container table {
+    font-size: 0.9rem;
+}
+
+.o_purchase_tbp_container .table-info {
+    background-color: #f1f8ff !important;
+}
+
+.o_purchase_tbp_container .qty-warning {
+    color: #dc3545;
+    font-weight: bold;
+}
+
+.o_purchase_tbp_container .so-detail-row {
+    background-color: #ffffff;
+}
+
+.o_purchase_tbp_container thead.table-dark th {
+    background-color: #343a40;
+    position: sticky;
+    top: 0;
+}
