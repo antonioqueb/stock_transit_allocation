@@ -1,108 +1,132 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
-    <!-- El nombre DEBE ser stock_transit_allocation.ToBePurchased -->
     <t t-name="stock_transit_allocation.ToBePurchased" owl="1">
-        <div class="o_purchase_tbp_container p-4 bg-white" style="height: 100%; overflow-y: auto;">
-            <div class="d-flex justify-content-between align-items-center mb-3">
-                <h2 class="fw-bold text-primary">
-                    <i class="fa fa- industry me-2"/>To Be Purchased (Torre de Control)
-                </h2>
+        <div class="o_purchase_tbp_container p-3 bg-white" style="height: 100%; overflow-y: auto; font-size: 11px;">
+            <!-- HEADER -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+                <h5 class="fw-bold text-primary mb-0">
+                    <i class="fa fa-industry me-2"/>To Be Purchased
+                </h5>
                 <div class="d-flex gap-2">
-                    <button class="btn btn-secondary" t-on-click="loadData">
-                        <i class="fa fa-refresh"/> Actualizar
+                    <button class="btn btn-sm btn-outline-secondary" t-on-click="loadData">
+                        <i class="fa fa-refresh"/>
                     </button>
-                    <button class="btn btn-primary" t-on-click="createPOs" t-att-disabled="state.selectedLines.length === 0">
-                        <i class="fa fa-cart-plus me-2"/> Generar Órdenes de Compra (<t t-esc="state.selectedLines.length"/>)
+                    <button class="btn btn-sm btn-primary" t-on-click="openPurchaseModal" t-att-disabled="state.selectedLines.length === 0">
+                        <i class="fa fa-cart-plus me-1"/> Generar OC (<t t-esc="state.selectedLines.length"/>)
                     </button>
                 </div>
             </div>
 
+            <!-- TABLA PRINCIPAL -->
             <div class="table-responsive">
-                <table class="table table-bordered table-hover shadow-sm">
+                <table class="table table-sm table-bordered table-hover mb-0" style="font-size: 10px;">
                     <thead class="table-dark">
                         <tr>
-                            <th style="width: 40px;"></th>
-                            <th>Nombre del artículo</th>
+                            <th style="width: 25px;"></th>
+                            <th>Artículo</th>
                             <th>Tipo</th>
                             <th>Grupo</th>
                             <th>Categoría</th>
-                            <th>Proveedor Preferido</th>
-                            <th class="text-center">Disp. (A)</th>
-                            <th class="text-center">Trán. (I)</th>
-                            <th class="text-center">OC (P)</th>
-                            <th class="text-center">Total A+I+P</th>
-                            <th class="text-center">Retenido (SO)</th>
-                            <th class="text-center">Por comprar</th>
+                            <th>Proveedor</th>
+                            <th class="text-center" style="width: 50px;">A</th>
+                            <th class="text-center" style="width: 50px;">I</th>
+                            <th class="text-center" style="width: 50px;">P</th>
+                            <th class="text-center" style="width: 60px;">Total</th>
+                            <th class="text-center" style="width: 50px;">SO</th>
+                            <th class="text-center" style="width: 60px;">Comprar</th>
                         </tr>
                     </thead>
                     <tbody>
                         <t t-foreach="state.data" t-as="product" t-key="product.id">
                             <!-- Fila de Producto -->
-                            <tr class="table-info fw-bold" t-on-click="() => this.toggleExpand(product.id)" style="cursor: pointer;">
-                                <td class="text-center">
-                                    <i t-attf-class="fa #{state.expanded[product.id] ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary"/>
+                            <tr class="table-light" t-on-click="() => this.toggleExpand(product.id)" style="cursor: pointer;">
+                                <td class="text-center p-1">
+                                    <i t-attf-class="fa fa-xs #{state.expanded[product.id] ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary"/>
                                 </td>
-                                <td><t t-esc="product.name"/></td>
+                                <td class="fw-semibold text-truncate" style="max-width: 200px;" t-att-title="product.name">
+                                    <t t-esc="product.name"/>
+                                </td>
                                 <td><t t-esc="product.type"/></td>
                                 <td><t t-esc="product.group"/></td>
                                 <td><t t-esc="product.category"/></td>
                                 <td><t t-esc="product.vendor"/></td>
-                                <td class="text-center"><t t-esc="product.qty_a"/></td>
-                                <td class="text-center"><t t-esc="product.qty_i"/></td>
-                                <td class="text-center"><t t-esc="product.qty_p"/></td>
-                                <td class="text-center"><t t-esc="product.qty_total"/></td>
-                                <td class="text-center"><t t-esc="product.qty_so"/></td>
-                                <td t-attf-class="text-center #{product.qty_to_buy > 0 ? 'text-danger' : 'text-success'}">
-                                    <t t-esc="product.qty_to_buy"/>
+                                <td class="text-center"><t t-esc="product.qty_a.toFixed(2)"/></td>
+                                <td class="text-center"><t t-esc="product.qty_i.toFixed(2)"/></td>
+                                <td class="text-center"><t t-esc="product.qty_p.toFixed(2)"/></td>
+                                <td class="text-center fw-semibold"><t t-esc="product.qty_total.toFixed(2)"/></td>
+                                <td class="text-center"><t t-esc="product.qty_so.toFixed(2)"/></td>
+                                <td t-attf-class="text-center fw-bold #{product.qty_to_buy > 0 ? 'text-danger' : 'text-success'}">
+                                    <t t-esc="product.qty_to_buy.toFixed(2)"/>
                                 </td>
                             </tr>
                             
-                            <!-- Detalle de SO# -->
+                            <!-- Detalle de SO -->
                             <tr t-if="state.expanded[product.id]">
                                 <td colspan="12" class="p-0 bg-light">
-                                    <div class="p-3">
-                                        <table class="table table-sm table-bordered bg-white mb-0">
+                                    <div class="p-2">
+                                        <table class="table table-sm table-bordered bg-white mb-0" style="font-size: 9px;">
                                             <thead class="bg-secondary text-white">
                                                 <tr>
-                                                    <th class="text-center" style="width: 40px;">Select</th>
-                                                    <th>SO#</th>
-                                                    <th>Fecha OV</th>
-                                                    <th>Requerido</th>
+                                                    <th class="text-center" style="width: 30px;">Sel</th>
+                                                    <th style="width: 80px;">SO#</th>
+                                                    <th style="width: 70px;">Fecha</th>
+                                                    <th style="width: 70px;">Requerido</th>
                                                     <th>Cliente</th>
                                                     <th>Ubicación</th>
                                                     <th>Descripción</th>
-                                                    <th class="text-end">Cant. OV</th>
-                                                    <th class="text-end">Asignada</th>
-                                                    <th class="text-end">Pendiente</th>
-                                                    <th>Nota Soporte</th>
-                                                    <th>OC# / Cant. OC</th>
+                                                    <th class="text-end" style="width: 50px;">Cant</th>
+                                                    <th class="text-end" style="width: 50px;">Asig</th>
+                                                    <th class="text-end" style="width: 50px;">Pend</th>
+                                                    <th style="width: 100px;">Nota</th>
+                                                    <th style="width: 120px;">OC Vinculada</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
                                                 <t t-foreach="product.so_lines" t-as="so" t-key="so.id">
                                                     <tr>
-                                                        <td class="text-center">
+                                                        <td class="text-center p-1">
                                                             <input type="checkbox" 
-                                                                   class="form-check-input"
+                                                                   class="form-check-input form-check-input-sm"
+                                                                   style="width: 12px; height: 12px;"
                                                                    t-att-checked="state.selectedLines.includes(so.id)"
-                                                                   t-on-change="(ev) => this.toggleSelection(so.id, ev)"/>
+                                                                   t-on-change="(ev) => this.toggleSelection(so.id, ev)"
+                                                                   t-att-disabled="so.po_id"/>
                                                         </td>
-                                                        <td class="fw-bold"><t t-esc="so.so_name"/></td>
+                                                        <td>
+                                                            <a href="#" class="text-primary fw-semibold" 
+                                                               t-on-click="(ev) => this.openSaleOrder(so.so_id, ev)">
+                                                                <t t-esc="so.so_name"/>
+                                                            </a>
+                                                        </td>
                                                         <td><t t-esc="so.date"/></td>
                                                         <td><t t-esc="so.commitment_date"/></td>
-                                                        <td><t t-esc="so.customer"/></td>
+                                                        <td class="text-truncate" style="max-width: 120px;" t-att-title="so.customer">
+                                                            <t t-esc="so.customer"/>
+                                                        </td>
                                                         <td><t t-esc="so.location"/></td>
-                                                        <td class="text-muted"><small><t t-esc="so.description"/></small></td>
-                                                        <td class="text-end"><t t-esc="so.qty_orig"/></td>
-                                                        <td class="text-end"><t t-esc="so.qty_assigned"/></td>
-                                                        <td class="text-end fw-bold text-primary"><t t-esc="so.qty_pending"/></td>
-                                                        <td><t t-esc="so.note"/></td>
+                                                        <td class="text-muted text-truncate" style="max-width: 150px;" t-att-title="so.description">
+                                                            <t t-esc="so.description"/>
+                                                        </td>
+                                                        <td class="text-end"><t t-esc="so.qty_orig.toFixed(2)"/></td>
+                                                        <td class="text-end"><t t-esc="so.qty_assigned.toFixed(2)"/></td>
+                                                        <td class="text-end fw-semibold text-primary"><t t-esc="so.qty_pending.toFixed(2)"/></td>
+                                                        <td class="text-truncate" style="max-width: 100px;" t-att-title="so.note">
+                                                            <t t-esc="so.note"/>
+                                                        </td>
                                                         <td>
-                                                            <span t-if="so.po_name" class="badge rounded-pill bg-success">
-                                                                <i class="fa fa-shopping-cart me-1"/>
-                                                                <t t-esc="so.po_name"/> (<t t-esc="so.po_qty"/>)
-                                                            </span>
-                                                            <span t-else="" class="text-muted small">Sin OC</span>
+                                                            <t t-if="so.po_id">
+                                                                <a href="#" 
+                                                                   class="badge rounded-pill bg-success text-decoration-none"
+                                                                   style="font-size: 9px; cursor: pointer;"
+                                                                   t-on-click="(ev) => this.openPurchaseOrder(so.po_id, ev)"
+                                                                   t-att-title="'Abrir ' + so.po_name">
+                                                                    <i class="fa fa-external-link me-1"/>
+                                                                    <t t-esc="so.po_name"/> (<t t-esc="so.po_qty.toFixed(2)"/>)
+                                                                </a>
+                                                            </t>
+                                                            <t t-else="">
+                                                                <span class="text-muted" style="font-size: 9px;">Sin OC</span>
+                                                            </t>
                                                         </td>
                                                     </tr>
                                                 </t>
@@ -115,6 +139,94 @@
                     </tbody>
                 </table>
             </div>
+
+            <!-- MODAL DE SELECCIÓN DE PROVEEDOR -->
+            <t t-if="state.showModal">
+                <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content">
+                            <div class="modal-header py-2">
+                                <h6 class="modal-title">
+                                    <i class="fa fa-shopping-cart me-2"/>Generar Orden de Compra
+                                </h6>
+                                <button type="button" class="btn-close btn-close-sm" t-on-click="closeModal"/>
+                            </div>
+                            <div class="modal-body" style="font-size: 12px;">
+                                <!-- Resumen -->
+                                <div class="alert alert-info py-2 mb-3" style="font-size: 11px;">
+                                    <i class="fa fa-info-circle me-1"/>
+                                    <strong><t t-esc="state.selectedLines.length"/></strong> línea(s) seleccionada(s)
+                                </div>
+
+                                <!-- Selección de Proveedor -->
+                                <div class="mb-3">
+                                    <label class="form-label fw-semibold">Proveedor *</label>
+                                    <select class="form-select form-select-sm" t-on-change="onVendorChange">
+                                        <option value="">-- Seleccione Proveedor --</option>
+                                        <t t-foreach="state.allVendors" t-as="vendor" t-key="vendor.id">
+                                            <option t-att-value="vendor.id"><t t-esc="vendor.name"/></option>
+                                        </t>
+                                    </select>
+                                </div>
+
+                                <!-- Selección de OC Existente -->
+                                <t t-if="state.selectedVendor">
+                                    <div class="mb-3">
+                                        <label class="form-label fw-semibold">
+                                            Agregar a OC Existente <span class="text-muted fw-normal">(opcional)</span>
+                                        </label>
+                                        <t t-if="state.loadingPOs">
+                                            <div class="text-center py-2">
+                                                <i class="fa fa-spinner fa-spin"/> Cargando...
+                                            </div>
+                                        </t>
+                                        <t t-elif="state.openPOs.length > 0">
+                                            <select class="form-select form-select-sm" t-on-change="onPOChange">
+                                                <option value="">-- Crear Nueva OC --</option>
+                                                <t t-foreach="state.openPOs" t-as="po" t-key="po.id">
+                                                    <option t-att-value="po.id">
+                                                        <t t-esc="po.name"/> - <t t-esc="po.date"/> 
+                                                        (<t t-esc="po.lines_count"/> líneas)
+                                                    </option>
+                                                </t>
+                                            </select>
+                                            <div class="form-text" style="font-size: 10px;">
+                                                Las líneas se agregarán a la OC seleccionada
+                                            </div>
+                                        </t>
+                                        <t t-else="">
+                                            <div class="text-muted small">
+                                                <i class="fa fa-info-circle me-1"/>
+                                                No hay OCs abiertas para este proveedor. Se creará una nueva.
+                                            </div>
+                                        </t>
+                                    </div>
+                                </t>
+
+                                <!-- Info adicional si se seleccionó OC existente -->
+                                <t t-if="state.selectedPO">
+                                    <div class="alert alert-warning py-2" style="font-size: 10px;">
+                                        <i class="fa fa-exclamation-triangle me-1"/>
+                                        Las líneas se agregarán a la orden existente
+                                    </div>
+                                </t>
+                            </div>
+                            <div class="modal-footer py-2">
+                                <button type="button" class="btn btn-sm btn-secondary" t-on-click="closeModal">
+                                    Cancelar
+                                </button>
+                                <button type="button" class="btn btn-sm btn-primary" 
+                                        t-on-click="confirmPurchase"
+                                        t-att-disabled="!state.selectedVendor">
+                                    <i class="fa fa-check me-1"/>
+                                    <t t-if="state.selectedPO">Agregar a OC</t>
+                                    <t t-else="">Crear OC</t>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </t>
         </div>
     </t>
 </templates>

@@ -1,72 +1,158 @@
+/* ========================================
+   TRANSIT PROGRESS WIDGET STYLES
+   ======================================== */
+
 .o_transit_progress_container {
-    width: 100%;
     position: relative;
-    height: 40px;
-    background-color: #e9ecef;
-    border-radius: 20px;
+    height: 32px;
+    background: linear-gradient(to bottom, #e3f2fd 0%, #90caf9 100%);
+    border-radius: 8px;
     overflow: hidden;
-    box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+    border: 1px solid #64b5f6;
+    min-width: 120px;
 }
 
 .o_transit_water {
     position: absolute;
     bottom: 0;
-    width: 100%;
-    height: 10px;
-    background-color: #3498db;
-    opacity: 0.3;
+    left: 0;
+    right: 0;
+    height: 8px;
+    background: linear-gradient(to top, #1565c0, #42a5f5);
+    animation: wave 3s ease-in-out infinite;
 }
 
 .o_transit_bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
     height: 100%;
-    background: linear-gradient(90deg, #3498db 0%, #2980b9 100%);
-    transition: width 0.6s ease;
-    border-radius: 20px 0 0 20px;
+    background: linear-gradient(to right, #4fc3f7, #0288d1);
+    opacity: 0.3;
+    transition: width 0.5s ease;
 }
 
 .o_transit_ship_icon {
     position: absolute;
-    top: 50%;
-    transform: translateY(-50%) translateX(-50%);
-    font-size: 20px;
-    color: #2c3e50;
-    transition: left 0.6s ease;
-    filter: drop-shadow(2px 2px 2px rgba(0,0,0,0.2));
+    bottom: 4px;
+    transform: translateX(-50%);
+    font-size: 18px;
+    transition: left 0.5s ease;
+    filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.3));
 }
 
 .o_transit_label {
     position: absolute;
-    width: 100%;
-    text-align: center;
-    top: 50%;
-    transform: translateY(-50%);
+    top: 2px;
+    right: 6px;
     font-size: 10px;
     font-weight: bold;
-    color: #555;
-    z-index: 2;
+    color: #0d47a1;
 }
 
-
-
-.o_purchase_tbp_container table {
-    font-size: 0.9rem;
+@keyframes wave {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-2px); }
 }
 
-.o_purchase_tbp_container .table-info {
-    background-color: #f1f8ff !important;
+/* ========================================
+   TO BE PURCHASED DASHBOARD STYLES
+   ======================================== */
+
+.o_purchase_tbp_container {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
-.o_purchase_tbp_container .qty-warning {
-    color: #dc3545;
-    font-weight: bold;
+.o_purchase_tbp_container .table {
+    margin-bottom: 0;
 }
 
-.o_purchase_tbp_container .so-detail-row {
-    background-color: #ffffff;
+.o_purchase_tbp_container .table th,
+.o_purchase_tbp_container .table td {
+    padding: 4px 6px;
+    vertical-align: middle;
 }
 
-.o_purchase_tbp_container thead.table-dark th {
-    background-color: #343a40;
-    position: sticky;
-    top: 0;
+.o_purchase_tbp_container .table thead th {
+    font-size: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+}
+
+.o_purchase_tbp_container .table-light {
+    background-color: #f8f9fa !important;
+}
+
+.o_purchase_tbp_container .table-light:hover {
+    background-color: #e9ecef !important;
+}
+
+/* Nested table */
+.o_purchase_tbp_container .bg-light .table {
+    font-size: 9px;
+}
+
+.o_purchase_tbp_container .bg-light .table th {
+    font-size: 9px;
+    padding: 3px 5px;
+}
+
+.o_purchase_tbp_container .bg-light .table td {
+    padding: 3px 5px;
+}
+
+/* Badge styles */
+.o_purchase_tbp_container .badge {
+    font-weight: 500;
+}
+
+/* Form controls in table */
+.o_purchase_tbp_container .form-check-input {
+    margin: 0;
+}
+
+/* Modal styles */
+.o_purchase_tbp_container .modal-content {
+    border-radius: 8px;
+    box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+}
+
+.o_purchase_tbp_container .modal-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 8px 8px 0 0;
+}
+
+.o_purchase_tbp_container .modal-header .btn-close {
+    filter: brightness(0) invert(1);
+}
+
+/* Links */
+.o_purchase_tbp_container a {
+    text-decoration: none;
+}
+
+.o_purchase_tbp_container a:hover {
+    text-decoration: underline;
+}
+
+/* Truncate text */
+.o_purchase_tbp_container .text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1400px) {
+    .o_purchase_tbp_container {
+        font-size: 10px;
+    }
+    
+    .o_purchase_tbp_container .table th,
+    .o_purchase_tbp_container .table td {
+        padding: 3px 4px;
+    }
 }
