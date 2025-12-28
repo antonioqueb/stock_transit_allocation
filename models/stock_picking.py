@@ -6,195 +6,73 @@ class StockPicking(models.Model):
 
     transit_voyage_ids = fields.One2many('stock.transit.voyage', 'picking_id', string='Viajes de Tránsito')
     transit_count = fields.Integer(compute='_compute_transit_count')
-    
-    transit_container_number = fields.Char(string='No. Contenedor (Ref)', 
-        help="Referencia opcional manual.")
+    transit_container_number = fields.Char(string='No. Contenedor (Ref)')
     transit_bl_number = fields.Char(string='BL Number (Tránsito)')
-
-    # --- NUEVO CAMPO PARA SOPORTAR MÚLTIPLES PEDIDOS ---
-    transit_sale_order_ids = fields.Many2many(
-        'sale.order', 
-        string='Pedidos Consolidados', 
-        compute='_compute_transit_sale_orders', 
-        store=True,
-        help="Muestra todos los pedidos de venta vinculados a esta recepción (Consolidación)."
-    )
+    transit_sale_order_ids = fields.Many2many('sale.order', string='Pedidos Consolidados', compute='_compute_transit_sale_orders', store=True)
 
     @api.depends('move_ids.sale_line_id')
     def _compute_transit_sale_orders(self):
-        """Calcula la lista completa de pedidos involucrados"""
         for picking in self:
-            orders = picking.move_ids.sale_line_id.order_id
-            
-            # CORRECCIÓN DE SEGURIDAD:
-            # Usamos getattr() para 'group_id' para evitar AttributeError durante la instalación/actualización
-            # si el campo aún no está mapeado en el registro.
-            group = getattr(picking, 'group_id', False)
-            
-            if not orders and group and getattr(group, 'sale_id', False):
-                orders = group.sale_id
-            
-            picking.transit_sale_order_ids = orders
+            picking.transit_sale_order_ids = picking.move_ids.sale_line_id.order_id
 
-    # -------------------------------------------------------------------------
-    # CORRECCIÓN DEL ERROR DE CONSOLIDACIÓN (Validación de múltiples SO)
-    # -------------------------------------------------------------------------
     @api.depends('move_ids.sale_line_id')
     def _compute_sale_id(self):
-        """
-        Sobrescribimos este método nativo de 'sale_stock'.
-        El original falla cuando hay múltiples Órdenes de Venta.
-        Aquí asignamos el PRIMERO al campo nativo (para evitar el crash)
-        mientras que el campo nuevo 'transit_sale_order_ids' guarda TODOS.
-        """
         for picking in self:
             sale_orders = picking.move_ids.sale_line_id.order_id
-            
-            # CORRECCIÓN DE SEGURIDAD: getattr para group_id
-            group = getattr(picking, 'group_id', False)
-            
-            # Intentamos obtener del grupo si no hay líneas directas
-            if not sale_orders and group and getattr(group, 'sale_id', False):
-                sale_orders = group.sale_id
-
             if not sale_orders:
                 picking.sale_id = False
-            elif len(sale_orders) == 1:
-                picking.sale_id = sale_orders.id
             else:
-                # CASO CONSOLIDACIÓN:
-                # El campo nativo sale_id es Many2one (solo acepta 1).
-                # Tomamos el primero [0] para satisfacer al sistema y evitar el ValueError.
-                # La referencia completa queda en 'transit_sale_order_ids'.
                 picking.sale_id = sale_orders[0].id
-
-    # -------------------------------------------------------------------------
 
     def _compute_transit_count(self):
         for pick in self:
             pick.transit_count = len(pick.transit_voyage_ids)
 
-    @api.model_create_multi
-    def create(self, vals_list):
-        pickings = super(StockPicking, self).create(vals_list)
-        for pick in pickings:
-            try:
-                pick._ensure_sale_id_link()
-            except Exception:
-                continue
-        return pickings
-
-    def write(self, vals):
-        res = super(StockPicking, self).write(vals)
-        if 'origin' in vals or 'group_id' in vals:
-            for pick in self:
-                try:
-                    pick._ensure_sale_id_link()
-                except Exception:
-                    continue
-        return res
-
     def button_validate(self):
-        # 1. Limpieza preventiva
-        self._clean_unwanted_so_links()
-
-        # 2. Validación estándar
         res = super(StockPicking, self).button_validate()
-        
-        # 3. Lógica de Tránsito
         for pick in self:
             is_transit = False
             dest_loc = pick.location_dest_id
-            
-            if dest_loc:
-                if dest_loc.id == 128:
-                    is_transit = True
-                elif 'Trancit' in dest_loc.name or 'Transit' in dest_loc.name or 'Tránsito' in dest_loc.name:
-                    is_transit = True
+            if dest_loc and (dest_loc.id == 128 or any(x in dest_loc.name for x in ['Transit', 'Tránsito', 'Trancit'])):
+                is_transit = True
             
             if is_transit and pick.picking_type_code == 'incoming':
                 pick._create_automatic_transit_voyage()
         return res
 
-    def _clean_unwanted_so_links(self):
-        for pick in self:
-            if not pick.sale_id:
-                continue
-            valid_product_ids = pick.sale_id.order_line.mapped('product_id.id')
-            for move in pick.move_ids:
-                if move.product_id.id not in valid_product_ids:
-                    move.write({'sale_line_id': False})
-
-    def _ensure_sale_id_link(self):
-        if getattr(self, 'sale_id', False):
-            return
-
-        found_sale_id = False
-        
-        # Uso seguro de group_id también aquí
-        group = getattr(self, 'group_id', False)
-        if group and getattr(group, 'sale_id', False):
-            found_sale_id = group.sale_id
-        
-        if not found_sale_id:
-            purchase = getattr(self, 'purchase_id', False)
-            if purchase:
-                origin_ref = purchase.origin
-                if origin_ref:
-                    sale = self.env['sale.order'].search([('name', '=', origin_ref)], limit=1)
-                    if sale:
-                        found_sale_id = sale
-
-        if not found_sale_id and getattr(self, 'move_ids', False):
-            for move in self.move_ids:
-                p_line = getattr(move, 'purchase_line_id', False)
-                if p_line:
-                    s_line = getattr(p_line, 'sale_line_id', False)
-                    if s_line and s_line.order_id:
-                        found_sale_id = s_line.order_id
-                        break
-
-        if found_sale_id:
-            self.sudo().write({'sale_id': found_sale_id.id})
-
     def _create_automatic_transit_voyage(self):
         self.ensure_one()
-        try:
-            self._ensure_sale_id_link()
-        except:
-            pass
-        
         Voyage = self.env['stock.transit.voyage']
-        if self.transit_voyage_ids:
-            return
-
-        container_ref = self.transit_container_number or 'TBD'
-        bl_ref = self.transit_bl_number
-        purchase = getattr(self, 'purchase_id', False)
         
-        if not bl_ref and purchase:
-            bl_ref = purchase.partner_ref
-        if not bl_ref:
-            bl_ref = self.origin
+        # BUSCAR SI YA EXISTE UN VIAJE CREADO DESDE LA OC
+        voyage = Voyage.search([
+            ('purchase_id', '=', self.purchase_id.id),
+            ('state', '!=', 'cancel')
+        ], limit=1)
 
-        # CORRECCIÓN: Se agrega 'etd' con la fecha de hoy para que la barra arranque en 0-1%
-        # en lugar de quedarse muerta por falta de fecha de inicio.
-        voyage = Voyage.create({
-            'picking_id': self.id,
-            'container_number': container_ref,
-            'bl_number': bl_ref, 
-            'vessel_name': 'Por Definir',
-            'etd': fields.Date.today(), 
-            'eta': fields.Date.add(fields.Date.today(), days=21),
-            'state': 'in_transit',
-        })
-
-        voyage.action_load_from_picking()
-        
-        try:
-            self.message_post(body=f"🚢 Registro de Tránsito creado automáticamente: {voyage.name}")
-        except:
-            pass
+        if voyage:
+            # Si ya existe (etapa solicitud), lo vinculamos y actualizamos con datos reales
+            voyage.write({
+                'picking_id': self.id,
+                'container_number': self.transit_container_number or voyage.container_number,
+                'bl_number': self.transit_bl_number or voyage.bl_number,
+                'state': 'in_transit',
+                'custom_status': 'on_sea'
+            })
+            # Esta función ahora limpia las preventivas y pone los lotes reales
+            voyage.action_load_from_picking()
+        else:
+            # Fallback: Si no existe, crear uno (Lógica original)
+            voyage = Voyage.create({
+                'picking_id': self.id,
+                'purchase_id': self.purchase_id.id,
+                'container_number': self.transit_container_number or 'TBD',
+                'bl_number': self.transit_bl_number or self.origin,
+                'etd': fields.Date.today(),
+                'state': 'in_transit',
+                'custom_status': 'on_sea'
+            })
+            voyage.action_load_from_picking()
 
     def action_view_transit_voyage(self):
         self.ensure_one()

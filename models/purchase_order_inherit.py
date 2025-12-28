@@ -23,10 +23,24 @@ class PurchaseOrder(models.Model):
         res = super(PurchaseOrder, self).button_confirm()
         
         for po in self:
+            # 1. Crear el Viaje/Contenedor en estatus Solicitud automáticamente
             allocations = self.env['purchase.order.line.allocation'].search([
-                ('purchase_order_id', '=', po.id),
-                ('state', '=', 'pending')
+                ('purchase_order_id', '=', po.id)
             ])
-            allocations.action_mark_in_transit()
+            
+            if allocations:
+                voyage = self.env['stock.transit.voyage'].create({
+                    'purchase_id': po.id,
+                    'custom_status': 'solicitud',
+                    'state': 'draft',
+                    'container_number': 'TBD (En Solicitud)',
+                    'vessel_name': 'Por Definir',
+                    'bl_number': po.partner_ref or po.name,
+                })
+                # Cargar líneas preventivas para que se vean en la sábana
+                voyage.action_load_from_purchase()
+                
+                # Marcar allocations como pendientes de tránsito real
+                allocations.write({'state': 'pending'})
         
         return res

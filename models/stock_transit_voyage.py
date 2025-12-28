@@ -10,13 +10,14 @@ class StockTransitVoyage(models.Model):
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
     custom_status = fields.Selection([
+        ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
-        ('booked', 'Booking Solicitado'),
-        ('loaded', 'Cargado'),
+        ('booking', 'Booking'),
+        ('puerto_origen', 'Puerto Origen'),
         ('on_sea', 'En Altamar / Mar'),
-        ('at_port', 'En Puerto'),
-        ('delivered', 'Entregado'),
-    ], string='Status (Manual)', default='production', tracking=True)
+        ('puerto_destino', 'Puerto Destino'),
+        ('delivered', 'Entregado en Almacén'),
+    ], string='Status (Manual)', default='solicitud', tracking=True)
     
     shipping_line = fields.Char(string='Naviera', tracking=True)
     transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)')
@@ -27,7 +28,7 @@ class StockTransitVoyage(models.Model):
     bl_number = fields.Char(string='Folio Compra / BL', tracking=True)
     
     etd = fields.Date(string='ETD (Salida Estimada)')
-    eta = fields.Date(string='ETA (Llegada Estimada)', required=True, tracking=True)
+    eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
     
     state = fields.Selection([
@@ -40,6 +41,8 @@ class StockTransitVoyage(models.Model):
 
     picking_id = fields.Many2one('stock.picking', string='Recepción Vinculada', 
         domain=[('picking_type_code', '=', 'incoming')])
+    
+    purchase_id = fields.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
     
     company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
     line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
@@ -72,15 +75,12 @@ class StockTransitVoyage(models.Model):
             if rec.state == 'arrived':
                 rec.transit_progress = 100
                 continue
-
             start_date = rec.etd
             if not start_date and rec.create_date:
                 start_date = rec.create_date.date()
-            
             if not start_date or not rec.eta:
                 rec.transit_progress = 0
                 continue
-
             if today < start_date:
                 rec.transit_progress = 0
             elif today > rec.eta:
@@ -88,7 +88,6 @@ class StockTransitVoyage(models.Model):
             else:
                 total_days = (rec.eta - start_date).days
                 elapsed = (today - start_date).days
-                
                 if total_days > 0:
                     progress = int((elapsed / total_days) * 100)
                     rec.transit_progress = max(0, min(95, progress))
@@ -97,7 +96,6 @@ class StockTransitVoyage(models.Model):
 
     def action_confirm_transit(self):
         self.write({'state': 'in_transit', 'custom_status': 'on_sea'})
-        
         if self.picking_id and self.picking_id.purchase_id:
             allocations = self.env['purchase.order.line.allocation'].search([
                 ('purchase_order_id', '=', self.picking_id.purchase_id.id),
@@ -111,39 +109,61 @@ class StockTransitVoyage(models.Model):
             'arrival_date': fields.Date.today(),
             'custom_status': 'delivered'
         })
-        
-        # Marcar allocations como recibidas
         for line in self.line_ids:
             if line.allocation_id and line.allocation_id.state != 'done':
                 line.allocation_id.action_mark_received(line.product_uom_qty)
 
+    def action_load_from_purchase(self):
+        """Carga líneas preventivas desde las allocations de la OC"""
+        self.ensure_one()
+        if not self.purchase_id:
+            return
+        
+        # Solo cargar si no hay líneas reales (lotes) aún
+        existing_alloc_ids = self.line_ids.mapped('allocation_id.id')
+        allocations = self.env['purchase.order.line.allocation'].search([
+            ('purchase_order_id', '=', self.purchase_id.id),
+            ('id', 'not in', existing_alloc_ids)
+        ])
+        
+        transit_lines = []
+        for alloc in allocations:
+            transit_lines.append({
+                'voyage_id': self.id,
+                'product_id': alloc.product_id.id,
+                'product_uom_qty': alloc.quantity,
+                'partner_id': alloc.partner_id.id,
+                'order_id': alloc.sale_order_id.id,
+                'allocation_id': alloc.id,
+                'allocation_status': 'reserved',
+                'container_number': 'PENDIENTE',
+            })
+        if transit_lines:
+            self.env['stock.transit.line'].create(transit_lines)
+
     def action_load_from_picking(self):
-        """
-        Usa allocations para determinar asignaciones.
-        DISTRIBUCIÓN INTELIGENTE: Asigna lotes a diferentes clientes según sus allocations.
-        """
+        """DISTRIBUCIÓN INTELIGENTE CON ACTUALIZACIÓN DE LÍNEAS PREVENTIVAS"""
         self.ensure_one()
         if not self.picking_id:
             return
         
-        if self.state == 'draft':
-            self.line_ids.unlink()
+        # Si ya existen líneas preventivas (sin lote), las borramos para poner las reales
+        placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
+        placeholder_lines.unlink()
 
         transit_lines = []
         from .utils.transit_manager import TransitManager
-
         containers_found = set()
         
-        # Obtener allocations de la OC agrupadas por producto
         purchase = self.picking_id.purchase_id
-        allocations_map = {}  # {product_id: [allocations ordenadas]}
-        allocation_consumed = {}  # {allocation_id: qty_ya_asignada_en_esta_carga}
+        allocations_map = {}
+        allocation_consumed = {}
         
         if purchase:
             allocations = self.env['purchase.order.line.allocation'].search([
                 ('purchase_order_id', '=', purchase.id),
                 ('state', 'not in', ['done', 'cancelled'])
-            ], order='id asc')  # Ordenar por ID para consistencia FIFO
+            ], order='id asc')
             
             for alloc in allocations:
                 if alloc.product_id.id not in allocations_map:
@@ -158,40 +178,31 @@ class StockTransitVoyage(models.Model):
             partner_to_assign = False
             order_to_assign = False
             allocation_to_use = False
-            
             product_id = move_line.product_id.id
             qty_done = move_line.qty_done or move_line.reserved_uom_qty
             
-            # =====================================================================
-            # DISTRIBUCIÓN INTELIGENTE DE ALLOCATIONS
-            # =====================================================================
             if product_id in allocations_map:
                 for alloc in allocations_map[product_id]:
-                    # Calcular cuánto queda disponible en esta allocation
                     already_received = alloc.qty_received
                     consumed_this_load = allocation_consumed.get(alloc.id, 0.0)
                     total_consumed = already_received + consumed_this_load
                     remaining = alloc.quantity - total_consumed
                     
                     if remaining > 0:
-                        # Esta allocation tiene capacidad
                         allocation_to_use = alloc
                         partner_to_assign = alloc.partner_id
                         order_to_assign = alloc.sale_order_id
                         
-                        # Verificar auto_transit_assign
                         if alloc.sale_line_id:
                             auto_assign = getattr(alloc.sale_line_id, 'auto_transit_assign', True)
                             if not auto_assign:
                                 partner_to_assign = False
                                 order_to_assign = False
                                 allocation_to_use = False
-                                continue  # Probar siguiente allocation
+                                continue
                         
-                        # Marcar como consumida para esta carga
                         allocation_consumed[alloc.id] = consumed_this_load + qty_done
                         break
-            # =====================================================================
 
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
@@ -220,26 +231,16 @@ class StockTransitVoyage(models.Model):
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
         if containers_found:
-            current_conts = self.container_number or ''
             new_conts = ', '.join(list(containers_found))
-            if new_conts not in current_conts:
-                self.write({'container_number': new_conts[:50]})
+            self.write({'container_number': new_conts[:50]})
 
-        # =====================================================================
-        # ACTUALIZAR qty_received EN ALLOCATIONS
-        # =====================================================================
         for alloc_id, qty_consumed in allocation_consumed.items():
             if qty_consumed > 0:
                 alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
                 new_received = alloc.qty_received + qty_consumed
-                if new_received >= alloc.quantity:
-                    alloc.write({'qty_received': alloc.quantity, 'state': 'in_transit'})
-                else:
-                    alloc.write({'qty_received': new_received, 'state': 'in_transit'})
+                alloc.write({'qty_received': min(new_received, alloc.quantity), 'state': 'in_transit'})
 
-        # =====================================================================
-        # CREAR RESERVAS AGRUPADAS POR CLIENTE/PEDIDO
-        # =====================================================================
+        # Crear reservas en Odoo (Hold Orders)
         lines_by_order = {}
         for line in created_lines:
             if line.partner_id and line.order_id:
@@ -249,29 +250,15 @@ class StockTransitVoyage(models.Model):
                 lines_by_order[key].append(line)
         
         for (partner, order), lines in lines_by_order.items():
-            project_id = getattr(order, 'x_project_id', False)
-            architect_id = getattr(order, 'x_architect_id', False)
-            
-            currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
-            if not currency:
-                currency = self.env.company.currency_id
-
             hold_order = self.env['stock.lot.hold.order'].create({
                 'partner_id': partner.id,
                 'user_id': self.env.user.id,
                 'company_id': self.env.company.id,
-                'project_id': project_id.id if project_id else False,
-                'arquitecto_id': architect_id.id if architect_id else False,
-                'currency_id': currency.id,
                 'fecha_orden': fields.Datetime.now(),
                 'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
             })
-
             for line in lines:
-                TransitManager.reassign_lot(
-                    self.env, line, partner, order, notes=False, hold_order_obj=hold_order
-                )
-            
+                TransitManager.reassign_lot(self.env, line, partner, order, notes=False, hold_order_obj=hold_order)
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()
             else:
