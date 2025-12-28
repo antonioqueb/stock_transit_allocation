@@ -34,11 +34,9 @@
         <field name="arch" type="xml">
             <form string="Gestión de Tránsito">
                 <header>
-                    <!-- Carga inicial desde OC -->
                     <button name="action_load_from_purchase" string="🔄 Cargar desde OC" type="object" 
                             class="btn-info" invisible="picking_id != False or state == 'arrived'"/>
                     
-                    <!-- Carga técnica desde Picking (Lotes) -->
                     <button name="action_load_from_picking" string="🚢 Sincronizar Lotes (Picking)" type="object" 
                             class="btn-secondary" invisible="picking_id == False or state == 'arrived'"/>
                     
@@ -77,7 +75,8 @@
 
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
-                            <field name="line_ids" context="{'default_voyage_id': active_id}">
+                            <!-- CORRECCIÓN AQUÍ: Se eliminó context con active_id que causaba el error -->
+                            <field name="line_ids">
                                 <list create="0" delete="0" decoration-success="allocation_status == 'reserved'" 
                                       decoration-muted="not lot_id" editable="bottom">
                                     <field name="container_number" optional="show"/> 
@@ -200,7 +199,7 @@
     <!-- ACCIONES -->
     <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
         <field name="name">Sábana de Seguimiento</field>
-        <field name="res_model">stock.transit.sheet</field>
+        <field name="res_model" >stock.transit.sheet</field>
         <field name="view_mode">list</field>
         <field name="view_id" ref="view_transit_sheet_list"/>
     </record>
