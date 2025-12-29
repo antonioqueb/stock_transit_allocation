@@ -173,14 +173,14 @@
                   decoration-info="voyage_status in ['on_sea', 'booking']"
                   decoration-warning="voyage_status in ['solicitud', 'production']">
                 
-                <field name="purchase_id" string="OC SISTEMA"/>
-                <field name="date_order" string="FECHA OC" widget="date"/>
+                <field name="purchase_id" string="OC Sistema"/>
+                <field name="date_order" string="Fecha OC" widget="date"/>
                 <field name="voyage_status" widget="badge" 
                        decoration-warning="voyage_status in ['solicitud', 'production']" 
                        decoration-info="voyage_status in ['on_sea', 'booking']"
                        decoration-success="voyage_status == 'delivered'"/>
                 <field name="salesperson_id" widget="many2one_avatar_user"/>
-                <field name="order_id" string="SALES ORDER"/>
+                <field name="order_id" string="Sales Order"/>
                 <field name="partner_id" string="Cliente / Proyecto"/>
                 <field name="proforma_ref" string="Proforma"/>
                 <field name="vendor_id" string="Proveedor"/>
