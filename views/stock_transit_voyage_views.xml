@@ -125,16 +125,22 @@
         <field name="name">stock.transit.voyage.kanban</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
-            <!-- Agrupación principal por custom_status -->
-            <kanban default_group_by="custom_status" class="o_kanban_small_column" records_draggable="0" sample="1">
+            <!-- records_draggable="1" permite mover las tarjetas entre estados -->
+            <kanban default_group_by="custom_status" 
+                    class="o_kanban_small_column" 
+                    records_draggable="1" 
+                    sample="1">
+                
                 <field name="custom_status"/>
                 <field name="name"/>
                 <field name="vessel_name"/>
                 <field name="shipping_line"/>
                 <field name="container_number"/>
+                <field name="purchase_id"/>
                 <field name="eta"/>
                 <field name="allocation_percent"/>
                 <field name="transit_progress"/> 
+                
                 <templates>
                     <t t-name="card">
                         <div class="d-flex flex-column">
@@ -142,23 +148,40 @@
                                 <strong class="o_kanban_record_title text-primary">
                                     <field name="name"/>
                                 </strong>
+                                <!-- Widget de etiqueta para el estado -->
                                 <field name="custom_status" widget="label_selection" 
-                                       options="{'classes': {'solicitud': 'warning', 'production': 'warning', 'on_sea': 'info', 'delivered': 'success'}}"/>
+                                       options="{'classes': {
+                                           'solicitud': 'warning', 
+                                           'production': 'warning', 
+                                           'booking': 'info',
+                                           'puerto_origen': 'primary',
+                                           'on_sea': 'info', 
+                                           'puerto_destino': 'info',
+                                           'delivered': 'success',
+                                           'cancel': 'danger'
+                                       }}"/>
                             </div>
+                            
                             <div class="text-muted mb-1">
-                                <i class="fa fa-shopping-cart me-1"/> <field name="purchase_id"/>
+                                <i class="fa fa-shopping-cart me-1"/> 
+                                <field name="purchase_id"/>
                             </div>
-                            <div class="text-muted mb-1" invisible="not shipping_line">
-                                <small><field name="shipping_line"/></small>
+                            
+                            <div class="text-muted mb-1" t-if="record.shipping_line.raw_value">
+                                <small><i class="fa fa-globe me-1"/> <field name="shipping_line"/></small>
                             </div>
-                            <div class="text-muted mb-1" invisible="not vessel_name">
+                            
+                            <div class="text-muted mb-1" t-if="record.vessel_name.raw_value">
                                 <i class="fa fa-ship me-1"/> <field name="vessel_name"/>
                             </div>
+                            
                             <div class="d-flex justify-content-between align-items-center mt-auto">
                                 <span class="text-muted small">
-                                    ETA: <field name="eta" widget="remaining_days"/>
+                                    <i class="fa fa-calendar me-1"/> 
+                                    <field name="eta" widget="remaining_days"/>
                                 </span>
                             </div>
+                            
                             <div class="mt-2">
                                 <field name="allocation_percent" widget="progressbar"/>
                             </div>
