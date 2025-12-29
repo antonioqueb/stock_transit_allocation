@@ -156,4 +156,39 @@
             </kanban>
         </field>
     </record>
+
+    <!-- 1. Acción para abrir la vista de Viajes -->
+    <record id="action_stock_transit_voyage" model="ir.actions.act_window">
+        <field name="name">Control de Tránsito</field>
+        <field name="res_model">stock.transit.voyage</field>
+        <field name="view_mode">kanban,list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Crea el primer viaje o contenedor en tránsito.
+            </p>
+            <p>
+                Aquí podrás gestionar el seguimiento de contenedores y la asignación de lotes a clientes.
+            </p>
+        </field>
+    </record>
+
+    <!-- 2. Menú Raíz (El icono que aparece en el tablero principal de Odoo) -->
+    <menuitem id="menu_transit_root"
+              name="Torre de Control"
+              web_icon="stock_transit_allocation,static/description/icon.png"
+              groups="stock_transit_allocation.group_transit_user"
+              sequence="25"/>
+
+    <!-- 3. Menú de Operaciones (Submenú) -->
+    <menuitem id="menu_transit_operations"
+              name="Operaciones"
+              parent="menu_transit_root"
+              sequence="10"/>
+
+    <!-- 4. Menú de Viajes (Vínculo a la acción) -->
+    <menuitem id="menu_transit_voyages"
+              name="Viajes en Tránsito"
+              parent="menu_transit_operations"
+              action="action_stock_transit_voyage"
+              sequence="10"/>
 </odoo>
