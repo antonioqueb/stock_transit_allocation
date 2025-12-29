@@ -112,6 +112,7 @@ class StockTransitSheet(models.Model):
         ('on_sea', 'En Altamar / Mar'),
         ('puerto_destino', 'Puerto Destino'),
         ('delivered', 'Entregado en Almacén'),
+        ('cancel', 'Cancelado'),
     ], string='Status', readonly=True)
     
     shipping_line = fields.Char(string='Naviera', readonly=True)

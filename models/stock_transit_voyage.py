@@ -9,6 +9,7 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
+    # ÚNICO CAMPO DE ESTADO (Unificado)
     custom_status = fields.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
@@ -17,11 +18,11 @@ class StockTransitVoyage(models.Model):
         ('on_sea', 'En Altamar / Mar'),
         ('puerto_destino', 'Puerto Destino'),
         ('delivered', 'Entregado en Almacén'),
-    ], string='Status (Manual)', default='solicitud', tracking=True)
+        ('cancel', 'Cancelado'),
+    ], string='Estado', default='solicitud', tracking=True)
     
     shipping_line = fields.Char(string='Naviera', tracking=True)
     transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)')
-    
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     container_number = fields.Char(string='Contenedor(es)', tracking=True)
@@ -30,14 +31,6 @@ class StockTransitVoyage(models.Model):
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
-    
-    state = fields.Selection([
-        ('draft', 'Borrador'),
-        ('in_transit', 'En Tránsito (Altamar)'),
-        ('at_port', 'En Puerto'),
-        ('arrived', 'Recibido en Almacén'),
-        ('cancel', 'Cancelado')
-    ], string='Estado Sistema', default='draft', tracking=True, group_expand='_expand_states')
 
     picking_id = fields.Many2one('stock.picking', string='Recepción Vinculada', 
         domain=[('picking_type_code', '=', 'incoming')])
@@ -68,19 +61,25 @@ class StockTransitVoyage(models.Model):
             rec.allocated_m2 = allocated
             rec.allocation_percent = (allocated / total) * 100 if total > 0 else 0
 
-    @api.depends('etd', 'eta', 'state', 'create_date')
+    @api.depends('etd', 'eta', 'custom_status', 'create_date')
     def _compute_transit_progress(self):
         today = fields.Date.today()
         for rec in self:
-            if rec.state == 'arrived':
+            # CORRECCIÓN: Ahora depende de custom_status
+            if rec.custom_status == 'delivered':
                 rec.transit_progress = 100
                 continue
+            if rec.custom_status == 'cancel':
+                rec.transit_progress = 0
+                continue
+
             start_date = rec.etd
             if not start_date and rec.create_date:
                 start_date = rec.create_date.date()
             if not start_date or not rec.eta:
                 rec.transit_progress = 0
                 continue
+            
             if today < start_date:
                 rec.transit_progress = 0
             elif today > rec.eta:
@@ -95,7 +94,8 @@ class StockTransitVoyage(models.Model):
                     rec.transit_progress = 0
 
     def action_confirm_transit(self):
-        self.write({'state': 'in_transit', 'custom_status': 'on_sea'})
+        # CORRECCIÓN: Unificado a custom_status
+        self.write({'custom_status': 'on_sea'})
         if self.picking_id and self.picking_id.purchase_id:
             allocations = self.env['purchase.order.line.allocation'].search([
                 ('purchase_order_id', '=', self.picking_id.purchase_id.id),
@@ -104,8 +104,8 @@ class StockTransitVoyage(models.Model):
             allocations.action_mark_in_transit()
 
     def action_arrive(self):
+        # CORRECCIÓN: Unificado a custom_status
         self.write({
-            'state': 'arrived', 
             'arrival_date': fields.Date.today(),
             'custom_status': 'delivered'
         })
@@ -113,13 +113,16 @@ class StockTransitVoyage(models.Model):
             if line.allocation_id and line.allocation_id.state != 'done':
                 line.allocation_id.action_mark_received(line.product_uom_qty)
 
+    def action_cancel(self):
+        # CORRECCIÓN: Nueva acción de cancelación unificada
+        self.write({'custom_status': 'cancel'})
+
     def action_load_from_purchase(self):
         """Carga líneas preventivas desde las allocations de la OC"""
         self.ensure_one()
         if not self.purchase_id:
             return
         
-        # Solo cargar si no hay líneas reales (lotes) aún
         existing_alloc_ids = self.line_ids.mapped('allocation_id.id')
         allocations = self.env['purchase.order.line.allocation'].search([
             ('purchase_order_id', '=', self.purchase_id.id),
@@ -147,7 +150,6 @@ class StockTransitVoyage(models.Model):
         if not self.picking_id:
             return
         
-        # Si ya existen líneas preventivas (sin lote), las borramos para poner las reales
         placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
         placeholder_lines.unlink()
 
@@ -240,7 +242,6 @@ class StockTransitVoyage(models.Model):
                 new_received = alloc.qty_received + qty_consumed
                 alloc.write({'qty_received': min(new_received, alloc.quantity), 'state': 'in_transit'})
 
-        # Crear reservas en Odoo (Hold Orders)
         lines_by_order = {}
         for line in created_lines:
             if line.partner_id and line.order_id:
@@ -263,6 +264,3 @@ class StockTransitVoyage(models.Model):
                 hold_order.action_confirm()
             else:
                 hold_order.unlink()
-
-    def _expand_states(self, states, domain, order=None):
-        return [key for key, val in type(self).state.selection]
