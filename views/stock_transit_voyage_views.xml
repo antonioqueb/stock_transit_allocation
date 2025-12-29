@@ -1,10 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- ========================================================== -->
-    <!-- VISTAS DEL MODELO STOCK.TRANSIT.VOYAGE (VIAJES)           -->
-    <!-- ========================================================== -->
-    
-    <!-- 1. VISTA DE LISTA (VIAJES / CONTENEDORES) -->
+    <!-- VISTA DE LISTA (VIAJES / CONTENEDORES) -->
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
@@ -27,7 +23,7 @@
         </field>
     </record>
 
-    <!-- 2. VISTA DE FORMULARIO (VIAJES) -->
+    <!-- VISTA DE FORMULARIO (VIAJES) -->
     <record id="view_stock_transit_voyage_form" model="ir.ui.view">
         <field name="name">stock.transit.voyage.form</field>
         <field name="model">stock.transit.voyage</field>
@@ -75,7 +71,8 @@
 
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
-                            <!-- CORRECCIÓN AQUÍ: Se eliminó context con active_id que causaba el error -->
+                            <!-- AJUSTE ODOO 19: Se eliminó el context que usaba 'active_id' -->
+                            <!-- Odoo vincula automáticamente el One2many por el ID del registro actual -->
                             <field name="line_ids">
                                 <list create="0" delete="0" decoration-success="allocation_status == 'reserved'" 
                                       decoration-muted="not lot_id" editable="bottom">
@@ -111,7 +108,7 @@
         </field>
     </record>
 
-    <!-- 3. VISTA KANBAN (VIAJES) -->
+    <!-- VISTA KANBAN (VIAJES) -->
     <record id="view_stock_transit_voyage_kanban" model="ir.ui.view">
         <field name="name">stock.transit.voyage.kanban</field>
         <field name="model">stock.transit.voyage</field>
@@ -159,64 +156,4 @@
             </kanban>
         </field>
     </record>
-
-    <!-- ========================================================== -->
-    <!-- NUEVA VISTA: SÁBANA DE SEGUIMIENTO (AGRUPADO)             -->
-    <!-- ========================================================== -->
-
-    <record id="view_transit_sheet_list" model="ir.ui.view">
-        <field name="name">stock.transit.sheet.list</field>
-        <field name="model">stock.transit.sheet</field>
-        <field name="arch" type="xml">
-            <list string="Sábana de Seguimiento" create="0" delete="0" edit="0"
-                  decoration-success="voyage_status == 'delivered'"
-                  decoration-info="voyage_status in ['on_sea', 'booking']"
-                  decoration-warning="voyage_status in ['solicitud', 'production']">
-                
-                <field name="purchase_id" string="OC SISTEMA"/>
-                <field name="date_order" string="FECHA OC" widget="date"/>
-                <field name="voyage_status" widget="badge" 
-                       decoration-warning="voyage_status in ['solicitud', 'production']" 
-                       decoration-info="voyage_status in ['on_sea', 'booking']"
-                       decoration-success="voyage_status == 'delivered'"/>
-                <field name="salesperson_id" widget="many2one_avatar_user"/>
-                <field name="order_id" string="SALES ORDER"/>
-                <field name="partner_id" string="Cliente / Proyecto"/>
-                <field name="proforma_ref" string="Proforma"/>
-                <field name="vendor_id" string="Proveedor"/>
-                <field name="product_id" string="Descripción"/>
-                <field name="product_uom_qty" string="M2 Embarcados" sum="Total"/>
-                <field name="container_number"/>
-                <field name="shipping_line" optional="hide"/>
-                <field name="bl_number" optional="show"/>
-                <field name="etd" widget="date"/>
-                <field name="eta" widget="date"/>
-                <field name="arrival_date" widget="date" optional="show"/>
-            </list>
-        </field>
-    </record>
-
-    <!-- ACCIONES -->
-    <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
-        <field name="name">Sábana de Seguimiento</field>
-        <field name="res_model" >stock.transit.sheet</field>
-        <field name="view_mode">list</field>
-        <field name="view_id" ref="view_transit_sheet_list"/>
-    </record>
-
-    <record id="action_stock_transit_voyage_main" model="ir.actions.act_window">
-        <field name="name">Viajes y Contenedores</field>
-        <field name="res_model">stock.transit.voyage</field>
-        <field name="view_mode">kanban,list,form</field>
-    </record>
-
-    <!-- MENÚS -->
-    <menuitem id="menu_transit_root" name="Torre de Control" 
-              web_icon="stock_transit_allocation,static/description/icon.png" sequence="10"/>
-
-    <menuitem id="menu_transit_sheet" name="Sábana de Seguimiento" 
-              parent="menu_transit_root" action="action_transit_tracking_sheet" sequence="1"/>
-
-    <menuitem id="menu_transit_voyage_dashboard" name="Viajes y Contenedores" 
-              parent="menu_transit_root" action="action_stock_transit_voyage_main" sequence="2"/>
 </odoo>
