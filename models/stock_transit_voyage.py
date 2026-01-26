@@ -10,6 +10,7 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
+    # ÚNICO CAMPO DE ESTADO (Unificado)
     custom_status = fields.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
@@ -125,7 +126,6 @@ class StockTransitVoyage(models.Model):
     def action_generate_reception(self):
         """
         Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos.
-        CORRECCIÓN: Crea los Move Lines DESPUÉS de confirmar el picking para asegurar persistencia.
         """
         self.ensure_one()
         if self.reception_picking_id:
@@ -180,7 +180,6 @@ class StockTransitVoyage(models.Model):
         picking = self.env['stock.picking'].create(picking_vals)
 
         # 4. Crear Movimientos (Stock Moves) - Solo cabeceras de producto
-        # Agrupamos por producto para evitar crear múltiples moves si hay múltiples lotes del mismo producto (opcional pero limpio)
         products_map = {}
         for line in valid_lines:
             if line.product_id not in products_map:
@@ -188,6 +187,7 @@ class StockTransitVoyage(models.Model):
             products_map[line.product_id] += line.product_uom_qty
 
         for product, qty in products_map.items():
+            # CORRECCIÓN: Eliminado 'name' para evitar el error Invalid field
             self.env['stock.move'].create({
                 'product_id': product.id,
                 'product_uom_qty': qty,
@@ -196,15 +196,12 @@ class StockTransitVoyage(models.Model):
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-                'name': product.name, # Odoo 19 might require explicit name here if not compute
             })
 
         # 5. CONFIRMAR PICKING (Importante: Antes de crear las líneas de lote)
         picking.action_confirm()
 
         # 6. INYECTAR LAS LÍNEAS DE LOTE (Move Lines)
-        # Ahora que los moves existen y están confirmados, adjuntamos los detalles.
-        # Mapeamos Move ID por Producto ID para saber a qué move pegar la linea
         move_by_product = {m.product_id.id: m.id for m in picking.move_ids}
 
         for line in valid_lines:
@@ -216,15 +213,12 @@ class StockTransitVoyage(models.Model):
                 'picking_id': picking.id,
                 'product_id': line.product_id.id,
                 'lot_id': line.lot_id.id,
-                'qty_done': 0, # Dejar en 0 para que el Worksheet valide la recepción real
+                'qty_done': 0, 
                 'product_uom_id': line.product_id.uom_id.id,
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
             })
 
-        # NO llamamos action_assign() para evitar que Odoo intente reservar otros lotes automáticamente.
-        # Dejamos las líneas creadas explícitamente para que el usuario o el worksheet las llenen.
-        
         self.write({
             'reception_picking_id': picking.id,
             'custom_status': 'reception_pending'
