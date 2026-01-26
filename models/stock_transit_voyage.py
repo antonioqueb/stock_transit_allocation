@@ -10,7 +10,6 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
-    # ÚNICO CAMPO DE ESTADO (Unificado)
     custom_status = fields.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
@@ -187,7 +186,6 @@ class StockTransitVoyage(models.Model):
             products_map[line.product_id] += line.product_uom_qty
 
         for product, qty in products_map.items():
-            # CORRECCIÓN: Eliminado 'name' para evitar el error Invalid field
             self.env['stock.move'].create({
                 'product_id': product.id,
                 'product_uom_qty': qty,
@@ -198,25 +196,29 @@ class StockTransitVoyage(models.Model):
                 'company_id': self.company_id.id,
             })
 
-        # 5. CONFIRMAR PICKING (Importante: Antes de crear las líneas de lote)
+        # 5. CONFIRMAR PICKING (Para habilitar la reserva)
         picking.action_confirm()
 
         # 6. INYECTAR LAS LÍNEAS DE LOTE (Move Lines)
+        # Importante: Asignamos 'quantity' (reserva) pero 'qty_done' en 0.
         move_by_product = {m.product_id.id: m.id for m in picking.move_ids}
 
         for line in valid_lines:
             move_id = move_by_product.get(line.product_id.id)
             if not move_id: continue
 
+            # CORRECCIÓN: Se añade el campo 'quantity' para establecer la reserva
+            # y evitar el error "Debe establecer la cantidad...".
             self.env['stock.move.line'].create({
                 'move_id': move_id,
                 'picking_id': picking.id,
                 'product_id': line.product_id.id,
                 'lot_id': line.lot_id.id,
-                'qty_done': 0, 
                 'product_uom_id': line.product_id.uom_id.id,
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
+                'quantity': line.product_uom_qty, # Cantidad Reservada/Teórica
+                'qty_done': 0, # Cantidad Real (a llenar por worksheet)
             })
 
         self.write({
