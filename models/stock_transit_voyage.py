@@ -168,7 +168,7 @@ class StockTransitVoyage(models.Model):
         _logger.info(f"[TRANSIT_VOYAGE] Ubicación Origen detectada: {source_location.name}")
 
         # 3. Crear la Cabecera del Picking
-        # CORRECCION: Forzamos immediate_transfer=False para evitar validación automática accidental
+        # CORRECCIÓN: Eliminamos 'immediate_transfer' porque no existe en Odoo 19
         picking_vals = {
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
@@ -178,7 +178,6 @@ class StockTransitVoyage(models.Model):
             'move_type': 'direct',
             'packing_list_imported': True,
             'has_packing_list': True,
-            'immediate_transfer': False, 
         }
         
         if hasattr(self.env['stock.picking'], 'supplier_bl_number'):
@@ -220,14 +219,13 @@ class StockTransitVoyage(models.Model):
                 _logger.warning(f"[TRANSIT_VOYAGE] Producto {product.name} tiene cantidad total 0. No se crea stock.move.")
 
         # 5. CONFIRMAR PICKING
-        # Usamos el contexto para asegurar que no se marque como "todo hecho"
+        # Usamos el contexto para sugerir que es planificado
         picking.with_context(planned_picking=True).action_confirm()
         
         _logger.info(f"[TRANSIT_VOYAGE] Picking confirmado. Estado actual: {picking.state}")
 
-        # --- CORRECCIÓN CRÍTICA ---
-        # Si el picking se validó solo (estado 'done'), NO PODEMOS llamar a do_unreserve
-        # Si está en 'confirmed' o 'assigned', debemos limpiar la reserva automática FIFO.
+        # --- LÓGICA DE PROTECCIÓN ---
+        # Solo intentamos quitar reservas si NO se validó automáticamente
         if picking.state not in ['done', 'cancel']:
             picking.do_unreserve()
             _logger.info("[TRANSIT_VOYAGE] Reservas automáticas liberadas (do_unreserve).")
