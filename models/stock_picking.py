@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
+from odoo.tools.float_utils import float_compare
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -24,37 +25,37 @@ class StockPicking(models.Model):
 
     def button_validate(self):
         """
-        Sobreescritura para gatillar lógica de Torre de Control:
-        1. Incoming: Crea el Viaje automáticamente.
-        2. Internal (Recepción Física): Reserva automáticamente la salida al cliente.
+        Al validar la recepción, si es una recepción de Torre de Control:
+        1. Identificamos los lotes recibidos.
+        2. Buscamos a qué cliente (SO) pertenecen según el Viaje.
+        3. Insertamos el lote directamente en la Orden de Entrega (Delivery) de ese cliente.
         """
         res = super(StockPicking, self).button_validate()
         
         for pick in self:
-            # 1. LÓGICA DE ENTRADA (Crear Viaje)
-            is_transit = False
+            # A) Lógica de Entrada (Creación del Viaje al recibir PO -> Tránsito)
+            is_transit_loc = False
             dest_loc = pick.location_dest_id
             if dest_loc and (dest_loc.id == 128 or any(x in dest_loc.name for x in ['Transit', 'Tránsito', 'Trancit'])):
-                is_transit = True
+                is_transit_loc = True
             
-            if is_transit and pick.picking_type_code == 'incoming':
+            if is_transit_loc and pick.picking_type_code == 'incoming':
                 pick._create_automatic_transit_voyage()
 
-            # 2. LÓGICA DE RECEPCIÓN FÍSICA (Auto-Reservar Salida al Cliente)
-            # Si validamos una interna y esta es la "Recepción Física" de un viaje activo
+            # B) Lógica de Recepción Física (Tránsito -> Stock)
+            # Aquí es donde ocurre la asignación a la Orden de Entrega
             if pick.picking_type_code == 'internal' and pick.state == 'done':
-                pick._auto_reserve_deliveries_from_transit()
+                pick._assign_lots_to_delivery_orders()
 
         return res
 
-    def _auto_reserve_deliveries_from_transit(self):
+    def _assign_lots_to_delivery_orders(self):
         """
-        Busca si este picking es la Recepción Física de un Viaje.
-        Si lo es, busca los pedidos de venta asignados en el viaje y fuerza 
-        la reserva de los lotes recibidos en sus respectivas Entregas (Delivery Orders).
+        Reserva forzosamente los lotes en la Orden de Entrega del cliente.
         """
         self.ensure_one()
-        # Buscar si este picking es la recepción final de algún viaje
+        
+        # 1. Identificar si este picking pertenece a un Viaje
         voyage = self.env['stock.transit.voyage'].search([
             ('reception_picking_id', '=', self.id)
         ], limit=1)
@@ -62,97 +63,107 @@ class StockPicking(models.Model):
         if not voyage:
             return
 
-        _logger.info(f"[TRANSIT_AUTO_RESERVE] Iniciando asignación automática para Picking {self.name} desde Viaje {voyage.name}")
+        _logger.info(f"[CONTROL_TOWER] Sincronizando entregas para Recepción {self.name} (Viaje: {voyage.name})")
 
-        # Mapa de Lote -> Orden de Venta (Según la Torre de Control)
-        # Esto es la "Fuente de la Verdad"
-        lot_assignment_map = {}
+        # 2. Crear mapa de asignación: Lote ID -> Orden de Venta ID
+        # Solo nos interesan las líneas que tienen un cliente asignado (allocation_status='reserved')
+        lot_to_so_map = {}
         for line in voyage.line_ids:
             if line.lot_id and line.order_id and line.allocation_status == 'reserved':
-                lot_assignment_map[line.lot_id.id] = {
-                    'so': line.order_id,
-                    'partner': line.partner_id
-                }
+                lot_to_so_map[line.lot_id.id] = line.order_id
 
-        # Iteramos sobre lo que ACABAMOS de recibir en este picking
-        # Usamos move_line_ids porque ahí están los lotes específicos
+        # 3. Iterar sobre lo que acabamos de recibir físicamente
+        # self.move_line_ids contiene el detalle de Lote, Producto y Cantidad Real recibida
         for move_line in self.move_line_ids:
+            # Validaciones básicas
             if not move_line.lot_id or not move_line.qty_done:
                 continue
-            
-            # Verificamos si este lote tiene dueño según la Torre de Control
-            assignment = lot_assignment_map.get(move_line.lot_id.id)
-            if not assignment:
+
+            # Ver si este lote tiene dueño en la Torre de Control
+            target_so = lot_to_so_map.get(move_line.lot_id.id)
+            if not target_so:
                 continue
 
-            sale_order = assignment['so']
-            
-            # Buscamos la Entrega (Delivery Order) pendiente de este pedido
+            # 4. Buscar la Orden de Entrega (Picking de Salida) de esa SO
             # Debe ser 'outgoing', estar confirmada (esperando reserva) y salir de la ubicación donde recibimos
             # o de una ubicación padre/hija (normalmente stock).
             delivery_picking = self.env['stock.picking'].search([
-                ('origin', '=', sale_order.name),
+                ('origin', '=', target_so.name),
                 ('picking_type_code', '=', 'outgoing'),
                 ('state', 'in', ['confirmed', 'assigned', 'partially_available']),
                 ('company_id', '=', self.company_id.id)
             ], limit=1)
 
             if not delivery_picking:
-                _logger.warning(f"[TRANSIT_AUTO_RESERVE] No se encontró entrega pendiente para SO {sale_order.name} (Lote {move_line.lot_id.name})")
+                _logger.warning(f"[CONTROL_TOWER] No se encontró entrega pendiente para {target_so.name}. Lote {move_line.lot_id.name} queda libre en stock.")
                 continue
 
-            # Buscar el movimiento de stock (stock.move) dentro de la entrega que corresponda al producto
+            # 5. Buscar el Movimiento (Stock Move) del producto en la Entrega
             target_move = delivery_picking.move_ids.filtered(
-                lambda m: m.product_id == move_line.product_id and m.state not in ['done', 'cancel']
+                lambda m: m.product_id.id == move_line.product_id.id and m.state not in ['done', 'cancel']
             )
 
             if not target_move:
+                # Caso borde: El producto no está en la entrega (¿pedido modificado?)
                 continue
             
-            # En caso de múltiples líneas para el mismo producto, tomamos la primera disponible
+            # Tomamos el primer movimiento válido (por si hay líneas divididas, tomamos la primera pendiente)
             target_move = target_move[0]
 
-            # --- FORZAR LA RESERVA ---
+            # 6. INYECCIÓN DE LA RESERVA
+            # Creamos un stock.move.line en la entrega vinculado al lote específico
             try:
-                # Verificamos si ya está reservado para evitar duplicados
-                already_reserved = target_move.move_line_ids.filtered(lambda ml: ml.lot_id.id == move_line.lot_id.id)
-                
-                if not already_reserved:
-                    # Creamos la línea de movimiento (reserva) explícita
-                    # Al crearla con lot_id y quantity, Odoo la considera "Reservada"
+                # Verificamos si ya existe para no duplicar (idempotencia)
+                existing_reserved = self.env['stock.move.line'].search([
+                    ('move_id', '=', target_move.id),
+                    ('lot_id', '=', move_line.lot_id.id),
+                    ('picking_id', '=', delivery_picking.id)
+                ], limit=1)
+
+                if existing_reserved:
+                    # Si ya existe, actualizamos la cantidad reservada si es necesario
+                    # Odoo usa 'quantity' (o reserved_uom_qty) para la reserva, NO qty_done
+                    existing_reserved.write({
+                        'quantity': existing_reserved.quantity + move_line.qty_done,
+                        'location_id': move_line.location_dest_id.id, # Actualizamos ubicación por si acaso
+                    })
+                else:
+                    # Crear nueva línea de reserva
+                    # IMPORTANTE: 
+                    # - location_id: Dónde está el lote AHORA (destino de la recepción)
+                    # - quantity: Cuánto reservamos (lo que recibimos)
+                    # - qty_done: 0 (porque aún no sale del almacén)
                     self.env['stock.move.line'].create({
-                        'move_id': target_move.id,
                         'picking_id': delivery_picking.id,
+                        'move_id': target_move.id,
                         'product_id': move_line.product_id.id,
                         'lot_id': move_line.lot_id.id,
-                        'product_uom_id': move_line.product_id.uom_id.id,
-                        'location_id': move_line.location_dest_id.id, # Ubicación donde quedó el stock (Stock principal)
-                        'location_dest_id': delivery_picking.location_dest_id.id,
-                        'quantity': move_line.qty_done, # Reservamos lo que se recibió
-                        'qty_done': 0, 
+                        'product_uom_id': move_line.product_uom_id.id,
+                        'location_id': move_line.location_dest_id.id, # El stock físico actual
+                        'location_dest_id': target_move.location_dest_id.id, # Cliente
+                        'quantity': move_line.qty_done, # ESTO ES LA RESERVA
+                        'qty_done': 0.0,
                     })
-                    
-                    _logger.info(f"[TRANSIT_AUTO_RESERVE] Lote {move_line.lot_id.name} reservado exitosamente en {delivery_picking.name}")
-                
-            except Exception as e:
-                _logger.error(f"[TRANSIT_AUTO_RESERVE] Error al reservar lote {move_line.lot_id.name} en {delivery_picking.name}: {str(e)}")
 
-        # Opcional: Recalcular el estado del picking de salida para que refleje "Reservado"
-        # delivery_pickings_to_update = ... (agrupar y ejecutar action_assign si es necesario, 
-        # aunque crear los move_line manualmente suele ser suficiente).
+                _logger.info(f"[CONTROL_TOWER] Lote {move_line.lot_id.name} asignado a Entrega {delivery_picking.name}")
+
+            except Exception as e:
+                _logger.error(f"[CONTROL_TOWER] Error asignando lote {move_line.lot_id.name} a {delivery_picking.name}: {e}")
+
+        # Opcional: Forzar recomputo de estado del picking de salida
+        # Esto ayuda a que pase de "Esperando" a "Preparado" visualmente
+        # delivery_pickings_found = ... (podrías recolectarlos en el loop y llamar check_availability)
 
     def _create_automatic_transit_voyage(self):
         self.ensure_one()
         Voyage = self.env['stock.transit.voyage']
         
-        # CORRECCIÓN: Búsqueda por custom_status
         voyage = Voyage.search([
             ('purchase_id', '=', self.purchase_id.id),
             ('custom_status', '!=', 'cancel')
         ], limit=1)
 
         if voyage:
-            # CORRECCIÓN: Se eliminó 'state': 'in_transit'
             voyage.write({
                 'picking_id': self.id,
                 'container_number': self.transit_container_number or voyage.container_number,
@@ -161,7 +172,6 @@ class StockPicking(models.Model):
             })
             voyage.action_load_from_picking()
         else:
-            # CORRECCIÓN: Se eliminó 'state': 'in_transit'
             voyage = Voyage.create({
                 'picking_id': self.id,
                 'purchase_id': self.purchase_id.id,
