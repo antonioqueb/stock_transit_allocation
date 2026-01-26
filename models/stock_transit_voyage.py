@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 class StockTransitVoyage(models.Model):
     _name = 'stock.transit.voyage'
@@ -17,6 +18,8 @@ class StockTransitVoyage(models.Model):
         ('puerto_origen', 'Puerto Origen'),
         ('on_sea', 'En Altamar / Mar'),
         ('puerto_destino', 'Puerto Destino'),
+        ('arrived_port', 'Arribo a Puerto (Trámite)'), # Nuevo estado intermedio sugerido
+        ('reception_pending', 'En Recepción Física'),   # Nuevo estado para el proceso de Worksheet
         ('delivered', 'Entregado en Almacén'),
         ('cancel', 'Cancelado'),
     ], string='Estado', default='solicitud', tracking=True)
@@ -32,9 +35,13 @@ class StockTransitVoyage(models.Model):
     eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
 
-    picking_id = fields.Many2one('stock.picking', string='Recepción Vinculada', 
-        domain=[('picking_type_code', '=', 'incoming')])
+    picking_id = fields.Many2one('stock.picking', string='Recepción (Tránsito)', 
+        domain=[('picking_type_code', '=', 'incoming')], help="Recepción administrativa en ubicación de tránsito")
     
+    reception_picking_id = fields.Many2one('stock.picking', string='Recepción Física (Bodega)',
+        domain=[('picking_type_code', '=', 'internal')], readonly=True,
+        help="Transferencia interna para ingreso físico y validación de medidas (Worksheet)")
+
     purchase_id = fields.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
     
     company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
@@ -65,7 +72,6 @@ class StockTransitVoyage(models.Model):
     def _compute_transit_progress(self):
         today = fields.Date.today()
         for rec in self:
-            # CORRECCIÓN: Ahora depende de custom_status
             if rec.custom_status == 'delivered':
                 rec.transit_progress = 100
                 continue
@@ -94,7 +100,6 @@ class StockTransitVoyage(models.Model):
                     rec.transit_progress = 0
 
     def action_confirm_transit(self):
-        # CORRECCIÓN: Unificado a custom_status
         self.write({'custom_status': 'on_sea'})
         if self.picking_id and self.picking_id.purchase_id:
             allocations = self.env['purchase.order.line.allocation'].search([
@@ -104,7 +109,10 @@ class StockTransitVoyage(models.Model):
             allocations.action_mark_in_transit()
 
     def action_arrive(self):
-        # CORRECCIÓN: Unificado a custom_status
+        """Finaliza el viaje. Se debe usar solo después de la recepción física."""
+        if self.reception_picking_id and self.reception_picking_id.state != 'done':
+            raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física (Worksheet) haya sido validada."))
+
         self.write({
             'arrival_date': fields.Date.today(),
             'custom_status': 'delivered'
@@ -114,8 +122,117 @@ class StockTransitVoyage(models.Model):
                 line.allocation_id.action_mark_received(line.product_uom_qty)
 
     def action_cancel(self):
-        # CORRECCIÓN: Nueva acción de cancelación unificada
         self.write({'custom_status': 'cancel'})
+
+    def action_generate_reception(self):
+        """
+        Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos
+        para permitir la validación física (Worksheet).
+        """
+        self.ensure_one()
+        if self.reception_picking_id:
+             return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'stock.picking',
+                'res_id': self.reception_picking_id.id,
+                'view_mode': 'form',
+                'target': 'current',
+            }
+
+        # 1. Determinar tipo de operación (Internal Transfer)
+        # Buscamos un tipo de operación genérico de la compañía para movimientos internos
+        picking_type = self.env['stock.picking.type'].search([
+            ('code', '=', 'internal'),
+            ('company_id', '=', self.company_id.id)
+        ], limit=1)
+        
+        if not picking_type:
+            raise UserError(_("No se encontró un tipo de operación 'Internal Transfer' configurado para esta compañía."))
+
+        # 2. Agrupar líneas por ubicación origen (donde están los quants ahora)
+        # Esto es vital porque si el material está en varias ubicaciones de tránsito, 
+        # necesitamos una lógica coherente (usaremos la ubicación del primer lote válido)
+        source_location = False
+        valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
+        
+        if not valid_lines:
+            raise UserError(_("No hay líneas con Lotes y Quants válidos para recepcionar."))
+            
+        # Tomamos la ubicación del primer quant válido como origen
+        source_location = valid_lines[0].quant_id.location_id
+        
+        if not source_location:
+             raise UserError(_("No se pudo determinar la ubicación de origen de la mercancía en tránsito."))
+
+        # 3. Crear la Cabecera del Picking
+        picking_vals = {
+            'picking_type_id': picking_type.id,
+            'location_id': source_location.id,
+            'location_dest_id': picking_type.default_location_dest_id.id, # Ubicación de Stock por defecto
+            'origin': f"{self.name} (Recepción Física)",
+            'company_id': self.company_id.id,
+            'move_type': 'direct',
+            # Marcamos flags para permitir Worksheet inmediato
+            'packing_list_imported': True, # Ya tenemos la data teórica de los lotes
+            'has_packing_list': True,
+        }
+        
+        # Copiar datos del embarque si existen campos en stock.picking (del módulo de importación)
+        if hasattr(self.env['stock.picking'], 'supplier_bl_number'):
+            picking_vals.update({
+                'supplier_bl_number': self.bl_number,
+                'supplier_vessel': self.vessel_name,
+                'supplier_container_no': self.container_number,
+                'supplier_origin': 'TRÁNSITO',
+            })
+
+        picking = self.env['stock.picking'].create(picking_vals)
+
+        # 4. Crear Movimientos (Moves) y Líneas de Movimiento (Move Lines) con Lotes
+        # Es fundamental crear el move_line con el lot_id para que no se pierda la asignación
+        
+        for line in valid_lines:
+            # Crear Stock Move
+            move = self.env['stock.move'].create({
+                'name': line.product_id.name,
+                'product_id': line.product_id.id,
+                'product_uom_qty': line.product_uom_qty,
+                'product_uom': line.product_id.uom_id.id,
+                'picking_id': picking.id,
+                'location_id': source_location.id,
+                'location_dest_id': picking_type.default_location_dest_id.id,
+                'company_id': self.company_id.id,
+            })
+            
+            # Crear Stock Move Line (Vinculando el Lote Específico)
+            self.env['stock.move.line'].create({
+                'move_id': move.id,
+                'picking_id': picking.id,
+                'product_id': line.product_id.id,
+                'lot_id': line.lot_id.id,
+                'qty_done': 0, # Se pone en 0 para obligar el conteo/worksheet, o line.product_uom_qty si queremos pre-llenar
+                'product_uom_id': line.product_id.uom_id.id,
+                'location_id': source_location.id,
+                'location_dest_id': picking_type.default_location_dest_id.id,
+            })
+
+        # Confirmar el picking para reservar los quants (si están disponibles)
+        picking.action_confirm()
+        # Intentar reservar (asignar)
+        picking.action_assign()
+        
+        self.write({
+            'reception_picking_id': picking.id,
+            'custom_status': 'reception_pending'
+        })
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': picking.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
 
     def action_load_from_purchase(self):
         """Carga líneas preventivas desde las allocations de la OC"""
