@@ -18,8 +18,8 @@ class StockTransitVoyage(models.Model):
         ('puerto_origen', 'Puerto Origen'),
         ('on_sea', 'En Altamar / Mar'),
         ('puerto_destino', 'Puerto Destino'),
-        ('arrived_port', 'Arribo a Puerto (Trámite)'), # Nuevo estado intermedio sugerido
-        ('reception_pending', 'En Recepción Física'),   # Nuevo estado para el proceso de Worksheet
+        ('arrived_port', 'Arribo a Puerto (Trámite)'), 
+        ('reception_pending', 'En Recepción Física'),   
         ('delivered', 'Entregado en Almacén'),
         ('cancel', 'Cancelado'),
     ], string='Estado', default='solicitud', tracking=True)
@@ -140,7 +140,6 @@ class StockTransitVoyage(models.Model):
             }
 
         # 1. Determinar tipo de operación (Internal Transfer)
-        # Buscamos un tipo de operación genérico de la compañía para movimientos internos
         picking_type = self.env['stock.picking.type'].search([
             ('code', '=', 'internal'),
             ('company_id', '=', self.company_id.id)
@@ -150,15 +149,11 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("No se encontró un tipo de operación 'Internal Transfer' configurado para esta compañía."))
 
         # 2. Agrupar líneas por ubicación origen (donde están los quants ahora)
-        # Esto es vital porque si el material está en varias ubicaciones de tránsito, 
-        # necesitamos una lógica coherente (usaremos la ubicación del primer lote válido)
-        source_location = False
         valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
         
         if not valid_lines:
             raise UserError(_("No hay líneas con Lotes y Quants válidos para recepcionar."))
             
-        # Tomamos la ubicación del primer quant válido como origen
         source_location = valid_lines[0].quant_id.location_id
         
         if not source_location:
@@ -168,16 +163,14 @@ class StockTransitVoyage(models.Model):
         picking_vals = {
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
-            'location_dest_id': picking_type.default_location_dest_id.id, # Ubicación de Stock por defecto
+            'location_dest_id': picking_type.default_location_dest_id.id,
             'origin': f"{self.name} (Recepción Física)",
             'company_id': self.company_id.id,
             'move_type': 'direct',
-            # Marcamos flags para permitir Worksheet inmediato
-            'packing_list_imported': True, # Ya tenemos la data teórica de los lotes
+            'packing_list_imported': True,
             'has_packing_list': True,
         }
         
-        # Copiar datos del embarque si existen campos en stock.picking (del módulo de importación)
         if hasattr(self.env['stock.picking'], 'supplier_bl_number'):
             picking_vals.update({
                 'supplier_bl_number': self.bl_number,
@@ -189,12 +182,10 @@ class StockTransitVoyage(models.Model):
         picking = self.env['stock.picking'].create(picking_vals)
 
         # 4. Crear Movimientos (Moves) y Líneas de Movimiento (Move Lines) con Lotes
-        # Es fundamental crear el move_line con el lot_id para que no se pierda la asignación
-        
         for line in valid_lines:
-            # Crear Stock Move
-            move = self.env['stock.move'].create({
-                'name': line.product_id.name,
+            # CORRECCIÓN: Se eliminó 'name' para evitar el error RPC_ERROR en Odoo 19.
+            # Odoo asignará el nombre del producto automáticamente.
+            move_vals = {
                 'product_id': line.product_id.id,
                 'product_uom_qty': line.product_uom_qty,
                 'product_uom': line.product_id.uom_id.id,
@@ -202,7 +193,9 @@ class StockTransitVoyage(models.Model):
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-            })
+            }
+            
+            move = self.env['stock.move'].create(move_vals)
             
             # Crear Stock Move Line (Vinculando el Lote Específico)
             self.env['stock.move.line'].create({
@@ -210,15 +203,13 @@ class StockTransitVoyage(models.Model):
                 'picking_id': picking.id,
                 'product_id': line.product_id.id,
                 'lot_id': line.lot_id.id,
-                'qty_done': 0, # Se pone en 0 para obligar el conteo/worksheet, o line.product_uom_qty si queremos pre-llenar
+                'qty_done': 0, # Cero para obligar la verificación en Worksheet
                 'product_uom_id': line.product_id.uom_id.id,
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
             })
 
-        # Confirmar el picking para reservar los quants (si están disponibles)
         picking.action_confirm()
-        # Intentar reservar (asignar)
         picking.action_assign()
         
         self.write({
