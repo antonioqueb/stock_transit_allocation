@@ -168,6 +168,7 @@ class StockTransitVoyage(models.Model):
         _logger.info(f"[TRANSIT_VOYAGE] Ubicación Origen detectada: {source_location.name}")
 
         # 3. Crear la Cabecera del Picking
+        # CORRECCION: Forzamos immediate_transfer=False para evitar validación automática accidental
         picking_vals = {
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
@@ -177,6 +178,7 @@ class StockTransitVoyage(models.Model):
             'move_type': 'direct',
             'packing_list_imported': True,
             'has_packing_list': True,
+            'immediate_transfer': False, 
         }
         
         if hasattr(self.env['stock.picking'], 'supplier_bl_number'):
@@ -217,29 +219,44 @@ class StockTransitVoyage(models.Model):
             else:
                 _logger.warning(f"[TRANSIT_VOYAGE] Producto {product.name} tiene cantidad total 0. No se crea stock.move.")
 
-        # 5. CONFIRMAR PICKING (Para habilitar la reserva)
-        picking.action_confirm()
+        # 5. CONFIRMAR PICKING
+        # Usamos el contexto para asegurar que no se marque como "todo hecho"
+        picking.with_context(planned_picking=True).action_confirm()
+        
         _logger.info(f"[TRANSIT_VOYAGE] Picking confirmado. Estado actual: {picking.state}")
 
-        # --- PASO CRÍTICO: Limpiar reservas automáticas ---
-        # Al confirmar, Odoo intenta reservar automáticamente (FIFO).
-        # Liberamos para poder inyectar nuestros lotes específicos manualmente.
-        picking.do_unreserve() 
-        _logger.info("[TRANSIT_VOYAGE] Reservas automáticas liberadas (do_unreserve).")
+        # --- CORRECCIÓN CRÍTICA ---
+        # Si el picking se validó solo (estado 'done'), NO PODEMOS llamar a do_unreserve
+        # Si está en 'confirmed' o 'assigned', debemos limpiar la reserva automática FIFO.
+        if picking.state not in ['done', 'cancel']:
+            picking.do_unreserve()
+            _logger.info("[TRANSIT_VOYAGE] Reservas automáticas liberadas (do_unreserve).")
+        else:
+            _logger.warning(f"[TRANSIT_VOYAGE] ATENCIÓN: El picking {picking.name} se validó automáticamente (Estado: {picking.state}). Se omite la inyección de líneas detalladas.")
+            # Si ya está hecho, registramos el picking y salimos para evitar error.
+            self.write({
+                'reception_picking_id': picking.id,
+                'custom_status': 'reception_pending'
+            })
+            return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'stock.picking',
+                'res_id': picking.id,
+                'view_mode': 'form',
+                'target': 'current',
+            }
 
-        # 6. INYECTAR LAS LÍNEAS DE LOTE (Move Lines)
+        # 6. INYECTAR LAS LÍNEAS DE LOTE (Solo si no estaba ya 'done')
         move_by_product = {m.product_id.id: m.id for m in picking.move_ids}
         lines_created = 0
 
         for line in valid_lines:
             # Validación robusta: No crear líneas con cantidad 0 o negativa
             if line.product_uom_qty <= 0:
-                _logger.warning(f"[TRANSIT_VOYAGE] Saltando creación de move_line para lote {line.lot_id.name}: Cantidad {line.product_uom_qty}")
                 continue
 
             move_id = move_by_product.get(line.product_id.id)
             if not move_id:
-                _logger.warning(f"[TRANSIT_VOYAGE] No se encontró stock.move para producto {line.product_id.name}")
                 continue
 
             try:
