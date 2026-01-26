@@ -10,7 +10,6 @@ class StockTransitVoyage(models.Model):
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
     
-    # ÚNICO CAMPO DE ESTADO (Unificado)
     custom_status = fields.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
@@ -109,7 +108,6 @@ class StockTransitVoyage(models.Model):
             allocations.action_mark_in_transit()
 
     def action_arrive(self):
-        """Finaliza el viaje. Se debe usar solo después de la recepción física."""
         if self.reception_picking_id and self.reception_picking_id.state != 'done':
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física (Worksheet) haya sido validada."))
 
@@ -126,8 +124,8 @@ class StockTransitVoyage(models.Model):
 
     def action_generate_reception(self):
         """
-        Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos
-        para permitir la validación física (Worksheet).
+        Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos.
+        CORRECCIÓN: Crea los Move Lines DESPUÉS de confirmar el picking para asegurar persistencia.
         """
         self.ensure_one()
         if self.reception_picking_id:
@@ -139,7 +137,7 @@ class StockTransitVoyage(models.Model):
                 'target': 'current',
             }
 
-        # 1. Determinar tipo de operación (Internal Transfer)
+        # 1. Determinar tipo de operación
         picking_type = self.env['stock.picking.type'].search([
             ('code', '=', 'internal'),
             ('company_id', '=', self.company_id.id)
@@ -148,7 +146,7 @@ class StockTransitVoyage(models.Model):
         if not picking_type:
             raise UserError(_("No se encontró un tipo de operación 'Internal Transfer' configurado para esta compañía."))
 
-        # 2. Agrupar líneas por ubicación origen (donde están los quants ahora)
+        # 2. Agrupar líneas por ubicación origen
         valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
         
         if not valid_lines:
@@ -181,36 +179,51 @@ class StockTransitVoyage(models.Model):
 
         picking = self.env['stock.picking'].create(picking_vals)
 
-        # 4. Crear Movimientos (Moves) y Líneas de Movimiento (Move Lines) con Lotes
+        # 4. Crear Movimientos (Stock Moves) - Solo cabeceras de producto
+        # Agrupamos por producto para evitar crear múltiples moves si hay múltiples lotes del mismo producto (opcional pero limpio)
+        products_map = {}
         for line in valid_lines:
-            # CORRECCIÓN: Se eliminó 'name' para evitar el error RPC_ERROR en Odoo 19.
-            # Odoo asignará el nombre del producto automáticamente.
-            move_vals = {
-                'product_id': line.product_id.id,
-                'product_uom_qty': line.product_uom_qty,
-                'product_uom': line.product_id.uom_id.id,
+            if line.product_id not in products_map:
+                products_map[line.product_id] = 0.0
+            products_map[line.product_id] += line.product_uom_qty
+
+        for product, qty in products_map.items():
+            self.env['stock.move'].create({
+                'product_id': product.id,
+                'product_uom_qty': qty,
+                'product_uom': product.uom_id.id,
                 'picking_id': picking.id,
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-            }
-            
-            move = self.env['stock.move'].create(move_vals)
-            
-            # Crear Stock Move Line (Vinculando el Lote Específico)
+                'name': product.name, # Odoo 19 might require explicit name here if not compute
+            })
+
+        # 5. CONFIRMAR PICKING (Importante: Antes de crear las líneas de lote)
+        picking.action_confirm()
+
+        # 6. INYECTAR LAS LÍNEAS DE LOTE (Move Lines)
+        # Ahora que los moves existen y están confirmados, adjuntamos los detalles.
+        # Mapeamos Move ID por Producto ID para saber a qué move pegar la linea
+        move_by_product = {m.product_id.id: m.id for m in picking.move_ids}
+
+        for line in valid_lines:
+            move_id = move_by_product.get(line.product_id.id)
+            if not move_id: continue
+
             self.env['stock.move.line'].create({
-                'move_id': move.id,
+                'move_id': move_id,
                 'picking_id': picking.id,
                 'product_id': line.product_id.id,
                 'lot_id': line.lot_id.id,
-                'qty_done': 0, # Cero para obligar la verificación en Worksheet
+                'qty_done': 0, # Dejar en 0 para que el Worksheet valide la recepción real
                 'product_uom_id': line.product_id.uom_id.id,
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
             })
 
-        picking.action_confirm()
-        picking.action_assign()
+        # NO llamamos action_assign() para evitar que Odoo intente reservar otros lotes automáticamente.
+        # Dejamos las líneas creadas explícitamente para que el usuario o el worksheet las llenen.
         
         self.write({
             'reception_picking_id': picking.id,
@@ -226,7 +239,6 @@ class StockTransitVoyage(models.Model):
         }
 
     def action_load_from_purchase(self):
-        """Carga líneas preventivas desde las allocations de la OC"""
         self.ensure_one()
         if not self.purchase_id:
             return
@@ -253,7 +265,6 @@ class StockTransitVoyage(models.Model):
             self.env['stock.transit.line'].create(transit_lines)
 
     def action_load_from_picking(self):
-        """DISTRIBUCIÓN INTELIGENTE CON ACTUALIZACIÓN DE LÍNEAS PREVENTIVAS"""
         self.ensure_one()
         if not self.picking_id:
             return
