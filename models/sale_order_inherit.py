@@ -21,7 +21,7 @@ class SaleOrderLine(models.Model):
 
     auto_transit_assign = fields.Boolean(
         string='Mandar Pedir', 
-        default=True,
+        default=False,
         help="Si está marcado, se considerará para la asignación automática en la Torre de Control "
              "cuando se genere la compra."
     )
