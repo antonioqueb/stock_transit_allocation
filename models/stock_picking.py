@@ -24,12 +24,14 @@ class StockPicking(models.Model):
             pick.transit_count = len(pick.transit_voyage_ids)
 
     # -------------------------------------------------------------------------
-    # NUEVO MÉTODO: Paso 2 de la Recepción Manual
+    # NUEVO MÉTODO: Paso 2 de la Recepción Manual (Sincronización)
     # -------------------------------------------------------------------------
     def action_sync_from_voyage(self):
         """
         Busca el Viaje de Tránsito origen y carga los lotes específicos en las líneas detalladas.
         Este método se llama manualmente desde el botón en la vista del picking.
+        
+        MEJORA: Si la demanda (stock.move) no existe, la crea automáticamente para evitar errores.
         NO valida el picking, solo prepara los datos para que el usuario valide.
         """
         self.ensure_one()
@@ -43,7 +45,7 @@ class StockPicking(models.Model):
         if not voyage:
             # Fallback: intentar por el nombre en el origen si se perdió el enlace directo
             if self.origin:
-                origin_ref = self.origin.split(' ')[0] # Ej: "VOY/2026/005" de "VOY/2026/005 (Recepción...)"
+                origin_ref = self.origin.split(' ')[0] # Ej: "VOY/2026/005"
                 voyage = self.env['stock.transit.voyage'].search([
                     ('name', 'ilike', origin_ref)
                 ], limit=1)
@@ -53,7 +55,8 @@ class StockPicking(models.Model):
 
         # 2. Limpiar líneas de detalle existentes (stock.move.line)
         # Esto permite re-sincronizar si hubo cambios en el viaje antes de validar
-        self.move_line_ids.unlink()
+        if self.move_line_ids:
+            self.move_line_ids.unlink()
 
         # 3. Inyectar Lotes desde el Viaje
         lines_created = 0
@@ -64,16 +67,33 @@ class StockPicking(models.Model):
             # Buscar el movimiento de demanda (stock.move) correspondiente a este producto
             move = self.move_ids.filtered(lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel'])
             
-            if not move:
-                _logger.warning(f"[TC_WARN] No se encontró demanda para producto {line.product_id.name} en picking {self.name}")
-                continue
+            target_move = False
             
-            # Tomamos el primer move disponible
-            target_move = move[0]
+            if move:
+                target_move = move[0]
+            else:
+                # === FIX: AUTO-CREACIÓN DE DEMANDA ===
+                # Si no existe la demanda en el picking (ej. se creó vacío o cambió el viaje), la creamos.
+                _logger.info(f"[TC_FIX] Creando demanda faltante para {line.product_id.name} en {self.name}")
+                try:
+                    target_move = self.env['stock.move'].create({
+                        'picking_id': self.id,
+                        'product_id': line.product_id.id,
+                        'product_uom': line.product_id.uom_id.id,
+                        'product_uom_qty': line.product_uom_qty, # Cantidad planeada
+                        'location_id': self.location_id.id,
+                        'location_dest_id': self.location_dest_id.id,
+                        'company_id': self.company_id.id,
+                        # 'name' omitido para compatibilidad con Odoo 19
+                    })
+                    # Confirmamos el movimiento para que pase a 'confirmed'/'assigned'
+                    target_move._action_confirm()
+                except Exception as e:
+                    _logger.error(f"[TC_ERROR] No se pudo crear demanda para {line.product_id.name}: {e}")
+                    continue
 
+            # Crear la línea de detalle (Move Line) con el lote y la cantidad hecha
             try:
-                # Crear la línea con la cantidad YA establecida.
-                # Al hacerlo en un picking ya existente y confirmado, Odoo no valida automáticamente.
                 self.env['stock.move.line'].create({
                     'picking_id': self.id,
                     'move_id': target_move.id,
@@ -88,7 +108,7 @@ class StockPicking(models.Model):
             except Exception as e:
                 _logger.error(f"[TC_ERROR] Error creando linea de sincronización para lote {line.lot_id.name}: {e}")
 
-        # 4. Resultado
+        # 4. Resultado y Notificación
         if lines_created > 0:
             msg = f"Sincronización completada. {lines_created} líneas de lotes cargadas desde el Viaje {voyage.name}."
             self.message_post(body=msg)
@@ -104,10 +124,10 @@ class StockPicking(models.Model):
                 }
             }
         else:
-            raise UserError(_("No se encontraron líneas válidas con lotes en el viaje para sincronizar."))
+            raise UserError(_("No se encontraron líneas válidas (con lote y cantidad > 0) en el viaje para sincronizar."))
 
     # -------------------------------------------------------------------------
-    # SOBREESCRITURAS EXISTENTES
+    # SOBREESCRITURAS DE COMPORTAMIENTO (VALIDACIÓN Y ASIGNACIÓN)
     # -------------------------------------------------------------------------
 
     def button_validate(self):
@@ -132,7 +152,7 @@ class StockPicking(models.Model):
                 pick._create_automatic_transit_voyage()
 
             # B) Lógica de Recepción Física (Tránsito -> Stock) -> Asignar a Entrega
-            # Esta lógica se ejecutará AHORA que tú valides manualmente después de sincronizar.
+            # Esta lógica se ejecuta SOLO cuando el usuario valida manualmente (después de sincronizar)
             if pick.picking_type_code == 'internal' and pick.state == 'done':
                 _logger.info(f"[TC_DEBUG] Picking {pick.name} validado (Internal/Done). Iniciando lógica de asignación a Ventas...")
                 try:
@@ -180,7 +200,6 @@ class StockPicking(models.Model):
             qty_just_moved = move_line.quantity if move_line.quantity > 0 else move_line.qty_done
             
             if qty_just_moved <= 0:
-                _logger.info(f"[TC_DEBUG] MoveLine {move_line.id} con cantidad 0. Saltando.")
                 continue
 
             # ¿Este lote tiene dueño en el viaje?
@@ -201,24 +220,18 @@ class StockPicking(models.Model):
                 ('company_id', '=', self.company_id.id)
             ]
             
-            delivery_picking = False
-            
-            # ESTRATEGIA 1: Buscar por sale_id (El campo existe en tu modelo)
+            # Estrategia 1: Buscar por sale_id
             delivery_picking = self.env['stock.picking'].search(
                 domain_delivery + [('sale_id', '=', target_so.id)], 
                 limit=1
             )
             
-            if delivery_picking:
-                _logger.info(f"    > Delivery encontrado por Sale ID: {delivery_picking.name}")
-            else:
-                # ESTRATEGIA 2: Fallback por Origin (Nombre string)
+            if not delivery_picking:
+                # Estrategia 2: Fallback por Origin
                 delivery_picking = self.env['stock.picking'].search(
                     domain_delivery + [('origin', '=', target_so.name)], 
                     limit=1
                 )
-                if delivery_picking:
-                    _logger.info(f"    > Delivery encontrado por Origin: {delivery_picking.name}")
 
             if not delivery_picking:
                 _logger.warning(f"    [!] No se encontró Entrega (Delivery) pendiente para {target_so.name}.")
@@ -265,7 +278,7 @@ class StockPicking(models.Model):
                     })
                     _logger.info(f"    [OK] Reserva ACTUALIZADA en {delivery_picking.name}")
                 else:
-                    vals = {
+                    self.env['stock.move.line'].create({
                         'picking_id': delivery_picking.id,
                         'move_id': target_move.id,
                         'product_id': move_line.product_id.id,
@@ -274,8 +287,7 @@ class StockPicking(models.Model):
                         'location_id': move_line.location_dest_id.id, # CRUCIAL: Donde está ahora
                         'location_dest_id': target_move.location_dest_id.id,
                         'quantity': qty_just_moved, 
-                    }
-                    self.env['stock.move.line'].create(vals)
+                    })
                     _logger.info(f"    [OK] Reserva CREADA en {delivery_picking.name}")
                 
                 count_success += 1
