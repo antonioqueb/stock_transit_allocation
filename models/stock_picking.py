@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -21,6 +22,93 @@ class StockPicking(models.Model):
     def _compute_transit_count(self):
         for pick in self:
             pick.transit_count = len(pick.transit_voyage_ids)
+
+    # -------------------------------------------------------------------------
+    # NUEVO MÉTODO: Paso 2 de la Recepción Manual
+    # -------------------------------------------------------------------------
+    def action_sync_from_voyage(self):
+        """
+        Busca el Viaje de Tránsito origen y carga los lotes específicos en las líneas detalladas.
+        Este método se llama manualmente desde el botón en la vista del picking.
+        NO valida el picking, solo prepara los datos para que el usuario valide.
+        """
+        self.ensure_one()
+        _logger.info(f"[TC_DEBUG] Sincronizando Picking {self.name} con Viaje...")
+
+        # 1. Encontrar el viaje que generó este picking
+        voyage = self.env['stock.transit.voyage'].search([
+            ('reception_picking_id', '=', self.id)
+        ], limit=1)
+
+        if not voyage:
+            # Fallback: intentar por el nombre en el origen si se perdió el enlace directo
+            if self.origin:
+                origin_ref = self.origin.split(' ')[0] # Ej: "VOY/2026/005" de "VOY/2026/005 (Recepción...)"
+                voyage = self.env['stock.transit.voyage'].search([
+                    ('name', 'ilike', origin_ref)
+                ], limit=1)
+        
+        if not voyage:
+            raise UserError(_("No se encontró un Viaje de Tránsito vinculado a esta recepción para sincronizar."))
+
+        # 2. Limpiar líneas de detalle existentes (stock.move.line)
+        # Esto permite re-sincronizar si hubo cambios en el viaje antes de validar
+        self.move_line_ids.unlink()
+
+        # 3. Inyectar Lotes desde el Viaje
+        lines_created = 0
+        for line in voyage.line_ids:
+            if not line.lot_id or line.product_uom_qty <= 0:
+                continue
+
+            # Buscar el movimiento de demanda (stock.move) correspondiente a este producto
+            move = self.move_ids.filtered(lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel'])
+            
+            if not move:
+                _logger.warning(f"[TC_WARN] No se encontró demanda para producto {line.product_id.name} en picking {self.name}")
+                continue
+            
+            # Tomamos el primer move disponible
+            target_move = move[0]
+
+            try:
+                # Crear la línea con la cantidad YA establecida.
+                # Al hacerlo en un picking ya existente y confirmado, Odoo no valida automáticamente.
+                self.env['stock.move.line'].create({
+                    'picking_id': self.id,
+                    'move_id': target_move.id,
+                    'product_id': line.product_id.id,
+                    'product_uom_id': line.product_id.uom_id.id,
+                    'lot_id': line.lot_id.id,
+                    'location_id': target_move.location_id.id,
+                    'location_dest_id': target_move.location_dest_id.id,
+                    'quantity': line.product_uom_qty, 
+                })
+                lines_created += 1
+            except Exception as e:
+                _logger.error(f"[TC_ERROR] Error creando linea de sincronización para lote {line.lot_id.name}: {e}")
+
+        # 4. Resultado
+        if lines_created > 0:
+            msg = f"Sincronización completada. {lines_created} líneas de lotes cargadas desde el Viaje {voyage.name}."
+            self.message_post(body=msg)
+            
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Sincronización Exitosa'),
+                    'message': _('Los lotes han sido cargados. Verifique las cantidades y presione Validar.'),
+                    'type': 'success',
+                    'sticky': False,
+                }
+            }
+        else:
+            raise UserError(_("No se encontraron líneas válidas con lotes en el viaje para sincronizar."))
+
+    # -------------------------------------------------------------------------
+    # SOBREESCRITURAS EXISTENTES
+    # -------------------------------------------------------------------------
 
     def button_validate(self):
         """
@@ -44,6 +132,7 @@ class StockPicking(models.Model):
                 pick._create_automatic_transit_voyage()
 
             # B) Lógica de Recepción Física (Tránsito -> Stock) -> Asignar a Entrega
+            # Esta lógica se ejecutará AHORA que tú valides manualmente después de sincronizar.
             if pick.picking_type_code == 'internal' and pick.state == 'done':
                 _logger.info(f"[TC_DEBUG] Picking {pick.name} validado (Internal/Done). Iniciando lógica de asignación a Ventas...")
                 try:

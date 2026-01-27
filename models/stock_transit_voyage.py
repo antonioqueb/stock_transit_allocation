@@ -125,134 +125,99 @@ class StockTransitVoyage(models.Model):
     def action_cancel(self):
         self.write({'custom_status': 'cancel'})
 
+    # models/stock_transit_voyage.py
+
     def action_generate_reception(self):
-            """
-            Genera una Transferencia Interna (Transit -> Stock).
-            FIX: Estrategia de dos pasos para evitar el Auto-Validate.
-            1. Creamos la línea con Quantity = 0 (Reserva el lote).
-            2. Actualizamos la Quantity (Indica que está listo para validar).
-            """
-            self.ensure_one()
-            _logger.info(f"[TC_DEBUG] >>> GENERATE RECEPTION START for Voyage: {self.name}")
+        """
+        PASO 1: Genera el Picking y los Movimientos (Demanda), pero VACÍO de detalles.
+        El usuario deberá presionar 'Sincronizar' en el picking para traer los lotes.
+        """
+        self.ensure_one()
+        _logger.info(f"[TC_DEBUG] >>> PASO 1: Creando Picking Vacío para Viaje: {self.name}")
 
-            if self.reception_picking_id:
-                return {
-                    'type': 'ir.actions.act_window',
-                    'res_model': 'stock.picking',
-                    'res_id': self.reception_picking_id.id,
-                    'view_mode': 'form',
-                    'target': 'current',
-                }
-
-            # 1. Configuración
-            picking_type = self.env['stock.picking.type'].search([
-                ('code', '=', 'internal'),
-                ('company_id', '=', self.company_id.id)
-            ], limit=1)
-            
-            if not picking_type:
-                raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
-
-            valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
-            if not valid_lines:
-                raise UserError(_("No hay líneas válidas para mover."))
-                
-            source_location = valid_lines[0].quant_id.location_id
-            if not source_location:
-                raise UserError(_("No se pudo determinar la ubicación de origen."))
-
-            # 2. Crear Header Picking
-            picking = self.env['stock.picking'].create({
-                'picking_type_id': picking_type.id,
-                'location_id': source_location.id,
-                'location_dest_id': picking_type.default_location_dest_id.id,
-                'origin': f"{self.name} (Recepción Física)",
-                'company_id': self.company_id.id,
-                'move_type': 'direct',
-                'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
-                'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
-                'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
-            })
-            _logger.info(f"[TC_DEBUG] Picking Header Creado: {picking.name} (ID: {picking.id})")
-
-            # 3. Crear STOCK.MOVES (Demanda)
-            products_map = {}
-            for line in valid_lines:
-                if line.product_uom_qty <= 0: continue
-                if line.product_id not in products_map:
-                    products_map[line.product_id] = 0.0
-                products_map[line.product_id] += line.product_uom_qty
-
-            move_objs = {} 
-            for product, qty in products_map.items():
-                move = self.env['stock.move'].create({
-                    'product_id': product.id,
-                    'product_uom_qty': qty,
-                    'product_uom': product.uom_id.id,
-                    'picking_id': picking.id,
-                    'location_id': source_location.id,
-                    'location_dest_id': picking_type.default_location_dest_id.id,
-                    'company_id': self.company_id.id,
-                })
-                move_objs[product.id] = move.id
-
-            # 4. Confirmar Picking (Pasa a estado 'Confirmado' / 'Waiting')
-            picking.action_confirm()
-
-            # Limpiar reservas automáticas si Odoo las creó
-            if picking.move_line_ids:
-                picking.move_line_ids.unlink()
-
-            # 5. Crear STOCK.MOVE.LINES (Estrategia Anti-Auto-Done)
-            for line in valid_lines:
-                if line.product_uom_qty <= 0: continue
-                
-                move_id = move_objs.get(line.product_id.id)
-                if not move_id: continue
-
-                try:
-                    # PASO A: Crear la línea con Cantidad 0.
-                    # Esto vincula el lote y el movimiento, pero no dispara el cierre.
-                    sml = self.env['stock.move.line'].create({
-                        'move_id': move_id,
-                        'picking_id': picking.id,
-                        'product_id': line.product_id.id,
-                        'lot_id': line.lot_id.id,
-                        'product_uom_id': line.product_id.uom_id.id,
-                        'location_id': source_location.id,
-                        'location_dest_id': picking_type.default_location_dest_id.id,
-                        'quantity': 0, # <--- CLAVE: Empezamos en cero
-                    })
-                    
-                    # PASO B: Actualizar la cantidad.
-                    # Al editar una línea existente, Odoo es menos agresivo con la validación automática.
-                    sml.write({'quantity': line.product_uom_qty})
-                    
-                    _logger.info(f"[TC_DEBUG] MoveLine configurada: {sml.id} | Lote: {line.lot_id.name}")
-                except Exception as e:
-                    _logger.error(f"[TC_DEBUG] Error en linea para lote {line.lot_id.name}: {e}")
-
-            # Opcional: Si el estado sigue siendo 'confirmed' (porque borramos las reservas auto),
-            # podemos intentar verificar disponibilidad, pero sin forzar.
-            # Generalmente con quantity > 0, ya debería verse como 'assigned'.
-            if picking.state == 'confirmed':
-                picking.action_assign()
-
-            _logger.info(f"[TC_DEBUG] Picking Finalizado. Estado actual: {picking.state}")
-
-            self.write({
-                'reception_picking_id': picking.id,
-                'custom_status': 'reception_pending'
-            })
-            
+        if self.reception_picking_id:
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'stock.picking',
-                'res_id': picking.id,
+                'res_id': self.reception_picking_id.id,
                 'view_mode': 'form',
                 'target': 'current',
             }
 
+        # 1. Validaciones
+        picking_type = self.env['stock.picking.type'].search([
+            ('code', '=', 'internal'),
+            ('company_id', '=', self.company_id.id)
+        ], limit=1)
+        
+        if not picking_type:
+            raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
+
+        valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
+        if not valid_lines:
+            raise UserError(_("No hay líneas válidas para mover."))
+            
+        source_location = valid_lines[0].quant_id.location_id
+        if not source_location:
+             raise UserError(_("No se pudo determinar la ubicación de origen."))
+
+        # 2. Crear Header Picking
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': picking_type.id,
+            'location_id': source_location.id,
+            'location_dest_id': picking_type.default_location_dest_id.id,
+            'origin': f"{self.name} (Recepción Física)",
+            'company_id': self.company_id.id,
+            'move_type': 'direct',
+            'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
+            'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
+            'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
+        })
+
+        # 3. Crear STOCK.MOVES (Solo Demanda General, sin Lotes)
+        # Agrupamos por producto para no repetir líneas de demanda
+        products_map = {}
+        for line in valid_lines:
+            if line.product_uom_qty <= 0: continue
+            if line.product_id not in products_map:
+                products_map[line.product_id] = 0.0
+            products_map[line.product_id] += line.product_uom_qty
+
+        for product, qty in products_map.items():
+            self.env['stock.move'].create({
+                'product_id': product.id,
+                'product_uom_qty': qty, # Demanda Planeada
+                'product_uom': product.uom_id.id,
+                'picking_id': picking.id,
+                'location_id': source_location.id,
+                'location_dest_id': picking_type.default_location_dest_id.id,
+                'company_id': self.company_id.id,
+                'name': product.name, # Odoo 19 a veces requiere name aunque sea computado
+            })
+
+        # 4. Confirmar para generar la estructura, pero limpiar cualquier reserva automática
+        picking.action_confirm()
+        
+        # Limpieza agresiva: Si Odoo reservó algo automáticamente, lo quitamos.
+        # Queremos que el picking esté "Limpio" esperando el botón de sincronizar.
+        if picking.move_line_ids:
+            picking.move_line_ids.unlink()
+
+        self.write({
+            'reception_picking_id': picking.id,
+            'custom_status': 'reception_pending'
+        })
+        
+        _logger.info(f"[TC_DEBUG] Picking {picking.name} creado. Estado: {picking.state}. Esperando sincronización manual.")
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': picking.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+    
     def action_load_from_purchase(self):
         self.ensure_one()
         if not self.purchase_id:

@@ -5,6 +5,17 @@
         <field name="model">stock.picking</field>
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
+
+
+            <!-- AÑADIR BOTÓN DE SINCRONIZACIÓN EN EL HEADER -->
+            <xpath expr="//header" position="inside">
+                <button name="action_sync_from_voyage" 
+                        string="📲 Sincronizar con Embarque" 
+                        type="object" 
+                        class="btn-primary"
+                        invisible="not transit_container_number and origin not in [False, ''] and 'VOY' not in origin"
+                        groups="stock.group_stock_user"/>
+            </xpath>
             
             <!-- Botón inteligente -->
             <div name="button_box" position="inside">
@@ -16,6 +27,8 @@
                     <field name="transit_count" widget="statinfo" string="En Tránsito"/>
                 </button>
             </div>
+
+
 
             <!-- Campos de información de Tránsito -->
             <xpath expr="//field[@name='origin']" position="after">
