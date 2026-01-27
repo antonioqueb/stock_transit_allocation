@@ -44,7 +44,6 @@ class StockPicking(models.Model):
                 pick._create_automatic_transit_voyage()
 
             # B) Lógica de Recepción Física (Tránsito -> Stock) -> Asignar a Entrega
-            # Se ejecuta solo si es interno, está hecho, y viene de un tránsito
             if pick.picking_type_code == 'internal' and pick.state == 'done':
                 _logger.info(f"[TC_DEBUG] Picking {pick.name} validado (Internal/Done). Iniciando lógica de asignación a Ventas...")
                 try:
@@ -88,7 +87,7 @@ class StockPicking(models.Model):
             if not move_line.lot_id:
                 continue
             
-            # ODOO 19 FIX: usar 'quantity' (reserva) o 'qty_done' si ya está validado
+            # ODOO 19 FIX: usar 'quantity' en lugar de 'qty_done'
             qty_just_moved = move_line.quantity if move_line.quantity > 0 else move_line.qty_done
             
             if qty_just_moved <= 0:
