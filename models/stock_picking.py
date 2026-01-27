@@ -86,10 +86,10 @@ class StockPicking(models.Model):
         count_success = 0
         for move_line in self.move_line_ids:
             if not move_line.lot_id:
-                _logger.info(f"[TC_DEBUG] MoveLine {move_line.id} sin lote. Saltando.")
                 continue
             
-            qty_just_moved = move_line.qty_done or move_line.quantity
+            # ODOO 19 FIX: usar 'quantity' en lugar de 'qty_done'
+            qty_just_moved = move_line.quantity
             if qty_just_moved <= 0:
                 _logger.info(f"[TC_DEBUG] MoveLine {move_line.id} con cantidad 0. Saltando.")
                 continue
@@ -114,7 +114,7 @@ class StockPicking(models.Model):
             
             delivery_picking = False
             
-            # Intento por Grupo (Procurement Group) - Método más seguro
+            # Intento por Grupo (Procurement Group)
             if target_so.procurement_group_id:
                 delivery_picking = self.env['stock.picking'].search(
                     domain_delivery + [('group_id', '=', target_so.procurement_group_id.id)], 
@@ -185,8 +185,7 @@ class StockPicking(models.Model):
                         'product_uom_id': move_line.product_uom_id.id,
                         'location_id': move_line.location_dest_id.id, # CRUCIAL: Donde está ahora
                         'location_dest_id': target_move.location_dest_id.id,
-                        'quantity': qty_just_moved, 
-                        'qty_done': 0.0,
+                        'quantity': qty_just_moved, # ODOO 19: Usar quantity
                     }
                     self.env['stock.move.line'].create(vals)
                     _logger.info(f"    [OK] Reserva CREADA en {delivery_picking.name}")

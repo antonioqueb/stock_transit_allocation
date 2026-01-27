@@ -196,8 +196,8 @@ class StockTransitVoyage(models.Model):
         # Crear Stock Moves
         move_objs = {} # Map product_id -> move_id
         for product, qty in products_map.items():
+            # CORRECCIÓN: 'name' eliminado para Odoo 19
             move = self.env['stock.move'].create({
-                'name': product.name,
                 'product_id': product.id,
                 'product_uom_qty': qty,
                 'product_uom': product.uom_id.id,
@@ -210,7 +210,6 @@ class StockTransitVoyage(models.Model):
             _logger.info(f"[TC_DEBUG] Move creado para {product.name}: {move.id}")
 
         # 4. CRÍTICO: Crear STOCK.MOVE.LINES *ANTES* de confirmar
-        # Esto asegura que los lotes ya estén vinculados cuando el picking pase a 'assigned' o 'done'
         lines_created = 0
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -219,8 +218,7 @@ class StockTransitVoyage(models.Model):
             if not move_id: continue
 
             try:
-                # Ojo: quantity es la demanda/reserva. qty_done es lo procesado.
-                # Llenamos ambos para que esté listo para validar.
+                # CORRECCIÓN: 'qty_done' eliminado, usar 'quantity' para Odoo 19
                 sml = self.env['stock.move.line'].create({
                     'move_id': move_id,
                     'picking_id': picking.id,
@@ -229,19 +227,18 @@ class StockTransitVoyage(models.Model):
                     'product_uom_id': line.product_id.uom_id.id,
                     'location_id': source_location.id,
                     'location_dest_id': picking_type.default_location_dest_id.id,
-                    'quantity': line.product_uom_qty, # Demanda (Reserva)
-                    'qty_done': 0, # Iniciar en 0 para obligar conteo físico o llenarlo si se desea automático
+                    'quantity': line.product_uom_qty, # Cantidad
                 })
                 lines_created += 1
                 _logger.info(f"[TC_DEBUG] MoveLine creada: {sml.id} | Lote: {line.lot_id.name} | Qty: {line.product_uom_qty}")
             except Exception as e:
                 _logger.error(f"[TC_DEBUG] Error creando linea para lote {line.lot_id.name}: {e}")
 
-        # 5. Confirmar Picking (Ahora ya tiene líneas, no se validará "en vacío")
+        # 5. Confirmar Picking
         _logger.info(f"[TC_DEBUG] Confirmando picking {picking.name}...")
         picking.action_confirm()
         
-        # Opcional: Forzar asignación para reservar los lotes indicados en move_lines
+        # Opcional: Forzar asignación
         if picking.state not in ['assigned', 'done']:
             picking.action_assign()
 
@@ -322,7 +319,7 @@ class StockTransitVoyage(models.Model):
             order_to_assign = False
             allocation_to_use = False
             product_id = move_line.product_id.id
-            qty_done = move_line.qty_done or move_line.reserved_uom_qty
+            qty_done = move_line.quantity # ODOO 19 FIX: Use quantity
             
             if product_id in allocations_map:
                 for alloc in allocations_map[product_id]:
