@@ -114,16 +114,19 @@ class StockPicking(models.Model):
             
             delivery_picking = False
             
-            # Intento por Grupo (Procurement Group)
-            if target_so.procurement_group_id:
+            # --- FIX: Verificación segura de procurement_group_id ---
+            # Usamos getattr para evitar el crash si el campo no existe en Odoo 19
+            proc_group = getattr(target_so, 'procurement_group_id', False)
+            
+            if proc_group:
                 delivery_picking = self.env['stock.picking'].search(
-                    domain_delivery + [('group_id', '=', target_so.procurement_group_id.id)], 
+                    domain_delivery + [('group_id', '=', proc_group.id)], 
                     limit=1
                 )
                 if delivery_picking:
                     _logger.info(f"    > Delivery encontrado por Grupo: {delivery_picking.name}")
 
-            # Intento por Origen (Nombre string) si falló el grupo
+            # Intento por Origen (Nombre string) si falló el grupo o no existe el campo
             if not delivery_picking:
                 delivery_picking = self.env['stock.picking'].search(
                     domain_delivery + [('origin', '=', target_so.name)], 
