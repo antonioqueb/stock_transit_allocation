@@ -2,6 +2,9 @@
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
 from odoo.tools import drop_view_if_exists
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class StockTransitLine(models.Model):
     _name = 'stock.transit.line'
@@ -12,7 +15,6 @@ class StockTransitLine(models.Model):
     company_id = fields.Many2one(related='voyage_id.company_id', store=True)
     product_id = fields.Many2one('product.product', string='Descripción / Producto', required=True)
     
-    # IMPORTANTE: required=False para permitir la fase de Solicitud/OC
     lot_id = fields.Many2one('stock.lot', string='Lote / Placa', required=False)
     container_number = fields.Char(string='Contenedor')
     quant_id = fields.Many2one('stock.quant', string='Quant Físico')
@@ -22,10 +24,33 @@ class StockTransitLine(models.Model):
     x_ancho = fields.Float(related='lot_id.x_ancho', string='Ancho', readonly=True)
     
     product_uom_qty = fields.Float(string='M2 Embarcados', digits='Product Unit of Measure')
-    partner_id = fields.Many2one('res.partner', string='Cliente / Proyecto', tracking=True, index=True)
-    order_id = fields.Many2one('sale.order', string='Sales Order', 
-        domain="[('partner_id', '=', partner_id), ('state', 'in', ['sale', 'done'])]",
-        tracking=True)
+    
+    # CAMPO CLIENTE: Dominio dinámico calculado
+    eligible_partner_ids = fields.Many2many(
+        'res.partner', 
+        compute='_compute_eligible_partners',
+        string='Clientes Elegibles'
+    )
+    partner_id = fields.Many2one(
+        'res.partner', 
+        string='Cliente / Proyecto', 
+        tracking=True, 
+        index=True,
+        domain="[('id', 'in', eligible_partner_ids)]"
+    )
+    
+    # CAMPO ORDEN: Dominio dinámico basado en cliente Y producto
+    eligible_order_ids = fields.Many2many(
+        'sale.order',
+        compute='_compute_eligible_orders',
+        string='Órdenes Elegibles'
+    )
+    order_id = fields.Many2one(
+        'sale.order', 
+        string='Sales Order',
+        tracking=True,
+        domain="[('id', 'in', eligible_order_ids)]"
+    )
 
     allocation_id = fields.Many2one('purchase.order.line.allocation', string='Asignación Origen')
 
@@ -34,7 +59,6 @@ class StockTransitLine(models.Model):
         ('reserved', 'Reservado / Vendido')
     ], string='Estado Asignación', default='available', required=True)
 
-    # El purchase_id debe venir de la línea si no hay picking aún
     purchase_id = fields.Many2one('purchase.order', compute='_compute_purchase_id', string='OC Sistema', store=True)
     
     @api.depends('voyage_id.purchase_id', 'voyage_id.picking_id.purchase_id')
@@ -58,6 +82,213 @@ class StockTransitLine(models.Model):
     arrival_date = fields.Date(related='voyage_id.arrival_date', string='Llegada Real', store=True)
     notes = fields.Text(string='Comentarios')
 
+    # =========================================================================
+    # CÓMPUTOS PARA DOMINIOS DINÁMICOS
+    # =========================================================================
+    
+    @api.depends('product_id')
+    def _compute_eligible_partners(self):
+        """
+        Calcula los clientes elegibles: aquellos que tienen órdenes confirmadas
+        con líneas del producto de esta línea de tránsito.
+        """
+        for line in self:
+            if not line.product_id:
+                line.eligible_partner_ids = [(5, 0, 0)]
+                continue
+            
+            # Buscar órdenes de venta confirmadas que tengan este producto
+            sale_lines = self.env['sale.order.line'].search([
+                ('product_id', '=', line.product_id.id),
+                ('order_id.state', 'in', ['sale', 'done']),
+                ('display_type', '=', False),
+            ])
+            
+            partner_ids = sale_lines.mapped('order_id.partner_id').ids
+            line.eligible_partner_ids = [(6, 0, partner_ids)]
+
+    @api.depends('product_id', 'partner_id')
+    def _compute_eligible_orders(self):
+        """
+        Calcula las órdenes elegibles: órdenes del cliente seleccionado
+        que contengan el producto de esta línea.
+        """
+        for line in self:
+            if not line.product_id or not line.partner_id:
+                line.eligible_order_ids = [(5, 0, 0)]
+                continue
+            
+            # Buscar órdenes del cliente que tengan este producto
+            sale_lines = self.env['sale.order.line'].search([
+                ('product_id', '=', line.product_id.id),
+                ('order_id.partner_id', '=', line.partner_id.id),
+                ('order_id.state', 'in', ['sale', 'done']),
+                ('display_type', '=', False),
+            ])
+            
+            order_ids = sale_lines.mapped('order_id').ids
+            line.eligible_order_ids = [(6, 0, order_ids)]
+
+    # =========================================================================
+    # ONCHANGE PARA LIMPIAR Y ASIGNAR AUTOMÁTICAMENTE
+    # =========================================================================
+    
+    @api.onchange('partner_id')
+    def _onchange_partner_id(self):
+        """
+        Al cambiar el cliente:
+        - Si se limpia el cliente, limpiar la orden
+        - Si el cliente tiene solo una orden elegible, seleccionarla automáticamente
+        """
+        if not self.partner_id:
+            self.order_id = False
+            return
+        
+        # Recalcular órdenes elegibles
+        if not self.product_id:
+            self.order_id = False
+            return
+            
+        sale_lines = self.env['sale.order.line'].search([
+            ('product_id', '=', self.product_id.id),
+            ('order_id.partner_id', '=', self.partner_id.id),
+            ('order_id.state', 'in', ['sale', 'done']),
+            ('display_type', '=', False),
+        ])
+        
+        eligible_orders = sale_lines.mapped('order_id')
+        
+        if len(eligible_orders) == 1:
+            # Auto-seleccionar si solo hay una orden
+            self.order_id = eligible_orders[0]
+        elif self.order_id and self.order_id not in eligible_orders:
+            # Limpiar si la orden actual no es válida para el nuevo cliente
+            self.order_id = False
+
+    # =========================================================================
+    # WRITE OVERRIDE PARA EJECUTAR LÓGICA DE RESERVA
+    # =========================================================================
+    
+    def write(self, vals):
+        """
+        Override write para detectar cambios en partner_id/order_id
+        y ejecutar la lógica de reserva automáticamente.
+        """
+        # Detectar si hay cambio de asignación
+        assignment_changed = 'partner_id' in vals or 'order_id' in vals
+        
+        # Guardar estado previo para comparación
+        old_assignments = {}
+        if assignment_changed:
+            for line in self:
+                old_assignments[line.id] = {
+                    'partner_id': line.partner_id.id if line.partner_id else False,
+                    'order_id': line.order_id.id if line.order_id else False,
+                }
+        
+        # Ejecutar write estándar
+        res = super(StockTransitLine, self).write(vals)
+        
+        # Procesar cambios de asignación
+        if assignment_changed:
+            for line in self:
+                old = old_assignments.get(line.id, {})
+                new_partner = line.partner_id
+                new_order = line.order_id
+                
+                # Verificar si realmente cambió
+                if old.get('partner_id') != (new_partner.id if new_partner else False) or \
+                   old.get('order_id') != (new_order.id if new_order else False):
+                    
+                    # Actualizar estado de asignación
+                    new_status = 'reserved' if (new_partner and new_order) else 'available'
+                    if line.allocation_status != new_status:
+                        super(StockTransitLine, line).write({'allocation_status': new_status})
+                    
+                    # Ejecutar lógica de reserva/liberación
+                    if new_partner and new_order:
+                        line._execute_reservation_logic(new_partner, new_order)
+                    elif not new_partner:
+                        line._execute_release_logic()
+                    
+                    # Log en el viaje
+                    if line.voyage_id:
+                        if new_partner and new_order:
+                            msg = f"🔄 <b>Asignación:</b> {line.lot_id.name or line.product_id.name}<br/>"
+                            msg += f"→ {new_partner.name} / {new_order.name}"
+                        else:
+                            msg = f"🔓 <b>Liberado a Stock:</b> {line.lot_id.name or line.product_id.name}"
+                        line.voyage_id.message_post(body=msg)
+        
+        return res
+
+    def _execute_reservation_logic(self, partner, order):
+        """
+        Ejecuta la lógica de reserva cuando se asigna a un cliente/orden.
+        Crea Hold Order si hay lote físico.
+        """
+        self.ensure_one()
+        
+        if not self.lot_id or not self.quant_id:
+            _logger.info(f"TransitLine {self.id}: Sin lote físico, solo asignación visual")
+            return
+        
+        # Verificar si ya existe hold activo para este quant
+        existing_hold = self.env['stock.lot.hold'].search([
+            ('quant_id', '=', self.quant_id.id),
+            ('estado', '=', 'activo')
+        ], limit=1)
+        
+        if existing_hold:
+            _logger.info(f"TransitLine {self.id}: Ya existe hold activo, verificando...")
+            # Si ya está reservado para el mismo cliente, no hacer nada
+            if existing_hold.order_id and existing_hold.order_id.partner_id == partner:
+                return
+            # Cancelar el hold anterior si es de otro cliente
+            try:
+                existing_hold.action_cancelar_hold()
+            except Exception as e:
+                _logger.warning(f"No se pudo cancelar hold existente: {e}")
+        
+        # Crear nuevo Hold Order usando TransitManager
+        try:
+            from .utils.transit_manager import TransitManager
+            TransitManager.reassign_lot(
+                self.env,
+                self,
+                partner,
+                order,
+                notes="Asignación directa desde Torre de Control"
+            )
+        except Exception as e:
+            _logger.error(f"Error creando reserva: {e}")
+
+    def _execute_release_logic(self):
+        """
+        Ejecuta la lógica de liberación cuando se quita el cliente.
+        Cancela Hold Orders existentes.
+        """
+        self.ensure_one()
+        
+        if not self.quant_id:
+            return
+        
+        existing_holds = self.env['stock.lot.hold'].search([
+            ('quant_id', '=', self.quant_id.id),
+            ('estado', '=', 'activo')
+        ])
+        
+        for hold in existing_holds:
+            try:
+                hold.action_cancelar_hold()
+                _logger.info(f"TransitLine {self.id}: Hold cancelado")
+            except Exception as e:
+                _logger.error(f"Error cancelando hold: {e}")
+
+    # =========================================================================
+    # MÉTODOS LEGACY (mantener compatibilidad)
+    # =========================================================================
+
     @api.depends('purchase_id', 'order_id', 'product_id', 'allocation_id')
     def _compute_po_so_qty(self):
         for line in self:
@@ -75,17 +306,8 @@ class StockTransitLine(models.Model):
     def _check_order_assignment(self):
         for record in self:
             if record.partner_id and not record.order_id:
-                raise ValidationError(_("Falta vincular la Orden de Venta para el cliente %s." % record.partner_id.name))
+                raise ValidationError(_("Debe seleccionar una Orden de Venta para el cliente %s." % record.partner_id.name))
 
-    def action_reassign_wizard(self):
-        return {
-            'name': 'Reasignar en Tránsito',
-            'type': 'ir.actions.act_window',
-            'res_model': 'transit.reassign.wizard',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': {'default_line_ids': self.ids}
-        }
 
 class StockTransitSheet(models.Model):
     _name = 'stock.transit.sheet'
@@ -103,7 +325,6 @@ class StockTransitSheet(models.Model):
     proforma_ref = fields.Char(string='Proforma / Ref Prov', readonly=True)
     vendor_id = fields.Many2one('res.partner', string='Proveedor', readonly=True)
     
-    # LOS KEYS DEBEN COINCIDIR EXACTAMENTE CON EL MODELO VOYAGE
     voyage_status = fields.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
