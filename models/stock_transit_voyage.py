@@ -125,13 +125,15 @@ class StockTransitVoyage(models.Model):
     def action_cancel(self):
         self.write({'custom_status': 'cancel'})
 
+    
     def action_generate_reception(self):
         """
-        PASO 1: Genera el Picking y los Movimientos (Demanda), pero VACÍO de detalles.
-        FIX: Eliminado el campo 'name' en stock.move.create porque Odoo 19 lo rechaza.
+        PASO 1: Genera el Picking y los Movimientos (Demanda) en estado BORRADOR.
+        FIX: No llamamos a action_confirm() aquí para evitar cualquier automatismo de Odoo.
+        El usuario deberá entrar, revisar y usar el botón 'Sincronizar'.
         """
         self.ensure_one()
-        _logger.info(f"[TC_DEBUG] >>> PASO 1: Creando Picking Vacío para Viaje: {self.name}")
+        _logger.info(f"[TC_DEBUG] >>> PASO 1: Creando Picking para Viaje: {self.name}")
 
         if self.reception_picking_id:
             return {
@@ -172,7 +174,8 @@ class StockTransitVoyage(models.Model):
             'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
         })
 
-        # 3. Crear STOCK.MOVES (Solo Demanda General, sin Lotes)
+        # 3. Crear STOCK.MOVES (Demanda)
+        # Agrupamos por producto
         products_map = {}
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -181,31 +184,29 @@ class StockTransitVoyage(models.Model):
             products_map[line.product_id] += line.product_uom_qty
 
         for product, qty in products_map.items():
-            # CORRECCIÓN: Eliminado 'name'
             self.env['stock.move'].create({
                 'product_id': product.id,
-                'product_uom_qty': qty, # Demanda Planeada
+                'product_uom_qty': qty,
                 'product_uom': product.uom_id.id,
                 'picking_id': picking.id,
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-                # 'name': product.name,  <-- REMOVIDO: Odoo lo calcula automáticamente y falla si se pasa.
+                'state': 'draft', # Forzamos borrador explícitamente
             })
 
-        # 4. Confirmar para generar la estructura
-        picking.action_confirm()
+        # === CAMBIO IMPORTANTE: NO CONFIRMAR ===
+        # No llamamos a picking.action_confirm().
+        # Dejamos el picking en estado 'draft'. 
+        # El usuario entrará, verá el botón 'Marcar por realizar' (estándar de Odoo)
+        # O usará nuestro botón de Sincronizar que se encargará del resto.
         
-        # Limpieza agresiva: Si Odoo reservó algo automáticamente, lo quitamos.
-        if picking.move_line_ids:
-            picking.move_line_ids.unlink()
-
         self.write({
             'reception_picking_id': picking.id,
             'custom_status': 'reception_pending'
         })
         
-        _logger.info(f"[TC_DEBUG] Picking {picking.name} creado. Estado: {picking.state}. Esperando sincronización manual.")
+        _logger.info(f"[TC_DEBUG] Picking {picking.name} creado en BORRADOR. ID: {picking.id}")
 
         return {
             'type': 'ir.actions.act_window',
@@ -214,7 +215,7 @@ class StockTransitVoyage(models.Model):
             'view_mode': 'form',
             'target': 'current',
         }
-
+    
     def action_load_from_purchase(self):
         self.ensure_one()
         if not self.purchase_id:

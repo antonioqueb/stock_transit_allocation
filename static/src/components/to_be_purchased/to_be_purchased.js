@@ -15,11 +15,15 @@ export class ToBePurchased extends Component {
             selectedLines: [],
             // Filtros
             searchQuery: "",
-            showOnlyPending: true, // Por defecto solo pendientes
+            showOnlyPending: true,
+            groupBy: "product", // 'product' | 'sale_order' | 'vendor'
             // Modal state
             showModal: false,
             allVendors: [],
             selectedVendor: null,
+            selectedVendorName: "",
+            vendorSearch: "",
+            showVendorDropdown: false,
             openPOs: [],
             selectedPO: null,
             loadingPOs: false,
@@ -71,7 +75,88 @@ export class ToBePurchased extends Component {
             }).filter(p => p !== null);
         }
         
-        this.state.filteredData = result;
+        // Aplicar agrupación según el modo seleccionado
+        if (this.state.groupBy === "product") {
+            this.state.filteredData = result;
+        } else if (this.state.groupBy === "sale_order") {
+            this.state.filteredData = this._groupBySaleOrder(result);
+        } else if (this.state.groupBy === "vendor") {
+            this.state.filteredData = this._groupByVendor(result);
+        }
+    }
+
+    _groupBySaleOrder(data) {
+        const soMap = {};
+        
+        for (const product of data) {
+            for (const soLine of product.so_lines) {
+                const soKey = soLine.so_id;
+                if (!soMap[soKey]) {
+                    soMap[soKey] = {
+                        id: soLine.so_id,
+                        so_name: soLine.so_name,
+                        so_id: soLine.so_id,
+                        date: soLine.date,
+                        commitment_date: soLine.commitment_date,
+                        customer: soLine.customer,
+                        customer_id: soLine.customer_id,
+                        location: soLine.location,
+                        note: soLine.note,
+                        products: [],
+                        total_pending: 0,
+                    };
+                }
+                soMap[soKey].products.push({
+                    ...soLine,
+                    product_id: product.id,
+                    product_name: product.name,
+                    vendor: product.vendor,
+                    vendors: product.vendors,
+                    qty_a: product.qty_a,
+                    qty_i: product.qty_i,
+                    qty_p: product.qty_p,
+                });
+                soMap[soKey].total_pending += soLine.qty_pending;
+            }
+        }
+        
+        return Object.values(soMap).sort((a, b) => a.so_name.localeCompare(b.so_name));
+    }
+
+    _groupByVendor(data) {
+        const vendorMap = {};
+        
+        for (const product of data) {
+            const vendorName = product.vendor || 'SIN PROVEEDOR';
+            const vendorId = product.vendors?.[0]?.id || 0;
+            
+            if (!vendorMap[vendorName]) {
+                vendorMap[vendorName] = {
+                    id: vendorId,
+                    vendor_name: vendorName,
+                    vendor_id: vendorId,
+                    products: [],
+                    total_pending: 0,
+                    total_to_buy: 0,
+                };
+            }
+            
+            // Agregar líneas de SO con info del producto
+            for (const soLine of product.so_lines) {
+                vendorMap[vendorName].products.push({
+                    ...soLine,
+                    product_id: product.id,
+                    product_name: product.name,
+                    qty_a: product.qty_a,
+                    qty_i: product.qty_i,
+                    qty_p: product.qty_p,
+                });
+                vendorMap[vendorName].total_pending += soLine.qty_pending;
+            }
+            vendorMap[vendorName].total_to_buy += product.qty_to_buy;
+        }
+        
+        return Object.values(vendorMap).sort((a, b) => a.vendor_name.localeCompare(b.vendor_name));
     }
 
     onSearchInput(ev) {
@@ -84,13 +169,20 @@ export class ToBePurchased extends Component {
         this.applyFilters();
     }
 
+    setGroupBy(mode) {
+        this.state.groupBy = mode;
+        this.state.expanded = {};
+        this.state.selectedLines = [];
+        this.applyFilters();
+    }
+
     clearSearch() {
         this.state.searchQuery = "";
         this.applyFilters();
     }
 
-    toggleExpand(productId) {
-        this.state.expanded[productId] = !this.state.expanded[productId];
+    toggleExpand(itemId) {
+        this.state.expanded[itemId] = !this.state.expanded[itemId];
     }
 
     toggleSelection(lineId, ev) {
@@ -115,8 +207,68 @@ export class ToBePurchased extends Component {
     closeModal() {
         this.state.showModal = false;
         this.state.selectedVendor = null;
+        this.state.selectedVendorName = "";
+        this.state.vendorSearch = "";
+        this.state.showVendorDropdown = false;
         this.state.selectedPO = null;
         this.state.openPOs = [];
+    }
+
+    get filteredVendors() {
+        if (!this.state.vendorSearch.trim()) {
+            return this.state.allVendors;
+        }
+        const query = this.state.vendorSearch.toLowerCase().trim();
+        return this.state.allVendors.filter(v => v.name.toLowerCase().includes(query));
+    }
+
+    onVendorSearchInput(ev) {
+        this.state.vendorSearch = ev.target.value;
+        this.state.showVendorDropdown = true;
+        // Si borra el texto, limpiar selección
+        if (!ev.target.value.trim()) {
+            this.state.selectedVendor = null;
+            this.state.selectedVendorName = "";
+            this.state.openPOs = [];
+            this.state.selectedPO = null;
+        }
+    }
+
+    onVendorSearchFocus() {
+        this.state.showVendorDropdown = true;
+    }
+
+    onVendorSearchBlur() {
+        // Delay para permitir click en dropdown
+        setTimeout(() => {
+            this.state.showVendorDropdown = false;
+        }, 200);
+    }
+
+    async selectVendor(vendor) {
+        this.state.selectedVendor = vendor.id;
+        this.state.selectedVendorName = vendor.name;
+        this.state.vendorSearch = vendor.name;
+        this.state.showVendorDropdown = false;
+        this.state.selectedPO = null;
+        
+        // Cargar OCs abiertas del proveedor
+        this.state.loadingPOs = true;
+        try {
+            this.state.openPOs = await this.orm.call("purchase.manager.logic", "get_open_purchase_orders", [vendor.id]);
+        } catch (error) {
+            console.error("Error al cargar OCs:", error);
+            this.state.openPOs = [];
+        }
+        this.state.loadingPOs = false;
+    }
+
+    clearVendorSelection() {
+        this.state.selectedVendor = null;
+        this.state.selectedVendorName = "";
+        this.state.vendorSearch = "";
+        this.state.openPOs = [];
+        this.state.selectedPO = null;
     }
 
     async onVendorChange(ev) {

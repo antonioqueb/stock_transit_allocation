@@ -14,8 +14,8 @@
 
             <!-- BARRA DE FILTROS -->
             <div class="d-flex gap-2 mb-3 align-items-center flex-wrap">
-                <!-- Búsqueda por producto -->
-                <div class="input-group input-group-sm" style="max-width: 300px;">
+                <!-- Búsqueda -->
+                <div class="input-group input-group-sm" style="max-width: 250px;">
                     <span class="input-group-text bg-white">
                         <i class="fa fa-search text-muted"/>
                     </span>
@@ -40,14 +40,38 @@
                     <t t-else="">Mostrar Todo</t>
                 </button>
 
+                <!-- SELECTOR DE AGRUPACIÓN -->
+                <div class="btn-group btn-group-sm" role="group">
+                    <button t-attf-class="btn #{state.groupBy === 'product' ? 'btn-primary' : 'btn-outline-primary'}"
+                            t-on-click="() => this.setGroupBy('product')"
+                            title="Agrupar por Producto">
+                        <i class="fa fa-cube me-1"/>Producto
+                    </button>
+                    <button t-attf-class="btn #{state.groupBy === 'sale_order' ? 'btn-primary' : 'btn-outline-primary'}"
+                            t-on-click="() => this.setGroupBy('sale_order')"
+                            title="Agrupar por Orden de Venta">
+                        <i class="fa fa-file-text-o me-1"/>Orden Venta
+                    </button>
+                    <button t-attf-class="btn #{state.groupBy === 'vendor' ? 'btn-primary' : 'btn-outline-primary'}"
+                            t-on-click="() => this.setGroupBy('vendor')"
+                            title="Agrupar por Proveedor">
+                        <i class="fa fa-truck me-1"/>Proveedor
+                    </button>
+                </div>
+
                 <!-- Contador de resultados -->
                 <span class="text-muted small ms-auto">
-                    <t t-esc="state.filteredData.length"/> producto(s)
+                    <t t-esc="state.filteredData.length"/> 
+                    <t t-if="state.groupBy === 'product'">producto(s)</t>
+                    <t t-elif="state.groupBy === 'sale_order'">orden(es)</t>
+                    <t t-else="">proveedor(es)</t>
                 </span>
             </div>
 
-            <!-- TABLA PRINCIPAL -->
-            <div class="table-responsive">
+            <!-- ============================================ -->
+            <!-- VISTA AGRUPADA POR PRODUCTO (DEFAULT)       -->
+            <!-- ============================================ -->
+            <div class="table-responsive" t-if="state.groupBy === 'product'">
                 <table class="table table-sm table-bordered table-hover mb-0" style="font-size: 10px;">
                     <thead class="table-dark">
                         <tr>
@@ -177,6 +201,237 @@
                 </table>
             </div>
 
+            <!-- ============================================ -->
+            <!-- VISTA AGRUPADA POR ORDEN DE VENTA           -->
+            <!-- ============================================ -->
+            <div class="table-responsive" t-if="state.groupBy === 'sale_order'">
+                <table class="table table-sm table-bordered table-hover mb-0" style="font-size: 10px;">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 25px;"></th>
+                            <th style="width: 100px;">Orden Venta</th>
+                            <th style="width: 80px;">Fecha</th>
+                            <th style="width: 80px;">Requerido</th>
+                            <th>Cliente</th>
+                            <th>Ubicación</th>
+                            <th class="text-center" style="width: 80px;">Total Pend.</th>
+                            <th style="width: 150px;">Nota</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-if="state.filteredData.length === 0">
+                            <tr>
+                                <td colspan="8" class="text-center text-muted py-4">
+                                    <i class="fa fa-check-circle fa-2x mb-2 d-block text-success"/>
+                                    No hay órdenes pendientes
+                                </td>
+                            </tr>
+                        </t>
+                        <t t-foreach="state.filteredData" t-as="so" t-key="so.id">
+                            <!-- Fila de Orden de Venta -->
+                            <tr class="table-light" t-on-click="() => this.toggleExpand('so_' + so.id)" style="cursor: pointer;">
+                                <td class="text-center p-1">
+                                    <i t-attf-class="fa fa-xs #{state.expanded['so_' + so.id] ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary"/>
+                                </td>
+                                <td>
+                                    <a href="#" class="text-primary fw-bold" 
+                                       t-on-click="(ev) => this.openSaleOrder(so.so_id, ev)">
+                                        <t t-esc="so.so_name"/>
+                                    </a>
+                                </td>
+                                <td><t t-esc="so.date"/></td>
+                                <td><t t-esc="so.commitment_date"/></td>
+                                <td class="fw-semibold"><t t-esc="so.customer"/></td>
+                                <td><t t-esc="so.location"/></td>
+                                <td class="text-center fw-bold text-danger"><t t-esc="so.total_pending.toFixed(2)"/></td>
+                                <td class="text-truncate" style="max-width: 150px;" t-att-title="so.note">
+                                    <t t-esc="so.note"/>
+                                </td>
+                            </tr>
+                            
+                            <!-- Detalle de Productos -->
+                            <tr t-if="state.expanded['so_' + so.id]">
+                                <td colspan="8" class="p-0 bg-light">
+                                    <div class="p-2">
+                                        <table class="table table-sm table-bordered bg-white mb-0" style="font-size: 9px;">
+                                            <thead class="bg-secondary text-white">
+                                                <tr>
+                                                    <th class="text-center" style="width: 30px;">Sel</th>
+                                                    <th>Producto</th>
+                                                    <th>Proveedor</th>
+                                                    <th class="text-center" style="width: 45px;">A</th>
+                                                    <th class="text-center" style="width: 45px;">I</th>
+                                                    <th class="text-center" style="width: 45px;">P</th>
+                                                    <th class="text-end" style="width: 60px;">Cant</th>
+                                                    <th class="text-end" style="width: 60px;">Asig</th>
+                                                    <th class="text-end" style="width: 60px;">Pend</th>
+                                                    <th style="width: 120px;">OC Vinculada</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="so.products" t-as="prod" t-key="prod.id">
+                                                    <tr>
+                                                        <td class="text-center p-1">
+                                                            <input type="checkbox" 
+                                                                   class="form-check-input form-check-input-sm"
+                                                                   style="width: 12px; height: 12px;"
+                                                                   t-att-checked="state.selectedLines.includes(prod.id)"
+                                                                   t-on-change="(ev) => this.toggleSelection(prod.id, ev)"
+                                                                   t-att-disabled="prod.po_id"/>
+                                                        </td>
+                                                        <td class="fw-semibold text-truncate" style="max-width: 200px;" t-att-title="prod.product_name">
+                                                            <t t-esc="prod.product_name"/>
+                                                        </td>
+                                                        <td><t t-esc="prod.vendor"/></td>
+                                                        <td class="text-center"><t t-esc="prod.qty_a.toFixed(2)"/></td>
+                                                        <td class="text-center"><t t-esc="prod.qty_i.toFixed(2)"/></td>
+                                                        <td class="text-center"><t t-esc="prod.qty_p.toFixed(2)"/></td>
+                                                        <td class="text-end"><t t-esc="prod.qty_orig.toFixed(2)"/></td>
+                                                        <td class="text-end"><t t-esc="prod.qty_assigned.toFixed(2)"/></td>
+                                                        <td class="text-end fw-semibold text-primary"><t t-esc="prod.qty_pending.toFixed(2)"/></td>
+                                                        <td>
+                                                            <t t-if="prod.po_id">
+                                                                <a href="#" 
+                                                                   class="badge rounded-pill bg-success text-decoration-none"
+                                                                   style="font-size: 9px; cursor: pointer;"
+                                                                   t-on-click="(ev) => this.openPurchaseOrder(prod.po_id, ev)"
+                                                                   t-att-title="'Abrir ' + prod.po_name">
+                                                                    <i class="fa fa-external-link me-1"/>
+                                                                    <t t-esc="prod.po_name"/>
+                                                                </a>
+                                                            </t>
+                                                            <t t-else="">
+                                                                <span class="text-muted" style="font-size: 9px;">Sin OC</span>
+                                                            </t>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- ============================================ -->
+            <!-- VISTA AGRUPADA POR PROVEEDOR                -->
+            <!-- ============================================ -->
+            <div class="table-responsive" t-if="state.groupBy === 'vendor'">
+                <table class="table table-sm table-bordered table-hover mb-0" style="font-size: 10px;">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 25px;"></th>
+                            <th>Proveedor</th>
+                            <th class="text-center" style="width: 100px;">Líneas</th>
+                            <th class="text-center" style="width: 100px;">Total Pend.</th>
+                            <th class="text-center" style="width: 100px;">A Comprar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-if="state.filteredData.length === 0">
+                            <tr>
+                                <td colspan="5" class="text-center text-muted py-4">
+                                    <i class="fa fa-check-circle fa-2x mb-2 d-block text-success"/>
+                                    No hay proveedores con pendientes
+                                </td>
+                            </tr>
+                        </t>
+                        <t t-foreach="state.filteredData" t-as="vendor" t-key="vendor.vendor_name">
+                            <!-- Fila de Proveedor -->
+                            <tr class="table-light" t-on-click="() => this.toggleExpand('vendor_' + vendor.vendor_name)" style="cursor: pointer;">
+                                <td class="text-center p-1">
+                                    <i t-attf-class="fa fa-xs #{state.expanded['vendor_' + vendor.vendor_name] ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary"/>
+                                </td>
+                                <td class="fw-bold">
+                                    <i class="fa fa-truck me-2 text-muted"/>
+                                    <t t-esc="vendor.vendor_name"/>
+                                </td>
+                                <td class="text-center">
+                                    <span class="badge bg-secondary"><t t-esc="vendor.products.length"/></span>
+                                </td>
+                                <td class="text-center fw-semibold"><t t-esc="vendor.total_pending.toFixed(2)"/></td>
+                                <td t-attf-class="text-center fw-bold #{vendor.total_to_buy > 0 ? 'text-danger' : 'text-success'}">
+                                    <t t-esc="vendor.total_to_buy.toFixed(2)"/>
+                                </td>
+                            </tr>
+                            
+                            <!-- Detalle de Productos/SO -->
+                            <tr t-if="state.expanded['vendor_' + vendor.vendor_name]">
+                                <td colspan="5" class="p-0 bg-light">
+                                    <div class="p-2">
+                                        <table class="table table-sm table-bordered bg-white mb-0" style="font-size: 9px;">
+                                            <thead class="bg-secondary text-white">
+                                                <tr>
+                                                    <th class="text-center" style="width: 30px;">Sel</th>
+                                                    <th>Producto</th>
+                                                    <th style="width: 80px;">SO#</th>
+                                                    <th>Cliente</th>
+                                                    <th style="width: 70px;">Fecha</th>
+                                                    <th class="text-center" style="width: 45px;">A</th>
+                                                    <th class="text-center" style="width: 45px;">I</th>
+                                                    <th class="text-center" style="width: 45px;">P</th>
+                                                    <th class="text-end" style="width: 60px;">Pend</th>
+                                                    <th style="width: 120px;">OC Vinculada</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="vendor.products" t-as="prod" t-key="prod.id">
+                                                    <tr>
+                                                        <td class="text-center p-1">
+                                                            <input type="checkbox" 
+                                                                   class="form-check-input form-check-input-sm"
+                                                                   style="width: 12px; height: 12px;"
+                                                                   t-att-checked="state.selectedLines.includes(prod.id)"
+                                                                   t-on-change="(ev) => this.toggleSelection(prod.id, ev)"
+                                                                   t-att-disabled="prod.po_id"/>
+                                                        </td>
+                                                        <td class="fw-semibold text-truncate" style="max-width: 180px;" t-att-title="prod.product_name">
+                                                            <t t-esc="prod.product_name"/>
+                                                        </td>
+                                                        <td>
+                                                            <a href="#" class="text-primary" 
+                                                               t-on-click="(ev) => this.openSaleOrder(prod.so_id, ev)">
+                                                                <t t-esc="prod.so_name"/>
+                                                            </a>
+                                                        </td>
+                                                        <td class="text-truncate" style="max-width: 100px;" t-att-title="prod.customer">
+                                                            <t t-esc="prod.customer"/>
+                                                        </td>
+                                                        <td><t t-esc="prod.date"/></td>
+                                                        <td class="text-center"><t t-esc="prod.qty_a.toFixed(2)"/></td>
+                                                        <td class="text-center"><t t-esc="prod.qty_i.toFixed(2)"/></td>
+                                                        <td class="text-center"><t t-esc="prod.qty_p.toFixed(2)"/></td>
+                                                        <td class="text-end fw-semibold text-primary"><t t-esc="prod.qty_pending.toFixed(2)"/></td>
+                                                        <td>
+                                                            <t t-if="prod.po_id">
+                                                                <a href="#" 
+                                                                   class="badge rounded-pill bg-success text-decoration-none"
+                                                                   style="font-size: 9px; cursor: pointer;"
+                                                                   t-on-click="(ev) => this.openPurchaseOrder(prod.po_id, ev)"
+                                                                   t-att-title="'Abrir ' + prod.po_name">
+                                                                    <i class="fa fa-external-link me-1"/>
+                                                                    <t t-esc="prod.po_name"/>
+                                                                </a>
+                                                            </t>
+                                                            <t t-else="">
+                                                                <span class="text-muted" style="font-size: 9px;">Sin OC</span>
+                                                            </t>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+                </table>
+            </div>
+
             <!-- MODAL DE SELECCIÓN DE PROVEEDOR -->
             <t t-if="state.showModal">
                 <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
@@ -195,15 +450,61 @@
                                     <strong><t t-esc="state.selectedLines.length"/></strong> línea(s) seleccionada(s)
                                 </div>
 
-                                <!-- Selección de Proveedor -->
+                                <!-- Selección de Proveedor con Búsqueda -->
                                 <div class="mb-3">
                                     <label class="form-label fw-semibold">Proveedor *</label>
-                                    <select class="form-select form-select-sm" t-on-change="onVendorChange">
-                                        <option value="">-- Seleccione Proveedor --</option>
-                                        <t t-foreach="state.allVendors" t-as="vendor" t-key="vendor.id">
-                                            <option t-att-value="vendor.id"><t t-esc="vendor.name"/></option>
-                                        </t>
-                                    </select>
+                                    <div class="position-relative">
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text bg-white">
+                                                <i class="fa fa-search text-muted"/>
+                                            </span>
+                                            <input type="text" 
+                                                   class="form-control"
+                                                   placeholder="Buscar proveedor..."
+                                                   t-att-value="state.vendorSearch"
+                                                   t-on-input="onVendorSearchInput"
+                                                   t-on-focus="onVendorSearchFocus"
+                                                   t-on-blur="onVendorSearchBlur"
+                                                   autocomplete="off"/>
+                                            <button class="btn btn-outline-secondary" 
+                                                    type="button" 
+                                                    t-on-click="clearVendorSelection"
+                                                    t-att-disabled="!state.vendorSearch">
+                                                <i class="fa fa-times"/>
+                                            </button>
+                                        </div>
+                                        
+                                        <!-- Dropdown de resultados -->
+                                        <div t-if="state.showVendorDropdown and filteredVendors.length > 0" 
+                                             class="position-absolute w-100 bg-white border rounded shadow-sm mt-1"
+                                             style="max-height: 200px; overflow-y: auto; z-index: 1050;">
+                                            <t t-foreach="filteredVendors" t-as="vendor" t-key="vendor.id">
+                                                <div class="px-3 py-2 cursor-pointer border-bottom"
+                                                     style="cursor: pointer;"
+                                                     t-attf-class="#{state.selectedVendor === vendor.id ? 'bg-primary text-white' : 'hover-bg-light'}"
+                                                     t-on-click="() => this.selectVendor(vendor)">
+                                                    <i class="fa fa-truck me-2 opacity-50"/>
+                                                    <t t-esc="vendor.name"/>
+                                                </div>
+                                            </t>
+                                        </div>
+                                        
+                                        <!-- No results -->
+                                        <div t-if="state.showVendorDropdown and state.vendorSearch and filteredVendors.length === 0" 
+                                             class="position-absolute w-100 bg-white border rounded shadow-sm mt-1 p-2 text-muted text-center"
+                                             style="z-index: 1050;">
+                                            <i class="fa fa-exclamation-circle me-1"/>
+                                            No se encontraron proveedores
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Badge del proveedor seleccionado -->
+                                    <div t-if="state.selectedVendor" class="mt-2">
+                                        <span class="badge bg-success">
+                                            <i class="fa fa-check me-1"/>
+                                            <t t-esc="state.selectedVendorName"/>
+                                        </span>
+                                    </div>
                                 </div>
 
                                 <!-- Selección de OC Existente -->
