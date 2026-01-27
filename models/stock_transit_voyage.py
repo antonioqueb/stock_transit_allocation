@@ -128,7 +128,7 @@ class StockTransitVoyage(models.Model):
     def action_generate_reception(self):
         """
         Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos.
-        CORRECCIÓN: Eliminado el campo 'name' al crear stock.move para evitar error en Odoo 19.
+        CORRECCIÓN: Crea Moves y Lines ANTES de confirmar para evitar autovalidación.
         """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] >>> GENERATE RECEPTION START for Voyage: {self.name}")
@@ -161,7 +161,7 @@ class StockTransitVoyage(models.Model):
         
         _logger.info(f"[TC_DEBUG] Origen: {source_location.name} | Destino: {picking_type.default_location_dest_id.name}")
 
-        # 2. Crear Header Picking
+        # 2. Crear Header Picking (Contexto 'planned_picking' es clave)
         picking_vals = {
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
@@ -179,10 +179,10 @@ class StockTransitVoyage(models.Model):
                 'supplier_origin': 'TRÁNSITO',
             })
 
-        picking = self.env['stock.picking'].create(picking_vals)
+        picking = self.env['stock.picking'].with_context(planned_picking=True).create(picking_vals)
         _logger.info(f"[TC_DEBUG] Picking Creado: {picking.name} (ID: {picking.id}). Estado: {picking.state}")
 
-        # 3. Crear Stock Moves (Cabeceras)
+        # 3. Crear Stock Moves (Demanda)
         products_map = {}
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -192,7 +192,6 @@ class StockTransitVoyage(models.Model):
 
         move_objs = {}
         for product, qty in products_map.items():
-            # CORRECCIÓN: Eliminado 'name'
             move = self.env['stock.move'].create({
                 'product_id': product.id,
                 'product_uom_qty': qty,
@@ -201,15 +200,12 @@ class StockTransitVoyage(models.Model):
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-                # 'name': product.name,  <-- ELIMINADO para evitar ValueError
+                # 'name': Eliminado para evitar ValueError en Odoo 19
             })
             move_objs[product.id] = move.id
 
-        # 4. CONFIRMAR PICKING (Pasar a 'confirmed')
-        picking.action_confirm()
-        _logger.info(f"[TC_DEBUG] Picking Confirmado. Estado actual: {picking.state}")
-
-        # 5. Crear STOCK.MOVE.LINES (Reservas Específicas)
+        # 4. Crear STOCK.MOVE.LINES (Reservas Detalladas) ANTES DE CONFIRMAR
+        # Al crearlas en estado 'draft', Odoo las incorpora como la estructura del picking
         lines_created = 0
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -218,8 +214,6 @@ class StockTransitVoyage(models.Model):
             if not move_id: continue
 
             try:
-                # Al crear la move line con 'quantity' sobre un move confirmado, Odoo lo toma como reserva.
-                # NO llenamos 'qty_done' para que no se valide solo.
                 sml = self.env['stock.move.line'].create({
                     'move_id': move_id,
                     'picking_id': picking.id,
@@ -228,18 +222,20 @@ class StockTransitVoyage(models.Model):
                     'product_uom_id': line.product_id.uom_id.id,
                     'location_id': source_location.id,
                     'location_dest_id': picking_type.default_location_dest_id.id,
-                    'quantity': line.product_uom_qty, 
+                    'quantity': line.product_uom_qty, # Esto actúa como reserva planificada
                 })
                 lines_created += 1
             except Exception as e:
                 _logger.error(f"[TC_DEBUG] Error creando linea para lote {line.lot_id.name}: {e}")
 
-        # 6. Intentar asignar (Reservar)
+        # 5. Confirmar Picking (Ahora pasará a Assigned, no a Done)
+        # Usamos el contexto para asegurar que no se considere "inmediata"
+        _logger.info(f"[TC_DEBUG] Confirmando picking {picking.name}...")
+        picking.with_context(planned_picking=True).action_confirm()
+        
+        # 6. Asignar (Reservar) explícitamente
         if picking.state not in ['assigned', 'done']:
-            try:
-                picking.action_assign()
-            except Exception as e:
-                _logger.warning(f"[TC_DEBUG] action_assign lanzó advertencia (normal): {e}")
+            picking.action_assign()
 
         _logger.info(f"[TC_DEBUG] Fin proceso. Estado final Picking: {picking.state}. Esperando validación manual.")
 
