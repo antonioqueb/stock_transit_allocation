@@ -125,12 +125,10 @@ class StockTransitVoyage(models.Model):
     def action_cancel(self):
         self.write({'custom_status': 'cancel'})
 
-    # models/stock_transit_voyage.py
-
     def action_generate_reception(self):
         """
         PASO 1: Genera el Picking y los Movimientos (Demanda), pero VACÍO de detalles.
-        El usuario deberá presionar 'Sincronizar' en el picking para traer los lotes.
+        FIX: Eliminado el campo 'name' en stock.move.create porque Odoo 19 lo rechaza.
         """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] >>> PASO 1: Creando Picking Vacío para Viaje: {self.name}")
@@ -175,7 +173,6 @@ class StockTransitVoyage(models.Model):
         })
 
         # 3. Crear STOCK.MOVES (Solo Demanda General, sin Lotes)
-        # Agrupamos por producto para no repetir líneas de demanda
         products_map = {}
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -184,6 +181,7 @@ class StockTransitVoyage(models.Model):
             products_map[line.product_id] += line.product_uom_qty
 
         for product, qty in products_map.items():
+            # CORRECCIÓN: Eliminado 'name'
             self.env['stock.move'].create({
                 'product_id': product.id,
                 'product_uom_qty': qty, # Demanda Planeada
@@ -192,14 +190,13 @@ class StockTransitVoyage(models.Model):
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-                'name': product.name, # Odoo 19 a veces requiere name aunque sea computado
+                # 'name': product.name,  <-- REMOVIDO: Odoo lo calcula automáticamente y falla si se pasa.
             })
 
-        # 4. Confirmar para generar la estructura, pero limpiar cualquier reserva automática
+        # 4. Confirmar para generar la estructura
         picking.action_confirm()
         
         # Limpieza agresiva: Si Odoo reservó algo automáticamente, lo quitamos.
-        # Queremos que el picking esté "Limpio" esperando el botón de sincronizar.
         if picking.move_line_ids:
             picking.move_line_ids.unlink()
 
@@ -217,7 +214,7 @@ class StockTransitVoyage(models.Model):
             'view_mode': 'form',
             'target': 'current',
         }
-    
+
     def action_load_from_purchase(self):
         self.ensure_one()
         if not self.purchase_id:
