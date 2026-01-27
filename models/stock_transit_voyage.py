@@ -127,14 +127,14 @@ class StockTransitVoyage(models.Model):
 
     def action_generate_reception(self):
         """
-        Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos.
-        Se crean las líneas y se reservan, PERO NO SE VALIDA AUTOMÁTICAMENTE.
+        Genera una Transferencia Interna (Transit -> Stock).
+        FIX: Confirmamos ANTES de crear las líneas detalladas para evitar
+        que Odoo lo trate como 'Transferencia Inmediata' y lo valide solo.
         """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] >>> GENERATE RECEPTION START for Voyage: {self.name}")
 
         if self.reception_picking_id:
-            _logger.info(f"[TC_DEBUG] Recepción ya existente: {self.reception_picking_id.name}")
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'stock.picking',
@@ -153,7 +153,6 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
 
         valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
-        _logger.info(f"[TC_DEBUG] Líneas válidas encontradas: {len(valid_lines)} de {len(self.line_ids)}")
         
         if not valid_lines:
             raise UserError(_("No hay líneas con Lotes y Quants válidos (Recepcionados en Tránsito) para mover."))
@@ -162,8 +161,6 @@ class StockTransitVoyage(models.Model):
         if not source_location:
              raise UserError(_("No se pudo determinar la ubicación de origen."))
         
-        _logger.info(f"[TC_DEBUG] Ubicación Origen: {source_location.name} -> Destino: {picking_type.default_location_dest_id.name}")
-
         # 2. Crear Header Picking
         picking_vals = {
             'picking_type_id': picking_type.id,
@@ -185,7 +182,7 @@ class StockTransitVoyage(models.Model):
         picking = self.env['stock.picking'].create(picking_vals)
         _logger.info(f"[TC_DEBUG] Picking Header Creado: {picking.name} (ID: {picking.id})")
 
-        # 3. Agrupar por producto para crear STOCK.MOVES (Demanda)
+        # 3. Crear STOCK.MOVES (Demanda)
         products_map = {}
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -193,8 +190,7 @@ class StockTransitVoyage(models.Model):
                 products_map[line.product_id] = 0.0
             products_map[line.product_id] += line.product_uom_qty
 
-        # Crear Stock Moves
-        move_objs = {} # Map product_id -> move_id
+        move_objs = {} 
         for product, qty in products_map.items():
             move = self.env['stock.move'].create({
                 'product_id': product.id,
@@ -206,9 +202,16 @@ class StockTransitVoyage(models.Model):
                 'company_id': self.company_id.id,
             })
             move_objs[product.id] = move.id
-            _logger.info(f"[TC_DEBUG] Move creado para {product.name}: {move.id}")
 
-        # 4. Crear STOCK.MOVE.LINES (Operaciones Detalladas/Reservas)
+        # =========================================================================
+        # PASO CRÍTICO: CONFIRMAR ANTES DE CREAR LAS LÍNEAS DE DETALLE (SML)
+        # Esto establece el picking como "Planeado". Si creamos las líneas antes,
+        # Odoo piensa que es "Inmediato" y al asignar lo valida automáticamente.
+        # =========================================================================
+        _logger.info(f"[TC_DEBUG] Confirmando picking {picking.name} (Estado Planeado)...")
+        picking.action_confirm()
+
+        # 4. Crear STOCK.MOVE.LINES (Inyectar los lotes específicos)
         lines_created = 0
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -217,8 +220,8 @@ class StockTransitVoyage(models.Model):
             if not move_id: continue
 
             try:
-                # Al crear la línea con 'quantity', Odoo la tomará como reservada/realizada
-                # al confirmar el picking, pero no la valida hasta que se pulse el botón.
+                # Al estar el picking ya confirmado, esta creación actúa como
+                # "Registrar lo que se movió" (Reserved/Done), pero no fuerza el cierre.
                 sml = self.env['stock.move.line'].create({
                     'move_id': move_id,
                     'picking_id': picking.id,
@@ -234,16 +237,12 @@ class StockTransitVoyage(models.Model):
             except Exception as e:
                 _logger.error(f"[TC_DEBUG] Error creando linea para lote {line.lot_id.name}: {e}")
 
-        # 5. Confirmar y Reservar (SIN VALIDAR)
-        _logger.info(f"[TC_DEBUG] Confirmando picking {picking.name}...")
-        picking.action_confirm()
-        
-        # Al llamar action_assign, se verifica la disponibilidad y se cambia el estado a 'assigned' (Listo).
-        # Como ya creamos las move_lines con lotes y cantidades, deberían quedar reservadas.
+        # 5. Asignar (Verificar Disponibilidad)
+        # Esto actualizará el estado a 'assigned' (Listo) dado que ya inyectamos las líneas.
         if picking.state not in ['assigned', 'done']:
             picking.action_assign()
 
-        _logger.info(f"[TC_DEBUG] Picking Confirmado y Reservado. Estado final: {picking.state}")
+        _logger.info(f"[TC_DEBUG] Picking Finalizado en Estado: {picking.state}")
 
         self.write({
             'reception_picking_id': picking.id,
@@ -257,7 +256,9 @@ class StockTransitVoyage(models.Model):
             'view_mode': 'form',
             'target': 'current',
         }
-
+    
+    
+    
     def action_load_from_purchase(self):
         self.ensure_one()
         if not self.purchase_id:
