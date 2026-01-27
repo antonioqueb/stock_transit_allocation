@@ -128,13 +128,13 @@ class StockTransitVoyage(models.Model):
     def action_generate_reception(self):
         """
         Genera una Transferencia Interna (Transit -> Stock) con los lotes exactos.
-        CORRECCIÓN: Crea lines y move_lines ANTES de confirmar para asegurar asignación.
+        CORRECCIÓN: Se asegura de dejar el picking en estado 'assigned' (Preparado),
+        para que el usuario deba validarlo manualmente.
         """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] >>> GENERATE RECEPTION START for Voyage: {self.name}")
 
         if self.reception_picking_id:
-            _logger.info(f"[TC_DEBUG] Recepción ya existente: {self.reception_picking_id.name}")
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'stock.picking',
@@ -153,8 +153,6 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
 
         valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
-        _logger.info(f"[TC_DEBUG] Líneas válidas encontradas: {len(valid_lines)} de {len(self.line_ids)}")
-        
         if not valid_lines:
             raise UserError(_("No hay líneas con Lotes y Quants válidos (Recepcionados en Tránsito) para mover."))
             
@@ -162,7 +160,7 @@ class StockTransitVoyage(models.Model):
         if not source_location:
              raise UserError(_("No se pudo determinar la ubicación de origen."))
         
-        _logger.info(f"[TC_DEBUG] Ubicación Origen: {source_location.name} -> Destino: {picking_type.default_location_dest_id.name}")
+        _logger.info(f"[TC_DEBUG] Origen: {source_location.name} | Destino: {picking_type.default_location_dest_id.name}")
 
         # 2. Crear Header Picking
         picking_vals = {
@@ -183,9 +181,9 @@ class StockTransitVoyage(models.Model):
             })
 
         picking = self.env['stock.picking'].create(picking_vals)
-        _logger.info(f"[TC_DEBUG] Picking Header Creado: {picking.name} (ID: {picking.id})")
+        _logger.info(f"[TC_DEBUG] Picking Creado: {picking.name} (ID: {picking.id}). Estado: {picking.state}")
 
-        # 3. Agrupar por producto para crear STOCK.MOVES
+        # 3. Crear Stock Moves (Cabeceras)
         products_map = {}
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -193,10 +191,8 @@ class StockTransitVoyage(models.Model):
                 products_map[line.product_id] = 0.0
             products_map[line.product_id] += line.product_uom_qty
 
-        # Crear Stock Moves
-        move_objs = {} # Map product_id -> move_id
+        move_objs = {}
         for product, qty in products_map.items():
-            # CORRECCIÓN: 'name' eliminado para Odoo 19
             move = self.env['stock.move'].create({
                 'product_id': product.id,
                 'product_uom_qty': qty,
@@ -205,11 +201,16 @@ class StockTransitVoyage(models.Model):
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
+                'name': product.name, # Odoo estándar requiere name, aunque sea descripción
             })
             move_objs[product.id] = move.id
-            _logger.info(f"[TC_DEBUG] Move creado para {product.name}: {move.id}")
 
-        # 4. CRÍTICO: Crear STOCK.MOVE.LINES *ANTES* de confirmar
+        # 4. CONFIRMAR PICKING (Pasar a 'confirmed')
+        # Hacemos esto ANTES de crear las líneas para que se comporten como reservas y no como movimientos inmediatos
+        picking.action_confirm()
+        _logger.info(f"[TC_DEBUG] Picking Confirmado. Estado actual: {picking.state}")
+
+        # 5. Crear STOCK.MOVE.LINES (Reservas Específicas)
         lines_created = 0
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -218,7 +219,8 @@ class StockTransitVoyage(models.Model):
             if not move_id: continue
 
             try:
-                # CORRECCIÓN: 'qty_done' eliminado, usar 'quantity' para Odoo 19
+                # Al crear la move line con 'quantity' sobre un move confirmado, Odoo lo toma como reserva.
+                # NO llenamos 'qty_done' (o 'picked') para que no se valide solo.
                 sml = self.env['stock.move.line'].create({
                     'move_id': move_id,
                     'picking_id': picking.id,
@@ -227,22 +229,21 @@ class StockTransitVoyage(models.Model):
                     'product_uom_id': line.product_id.uom_id.id,
                     'location_id': source_location.id,
                     'location_dest_id': picking_type.default_location_dest_id.id,
-                    'quantity': line.product_uom_qty, # Cantidad
+                    'quantity': line.product_uom_qty, 
                 })
                 lines_created += 1
-                _logger.info(f"[TC_DEBUG] MoveLine creada: {sml.id} | Lote: {line.lot_id.name} | Qty: {line.product_uom_qty}")
             except Exception as e:
                 _logger.error(f"[TC_DEBUG] Error creando linea para lote {line.lot_id.name}: {e}")
 
-        # 5. Confirmar Picking
-        _logger.info(f"[TC_DEBUG] Confirmando picking {picking.name}...")
-        picking.action_confirm()
-        
-        # Opcional: Forzar asignación
+        # 6. Intentar asignar (Reservar)
+        # Esto debería tomar las líneas que acabamos de crear y marcar el picking como 'assigned' (Preparado)
         if picking.state not in ['assigned', 'done']:
-            picking.action_assign()
+            try:
+                picking.action_assign()
+            except Exception as e:
+                _logger.warning(f"[TC_DEBUG] action_assign lanzó advertencia (normal si ya estaba reservado): {e}")
 
-        _logger.info(f"[TC_DEBUG] Picking Confirmado. Estado final: {picking.state}")
+        _logger.info(f"[TC_DEBUG] Fin proceso. Estado final Picking: {picking.state}. Esperando validación manual.")
 
         self.write({
             'reception_picking_id': picking.id,
@@ -402,3 +403,14 @@ class StockTransitVoyage(models.Model):
                 hold_order.action_confirm()
             else:
                 hold_order.unlink()
+
+    def action_view_transit_voyage(self):
+        self.ensure_one()
+        return {
+            'name': 'Gestión de Tránsito',
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.transit.voyage',
+            'view_mode': 'list,form',
+            'domain': [('picking_id', '=', self.id)],
+            'context': {'default_picking_id': self.id}
+        }

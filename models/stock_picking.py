@@ -30,7 +30,6 @@ class StockPicking(models.Model):
         _logger.info(f"=== [TC_DEBUG] VALIDATE BUTTON CLICKED - Picking {self.name} (ID: {self.id}) ===")
         
         # 1. Ejecutar validación estándar de Odoo (mueve el stock a físico)
-        # Si esto falla, todo falla. Si pasa, el stock ya está en destino.
         res = super(StockPicking, self).button_validate()
         
         for pick in self:
@@ -45,13 +44,12 @@ class StockPicking(models.Model):
                 pick._create_automatic_transit_voyage()
 
             # B) Lógica de Recepción Física (Tránsito -> Stock) -> Asignar a Entrega
-            # Se ejecuta solo si es interno, está hecho ('done'), y viene de un tránsito
+            # Se ejecuta solo si es interno, está hecho, y viene de un tránsito
             if pick.picking_type_code == 'internal' and pick.state == 'done':
                 _logger.info(f"[TC_DEBUG] Picking {pick.name} validado (Internal/Done). Iniciando lógica de asignación a Ventas...")
                 try:
                     pick._assign_lots_to_delivery_orders()
                 except Exception as e:
-                    # Capturamos error para no hacer rollback de la validación, pero avisamos en log
                     _logger.error(f"[TC_ERROR] Falló la asignación automática en {pick.name}: {str(e)}", exc_info=True)
 
         _logger.info(f"=== [TC_DEBUG] VALIDATION FINISHED - Picking {self.name} ===")
@@ -90,7 +88,7 @@ class StockPicking(models.Model):
             if not move_line.lot_id:
                 continue
             
-            # ODOO 19: Usamos 'quantity' o 'qty_done' dependiendo de qué tenga valor tras validar
+            # ODOO 19 FIX: usar 'quantity' (reserva) o 'qty_done' si ya está validado
             qty_just_moved = move_line.quantity if move_line.quantity > 0 else move_line.qty_done
             
             if qty_just_moved <= 0:
@@ -117,22 +115,16 @@ class StockPicking(models.Model):
             
             delivery_picking = False
             
-            # --- CORRECCIÓN CRÍTICA AQUÍ ---
-            # Usamos getattr para evitar el error "object has no attribute 'procurement_group_id'"
-            # Si el campo no existe, proc_group será False y pasaremos al siguiente método.
-            proc_group = getattr(target_so, 'procurement_group_id', False)
+            # ESTRATEGIA 1: Buscar por sale_id (El campo existe en tu modelo)
+            delivery_picking = self.env['stock.picking'].search(
+                domain_delivery + [('sale_id', '=', target_so.id)], 
+                limit=1
+            )
             
-            # Intento 1: Por Grupo (Si existe)
-            if proc_group:
-                delivery_picking = self.env['stock.picking'].search(
-                    domain_delivery + [('group_id', '=', proc_group.id)], 
-                    limit=1
-                )
-                if delivery_picking:
-                    _logger.info(f"    > Delivery encontrado por Grupo: {delivery_picking.name}")
-
-            # Intento 2: Por Origen (Nombre string) - Fallback seguro
-            if not delivery_picking:
+            if delivery_picking:
+                _logger.info(f"    > Delivery encontrado por Sale ID: {delivery_picking.name}")
+            else:
+                # ESTRATEGIA 2: Fallback por Origin (Nombre string)
                 delivery_picking = self.env['stock.picking'].search(
                     domain_delivery + [('origin', '=', target_so.name)], 
                     limit=1
