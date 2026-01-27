@@ -74,47 +74,60 @@ class StockTransitVoyage(models.Model):
     # -------------------------
     # Helpers / Debug
     # -------------------------
-    def _tc_ctx(self):
-        """Helper para imprimir contexto relevante sin inundar logs."""
-        ctx = dict(self.env.context or {})
+    def _tc_ctx_of(self, ctx):
         keys = [
             'planned_picking', 'ws_ok', 'disable_auto_validate',
             'skip_immediate', 'no_immediate_transfer', 'force_draft',
+            'disable_auto_done', 'skip_auto_done', 'skip_validate',
         ]
+        ctx = dict(ctx or {})
         return {k: ctx.get(k) for k in keys if k in ctx}
 
-    def _tc_log_picking_state(self, picking, label):
+    def _tc_log_picking_state(self, picking, label, ctx=None):
         if not picking:
             _logger.info("[TC_DEBUG] %s | picking=None", label)
             return
-
-        try:
-            ml_count = len(picking.move_line_ids)
-        except Exception:
-            ml_count = -1
-        try:
-            mv_count = len(picking.move_ids)
-        except Exception:
-            mv_count = -1
-
+        ctx_print = self._tc_ctx_of(ctx if ctx is not None else self.env.context)
         _logger.info(
             "[TC_DEBUG] %s | Picking=%s(ID=%s) state=%s | move_lines=%s | moves=%s | ctx=%s",
-            label, picking.name, picking.id, picking.state, ml_count, mv_count, self._tc_ctx()
+            label, picking.name, picking.id, picking.state,
+            len(picking.move_line_ids), len(picking.move_ids),
+            ctx_print
         )
 
         try:
-            sml = self.env['stock.move.line']
-            has_qty_done = 'qty_done' in sml._fields
-            has_quantity = 'quantity' in sml._fields
-            has_reserved = 'reserved_uom_qty' in sml._fields
+            sml = picking.move_line_ids
+            has_qty_done = 'qty_done' in self.env['stock.move.line']._fields
+            has_quantity = 'quantity' in self.env['stock.move.line']._fields
 
-            done_total = sum(picking.move_line_ids.mapped('qty_done')) if has_qty_done else 0.0
-            qty_total = sum(picking.move_line_ids.mapped('quantity')) if has_quantity else 0.0
-            res_total = sum(picking.move_line_ids.mapped('reserved_uom_qty')) if has_reserved else 0.0
-            _logger.info("[TC_DEBUG] %s | Sum(qty_done)=%s | Sum(quantity)=%s | Sum(reserved_uom_qty)=%s",
-                         label, done_total, qty_total, res_total)
+            done_total = sum(sml.mapped('qty_done')) if has_qty_done else 0.0
+            qty_total = sum(sml.mapped('quantity')) if has_quantity else 0.0
+            _logger.info("[TC_DEBUG] %s | Sum(qty_done)=%s | Sum(quantity)=%s", label, done_total, qty_total)
         except Exception as e:
             _logger.warning("[TC_DEBUG] %s | No se pudo calcular sumas: %s", label, e)
+
+    def _tc_reserved_field_name(self):
+        """
+        Odoo 19 en tu build NO tiene reserved_uom_qty.
+        Detectamos el nombre real del campo de 'reservado' en stock.move.line.
+        """
+        sml = self.env['stock.move.line']
+        fields_set = set(sml._fields.keys())
+
+        # Orden de preferencia
+        candidates = [
+            'reserved_uom_qty',
+            'reserved_quantity',
+            'reserved_qty',
+            'reserved_qty_uom',
+            'reserved_uom_quantity',
+        ]
+        found = [c for c in candidates if c in fields_set]
+
+        _logger.info("[TC_DEBUG] Reserved field candidates found=%s | all_candidates=%s",
+                     found, candidates)
+
+        return found[0] if found else False
 
     # -------------------------
     # Core
@@ -197,19 +210,29 @@ class StockTransitVoyage(models.Model):
         OBJETIVO:
         - Quedar en draft/confirmed/assigned
         - NUNCA en done automáticamente
-        - Permitir capturar medidas (Worksheet) antes de validar
-
-        NOTA CRÍTICA (Odoo 19):
-        - Para "planear/reservar" en move lines usar reserved_uom_qty.
-        - qty_done DEBE quedar en 0.0.
-        - Evitar usar "quantity" como cantidad hecha / trigger de quants.
+        - Reservar por lote sin tocar cantidad hecha (qty_done/quantity)
         """
         self.ensure_one()
 
-        _logger.info("[TC_DEBUG] >>> GENERATE RECEPTION START | Voyage=%s(ID=%s) | ctx=%s",
-                     self.name, self.id, self._tc_ctx())
+        # Contexto "seguro": debe acompañar TODAS las operaciones (picking/move/moveline/confirm/assign)
+        ctx_safe = dict(self.env.context or {})
+        ctx_safe.update({
+            'planned_picking': True,
+            'ws_ok': False,  # el guard bloqueará cualquier done sin ws_ok
+            'disable_auto_validate': True,
+            'skip_immediate': True,
+            'no_immediate_transfer': True,
 
-        # Si ya existe, solo abrirla
+            # claves típicas que muchos custom leen:
+            'disable_auto_done': True,
+            'skip_auto_done': True,
+            'skip_validate': True,
+            'force_draft': True,
+        })
+
+        _logger.info("[TC_DEBUG] >>> GENERATE RECEPTION START | Voyage=%s(ID=%s) | ctx_safe=%s",
+                     self.name, self.id, self._tc_ctx_of(ctx_safe))
+
         if self.reception_picking_id:
             _logger.info("[TC_DEBUG] Reception picking ya existe: %s(ID=%s) state=%s",
                          self.reception_picking_id.name, self.reception_picking_id.id, self.reception_picking_id.state)
@@ -221,7 +244,6 @@ class StockTransitVoyage(models.Model):
                 'target': 'current',
             }
 
-        # 1) Tipo de operación (internal)
         picking_type = self.env['stock.picking.type'].search([
             ('code', '=', 'internal'),
             ('company_id', '=', self.company_id.id)
@@ -229,12 +251,10 @@ class StockTransitVoyage(models.Model):
         if not picking_type:
             raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
 
-        # 2) Líneas válidas
         valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id and l.product_id and l.product_uom_qty > 0)
         if not valid_lines:
             raise UserError(_("No hay líneas válidas (con Lote + Quant + Producto + Cantidad>0) para mover."))
 
-        # Ubicaciones
         source_location = valid_lines[0].quant_id.location_id
         if not source_location:
             raise UserError(_("No se pudo determinar la ubicación de origen."))
@@ -248,7 +268,6 @@ class StockTransitVoyage(models.Model):
                      source_location.display_name, source_location.id,
                      dest_location.display_name, dest_location.id)
 
-        # 3) Crear Picking (NUNCA validar)
         picking_vals = {
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
@@ -266,69 +285,58 @@ class StockTransitVoyage(models.Model):
                 'supplier_origin': 'TRÁNSITO',
             })
 
-        # Contextos que suelen frenar flows inmediatos + nuestro flag del guard
-        ctx_create = dict(self.env.context or {})
-        ctx_create.update({
-            'planned_picking': True,
-            'disable_auto_validate': True,
-            'skip_immediate': True,
-            'no_immediate_transfer': True,
-            'ws_ok': False,  # MUY IMPORTANTE: el guard bloqueará done si no viene ws_ok=True
-        })
+        Picking = self.env['stock.picking'].with_context(ctx_safe)
+        Move = self.env['stock.move'].with_context(ctx_safe)
+        SML = self.env['stock.move.line'].with_context(ctx_safe)
 
-        picking = self.env['stock.picking'].with_context(ctx_create).create(picking_vals)
-        self._tc_log_picking_state(picking, "POST-CREATE")
+        picking = Picking.create(picking_vals)
+        self._tc_log_picking_state(picking, "POST-CREATE", ctx=ctx_safe)
 
-        # 4) Crear moves por producto (demanda)
+        # Crear moves por producto
         products_map = {}
         for line in valid_lines:
             products_map.setdefault(line.product_id, 0.0)
             products_map[line.product_id] += line.product_uom_qty
 
         move_objs = {}
-        try:
-            # Savepoint para que si algún módulo intenta "done" y nuestro guard bloquee,
-            # se haga rollback limpio del paso actual con logs claros.
-            with self.env.cr.savepoint():
-                for product, qty in products_map.items():
-                    mv_vals = {
-                        'product_id': product.id,
-                        'product_uom_qty': qty,
-                        'product_uom': product.uom_id.id,
-                        'picking_id': picking.id,
-                        'location_id': source_location.id,
-                        'location_dest_id': dest_location.id,
-                        'company_id': self.company_id.id,
-                    }
-                    move = self.env['stock.move'].create(mv_vals)
-                    move_objs[product.id] = move.id
-                    _logger.info("[TC_DEBUG] Move creado | product=%s(ID=%s) qty=%s | move_id=%s",
-                                 product.display_name, product.id, qty, move.id)
-        except UserError as e:
-            _logger.error(
-                "[TC_DEBUG] BLOQUEO (UserError) creando moves. Probable auto-done bloqueado por guard. err=%s\nSTACK:\n%s",
-                e, ''.join(traceback.format_stack(limit=35))
-            )
-            raise
-        except Exception as e:
-            _logger.exception("[TC_DEBUG] Error inesperado creando moves: %s", e)
-            raise
+        for product, qty in products_map.items():
+            try:
+                move = Move.create({
+                    'product_id': product.id,
+                    'product_uom_qty': qty,
+                    'product_uom': product.uom_id.id,
+                    'picking_id': picking.id,
+                    'location_id': source_location.id,
+                    'location_dest_id': dest_location.id,
+                    'company_id': self.company_id.id,
+                })
+                move_objs[product.id] = move.id
+                _logger.info("[TC_DEBUG] Move creado | product=%s(ID=%s) qty=%s | move_id=%s",
+                             product.display_name, product.id, qty, move.id)
+            except Exception as e:
+                _logger.exception("[TC_DEBUG] Error creando move | product=%s err=%s", product.display_name, e)
+                raise
 
-        self._tc_log_picking_state(picking, "POST-MOVES")
+        # IMPORTANTÍSIMO: aquí es donde te estaba quedando done. Lo volvemos a loggear
+        self._tc_log_picking_state(picking, "POST-MOVES", ctx=ctx_safe)
 
-        # 5) Crear move lines (detalle por lote) -> reservar con reserved_uom_qty, qty_done=0
-        sml_model = self.env['stock.move.line']
-        has_qty_done = 'qty_done' in sml_model._fields
-        has_reserved = 'reserved_uom_qty' in sml_model._fields
-        has_quant_id = 'quant_id' in sml_model._fields
+        # Detectar campo real de reservado
+        reserved_field = self._tc_reserved_field_name()
 
-        _logger.info("[TC_DEBUG] MoveLine fields | has_qty_done=%s | has_reserved_uom_qty=%s | has_quant_id=%s",
-                     has_qty_done, has_reserved, has_quant_id)
+        # Flags de campos
+        has_qty_done = 'qty_done' in SML._fields
+        has_quantity = 'quantity' in SML._fields
+        has_quant_id = 'quant_id' in SML._fields
 
-        if not has_reserved:
-            # En Odoo 19 debe existir. Si no, tu build está muy alterado.
-            raise UserError(_("Tu modelo stock.move.line no tiene reserved_uom_qty. Revisa versión/overrides."))
+        _logger.info("[TC_DEBUG] MoveLine fields | has_qty_done=%s | has_quantity=%s | has_quant_id=%s | reserved_field=%s",
+                     has_qty_done, has_quantity, has_quant_id, reserved_field)
 
+        if not reserved_field:
+            # En tu build, el error te lo confirma: existe "Reserved Quantity", pero el campo se llama distinto.
+            # Este raise te obliga a ver el log de candidates y ajustar lista si tu nombre es raro.
+            raise UserError(_("No se encontró campo de cantidad reservada en stock.move.line (reserved_*). Revisa overrides."))
+
+        # Crear move lines (reservas por lote) sin marcar hecho
         lines_created = 0
         for line in valid_lines:
             move_id = move_objs.get(line.product_id.id)
@@ -345,63 +353,56 @@ class StockTransitVoyage(models.Model):
                 'product_uom_id': line.product_id.uom_id.id,
                 'location_id': source_location.id,
                 'location_dest_id': dest_location.id,
-                'reserved_uom_qty': line.product_uom_qty,  # ✅ esto evita el error “cantidad o reservada”
+                reserved_field: line.product_uom_qty,  # ✅ aquí va la reserva real
             }
 
-            # ✅ Blindaje: jamás crear con hecho
+            # ✅ blindaje: jamás done
             if has_qty_done:
                 sml_vals['qty_done'] = 0.0
 
-            # ✅ Anclar quant si existe
+            # ⚠️ NO tocar quantity aquí (en tu stack, "quantity" dispara _update_available_quantity)
+            # Si por cualquier razón tu reserved_field no hace reserva real, se hace en action_assign.
+
             if has_quant_id and line.quant_id:
                 sml_vals['quant_id'] = line.quant_id.id
 
             try:
-                sml = sml_model.create(sml_vals)
+                ml = SML.create(sml_vals)
                 lines_created += 1
                 _logger.info(
-                    "[TC_DEBUG] MoveLine OK | sml_id=%s | product=%s | lot=%s | reserved=%s | qty_done=%s",
-                    sml.id, line.product_id.display_name, line.lot_id.name,
-                    getattr(sml, 'reserved_uom_qty', None), getattr(sml, 'qty_done', None)
+                    "[TC_DEBUG] MoveLine OK | ml_id=%s | lot=%s | reserved=%s | qty_done=%s | quantity=%s",
+                    ml.id,
+                    line.lot_id.name,
+                    getattr(ml, reserved_field, None),
+                    getattr(ml, 'qty_done', None) if has_qty_done else None,
+                    getattr(ml, 'quantity', None) if has_quantity else None,
                 )
-            except UserError as e:
-                _logger.error(
-                    "[TC_DEBUG] BLOQUEO (UserError) creando move line | lot=%s | product=%s | err=%s\nSTACK:\n%s",
-                    line.lot_id.name, line.product_id.display_name, e,
-                    ''.join(traceback.format_stack(limit=35))
-                )
-                raise
             except Exception as e:
                 _logger.exception("[TC_DEBUG] Error creando move line | lot=%s | product=%s | err=%s",
                                   line.lot_id.name, line.product_id.display_name, e)
                 raise
 
         _logger.info("[TC_DEBUG] Total move lines creadas=%s", lines_created)
-        self._tc_log_picking_state(picking, "POST-MOVELINES")
+        self._tc_log_picking_state(picking, "POST-MOVELINES", ctx=ctx_safe)
 
-        # 6) Confirmar (NO validar)
+        # Confirmar + asignar con contexto seguro
         _logger.info("[TC_DEBUG] Confirmando picking %s(ID=%s)...", picking.name, picking.id)
-        picking.with_context(ctx_create).action_confirm()
-        self._tc_log_picking_state(picking, "POST-CONFIRM")
+        picking.with_context(ctx_safe).action_confirm()
+        self._tc_log_picking_state(picking, "POST-CONFIRM", ctx=ctx_safe)
 
-        # 7) Reservar/Asignar (NO validar)
         if picking.state not in ['assigned', 'done', 'cancel']:
-            _logger.info("[TC_DEBUG] Asignando (reservando) picking %s(ID=%s)...", picking.name, picking.id)
-            picking.with_context(ctx_create).action_assign()
-            self._tc_log_picking_state(picking, "POST-ASSIGN")
+            _logger.info("[TC_DEBUG] Asignando picking %s(ID=%s)...", picking.name, picking.id)
+            picking.with_context(ctx_safe).action_assign()
+            self._tc_log_picking_state(picking, "POST-ASSIGN", ctx=ctx_safe)
 
-        # 8) Verificación final: qty_done debe ser 0
-        try:
-            if has_qty_done:
-                done_lines = picking.move_line_ids.filtered(lambda ml: (ml.qty_done or 0.0) > 0.0)
-                if done_lines:
-                    _logger.warning("[TC_DEBUG] DETECTADO qty_done>0 en %s líneas. Reseteando a 0.0.", len(done_lines))
-                    done_lines.write({'qty_done': 0.0})
-                    self._tc_log_picking_state(picking, "POST-RESET-QTYDONE")
-        except Exception as e:
-            _logger.exception("[TC_DEBUG] Error verificando/reset qty_done: %s", e)
+        # Verificación final: si alguien metió done_qty, resetea
+        if has_qty_done:
+            done_lines = picking.move_line_ids.filtered(lambda ml: (ml.qty_done or 0.0) > 0.0)
+            if done_lines:
+                _logger.warning("[TC_DEBUG] DETECTADO qty_done>0 (%s líneas). Reseteando a 0.0.", len(done_lines))
+                done_lines.with_context(ctx_safe).write({'qty_done': 0.0})
+                self._tc_log_picking_state(picking, "POST-RESET-QTYDONE", ctx=ctx_safe)
 
-        # 9) Persistir en viaje
         self.write({
             'reception_picking_id': picking.id,
             'custom_status': 'reception_pending',
@@ -570,14 +571,14 @@ class StockTransitVoyage(models.Model):
             'res_model': 'stock.transit.voyage',
             'view_mode': 'list,form',
             'domain': [('id', '=', self.id)],
-            'context': {'default_picking_id': self.id}
+            'context': {'default_picking_id': self.id},
         }
 
 
 # ---------------------------------------------------------
-# BLINDAJE DURO: NO permitir que “Recibir en almacén”
-# o "(Recepción Física)" pase a done sin ws_ok=True,
-# aunque lo intenten por write() o _action_done().
+# BLINDAJE DURO: bloquear DONE sin ws_ok=True
+# - nivel picking
+# - nivel move (porque tu "done" está entrando por moves)
 # ---------------------------------------------------------
 class StockPickingGuard(models.Model):
     _inherit = 'stock.picking'
@@ -601,25 +602,21 @@ class StockPickingGuard(models.Model):
                     _logger.error(
                         "[TC_GUARD] BLOQUEADO write(state=done) | picking=%s(ID=%s) origin=%s pt=%s ctx=%s\nSTACK:\n%s",
                         p.name, p.id, p.origin, p.picking_type_id.name, dict(self.env.context),
-                        ''.join(traceback.format_stack(limit=35))
+                        ''.join(traceback.format_stack(limit=40)),
                     )
                     raise UserError(_(
                         "Bloqueado: esta recepción física NO puede pasar a HECHO (done) automáticamente.\n"
-                        "Primero captura Worksheet y luego valida con contexto ws_ok=True."
+                        "Primero captura Worksheet y luego valida con ws_ok=True."
                     ))
-                _logger.warning(
-                    "[TC_GUARD] write(state=done) PERMITIDO | picking=%s(ID=%s) ws_ok=%s",
-                    p.name, p.id, p._tc_ws_ok()
-                )
         return super().write(vals)
 
     def _action_done(self):
         for p in self:
             if p._tc_is_physical_reception() and not p._tc_ws_ok():
                 _logger.error(
-                    "[TC_GUARD] BLOQUEADO _action_done() | picking=%s(ID=%s) origin=%s pt=%s ctx=%s\nSTACK:\n%s",
+                    "[TC_GUARD] BLOQUEADO picking._action_done() | picking=%s(ID=%s) origin=%s pt=%s ctx=%s\nSTACK:\n%s",
                     p.name, p.id, p.origin, p.picking_type_id.name, dict(self.env.context),
-                    ''.join(traceback.format_stack(limit=35))
+                    ''.join(traceback.format_stack(limit=40)),
                 )
                 raise UserError(_(
                     "Bloqueado: no puedes completar esta recepción física hasta terminar Worksheet."
@@ -628,14 +625,67 @@ class StockPickingGuard(models.Model):
 
     def button_validate(self):
         for p in self:
-            if p._tc_is_physical_reception():
+            if p._tc_is_physical_reception() and not p._tc_ws_ok():
                 _logger.info(
-                    "[TC_GUARD] button_validate() | picking=%s(ID=%s) state=%s ws_ok=%s ctx=%s",
+                    "[TC_GUARD] picking.button_validate() bloqueado | picking=%s(ID=%s) state=%s ws_ok=%s ctx=%s",
                     p.name, p.id, p.state, p._tc_ws_ok(), dict(self.env.context)
                 )
-                if not p._tc_ws_ok():
-                    raise UserError(_(
-                        "Esta transferencia NO puede validarse todavía.\n"
-                        "Primero captura Worksheet (medidas) y valida desde tu botón de Worksheet."
-                    ))
+                raise UserError(_(
+                    "Esta transferencia NO puede validarse todavía.\n"
+                    "Primero captura Worksheet y valida desde tu botón de Worksheet."
+                ))
         return super().button_validate()
+
+
+class StockMoveGuard(models.Model):
+    _inherit = 'stock.move'
+
+    def _tc_is_physical_reception_move(self):
+        self.ensure_one()
+        picking = self.picking_id
+        if not picking:
+            return False
+        # Reutilizamos criterio del picking
+        origin = (picking.origin or '').lower()
+        pt_name = (picking.picking_type_id.name or '').strip().lower()
+        is_internal = (picking.picking_type_id.code == 'internal')
+        is_recepcion_fisica = '(recepción física)' in origin
+        is_recibir_en_almacen = (pt_name == 'recibir en almacén')
+        return is_internal and (is_recepcion_fisica or is_recibir_en_almacen)
+
+    def _tc_ws_ok(self):
+        return bool(self.env.context.get('ws_ok'))
+
+    def write(self, vals):
+        if vals.get('state') == 'done':
+            for m in self:
+                if m._tc_is_physical_reception_move() and not m._tc_ws_ok():
+                    _logger.error(
+                        "[TC_GUARD] BLOQUEADO move.write(state=done) | move=%s(ID=%s) picking=%s(ID=%s) ctx=%s\nSTACK:\n%s",
+                        m.display_name, m.id,
+                        m.picking_id.name if m.picking_id else None,
+                        m.picking_id.id if m.picking_id else None,
+                        dict(self.env.context),
+                        ''.join(traceback.format_stack(limit=40)),
+                    )
+                    raise UserError(_(
+                        "Bloqueado: un módulo intentó marcar movimientos en DONE durante Recepción Física.\n"
+                        "Debe completarse Worksheet primero (ws_ok=True para permitir done)."
+                    ))
+        return super().write(vals)
+
+    def _action_done(self, cancel_backorder=False):
+        for m in self:
+            if m._tc_is_physical_reception_move() and not m._tc_ws_ok():
+                _logger.error(
+                    "[TC_GUARD] BLOQUEADO move._action_done() | move=%s(ID=%s) picking=%s(ID=%s) ctx=%s\nSTACK:\n%s",
+                    m.display_name, m.id,
+                    m.picking_id.name if m.picking_id else None,
+                    m.picking_id.id if m.picking_id else None,
+                    dict(self.env.context),
+                    ''.join(traceback.format_stack(limit=40)),
+                )
+                raise UserError(_(
+                    "Bloqueado: intento de completar movimientos (DONE) en Recepción Física sin Worksheet."
+                ))
+        return super()._action_done(cancel_backorder=cancel_backorder)
