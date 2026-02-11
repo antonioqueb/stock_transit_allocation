@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api
 from collections import defaultdict
+import logging
+
+_logger = logging.getLogger(__name__)
 
 class ToBePurchasedLogic(models.AbstractModel):
     _name = 'purchase.manager.logic'
@@ -92,11 +95,10 @@ class ToBePurchasedLogic(models.AbstractModel):
             
             vendor_name = vendors[0]['name'] if vendors else 'SIN PROVEEDOR'
 
-            # CAMBIO APLICADO: 'type' ahora toma el valor de x_unidad_del_producto
             result.append({
                 'id': product.id,
                 'name': product.display_name,
-                'type': getattr(product, 'x_unidad_del_producto', 'N/A'), # <-- Aquí está el cambio
+                'type': getattr(product, 'x_unidad_del_producto', 'N/A'),
                 'group': getattr(product, 'x_grupo', 'N/A'),
                 'category': product.categ_id.name,
                 'vendor': vendor_name,
@@ -160,13 +162,26 @@ class ToBePurchasedLogic(models.AbstractModel):
             'company_id': self.env.company.id,
         }
 
-        # 1. Buscar la ubicación SOM/Transit
-        transit_loc = self.env['stock.location'].search([
+        # 1. Buscar la ubicación SOM/Transit de forma robusta
+        # Prioridad: 
+        #   1. Nombre exacto 'SOM/Transit'
+        #   2. Nombre contiene 'Transit' o 'Tránsito'
+        #   3. Usage es 'transit'
+        domain_loc = [
+            ('company_id', '=', self.env.company.id),
+            '|', '|',
             ('name', '=', 'SOM/Transit'),
-            ('company_id', '=', self.env.company.id)
-        ], limit=1)
+            ('name', 'ilike', 'Transit'),
+            ('usage', '=', 'transit')
+        ]
+        
+        # Ordenamos por nombre descendente para intentar capturar 'SOM/Transit' primero si existe
+        transit_loc = self.env['stock.location'].search(domain_loc, limit=1, order='name desc')
 
-        # 2. Si existe, buscar el Picking Type (Incoming) que entrega ahí
+        if not transit_loc:
+             _logger.warning("To Be Purchased: No se encontró ubicación de tránsito. La OC usará la ubicación por defecto.")
+
+        # 2. Si existe la ubicación, buscar el Picking Type (Incoming) que entrega ahí
         if transit_loc:
             picking_type = self.env['stock.picking.type'].search([
                 ('code', '=', 'incoming'),
@@ -176,6 +191,9 @@ class ToBePurchasedLogic(models.AbstractModel):
             
             if picking_type:
                 po_vals['picking_type_id'] = picking_type.id
+                _logger.info(f"To Be Purchased: Asignado Picking Type {picking_type.name} (Destino: {transit_loc.name}) a nueva OC.")
+            else:
+                _logger.warning(f"To Be Purchased: Ubicación {transit_loc.name} encontrada, pero no hay Tipo de Operación (Incoming) asociado.")
 
         # -------------------------------------------------------------------------
         # CREACIÓN O ACTUALIZACIÓN DE LA ORDEN DE COMPRA
@@ -190,6 +208,11 @@ class ToBePurchasedLogic(models.AbstractModel):
             for name in new_origins:
                 if name not in current_origin:
                     current_origin += f", {name}" if current_origin else name
+            
+            # Opcional: Si queremos forzar que una OC existente también cambie a tránsito (generalmente no se recomienda cambiar el tipo a medio camino)
+            # if 'picking_type_id' in po_vals:
+            #     po.write({'origin': current_origin, 'picking_type_id': po_vals['picking_type_id']})
+            
             po.write({'origin': current_origin})
         else:
             po = self.env['purchase.order'].create(po_vals)
@@ -239,7 +262,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'quantity': data['qty_pending'],
                     'state': 'pending',
                 })
-        
         
         return {
             'name': 'Orden de Compra',
