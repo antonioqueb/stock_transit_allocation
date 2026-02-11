@@ -92,10 +92,11 @@ class ToBePurchasedLogic(models.AbstractModel):
             
             vendor_name = vendors[0]['name'] if vendors else 'SIN PROVEEDOR'
 
+            # CAMBIO APLICADO: 'type' ahora toma el valor de x_unidad_del_producto
             result.append({
                 'id': product.id,
                 'name': product.display_name,
-                'type': product.type,
+                'type': getattr(product, 'x_unidad_del_producto', 'N/A'), # <-- Aquí está el cambio
                 'group': getattr(product, 'x_grupo', 'N/A'),
                 'category': product.categ_id.name,
                 'vendor': vendor_name,
@@ -191,7 +192,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                     current_origin += f", {name}" if current_origin else name
             po.write({'origin': current_origin})
         else:
-            # Se usan los valores preparados que incluyen el picking_type_id correcto
             po = self.env['purchase.order'].create(po_vals)
         
         # -------------------------------------------------------------------------
@@ -218,7 +218,6 @@ class ToBePurchasedLogic(models.AbstractModel):
                 new_qty = po_line.product_qty + total_qty
                 po_line.write({'product_qty': new_qty})
             else:
-                # ODOO 19 FIX: Se eliminó uom_po_id, usamos directamente uom_id
                 uom_id = product.uom_id.id
                 so_refs = ', '.join([d['sale_line'].order_id.name for d in sale_line_data])
                 
@@ -240,6 +239,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'quantity': data['qty_pending'],
                     'state': 'pending',
                 })
+        
         
         return {
             'name': 'Orden de Compra',
