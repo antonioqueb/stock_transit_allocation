@@ -150,6 +150,35 @@ class ToBePurchasedLogic(models.AbstractModel):
         if not vendor.exists():
             return {'error': 'Proveedor no encontrado'}
         
+        # -------------------------------------------------------------------------
+        # LÓGICA DE PREPARACIÓN DE VALORES Y DETECCIÓN DE UBICACIÓN "SOM/Transit"
+        # -------------------------------------------------------------------------
+        po_vals = {
+            'partner_id': vendor.id,
+            'origin': ', '.join(list(set(sale_lines.mapped('order_id.name')))),
+            'company_id': self.env.company.id,
+        }
+
+        # 1. Buscar la ubicación SOM/Transit
+        transit_loc = self.env['stock.location'].search([
+            ('name', '=', 'SOM/Transit'),
+            ('company_id', '=', self.env.company.id)
+        ], limit=1)
+
+        # 2. Si existe, buscar el Picking Type (Incoming) que entrega ahí
+        if transit_loc:
+            picking_type = self.env['stock.picking.type'].search([
+                ('code', '=', 'incoming'),
+                ('default_location_dest_id', '=', transit_loc.id),
+                ('company_id', '=', self.env.company.id)
+            ], limit=1)
+            
+            if picking_type:
+                po_vals['picking_type_id'] = picking_type.id
+
+        # -------------------------------------------------------------------------
+        # CREACIÓN O ACTUALIZACIÓN DE LA ORDEN DE COMPRA
+        # -------------------------------------------------------------------------
         if existing_po_id:
             po = self.env['purchase.order'].browse(existing_po_id)
             if not po.exists() or po.state not in ['draft', 'sent']:
@@ -162,12 +191,12 @@ class ToBePurchasedLogic(models.AbstractModel):
                     current_origin += f", {name}" if current_origin else name
             po.write({'origin': current_origin})
         else:
-            po = self.env['purchase.order'].create({
-                'partner_id': vendor.id,
-                'origin': ', '.join(list(set(sale_lines.mapped('order_id.name')))),
-                'company_id': self.env.company.id,
-            })
+            # Se usan los valores preparados que incluyen el picking_type_id correcto
+            po = self.env['purchase.order'].create(po_vals)
         
+        # -------------------------------------------------------------------------
+        # GENERACIÓN DE LÍNEAS DE COMPRA Y ALLOCATIONS
+        # -------------------------------------------------------------------------
         # CONSOLIDACIÓN POR PRODUCTO
         lines_by_product = defaultdict(list)
         for line in sale_lines:
