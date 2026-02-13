@@ -55,13 +55,11 @@ export class ToBePurchased extends Component {
     applyFilters() {
         let result = [...this.state.data];
         
-        // Filtro por búsqueda de producto
         if (this.state.searchQuery.trim()) {
             const query = this.state.searchQuery.toLowerCase().trim();
             result = result.filter(p => p.name.toLowerCase().includes(query));
         }
         
-        // Filtro solo pendientes (sin OC)
         if (this.state.showOnlyPending) {
             result = result.map(product => {
                 const filteredLines = product.so_lines.filter(line => !line.po_id);
@@ -75,7 +73,6 @@ export class ToBePurchased extends Component {
             }).filter(p => p !== null);
         }
         
-        // Aplicar agrupación según el modo seleccionado
         if (this.state.groupBy === "product") {
             this.state.filteredData = result;
         } else if (this.state.groupBy === "sale_order") {
@@ -141,7 +138,6 @@ export class ToBePurchased extends Component {
                 };
             }
             
-            // Agregar líneas de SO con info del producto
             for (const soLine of product.so_lines) {
                 vendorMap[vendorName].products.push({
                     ...soLine,
@@ -200,6 +196,9 @@ export class ToBePurchased extends Component {
         }
         this.state.showModal = true;
         this.state.selectedVendor = null;
+        this.state.selectedVendorName = "";
+        this.state.vendorSearch = "";
+        this.state.showVendorDropdown = false;
         this.state.selectedPO = null;
         this.state.openPOs = [];
     }
@@ -225,7 +224,6 @@ export class ToBePurchased extends Component {
     onVendorSearchInput(ev) {
         this.state.vendorSearch = ev.target.value;
         this.state.showVendorDropdown = true;
-        // Si borra el texto, limpiar selección
         if (!ev.target.value.trim()) {
             this.state.selectedVendor = null;
             this.state.selectedVendorName = "";
@@ -239,7 +237,6 @@ export class ToBePurchased extends Component {
     }
 
     onVendorSearchBlur() {
-        // Delay para permitir click en dropdown
         setTimeout(() => {
             this.state.showVendorDropdown = false;
         }, 200);
@@ -252,7 +249,6 @@ export class ToBePurchased extends Component {
         this.state.showVendorDropdown = false;
         this.state.selectedPO = null;
         
-        // Cargar OCs abiertas del proveedor
         this.state.loadingPOs = true;
         try {
             this.state.openPOs = await this.orm.call("purchase.manager.logic", "get_open_purchase_orders", [vendor.id]);
@@ -271,27 +267,8 @@ export class ToBePurchased extends Component {
         this.state.selectedPO = null;
     }
 
-    async onVendorChange(ev) {
-        const vendorId = parseInt(ev.target.value) || null;
-        this.state.selectedVendor = vendorId;
-        this.state.selectedPO = null;
-        
-        if (vendorId) {
-            this.state.loadingPOs = true;
-            try {
-                this.state.openPOs = await this.orm.call("purchase.manager.logic", "get_open_purchase_orders", [vendorId]);
-            } catch (error) {
-                console.error("Error al cargar OCs:", error);
-                this.state.openPOs = [];
-            }
-            this.state.loadingPOs = false;
-        } else {
-            this.state.openPOs = [];
-        }
-    }
-
-    onPOChange(ev) {
-        this.state.selectedPO = parseInt(ev.target.value) || null;
+    selectPO(poId) {
+        this.state.selectedPO = poId;
     }
 
     async confirmPurchase() {

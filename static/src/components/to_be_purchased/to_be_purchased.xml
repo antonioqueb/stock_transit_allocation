@@ -228,7 +228,6 @@
                             </tr>
                         </t>
                         <t t-foreach="state.filteredData" t-as="so" t-key="so.id">
-                            <!-- Fila de Orden de Venta -->
                             <tr class="table-light" t-on-click="() => this.toggleExpand('so_' + so.id)" style="cursor: pointer;">
                                 <td class="text-center p-1">
                                     <i t-attf-class="fa fa-xs #{state.expanded['so_' + so.id] ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary"/>
@@ -249,7 +248,6 @@
                                 </td>
                             </tr>
                             
-                            <!-- Detalle de Productos -->
                             <tr t-if="state.expanded['so_' + so.id]">
                                 <td colspan="8" class="p-0 bg-light">
                                     <div class="p-2">
@@ -340,7 +338,6 @@
                             </tr>
                         </t>
                         <t t-foreach="state.filteredData" t-as="vendor" t-key="vendor.vendor_name">
-                            <!-- Fila de Proveedor -->
                             <tr class="table-light" t-on-click="() => this.toggleExpand('vendor_' + vendor.vendor_name)" style="cursor: pointer;">
                                 <td class="text-center p-1">
                                     <i t-attf-class="fa fa-xs #{state.expanded['vendor_' + vendor.vendor_name] ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary"/>
@@ -358,7 +355,6 @@
                                 </td>
                             </tr>
                             
-                            <!-- Detalle de Productos/SO -->
                             <tr t-if="state.expanded['vendor_' + vendor.vendor_name]">
                                 <td colspan="5" class="p-0 bg-light">
                                     <div class="p-2">
@@ -432,135 +428,187 @@
                 </table>
             </div>
 
-            <!-- MODAL DE SELECCIÓN DE PROVEEDOR -->
+            <!-- ================================================================ -->
+            <!-- MODAL REDISEÑADO - ESTILO ODOO - SELECCIÓN DE PROVEEDOR          -->
+            <!-- ================================================================ -->
             <t t-if="state.showModal">
-                <div class="modal fade show d-block" tabindex="-1" style="background: rgba(0,0,0,0.5);">
-                    <div class="modal-dialog modal-dialog-centered">
-                        <div class="modal-content">
-                            <div class="modal-header py-2">
-                                <h6 class="modal-title">
-                                    <i class="fa fa-shopping-cart me-2"/>Generar Orden de Compra
-                                </h6>
-                                <button type="button" class="btn-close btn-close-sm" t-on-click="closeModal"/>
-                            </div>
-                            <div class="modal-body" style="font-size: 12px;">
-                                <!-- Resumen -->
-                                <div class="alert alert-info py-2 mb-3" style="font-size: 11px;">
-                                    <i class="fa fa-info-circle me-1"/>
-                                    <strong><t t-esc="state.selectedLines.length"/></strong> línea(s) seleccionada(s)
+                <div class="o_tbp_modal_backdrop" t-on-click="closeModal">
+                    <div class="o_tbp_modal_dialog" t-on-click.stop="">
+                        
+                        <!-- HEADER -->
+                        <div class="o_tbp_modal_header">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="o_tbp_modal_icon">
+                                    <i class="fa fa-shopping-cart"/>
                                 </div>
+                                <div>
+                                    <h4 class="mb-0 fw-bold">Generar Orden de Compra</h4>
+                                    <small class="text-muted">Seleccione proveedor y configure la orden</small>
+                                </div>
+                            </div>
+                            <button class="o_tbp_modal_close" t-on-click="closeModal">
+                                <i class="fa fa-times"/>
+                            </button>
+                        </div>
 
-                                <!-- Selección de Proveedor con Búsqueda -->
-                                <div class="mb-3">
-                                    <label class="form-label fw-semibold">Proveedor *</label>
-                                    <div class="position-relative">
-                                        <div class="input-group input-group-sm">
-                                            <span class="input-group-text bg-white">
-                                                <i class="fa fa-search text-muted"/>
-                                            </span>
-                                            <input type="text" 
-                                                   class="form-control"
-                                                   placeholder="Buscar proveedor..."
-                                                   t-att-value="state.vendorSearch"
-                                                   t-on-input="onVendorSearchInput"
-                                                   t-on-focus="onVendorSearchFocus"
-                                                   t-on-blur="onVendorSearchBlur"
-                                                   autocomplete="off"/>
-                                            <button class="btn btn-outline-secondary" 
-                                                    type="button" 
-                                                    t-on-click="clearVendorSelection"
-                                                    t-att-disabled="!state.vendorSearch">
-                                                <i class="fa fa-times"/>
-                                            </button>
+                        <!-- BODY -->
+                        <div class="o_tbp_modal_body">
+                            
+                            <!-- Resumen de selección -->
+                            <div class="o_tbp_summary_banner">
+                                <div class="d-flex align-items-center gap-3">
+                                    <div class="o_tbp_summary_count">
+                                        <span class="o_tbp_count_number"><t t-esc="state.selectedLines.length"/></span>
+                                    </div>
+                                    <div>
+                                        <div class="fw-semibold" style="font-size: 14px;">
+                                            Línea(s) seleccionada(s)
                                         </div>
-                                        
-                                        <!-- Dropdown de resultados -->
-                                        <div t-if="state.showVendorDropdown and filteredVendors.length > 0" 
-                                             class="position-absolute w-100 bg-white border rounded shadow-sm mt-1"
-                                             style="max-height: 200px; overflow-y: auto; z-index: 1050;">
-                                            <t t-foreach="filteredVendors" t-as="vendor" t-key="vendor.id">
-                                                <div class="px-3 py-2 cursor-pointer border-bottom"
-                                                     style="cursor: pointer;"
-                                                     t-attf-class="#{state.selectedVendor === vendor.id ? 'bg-primary text-white' : 'hover-bg-light'}"
-                                                     t-on-click="() => this.selectVendor(vendor)">
-                                                    <i class="fa fa-truck me-2 opacity-50"/>
-                                                    <t t-esc="vendor.name"/>
-                                                </div>
-                                            </t>
+                                        <div class="text-muted" style="font-size: 12px;">
+                                            Se generará una línea consolidada por producto
                                         </div>
-                                        
-                                        <!-- No results -->
-                                        <div t-if="state.showVendorDropdown and state.vendorSearch and filteredVendors.length === 0" 
-                                             class="position-absolute w-100 bg-white border rounded shadow-sm mt-1 p-2 text-muted text-center"
-                                             style="z-index: 1050;">
-                                            <i class="fa fa-exclamation-circle me-1"/>
-                                            No se encontraron proveedores
-                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- SECCIÓN 1: PROVEEDOR -->
+                            <div class="o_tbp_section">
+                                <label class="o_tbp_section_label">
+                                    <i class="fa fa-truck me-2"/>Proveedor
+                                    <span class="text-danger ms-1">*</span>
+                                </label>
+                                
+                                <div class="o_tbp_vendor_search_wrapper">
+                                    <div class="o_tbp_search_input_container">
+                                        <i class="fa fa-search o_tbp_search_icon"/>
+                                        <input type="text" 
+                                               class="o_tbp_search_input"
+                                               placeholder="Escriba para buscar proveedor..."
+                                               t-att-value="state.vendorSearch"
+                                               t-on-input="onVendorSearchInput"
+                                               t-on-focus="onVendorSearchFocus"
+                                               t-on-blur="onVendorSearchBlur"
+                                               autocomplete="off"/>
+                                        <button class="o_tbp_search_clear" 
+                                                t-on-click="clearVendorSelection"
+                                                t-if="state.vendorSearch">
+                                            <i class="fa fa-times"/>
+                                        </button>
                                     </div>
                                     
-                                    <!-- Badge del proveedor seleccionado -->
-                                    <div t-if="state.selectedVendor" class="mt-2">
-                                        <span class="badge bg-success">
-                                            <i class="fa fa-check me-1"/>
-                                            <t t-esc="state.selectedVendorName"/>
-                                        </span>
+                                    <!-- Dropdown de resultados -->
+                                    <div t-if="state.showVendorDropdown and filteredVendors.length > 0" 
+                                         class="o_tbp_vendor_dropdown">
+                                        <t t-foreach="filteredVendors" t-as="vendor" t-key="vendor.id">
+                                            <div t-attf-class="o_tbp_vendor_option #{state.selectedVendor === vendor.id ? 'selected' : ''}"
+                                                 t-on-click="() => this.selectVendor(vendor)">
+                                                <div class="o_tbp_vendor_avatar">
+                                                    <i class="fa fa-building"/>
+                                                </div>
+                                                <div class="o_tbp_vendor_info">
+                                                    <div class="o_tbp_vendor_name"><t t-esc="vendor.name"/></div>
+                                                </div>
+                                                <i t-if="state.selectedVendor === vendor.id" 
+                                                   class="fa fa-check text-primary ms-auto"/>
+                                            </div>
+                                        </t>
+                                    </div>
+                                    
+                                    <!-- Sin resultados -->
+                                    <div t-if="state.showVendorDropdown and state.vendorSearch and filteredVendors.length === 0" 
+                                         class="o_tbp_vendor_dropdown">
+                                        <div class="o_tbp_vendor_empty">
+                                            <i class="fa fa-search me-2 text-muted"/>
+                                            No se encontraron proveedores para "<t t-esc="state.vendorSearch"/>"
+                                        </div>
                                     </div>
                                 </div>
 
-                                <!-- Selección de OC Existente -->
-                                <t t-if="state.selectedVendor">
-                                    <div class="mb-3">
-                                        <label class="form-label fw-semibold">
-                                            Agregar a OC Existente <span class="text-muted fw-normal">(opcional)</span>
-                                        </label>
-                                        <t t-if="state.loadingPOs">
-                                            <div class="text-center py-2">
-                                                <i class="fa fa-spinner fa-spin"/> Cargando...
-                                            </div>
-                                        </t>
-                                        <t t-elif="state.openPOs.length > 0">
-                                            <select class="form-select form-select-sm" t-on-change="onPOChange">
-                                                <option value="">-- Crear Nueva OC --</option>
-                                                <t t-foreach="state.openPOs" t-as="po" t-key="po.id">
-                                                    <option t-att-value="po.id">
-                                                        <t t-esc="po.name"/> - <t t-esc="po.date"/> 
-                                                        (<t t-esc="po.lines_count"/> líneas)
-                                                    </option>
-                                                </t>
-                                            </select>
-                                            <div class="form-text" style="font-size: 10px;">
-                                                Las líneas se agregarán a la OC seleccionada
-                                            </div>
-                                        </t>
-                                        <t t-else="">
-                                            <div class="text-muted small">
-                                                <i class="fa fa-info-circle me-1"/>
-                                                No hay OCs abiertas para este proveedor. Se creará una nueva.
-                                            </div>
-                                        </t>
+                                <!-- Proveedor seleccionado -->
+                                <div t-if="state.selectedVendor" class="o_tbp_vendor_selected">
+                                    <div class="o_tbp_vendor_selected_badge">
+                                        <div class="o_tbp_vendor_selected_avatar">
+                                            <i class="fa fa-building"/>
+                                        </div>
+                                        <span class="fw-semibold"><t t-esc="state.selectedVendorName"/></span>
+                                        <button class="o_tbp_vendor_remove" t-on-click="clearVendorSelection">
+                                            <i class="fa fa-times"/>
+                                        </button>
                                     </div>
-                                </t>
+                                </div>
+                            </div>
 
-                                <!-- Info adicional si se seleccionó OC existente -->
-                                <t t-if="state.selectedPO">
-                                    <div class="alert alert-warning py-2" style="font-size: 10px;">
-                                        <i class="fa fa-exclamation-triangle me-1"/>
-                                        Las líneas se agregarán a la orden existente
-                                    </div>
-                                </t>
-                            </div>
-                            <div class="modal-footer py-2">
-                                <button type="button" class="btn btn-sm btn-secondary" t-on-click="closeModal">
-                                    Cancelar
-                                </button>
-                                <button type="button" class="btn btn-sm btn-primary" 
-                                        t-on-click="confirmPurchase"
-                                        t-att-disabled="!state.selectedVendor">
-                                    <i class="fa fa-check me-1"/>
-                                    <t t-if="state.selectedPO">Agregar a OC</t>
-                                    <t t-else="">Crear OC</t>
-                                </button>
-                            </div>
+                            <!-- SECCIÓN 2: OC EXISTENTE (solo si hay proveedor) -->
+                            <t t-if="state.selectedVendor">
+                                <div class="o_tbp_section">
+                                    <label class="o_tbp_section_label">
+                                        <i class="fa fa-file-text-o me-2"/>Orden de Compra
+                                        <span class="text-muted fw-normal ms-2" style="font-size: 12px;">(opcional)</span>
+                                    </label>
+                                    
+                                    <t t-if="state.loadingPOs">
+                                        <div class="o_tbp_loading">
+                                            <i class="fa fa-spinner fa-spin fa-lg me-2"/> 
+                                            Buscando órdenes abiertas...
+                                        </div>
+                                    </t>
+                                    
+                                    <t t-elif="state.openPOs.length > 0">
+                                        <!-- Opción: Crear nueva -->
+                                        <div t-attf-class="o_tbp_po_option #{!state.selectedPO ? 'selected' : ''}"
+                                             t-on-click="() => this.selectPO(null)">
+                                            <div class="o_tbp_po_icon new">
+                                                <i class="fa fa-plus"/>
+                                            </div>
+                                            <div class="o_tbp_po_info">
+                                                <div class="fw-semibold">Crear Nueva Orden de Compra</div>
+                                                <div class="text-muted" style="font-size: 11px;">Se generará una OC nueva para este proveedor</div>
+                                            </div>
+                                            <i t-if="!state.selectedPO" class="fa fa-check-circle text-primary ms-auto" style="font-size: 18px;"/>
+                                        </div>
+                                        
+                                        <!-- Opciones: OCs existentes -->
+                                        <t t-foreach="state.openPOs" t-as="po" t-key="po.id">
+                                            <div t-attf-class="o_tbp_po_option #{state.selectedPO === po.id ? 'selected' : ''}"
+                                                 t-on-click="() => this.selectPO(po.id)">
+                                                <div class="o_tbp_po_icon existing">
+                                                    <i class="fa fa-file-text"/>
+                                                </div>
+                                                <div class="o_tbp_po_info">
+                                                    <div class="fw-semibold"><t t-esc="po.name"/></div>
+                                                    <div class="d-flex gap-3 text-muted" style="font-size: 11px;">
+                                                        <span><i class="fa fa-calendar me-1"/><t t-esc="po.date"/></span>
+                                                        <span><i class="fa fa-list me-1"/><t t-esc="po.lines_count"/> líneas</span>
+                                                        <span t-if="po.origin"><i class="fa fa-link me-1"/><t t-esc="po.origin"/></span>
+                                                    </div>
+                                                </div>
+                                                <i t-if="state.selectedPO === po.id" class="fa fa-check-circle text-primary ms-auto" style="font-size: 18px;"/>
+                                            </div>
+                                        </t>
+                                    </t>
+                                    
+                                    <t t-else="">
+                                        <div class="o_tbp_po_empty">
+                                            <i class="fa fa-info-circle me-2 text-primary"/>
+                                            No hay OCs abiertas para este proveedor. Se creará una nueva automáticamente.
+                                        </div>
+                                    </t>
+                                </div>
+                            </t>
+                        </div>
+
+                        <!-- FOOTER -->
+                        <div class="o_tbp_modal_footer">
+                            <button class="btn btn-light btn-lg px-4" t-on-click="closeModal">
+                                Descartar
+                            </button>
+                            <button t-attf-class="btn btn-primary btn-lg px-4 #{!state.selectedVendor ? 'disabled' : ''}" 
+                                    t-on-click="confirmPurchase"
+                                    t-att-disabled="!state.selectedVendor">
+                                <i t-attf-class="fa #{state.selectedPO ? 'fa-plus-circle' : 'fa-check'} me-2"/>
+                                <t t-if="state.selectedPO">Agregar a OC Existente</t>
+                                <t t-else="">Crear Orden de Compra</t>
+                            </button>
                         </div>
                     </div>
                 </div>
