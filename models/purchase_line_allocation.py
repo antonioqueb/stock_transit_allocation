@@ -120,16 +120,14 @@ class PurchaseOrderLine(models.Model):
                 line.allocation_summary = 'Sin asignar'
                 line.total_allocated = 0.0
 
-    def _prepare_stock_moves(self, picking):
-        res = super(PurchaseOrderLine, self)._prepare_stock_moves(picking)
-        
-        for move_vals in res:
-            if self.allocation_ids:
-                first_alloc = self.allocation_ids[0]
-                move_vals['sale_line_id'] = first_alloc.sale_line_id.id
-                
-                order = first_alloc.sale_order_id
-                if order and hasattr(order, 'procurement_group_id') and order.procurement_group_id:
-                    move_vals['group_id'] = order.procurement_group_id.id
-        
-        return res
+    # =========================================================================
+    # FIX: Se eliminó el override de _prepare_stock_moves.
+    # 
+    # El problema: cuando una línea de compra tiene allocations de MÚLTIPLES
+    # órdenes de venta (consolidación), asignar sale_line_id al stock.move
+    # causa que el picking tenga moves apuntando a diferentes SO. El campo
+    # computado picking.sale_id (Many2one) explota porque recibe múltiples SO.
+    #
+    # La trazabilidad SO <-> PO se mantiene a través de las allocations y
+    # la Torre de Control (Voyage), NO a nivel de stock.move.
+    # =========================================================================
