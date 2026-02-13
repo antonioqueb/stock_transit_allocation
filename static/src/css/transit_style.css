@@ -260,7 +260,7 @@
     border: 1px solid #e5e7eb;
     border-radius: 10px;
     box-shadow: 0 10px 25px rgba(0, 0, 0, 0.12);
-    max-height: 260px;
+    max-height: 460px;
     overflow-y: auto;
     z-index: 1060;
 }
