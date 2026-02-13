@@ -85,8 +85,8 @@
     background: #ffffff;
     border-radius: 12px;
     width: 620px;
-    max-width: 95vw;
-    max-height: 85vh;
+    max-width: 105vw;
+    max-height: 105vh;
     display: flex;
     flex-direction: column;
     box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05);
