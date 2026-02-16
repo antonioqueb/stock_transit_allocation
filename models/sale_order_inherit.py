@@ -7,7 +7,6 @@ class SaleOrder(models.Model):
 
     def unlink(self):
         for order in self:
-            # Buscar si tiene líneas en tránsito que ya tengan lote (recepción física iniciada)
             transit_lines = self.env['stock.transit.line'].search([
                 ('order_id', '=', order.id),
                 ('lot_id', '!=', False)
@@ -25,3 +24,34 @@ class SaleOrderLine(models.Model):
         help="Si está marcado, se considerará para la asignación automática en la Torre de Control "
              "cuando se genere la compra."
     )
+    
+    has_stone_lots = fields.Boolean(
+        string='Tiene Placas Asignadas',
+        compute='_compute_has_stone_lots',
+        store=True,
+    )
+
+    @api.depends('lot_ids')
+    def _compute_has_stone_lots(self):
+        for line in self:
+            line.has_stone_lots = bool(line.lot_ids)
+
+    @api.onchange('auto_transit_assign')
+    def _onchange_auto_transit_assign(self):
+        if self.auto_transit_assign and self.lot_ids:
+            self.auto_transit_assign = False
+            return {
+                'warning': {
+                    'title': _('No permitido'),
+                    'message': _('Esta línea ya tiene placas asignadas. No puede marcar "Mandar Pedir" cuando hay placas seleccionadas.'),
+                }
+            }
+
+    @api.constrains('auto_transit_assign', 'lot_ids')
+    def _check_transit_vs_lots(self):
+        for line in self:
+            if line.auto_transit_assign and line.lot_ids:
+                raise UserError(_(
+                    'La línea "%s" tiene placas asignadas y no puede estar marcada como "Mandar Pedir". '
+                    'Quite las placas o desmarque "Mandar Pedir".'
+                ) % (line.product_id.display_name or ''))

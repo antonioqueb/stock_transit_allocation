@@ -5,9 +5,10 @@
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
-            <!-- En Odoo 19 usamos 'list', eliminamos la referencia a 'tree' que causaba el error -->
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
-                <field name="auto_transit_assign" optional="show" width="100px"/>
+                <field name="has_stone_lots" column_invisible="1"/>
+                <field name="auto_transit_assign" optional="show" width="100px"
+                       readonly="has_stone_lots"/>
             </xpath>
         </field>
     </record>
