@@ -241,8 +241,9 @@ class StockTransitLine(models.Model):
         
         if existing_hold:
             _logger.info(f"TransitLine {self.id}: Ya existe hold activo, verificando...")
-            # Si ya está reservado para el mismo cliente, no hacer nada
-            if existing_hold.order_id and existing_hold.order_id.partner_id == partner:
+            # FIX: Comparar por partner_id del hold (no order_id que no existe en stock.lot.hold)
+            hold_partner = existing_hold.partner_id if hasattr(existing_hold, 'partner_id') else False
+            if hold_partner and hold_partner == partner:
                 return
             # Cancelar el hold anterior si es de otro cliente
             try:
