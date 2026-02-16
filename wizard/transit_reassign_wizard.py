@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 from ..models.utils.transit_manager import TransitManager
@@ -185,8 +186,12 @@ class TransitReassignWizard(models.TransientModel):
             
             old_name = self.current_partner_id.name or 'Stock'
             new_name = self.new_partner_id.name or 'Stock'
-            msg = f"🔄 <b>Reasignación:</b> {line.lot_id.name or line.product_id.name}<br/>"
-            msg += f"De: {old_name} → A: {new_name} ({self.new_order_id.name or '-'})"
+            msg = Markup("🔄 <b>Reasignación:</b> %s<br/>De: %s → A: %s (%s)") % (
+                line.lot_id.name or line.product_id.name,
+                old_name,
+                new_name,
+                self.new_order_id.name or '-'
+            )
             if line.voyage_id:
                 line.voyage_id.message_post(body=msg)
 

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import logging
+from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 
@@ -537,4 +538,4 @@ class StockTransitVoyage(models.Model):
         _logger.info(f"[TC_SYNC] {self.name}: {summary}")
         
         if lines_created_count > 0 or lines_updated > 0:
-            self.message_post(body=f"🔄 {summary}")
+            self.message_post(body=Markup("🔄 %s") % summary)

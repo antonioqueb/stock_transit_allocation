@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import ValidationError
 from odoo.tools import drop_view_if_exists
@@ -218,10 +219,15 @@ class StockTransitLine(models.Model):
                     # Log en el viaje
                     if line.voyage_id:
                         if new_partner and new_order:
-                            msg = f"🔄 <b>Asignación:</b> {line.lot_id.name or line.product_id.name}<br/>"
-                            msg += f"→ {new_partner.name} / {new_order.name}"
+                            msg = Markup("🔄 <b>Asignación:</b> %s<br/>→ %s / %s") % (
+                                line.lot_id.name or line.product_id.name,
+                                new_partner.name,
+                                new_order.name
+                            )
                         else:
-                            msg = f"🔓 <b>Liberado a Stock:</b> {line.lot_id.name or line.product_id.name}"
+                            msg = Markup("🔓 <b>Liberado a Stock:</b> %s") % (
+                                line.lot_id.name or line.product_id.name,
+                            )
                         line.voyage_id.message_post(body=msg)
         
         return res
