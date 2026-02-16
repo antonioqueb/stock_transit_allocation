@@ -217,6 +217,12 @@ class StockTransitVoyage(models.Model):
         }
     
     def action_load_from_purchase(self):
+        """
+        Carga líneas en el Voyage desde la Orden de Compra.
+        - Crea una línea por cada allocation (reservada para cliente).
+        - Detecta cantidad extra en la OC no cubierta por allocations y la
+          crea como línea "Disponible / Para Stock".
+        """
         self.ensure_one()
         if not self.purchase_id:
             return
@@ -239,6 +245,48 @@ class StockTransitVoyage(models.Model):
                 'allocation_status': 'reserved',
                 'container_number': 'PENDIENTE',
             })
+        
+        # =================================================================
+        # DETECCIÓN DE CANTIDAD EXTRA PARA STOCK
+        # Por cada línea de la OC, compara cantidad total vs total asignado
+        # (allocations). La diferencia se crea como línea "disponible".
+        # También actualiza líneas de stock existentes si la diferencia cambió.
+        # =================================================================
+        existing_stock_lines = self.line_ids.filtered(
+            lambda l: not l.allocation_id and not l.partner_id and not l.order_id
+        )
+        existing_stock_by_product = {l.product_id.id: l for l in existing_stock_lines}
+        
+        for po_line in self.purchase_id.order_line:
+            total_po_qty = po_line.product_qty
+            total_allocated = sum(po_line.allocation_ids.mapped('quantity'))
+            extra_for_stock = total_po_qty - total_allocated
+            
+            product_id = po_line.product_id.id
+            
+            if product_id in existing_stock_by_product:
+                # Ya existe una línea de stock para este producto: actualizar cantidad
+                existing_line = existing_stock_by_product[product_id]
+                if extra_for_stock > 0:
+                    if existing_line.product_uom_qty != extra_for_stock:
+                        existing_line.write({'product_uom_qty': extra_for_stock})
+                else:
+                    # Ya no hay excedente, eliminar la línea de stock
+                    existing_line.unlink()
+            elif extra_for_stock > 0:
+                # No existe línea de stock aún: crearla
+                transit_lines.append({
+                    'voyage_id': self.id,
+                    'product_id': product_id,
+                    'product_uom_qty': extra_for_stock,
+                    'partner_id': False,
+                    'order_id': False,
+                    'allocation_id': False,
+                    'allocation_status': 'available',
+                    'container_number': 'PENDIENTE',
+                    'notes': 'Para Stock (cantidad extra en OC)',
+                })
+        
         if transit_lines:
             self.env['stock.transit.line'].create(transit_lines)
 
