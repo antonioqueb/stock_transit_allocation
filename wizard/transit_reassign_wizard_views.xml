@@ -6,8 +6,10 @@
         <field name="arch" type="xml">
             <form string="Reasignación en Tránsito">
                 <group>
-                    <div class="alert alert-warning" role="alert" invisible="not new_partner_id">
-                        ¡Atención! Debe seleccionar la Orden de Venta del cliente para guardar.
+                    <div class="alert alert-info" role="alert">
+                        <i class="fa fa-info-circle me-1"/>
+                        Solo se muestran clientes y órdenes que tengan los productos seleccionados 
+                        con cantidad pendiente de entrega.
                     </div>
                 </group>
                 <group>
@@ -15,15 +17,24 @@
                         <field name="current_partner_id"/>
                         <field name="current_order_id" readonly="1"/>
                         <field name="line_ids" widget="many2many_tags" readonly="1"/>
+                        <field name="product_ids" widget="many2many_tags" readonly="1" string="Productos"/>
                     </group>
                     <group string="Nueva Asignación">
-                        <field name="new_partner_id" placeholder="Seleccione para asignar, vacío para liberar"/>
-                        <field name="new_order_id" required="new_partner_id" invisible="not new_partner_id"
-                               placeholder="Seleccione el pedido..."/>
+                        <field name="eligible_partner_ids" invisible="1"/>
+                        <field name="new_partner_id" 
+                               placeholder="Buscar cliente..."
+                               options="{'no_create': True, 'no_create_edit': True}"/>
+                        
+                        <field name="eligible_order_ids" invisible="1"/>
+                        <field name="new_order_id" 
+                               required="new_partner_id" 
+                               invisible="not new_partner_id"
+                               placeholder="Seleccionar orden de venta..."
+                               options="{'no_create': True, 'no_create_edit': True}"/>
                     </group>
                 </group>
                 <group>
-                    <field name="reason" placeholder="Ej. Cliente canceló, Cambio de material..."/>
+                    <field name="reason" placeholder="Ej. Cliente canceló, Cambio de material, Reasignación por prioridad..."/>
                 </group>
                 <footer>
                     <button string="Confirmar Reasignación" name="action_apply" type="object" class="btn-primary"/>
