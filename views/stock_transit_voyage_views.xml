@@ -35,6 +35,21 @@
         <field name="arch" type="xml">
             <form string="Gestión de Tránsito">
                 <header>
+                    <!-- BOTÓN PRINCIPAL: Avanzar al siguiente estado -->
+                    <button name="action_advance_status" type="object" 
+                            class="btn-primary"
+                            invisible="custom_status in ['delivered', 'cancel']"
+                            string="⏩ Avanzar Estado"/>
+                    
+                    <!-- BOTÓN SECUNDARIO: Retroceder estado -->
+                    <button name="action_retreat_status" type="object" 
+                            class="btn-secondary"
+                            invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
+                            string="⏪ Retroceder"/>
+
+                    <separator/>
+
+                    <!-- Acciones de carga de datos -->
                     <button name="action_load_from_purchase" string="🔄 Cargar desde OC" type="object" 
                             class="btn-info" 
                             invisible="picking_id != False or custom_status == 'delivered'"/>
@@ -42,35 +57,33 @@
                     <button name="action_load_from_picking" string="🚢 Sincronizar Lotes (Picking)" type="object" 
                             class="btn-secondary" 
                             invisible="picking_id == False or custom_status == 'delivered'"/>
-                    
-                    <button name="action_confirm_transit" string="🚢 Confirmar Zarpe" type="object" 
-                            class="btn-primary" 
-                            invisible="custom_status not in ['solicitud', 'production', 'booking', 'puerto_origen']"/>
-                    
+
+                    <!-- Recepción física -->
                     <button name="action_generate_reception" string="🏭 Generar Recepción Física" type="object" 
                             class="btn-warning"
-                            invisible="custom_status not in ['on_sea', 'puerto_destino'] or reception_picking_id != False"/>
+                            invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port'] or reception_picking_id != False"/>
                     
                     <button name="action_generate_reception" string="📋 Ver Recepción (Worksheet)" type="object" 
                             class="btn-success"
                             invisible="reception_picking_id == False"/>
 
+                    <!-- Cerrar viaje directo -->
                     <button name="action_arrive" string="🏁 Cerrar Viaje" type="object" 
                             class="btn-secondary" 
-                            invisible="custom_status == 'delivered'"/>
+                            invisible="custom_status in ['delivered', 'cancel']"
+                            confirm="¿Está seguro de cerrar este viaje? Se marcará como Entregado."/>
 
                     <button name="action_cancel" string="Cancelar" type="object"
-                            invisible="custom_status == 'delivered'"/>
+                            invisible="custom_status in ['delivered', 'cancel']"
+                            confirm="¿Está seguro de cancelar este viaje?"/>
                             
-                    <field name="custom_status" widget="statusbar" statusbar_visible="solicitud,production,on_sea,reception_pending,delivered"/>
+                    <field name="custom_status" widget="statusbar" 
+                           statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
                 </header>
                 <sheet>
                     <div class="oe_title">
                         <span class="o_form_label">Referencia de Viaje</span>
                         <h1><field name="name"/></h1>
-                        <!-- ============================================================ -->
-                        <!-- CAMBIO: Contenedores ahora es readonly (computado desde líneas) -->
-                        <!-- ============================================================ -->
                         <label for="container_number" string="Contenedores en este Embarque"/>
                         <h3><field name="container_number" readonly="1"/></h3>
                     </div>
@@ -95,7 +108,6 @@
 
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
-                            <!-- LISTA EDITABLE: Asignación directa sin wizard -->
                             <field name="line_ids">
                                 <list create="0" delete="0" 
                                       decoration-success="allocation_status == 'reserved'" 
@@ -106,7 +118,6 @@
                                     <field name="lot_id" placeholder="Esperando recepción..." decoration-bf="1" readonly="1"/>
                                     <field name="product_uom_qty" string="m²" sum="Total m²" readonly="1"/>
                                     
-                                    <!-- ASIGNACIÓN INTELIGENTE -->
                                     <field name="eligible_partner_ids" column_invisible="1"/>
                                     <field name="partner_id" 
                                            widget="many2one"
@@ -188,6 +199,7 @@
                                            'puerto_origen': 'primary',
                                            'on_sea': 'info', 
                                            'puerto_destino': 'info',
+                                           'arrived_port': 'warning',
                                            'reception_pending': 'warning',
                                            'delivered': 'success',
                                            'cancel': 'danger'

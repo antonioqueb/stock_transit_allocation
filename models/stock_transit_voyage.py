@@ -120,19 +120,92 @@ class StockTransitVoyage(models.Model):
                 else:
                     rec.transit_progress = 0
 
+    # =========================================================================
+    # AVANCE SECUENCIAL DE ESTADOS
+    # =========================================================================
+    
+    STATUS_SEQUENCE = [
+        'solicitud',
+        'production',
+        'booking',
+        'puerto_origen',
+        'on_sea',
+        'puerto_destino',
+        'arrived_port',
+        'reception_pending',
+        'delivered',
+    ]
+
+    def action_advance_status(self):
+        """Avanza al siguiente estado en la secuencia."""
+        self.ensure_one()
+        current = self.custom_status
+        if current == 'cancel' or current == 'delivered':
+            return
+        
+        try:
+            idx = self.STATUS_SEQUENCE.index(current)
+        except ValueError:
+            return
+        
+        next_idx = idx + 1
+        if next_idx >= len(self.STATUS_SEQUENCE):
+            return
+        
+        next_status = self.STATUS_SEQUENCE[next_idx]
+        
+        # Validaciones especiales por estado
+        if next_status == 'delivered':
+            if self.reception_picking_id and self.reception_picking_id.state != 'done':
+                raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física (Worksheet) haya sido validada."))
+            self.write({
+                'arrival_date': fields.Date.today(),
+                'custom_status': 'delivered'
+            })
+            for line in self.line_ids:
+                if line.allocation_id and line.allocation_id.state != 'done':
+                    line.allocation_id.action_mark_received(line.product_uom_qty)
+            return
+        
+        # Marcar allocations en tránsito cuando zarpa
+        if next_status == 'on_sea':
+            if self.picking_id and self.picking_id.purchase_id:
+                allocations = self.env['purchase.order.line.allocation'].search([
+                    ('purchase_order_id', '=', self.picking_id.purchase_id.id),
+                    ('state', '=', 'pending')
+                ])
+                allocations.action_mark_in_transit()
+        
+        self.write({'custom_status': next_status})
+
+    def action_retreat_status(self):
+        """Retrocede al estado anterior en la secuencia."""
+        self.ensure_one()
+        current = self.custom_status
+        if current == 'cancel':
+            return
+        
+        try:
+            idx = self.STATUS_SEQUENCE.index(current)
+        except ValueError:
+            return
+        
+        if idx <= 0:
+            return
+        
+        prev_status = self.STATUS_SEQUENCE[idx - 1]
+        self.write({'custom_status': prev_status})
+
     def action_confirm_transit(self):
-        self.write({'custom_status': 'on_sea'})
-        if self.picking_id and self.picking_id.purchase_id:
-            allocations = self.env['purchase.order.line.allocation'].search([
-                ('purchase_order_id', '=', self.picking_id.purchase_id.id),
-                ('state', '=', 'pending')
-            ])
-            allocations.action_mark_in_transit()
+        """Legacy: mantener compatibilidad — ahora avanza al siguiente estado."""
+        self.action_advance_status()
 
     def action_arrive(self):
+        """Legacy: cerrar viaje — avanza hasta delivered con validación."""
+        self.ensure_one()
         if self.reception_picking_id and self.reception_picking_id.state != 'done':
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física (Worksheet) haya sido validada."))
-
+        
         self.write({
             'arrival_date': fields.Date.today(),
             'custom_status': 'delivered'
