@@ -26,11 +26,10 @@ class PurchaseOrder(models.Model):
                 ('purchase_order_id', '=', po.id)
             ])
             if allocations:
-                # CORRECCIÓN: Se eliminó 'state': 'draft'
+                # container_number eliminado: ahora es computado desde las líneas
                 voyage = self.env['stock.transit.voyage'].create({
                     'purchase_id': po.id,
                     'custom_status': 'solicitud',
-                    'container_number': 'TBD (En Solicitud)',
                     'vessel_name': 'Por Definir',
                     'bl_number': po.partner_ref or po.name,
                 })

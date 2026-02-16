@@ -68,8 +68,11 @@
                     <div class="oe_title">
                         <span class="o_form_label">Referencia de Viaje</span>
                         <h1><field name="name"/></h1>
-                        <label for="container_number" string="Contenedor Actual"/>
-                        <h3><field name="container_number" placeholder="Ej. MSKU1234567 / TBD"/></h3>
+                        <!-- ============================================================ -->
+                        <!-- CAMBIO: Contenedores ahora es readonly (computado desde líneas) -->
+                        <!-- ============================================================ -->
+                        <label for="container_number" string="Contenedores en este Embarque"/>
+                        <h3><field name="container_number" readonly="1"/></h3>
                     </div>
                     <group>
                         <group string="Logística y Estatus">
@@ -98,19 +101,18 @@
                                       decoration-success="allocation_status == 'reserved'" 
                                       decoration-muted="not lot_id" 
                                       editable="bottom">
-                                    <field name="container_number" optional="show"/> 
+                                    <field name="container_number" optional="show" readonly="1"/> 
                                     <field name="product_id" readonly="1"/>
                                     <field name="lot_id" placeholder="Esperando recepción..." decoration-bf="1" readonly="1"/>
                                     <field name="product_uom_qty" string="m²" sum="Total m²" readonly="1"/>
                                     
-                                    <!-- ASIGNACIÓN INTELIGENTE: Cliente filtrado por producto -->
+                                    <!-- ASIGNACIÓN INTELIGENTE -->
                                     <field name="eligible_partner_ids" column_invisible="1"/>
                                     <field name="partner_id" 
                                            widget="many2one"
                                            options="{'no_create': True, 'no_create_edit': True}"
                                            placeholder="Seleccionar cliente..."/>
                                     
-                                    <!-- ORDEN: Filtrada por cliente + producto -->
                                     <field name="eligible_order_ids" column_invisible="1"/>
                                     <field name="order_id" 
                                            widget="many2one"
@@ -124,12 +126,13 @@
                                 </list>
                             </field>
                             
-                            <!-- Leyenda de ayuda -->
                             <div class="alert alert-info mt-2" role="alert">
                                 <strong>💡 Asignación Rápida:</strong> 
                                 Seleccione directamente el <b>Cliente</b> (solo aparecen clientes con pedidos de ese producto) 
                                 y luego la <b>Orden</b> (filtrada automáticamente). 
                                 Los cambios se guardan al salir de la celda.
+                                <br/>
+                                <strong>📦 Contenedores:</strong> Se cargan automáticamente desde el Packing List del proveedor.
                             </div>
                         </page>
                         <page string="Métricas de Carga">
@@ -194,6 +197,10 @@
                             <div class="text-muted mb-1">
                                 <i class="fa fa-shopping-cart me-1"/> 
                                 <field name="purchase_id"/>
+                            </div>
+                            
+                            <div class="text-muted mb-1" t-if="record.container_number.raw_value">
+                                <small><i class="fa fa-cube me-1"/> <field name="container_number"/></small>
                             </div>
                             
                             <div class="text-muted mb-1" t-if="record.shipping_line.raw_value">

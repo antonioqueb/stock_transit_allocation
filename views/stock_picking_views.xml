@@ -6,14 +6,12 @@
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
 
-
-            <!-- AÑADIR BOTÓN DE SINCRONIZACIÓN EN EL HEADER -->
+            <!-- BOTÓN DE SINCRONIZACIÓN EN EL HEADER -->
             <xpath expr="//header" position="inside">
                 <button name="action_sync_from_voyage" 
                         string="📲 Sincronizar con Embarque" 
                         type="object" 
                         class="btn-primary"
-                        invisible="not transit_container_number and origin not in [False, ''] and 'VOY' not in origin"
                         groups="stock.group_stock_user"/>
             </xpath>
             
@@ -28,20 +26,18 @@
                 </button>
             </div>
 
+            <!-- ============================================================ -->
+            <!-- ELIMINADOS: transit_container_number y transit_bl_number      -->
+            <!-- Estos datos ahora vienen del portal del proveedor            -->
+            <!-- (supplier_container_no, supplier_bl_number en stock_lot_packing_import) -->
+            <!-- ============================================================ -->
 
-
-            <!-- Campos de información de Tránsito -->
+            <!-- Solo dejamos los pedidos consolidados para recepciones -->
             <xpath expr="//field[@name='origin']" position="after">
                 <field name="transit_sale_order_ids" 
                        widget="many2many_tags" 
                        invisible="picking_type_code != 'incoming'"
                        string="Pedidos (Consolidado)"/>
-                       
-                <field name="transit_container_number" 
-                       invisible="picking_type_code != 'incoming'"
-                       placeholder="Ej. MSKU1234567"/>
-                <field name="transit_bl_number" 
-                       invisible="picking_type_code != 'incoming'"/>
             </xpath>
 
         </field>

@@ -30,7 +30,19 @@ class StockTransitVoyage(models.Model):
     transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)')
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
-    container_number = fields.Char(string='Contenedor(es)', tracking=True)
+    
+    # =========================================================================
+    # CAMBIO: container_number ahora es COMPUTADO desde las líneas del viaje
+    # Ya no es un campo editable manual en el header
+    # =========================================================================
+    container_number = fields.Char(
+        string='Contenedores', 
+        compute='_compute_container_number',
+        store=True,
+        tracking=True,
+        help="Resumen automático de contenedores presentes en las líneas del viaje"
+    )
+    
     bl_number = fields.Char(string='Folio Compra / BL', tracking=True)
     
     etd = fields.Date(string='ETD (Salida Estimada)')
@@ -54,11 +66,25 @@ class StockTransitVoyage(models.Model):
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
     transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress', store=False)
 
+    # =========================================================================
+    # COMPUTE: container_number desde líneas
+    # =========================================================================
+    @api.depends('line_ids.container_number')
+    def _compute_container_number(self):
+        for rec in self:
+            containers = set()
+            for line in rec.line_ids:
+                if line.container_number and line.container_number not in ('', 'PENDIENTE', 'SN', 'False'):
+                    containers.add(line.container_number)
+            rec.container_number = ', '.join(sorted(containers)) if containers else 'PENDIENTE'
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:
             if vals.get('name', _('Nuevo')) == _('Nuevo'):
                 vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
+            # Limpiar container_number de vals ya que ahora es computado
+            vals.pop('container_number', None)
         return super(StockTransitVoyage, self).create(vals_list)
 
     @api.depends('line_ids.product_uom_qty', 'line_ids.allocation_status')
@@ -129,8 +155,6 @@ class StockTransitVoyage(models.Model):
     def action_generate_reception(self):
         """
         PASO 1: Genera el Picking y los Movimientos (Demanda) en estado BORRADOR.
-        FIX: No llamamos a action_confirm() aquí para evitar cualquier automatismo de Odoo.
-        El usuario deberá entrar, revisar y usar el botón 'Sincronizar'.
         """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] >>> PASO 1: Creando Picking para Viaje: {self.name}")
@@ -144,7 +168,6 @@ class StockTransitVoyage(models.Model):
                 'target': 'current',
             }
 
-        # 1. Validaciones
         picking_type = self.env['stock.picking.type'].search([
             ('code', '=', 'internal'),
             ('company_id', '=', self.company_id.id)
@@ -161,7 +184,6 @@ class StockTransitVoyage(models.Model):
         if not source_location:
              raise UserError(_("No se pudo determinar la ubicación de origen."))
 
-        # 2. Crear Header Picking
         picking = self.env['stock.picking'].create({
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
@@ -174,8 +196,6 @@ class StockTransitVoyage(models.Model):
             'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
         })
 
-        # 3. Crear STOCK.MOVES (Demanda)
-        # Agrupamos por producto
         products_map = {}
         for line in valid_lines:
             if line.product_uom_qty <= 0: continue
@@ -192,14 +212,8 @@ class StockTransitVoyage(models.Model):
                 'location_id': source_location.id,
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
-                'state': 'draft', # Forzamos borrador explícitamente
+                'state': 'draft',
             })
-
-        # === CAMBIO IMPORTANTE: NO CONFIRMAR ===
-        # No llamamos a picking.action_confirm().
-        # Dejamos el picking en estado 'draft'. 
-        # El usuario entrará, verá el botón 'Marcar por realizar' (estándar de Odoo)
-        # O usará nuestro botón de Sincronizar que se encargará del resto.
         
         self.write({
             'reception_picking_id': picking.id,
@@ -219,9 +233,6 @@ class StockTransitVoyage(models.Model):
     def action_load_from_purchase(self):
         """
         Carga líneas en el Voyage desde la Orden de Compra.
-        - Crea una línea por cada allocation (reservada para cliente).
-        - Detecta cantidad extra en la OC no cubierta por allocations y la
-          crea como línea "Disponible / Para Stock".
         """
         self.ensure_one()
         if not self.purchase_id:
@@ -246,12 +257,6 @@ class StockTransitVoyage(models.Model):
                 'container_number': 'PENDIENTE',
             })
         
-        # =================================================================
-        # DETECCIÓN DE CANTIDAD EXTRA PARA STOCK
-        # Por cada línea de la OC, compara cantidad total vs total asignado
-        # (allocations). La diferencia se crea como línea "disponible".
-        # También actualiza líneas de stock existentes si la diferencia cambió.
-        # =================================================================
         existing_stock_lines = self.line_ids.filtered(
             lambda l: not l.allocation_id and not l.partner_id and not l.order_id
         )
@@ -265,16 +270,13 @@ class StockTransitVoyage(models.Model):
             product_id = po_line.product_id.id
             
             if product_id in existing_stock_by_product:
-                # Ya existe una línea de stock para este producto: actualizar cantidad
                 existing_line = existing_stock_by_product[product_id]
                 if extra_for_stock > 0:
                     if existing_line.product_uom_qty != extra_for_stock:
                         existing_line.write({'product_uom_qty': extra_for_stock})
                 else:
-                    # Ya no hay excedente, eliminar la línea de stock
                     existing_line.unlink()
             elif extra_for_stock > 0:
-                # No existe línea de stock aún: crearla
                 transit_lines.append({
                     'voyage_id': self.id,
                     'product_id': product_id,
@@ -291,6 +293,10 @@ class StockTransitVoyage(models.Model):
             self.env['stock.transit.line'].create(transit_lines)
 
     def action_load_from_picking(self):
+        """
+        FIX: Ahora extrae container_number desde lot.x_contenedor (campo del PL)
+        en lugar de lot.ref (que siempre está vacío).
+        """
         self.ensure_one()
         if not self.picking_id:
             return
@@ -300,7 +306,6 @@ class StockTransitVoyage(models.Model):
 
         transit_lines = []
         from .utils.transit_manager import TransitManager
-        containers_found = set()
         
         purchase = self.picking_id.purchase_id
         allocations_map = {}
@@ -326,7 +331,7 @@ class StockTransitVoyage(models.Model):
             order_to_assign = False
             allocation_to_use = False
             product_id = move_line.product_id.id
-            qty_done = move_line.quantity # ODOO 19 FIX: Use quantity
+            qty_done = move_line.quantity  # ODOO 19 FIX
             
             if product_id in allocations_map:
                 for alloc in allocations_map[product_id]:
@@ -358,8 +363,17 @@ class StockTransitVoyage(models.Model):
                 ('location_id', '=', move_line.location_dest_id.id)
             ], limit=1)
 
-            if move_line.lot_id.ref:
-                containers_found.add(move_line.lot_id.ref)
+            # =====================================================================
+            # FIX PRINCIPAL: Extraer contenedor desde x_contenedor del lote
+            # El campo x_contenedor se llena desde el Packing List (portal/wizard)
+            # Fallback a lot.ref si x_contenedor está vacío
+            # =====================================================================
+            lot_container = ''
+            if hasattr(move_line.lot_id, 'x_contenedor') and move_line.lot_id.x_contenedor:
+                lot_container = move_line.lot_id.x_contenedor
+            elif move_line.lot_id.ref:
+                lot_container = move_line.lot_id.ref
+            # =====================================================================
 
             line_vals = {
                 'voyage_id': self.id,
@@ -370,16 +384,17 @@ class StockTransitVoyage(models.Model):
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'order_id': order_to_assign.id if order_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
-                'container_number': move_line.lot_id.ref,
+                'container_number': lot_container,  # FIX: Ahora usa x_contenedor
                 'allocation_id': allocation_to_use.id if allocation_to_use else False,
             }
             transit_lines.append(line_vals)
         
         created_lines = self.env['stock.transit.line'].create(transit_lines)
         
-        if containers_found:
-            new_conts = ', '.join(list(containers_found))
-            self.write({'container_number': new_conts[:50]})
+        # =====================================================================
+        # ELIMINADO: Ya no sobreescribimos self.container_number manualmente
+        # Ahora es un campo computado que se calcula desde las líneas
+        # =====================================================================
 
         for alloc_id, qty_consumed in allocation_consumed.items():
             if qty_consumed > 0:

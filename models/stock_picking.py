@@ -10,8 +10,14 @@ class StockPicking(models.Model):
 
     transit_voyage_ids = fields.One2many('stock.transit.voyage', 'picking_id', string='Viajes de Tránsito')
     transit_count = fields.Integer(compute='_compute_transit_count')
-    transit_container_number = fields.Char(string='No. Contenedor (Ref)')
-    transit_bl_number = fields.Char(string='BL Number (Tránsito)')
+    
+    # =========================================================================
+    # ELIMINADOS: transit_container_number y transit_bl_number
+    # Estos datos ahora vienen del portal del proveedor (supplier_container_no, 
+    # supplier_bl_number) y se propagan a cada lote vía x_contenedor.
+    # No tiene sentido duplicarlos aquí.
+    # =========================================================================
+    
     transit_sale_order_ids = fields.Many2many('sale.order', string='Pedidos Consolidados', compute='_compute_transit_sale_orders', store=True)
 
     @api.depends('move_ids.sale_line_id')
@@ -24,28 +30,19 @@ class StockPicking(models.Model):
             pick.transit_count = len(pick.transit_voyage_ids)
 
     # -------------------------------------------------------------------------
-    # NUEVO MÉTODO: Paso 2 de la Recepción Manual (Sincronización)
+    # Paso 2 de la Recepción Manual (Sincronización)
     # -------------------------------------------------------------------------
     def action_sync_from_voyage(self):
-        """
-        Busca el Viaje de Tránsito origen y carga los lotes específicos en las líneas detalladas.
-        Este método se llama manualmente desde el botón en la vista del picking.
-        
-        MEJORA: Si la demanda (stock.move) no existe, la crea automáticamente para evitar errores.
-        NO valida el picking, solo prepara los datos para que el usuario valide.
-        """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] Sincronizando Picking {self.name} con Viaje...")
 
-        # 1. Encontrar el viaje que generó este picking
         voyage = self.env['stock.transit.voyage'].search([
             ('reception_picking_id', '=', self.id)
         ], limit=1)
 
         if not voyage:
-            # Fallback: intentar por el nombre en el origen si se perdió el enlace directo
             if self.origin:
-                origin_ref = self.origin.split(' ')[0] # Ej: "VOY/2026/005"
+                origin_ref = self.origin.split(' ')[0]
                 voyage = self.env['stock.transit.voyage'].search([
                     ('name', 'ilike', origin_ref)
                 ], limit=1)
@@ -53,18 +50,14 @@ class StockPicking(models.Model):
         if not voyage:
             raise UserError(_("No se encontró un Viaje de Tránsito vinculado a esta recepción para sincronizar."))
 
-        # 2. Limpiar líneas de detalle existentes (stock.move.line)
-        # Esto permite re-sincronizar si hubo cambios en el viaje antes de validar
         if self.move_line_ids:
             self.move_line_ids.unlink()
 
-        # 3. Inyectar Lotes desde el Viaje
         lines_created = 0
         for line in voyage.line_ids:
             if not line.lot_id or line.product_uom_qty <= 0:
                 continue
 
-            # Buscar el movimiento de demanda (stock.move) correspondiente a este producto
             move = self.move_ids.filtered(lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel'])
             
             target_move = False
@@ -72,27 +65,22 @@ class StockPicking(models.Model):
             if move:
                 target_move = move[0]
             else:
-                # === FIX: AUTO-CREACIÓN DE DEMANDA ===
-                # Si no existe la demanda en el picking (ej. se creó vacío o cambió el viaje), la creamos.
                 _logger.info(f"[TC_FIX] Creando demanda faltante para {line.product_id.name} en {self.name}")
                 try:
                     target_move = self.env['stock.move'].create({
                         'picking_id': self.id,
                         'product_id': line.product_id.id,
                         'product_uom': line.product_id.uom_id.id,
-                        'product_uom_qty': line.product_uom_qty, # Cantidad planeada
+                        'product_uom_qty': line.product_uom_qty,
                         'location_id': self.location_id.id,
                         'location_dest_id': self.location_dest_id.id,
                         'company_id': self.company_id.id,
-                        # 'name' omitido para compatibilidad con Odoo 19
                     })
-                    # Confirmamos el movimiento para que pase a 'confirmed'/'assigned'
                     target_move._action_confirm()
                 except Exception as e:
                     _logger.error(f"[TC_ERROR] No se pudo crear demanda para {line.product_id.name}: {e}")
                     continue
 
-            # Crear la línea de detalle (Move Line) con el lote y la cantidad hecha
             try:
                 self.env['stock.move.line'].create({
                     'picking_id': self.id,
@@ -108,7 +96,6 @@ class StockPicking(models.Model):
             except Exception as e:
                 _logger.error(f"[TC_ERROR] Error creando linea de sincronización para lote {line.lot_id.name}: {e}")
 
-        # 4. Resultado y Notificación
         if lines_created > 0:
             msg = f"Sincronización completada. {lines_created} líneas de lotes cargadas desde el Viaje {voyage.name}."
             self.message_post(body=msg)
@@ -131,17 +118,11 @@ class StockPicking(models.Model):
     # -------------------------------------------------------------------------
 
     def button_validate(self):
-        """
-        Sobreescritura: Al validar la Recepción Física (Internal: Transit->Stock), 
-        buscamos el Delivery Order correspondiente y forzamos la reserva del lote recibido.
-        """
         _logger.info(f"=== [TC_DEBUG] VALIDATE BUTTON CLICKED - Picking {self.name} (ID: {self.id}) ===")
         
-        # 1. Ejecutar validación estándar de Odoo (mueve el stock a físico)
         res = super(StockPicking, self).button_validate()
         
         for pick in self:
-            # A) Lógica de Entrada (Crear Viaje al recibir PO -> Tránsito)
             is_transit_loc = False
             dest_loc = pick.location_dest_id
             if dest_loc and (dest_loc.id == 128 or any(x in dest_loc.name for x in ['Transit', 'Tránsito', 'Trancit'])):
@@ -151,8 +132,6 @@ class StockPicking(models.Model):
                 _logger.info(f"[TC_DEBUG] Picking {pick.name} detectado como Entrada a Tránsito. Creando/Actualizando Viaje...")
                 pick._create_automatic_transit_voyage()
 
-            # B) Lógica de Recepción Física (Tránsito -> Stock) -> Asignar a Entrega
-            # Esta lógica se ejecuta SOLO cuando el usuario valida manualmente (después de sincronizar)
             if pick.picking_type_code == 'internal' and pick.state == 'done':
                 _logger.info(f"[TC_DEBUG] Picking {pick.name} validado (Internal/Done). Iniciando lógica de asignación a Ventas...")
                 try:
@@ -164,14 +143,9 @@ class StockPicking(models.Model):
         return res
 
     def _assign_lots_to_delivery_orders(self):
-        """
-        Reserva forzosamente los lotes en la Orden de Entrega del cliente.
-        Limpiamos reservas previas genéricas para asegurar que entre EL lote del viaje.
-        """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] _assign_lots_to_delivery_orders START for {self.name}")
         
-        # 1. Buscar si esta recepción pertenece a un Voyage (Torre de Control)
         voyage = self.env['stock.transit.voyage'].search([
             ('reception_picking_id', '=', self.id)
         ], limit=1)
@@ -182,7 +156,6 @@ class StockPicking(models.Model):
 
         _logger.info(f"[TC_DEBUG] Voyage vinculado: {voyage.name} (ID: {voyage.id}).")
 
-        # 2. Mapa de Verdad: Qué lote va a qué Orden de Venta
         lot_to_so_map = {}
         for line in voyage.line_ids:
             if line.lot_id and line.order_id and line.allocation_status == 'reserved':
@@ -190,19 +163,16 @@ class StockPicking(models.Model):
 
         _logger.info(f"[TC_DEBUG] Mapa de Asignación (Lote -> SO): {len(lot_to_so_map)} reglas encontradas en el viaje.")
 
-        # 3. Recorrer lo que ACABAMOS de recibir (Move Lines del Picking actual)
         count_success = 0
         for move_line in self.move_line_ids:
             if not move_line.lot_id:
                 continue
             
-            # ODOO 19 FIX: usar 'quantity' en lugar de 'qty_done'
             qty_just_moved = move_line.quantity if move_line.quantity > 0 else move_line.qty_done
             
             if qty_just_moved <= 0:
                 continue
 
-            # ¿Este lote tiene dueño en el viaje?
             target_so = lot_to_so_map.get(move_line.lot_id.id)
             if not target_so:
                 _logger.info(f"[TC_DEBUG] Lote {move_line.lot_id.name} recibido, pero NO tenía asignación reservada en el Viaje. Queda Libre.")
@@ -213,21 +183,18 @@ class StockPicking(models.Model):
             _logger.info(f"    > Ubicación Física Actual: {move_line.location_dest_id.display_name}")
             _logger.info(f"    > Cantidad: {qty_just_moved}")
 
-            # 4. Buscar la Entrega (Delivery) pendiente de esa SO
             domain_delivery = [
                 ('picking_type_code', '=', 'outgoing'),
                 ('state', 'in', ['confirmed', 'assigned', 'partially_available']),
                 ('company_id', '=', self.company_id.id)
             ]
             
-            # Estrategia 1: Buscar por sale_id
             delivery_picking = self.env['stock.picking'].search(
                 domain_delivery + [('sale_id', '=', target_so.id)], 
                 limit=1
             )
             
             if not delivery_picking:
-                # Estrategia 2: Fallback por Origin
                 delivery_picking = self.env['stock.picking'].search(
                     domain_delivery + [('origin', '=', target_so.name)], 
                     limit=1
@@ -237,7 +204,6 @@ class StockPicking(models.Model):
                 _logger.warning(f"    [!] No se encontró Entrega (Delivery) pendiente para {target_so.name}.")
                 continue
 
-            # 5. Buscar el Movimiento (Stock Move) del producto en la Entrega
             target_move = delivery_picking.move_ids.filtered(
                 lambda m: m.product_id.id == move_line.product_id.id and m.state not in ['done', 'cancel']
             )
@@ -249,9 +215,6 @@ class StockPicking(models.Model):
             target_move = target_move[0]
             _logger.info(f"    > Move Objetivo ID: {target_move.id} (Pide: {target_move.product_uom_qty})")
 
-            # =========================================================
-            # PASO CRÍTICO: LIMPIEZA DE RESERVAS PREVIAS
-            # =========================================================
             if target_move.state in ['partially_available', 'assigned']:
                 try:
                     _logger.info(f"    > Liberando reservas previas en {target_move.id}...")
@@ -259,11 +222,7 @@ class StockPicking(models.Model):
                 except Exception as e:
                     _logger.warning(f"    [!] Error al des-reservar: {e}")
 
-            # =========================================================
-            # PASO CRÍTICO: INYECCIÓN DE LA RESERVA
-            # =========================================================
             try:
-                # Verificamos si ya existe la línea exacta
                 existing_reserved = self.env['stock.move.line'].search([
                     ('move_id', '=', target_move.id),
                     ('lot_id', '=', move_line.lot_id.id),
@@ -284,7 +243,7 @@ class StockPicking(models.Model):
                         'product_id': move_line.product_id.id,
                         'lot_id': move_line.lot_id.id,
                         'product_uom_id': move_line.product_uom_id.id,
-                        'location_id': move_line.location_dest_id.id, # CRUCIAL: Donde está ahora
+                        'location_id': move_line.location_dest_id.id,
                         'location_dest_id': target_move.location_dest_id.id,
                         'quantity': qty_just_moved, 
                     })
@@ -309,8 +268,7 @@ class StockPicking(models.Model):
         if voyage:
             voyage.write({
                 'picking_id': self.id,
-                'container_number': self.transit_container_number or voyage.container_number,
-                'bl_number': self.transit_bl_number or voyage.bl_number,
+                'bl_number': self.supplier_bl_number if hasattr(self, 'supplier_bl_number') and self.supplier_bl_number else voyage.bl_number,
                 'custom_status': 'on_sea'
             })
             voyage.action_load_from_picking()
@@ -318,8 +276,7 @@ class StockPicking(models.Model):
             voyage = Voyage.create({
                 'picking_id': self.id,
                 'purchase_id': self.purchase_id.id,
-                'container_number': self.transit_container_number or 'TBD',
-                'bl_number': self.transit_bl_number or self.origin,
+                'bl_number': self.supplier_bl_number if hasattr(self, 'supplier_bl_number') and self.supplier_bl_number else self.origin,
                 'etd': fields.Date.today(),
                 'custom_status': 'on_sea'
             })
