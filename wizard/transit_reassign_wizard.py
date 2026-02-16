@@ -13,93 +13,113 @@ class TransitReassignWizard(models.TransientModel):
     current_partner_id = fields.Many2one('res.partner', string='Cliente Actual', readonly=True)
     current_order_id = fields.Many2one('sale.order', string='Orden Actual', readonly=True)
     
-    # =========================================================================
-    # CAMPOS COMPUTADOS PARA FILTROS INTELIGENTES
-    # =========================================================================
+    # Productos derivados de las líneas seleccionadas
     product_ids = fields.Many2many(
         'product.product',
-        compute='_compute_product_ids',
-        string='Productos en Líneas'
+        string='Productos en Líneas',
+        readonly=True,
     )
     
+    # =========================================================================
+    # CAMPOS M2M REALES (no computados) para que el domain funcione
+    # en modelos transient. Se llenan en default_get y onchange.
+    # =========================================================================
     eligible_partner_ids = fields.Many2many(
         'res.partner',
-        compute='_compute_eligible_partners',
-        string='Clientes Elegibles'
+        'transit_reassign_eligible_partners_rel',
+        'wizard_id', 'partner_id',
+        string='Clientes Elegibles',
+    )
+    
+    eligible_order_ids = fields.Many2many(
+        'sale.order',
+        'transit_reassign_eligible_orders_rel',
+        'wizard_id', 'order_id',
+        string='Órdenes Elegibles',
     )
     
     new_partner_id = fields.Many2one(
         'res.partner', 
         string='Nuevo Cliente',
         domain="[('id', 'in', eligible_partner_ids)]",
-        help="Solo muestra clientes con pedidos confirmados que incluyan los productos seleccionados y tengan cantidad pendiente de entrega. Dejar vacío para liberar a Stock."
-    )
-    
-    eligible_order_ids = fields.Many2many(
-        'sale.order',
-        compute='_compute_eligible_orders',
-        string='Órdenes Elegibles'
+        help="Solo clientes con pedidos confirmados que incluyan los productos seleccionados y tengan cantidad pendiente."
     )
     
     new_order_id = fields.Many2one(
         'sale.order', 
         string='Asignar a Orden',
         domain="[('id', 'in', eligible_order_ids)]",
-        help="Solo muestra órdenes del cliente seleccionado que contengan los productos y tengan cantidad pendiente."
+        help="Solo órdenes del cliente con los productos y cantidad pendiente."
     )
     
     reason = fields.Text(string='Motivo / Notas', required=True)
 
     # =========================================================================
-    # CÓMPUTOS
+    # DEFAULT GET: Calcular elegibles al abrir el wizard
     # =========================================================================
 
-    @api.depends('line_ids')
-    def _compute_product_ids(self):
-        for wiz in self:
-            wiz.product_ids = wiz.line_ids.mapped('product_id')
+    @api.model
+    def default_get(self, fields_list):
+        res = super().default_get(fields_list)
+        
+        active_ids = self.env.context.get('active_ids', [])
+        if not active_ids:
+            return res
+        
+        lines = self.env['stock.transit.line'].browse(active_ids)
+        if not lines:
+            return res
+        
+        product_ids = lines.mapped('product_id').ids
+        
+        # Calcular clientes elegibles
+        partner_ids = self._get_eligible_partner_ids(product_ids)
+        
+        # Info del cliente actual (tomamos el primero si todos son iguales)
+        current_partners = lines.mapped('partner_id')
+        current_orders = lines.mapped('order_id')
+        
+        res.update({
+            'line_ids': [(6, 0, lines.ids)],
+            'product_ids': [(6, 0, product_ids)],
+            'eligible_partner_ids': [(6, 0, partner_ids)],
+            'current_partner_id': current_partners[0].id if len(current_partners) == 1 else False,
+            'current_order_id': current_orders[0].id if len(current_orders) == 1 else False,
+        })
+        
+        return res
 
-    @api.depends('product_ids')
-    def _compute_eligible_partners(self):
-        """
-        Clientes elegibles: tienen al menos una SO confirmada con alguno de los
-        productos seleccionados Y con cantidad pendiente de entrega (qty_delivered < product_uom_qty).
-        """
-        for wiz in self:
-            if not wiz.product_ids:
-                wiz.eligible_partner_ids = [(5, 0, 0)]
-                continue
-            
-            sale_lines = self.env['sale.order.line'].search([
-                ('product_id', 'in', wiz.product_ids.ids),
-                ('order_id.state', 'in', ['sale', 'done']),
-                ('display_type', '=', False),
-            ])
-            # Filtrar solo las que tengan cantidad pendiente
-            pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
-            partner_ids = pending_lines.mapped('order_id.partner_id').ids
-            wiz.eligible_partner_ids = [(6, 0, partner_ids)]
+    # =========================================================================
+    # MÉTODOS DE CÁLCULO DE ELEGIBLES
+    # =========================================================================
 
-    @api.depends('product_ids', 'new_partner_id')
-    def _compute_eligible_orders(self):
-        """
-        Órdenes elegibles: del cliente seleccionado, que contengan alguno de los
-        productos seleccionados y tengan cantidad pendiente de entrega.
-        """
-        for wiz in self:
-            if not wiz.product_ids or not wiz.new_partner_id:
-                wiz.eligible_order_ids = [(5, 0, 0)]
-                continue
-            
-            sale_lines = self.env['sale.order.line'].search([
-                ('product_id', 'in', wiz.product_ids.ids),
-                ('order_id.partner_id', '=', wiz.new_partner_id.id),
-                ('order_id.state', 'in', ['sale', 'done']),
-                ('display_type', '=', False),
-            ])
-            pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
-            order_ids = pending_lines.mapped('order_id').ids
-            wiz.eligible_order_ids = [(6, 0, order_ids)]
+    @api.model
+    def _get_eligible_partner_ids(self, product_ids):
+        """Clientes con SO confirmadas que tengan estos productos con qty pendiente."""
+        if not product_ids:
+            return []
+        
+        sale_lines = self.env['sale.order.line'].search([
+            ('product_id', 'in', product_ids),
+            ('order_id.state', 'in', ['sale', 'done']),
+            ('display_type', '=', False),
+        ])
+        pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
+        return pending_lines.mapped('order_id.partner_id').ids
+
+    def _get_eligible_order_ids(self, product_ids, partner_id):
+        """Órdenes del partner con estos productos y qty pendiente."""
+        if not product_ids or not partner_id:
+            return []
+        
+        sale_lines = self.env['sale.order.line'].search([
+            ('product_id', 'in', product_ids),
+            ('order_id.partner_id', '=', partner_id),
+            ('order_id.state', 'in', ['sale', 'done']),
+            ('display_type', '=', False),
+        ])
+        pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
+        return pending_lines.mapped('order_id').ids
 
     # =========================================================================
     # ONCHANGE
@@ -107,25 +127,19 @@ class TransitReassignWizard(models.TransientModel):
 
     @api.onchange('new_partner_id')
     def _onchange_new_partner_id(self):
-        """Limpiar orden si cambia el cliente, auto-seleccionar si solo hay una."""
+        """Al cambiar cliente: recalcular órdenes elegibles y limpiar selección."""
         self.new_order_id = False
-        if not self.new_partner_id:
+        
+        if not self.new_partner_id or not self.product_ids:
+            self.eligible_order_ids = [(5, 0, 0)]
             return
         
-        if not self.product_ids:
-            return
+        order_ids = self._get_eligible_order_ids(self.product_ids.ids, self.new_partner_id.id)
+        self.eligible_order_ids = [(6, 0, order_ids)]
         
-        sale_lines = self.env['sale.order.line'].search([
-            ('product_id', 'in', self.product_ids.ids),
-            ('order_id.partner_id', '=', self.new_partner_id.id),
-            ('order_id.state', 'in', ['sale', 'done']),
-            ('display_type', '=', False),
-        ])
-        pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
-        eligible_orders = pending_lines.mapped('order_id')
-        
-        if len(eligible_orders) == 1:
-            self.new_order_id = eligible_orders[0]
+        # Auto-seleccionar si solo hay una orden
+        if len(order_ids) == 1:
+            self.new_order_id = order_ids[0]
 
     # =========================================================================
     # ACCIÓN PRINCIPAL
@@ -140,9 +154,6 @@ class TransitReassignWizard(models.TransientModel):
 
         hold_order = False
 
-        # -----------------------------------------------------------------
-        # PASO 1: Crear cabecera de Orden de Reserva (UNA SOLA VEZ)
-        # -----------------------------------------------------------------
         if self.new_partner_id:
             project_id = getattr(self.new_order_id, 'x_project_id', False)
             architect_id = getattr(self.new_order_id, 'x_architect_id', False)
@@ -162,9 +173,6 @@ class TransitReassignWizard(models.TransientModel):
                 'notas': f"Reasignación desde Tránsito.\nMotivo: {self.reason}\nPedido Destino: {self.new_order_id.name}",
             })
 
-        # -----------------------------------------------------------------
-        # PASO 2: Iterar líneas
-        # -----------------------------------------------------------------
         for line in self.line_ids:
             TransitManager.reassign_lot(
                 self.env, 
@@ -175,14 +183,13 @@ class TransitReassignWizard(models.TransientModel):
                 hold_order_obj=hold_order 
             )
             
-            msg = f"🔄 <b>Reasignación:</b> Lote {line.lot_id.name}<br/>"
-            msg += f"De: {self.current_partner_id.name or 'Stock'} → A: {self.new_partner_id.name or 'Stock'} ({self.new_order_id.name or '-'})"
+            old_name = self.current_partner_id.name or 'Stock'
+            new_name = self.new_partner_id.name or 'Stock'
+            msg = f"🔄 <b>Reasignación:</b> {line.lot_id.name or line.product_id.name}<br/>"
+            msg += f"De: {old_name} → A: {new_name} ({self.new_order_id.name or '-'})"
             if line.voyage_id:
                 line.voyage_id.message_post(body=msg)
 
-        # -----------------------------------------------------------------
-        # PASO 3: Confirmar Orden de Reserva
-        # -----------------------------------------------------------------
         if hold_order:
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()

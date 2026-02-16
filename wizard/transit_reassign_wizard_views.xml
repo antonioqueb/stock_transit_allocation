@@ -21,11 +21,10 @@
                     </group>
                     <group string="Nueva Asignación">
                         <field name="eligible_partner_ids" invisible="1"/>
+                        <field name="eligible_order_ids" invisible="1"/>
                         <field name="new_partner_id" 
                                placeholder="Buscar cliente..."
                                options="{'no_create': True, 'no_create_edit': True}"/>
-                        
-                        <field name="eligible_order_ids" invisible="1"/>
                         <field name="new_order_id" 
                                required="new_partner_id" 
                                invisible="not new_partner_id"
