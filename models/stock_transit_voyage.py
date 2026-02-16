@@ -31,10 +31,6 @@ class StockTransitVoyage(models.Model):
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
     
-    # =========================================================================
-    # CAMBIO: container_number ahora es COMPUTADO desde las líneas del viaje
-    # Ya no es un campo editable manual en el header
-    # =========================================================================
     container_number = fields.Char(
         string='Contenedores', 
         compute='_compute_container_number',
@@ -66,9 +62,6 @@ class StockTransitVoyage(models.Model):
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
     transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress', store=False)
 
-    # =========================================================================
-    # COMPUTE: container_number desde líneas
-    # =========================================================================
     @api.depends('line_ids.container_number')
     def _compute_container_number(self):
         for rec in self:
@@ -83,7 +76,6 @@ class StockTransitVoyage(models.Model):
         for vals in vals_list:
             if vals.get('name', _('Nuevo')) == _('Nuevo'):
                 vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
-            # Limpiar container_number de vals ya que ahora es computado
             vals.pop('container_number', None)
         return super(StockTransitVoyage, self).create(vals_list)
 
@@ -233,12 +225,16 @@ class StockTransitVoyage(models.Model):
     def action_load_from_purchase(self):
         """
         Carga líneas en el Voyage desde la Orden de Compra.
+        PROTECCIÓN ANTI-DUPLICADOS: Verifica allocations ya cargadas.
         """
         self.ensure_one()
         if not self.purchase_id:
             return
         
+        # Allocations ya presentes en el viaje
         existing_alloc_ids = self.line_ids.mapped('allocation_id.id')
+        
+        # Solo cargar allocations nuevas
         allocations = self.env['purchase.order.line.allocation'].search([
             ('purchase_order_id', '=', self.purchase_id.id),
             ('id', 'not in', existing_alloc_ids)
@@ -257,6 +253,7 @@ class StockTransitVoyage(models.Model):
                 'container_number': 'PENDIENTE',
             })
         
+        # Líneas de stock existentes (sin allocation, sin cliente)
         existing_stock_lines = self.line_ids.filtered(
             lambda l: not l.allocation_id and not l.partner_id and not l.order_id
         )
@@ -289,22 +286,48 @@ class StockTransitVoyage(models.Model):
                     'notes': 'Para Stock (cantidad extra en OC)',
                 })
         
+        created_count = 0
         if transit_lines:
             self.env['stock.transit.line'].create(transit_lines)
+            created_count = len(transit_lines)
+        
+        _logger.info(f"[TC_SYNC] action_load_from_purchase: {created_count} líneas nuevas creadas para {self.name}")
 
     def action_load_from_picking(self):
         """
-        FIX: Ahora extrae container_number desde lot.x_contenedor (campo del PL)
-        en lugar de lot.ref (que siempre está vacío).
+        Sincroniza lotes desde el Picking al Voyage.
+        
+        REGLAS ANTI-DUPLICADO:
+        1. Si un lote ya existe en el viaje → ACTUALIZA (qty, container, quant)
+        2. Si un lote es nuevo → CREA línea nueva
+        3. Las líneas placeholder (sin lote) se eliminan al sincronizar
+        4. Lotes que ya no están en el picking → se marcan o eliminan
         """
         self.ensure_one()
         if not self.picking_id:
             return
         
+        # =====================================================================
+        # PASO 1: Eliminar líneas placeholder (sin lote) — son pre-asignaciones
+        # =====================================================================
         placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
-        placeholder_lines.unlink()
+        if placeholder_lines:
+            _logger.info(f"[TC_SYNC] Eliminando {len(placeholder_lines)} líneas placeholder sin lote")
+            placeholder_lines.unlink()
 
-        transit_lines = []
+        # =====================================================================
+        # PASO 2: Indexar líneas existentes por lot_id para detección rápida
+        # =====================================================================
+        existing_by_lot = {}
+        for line in self.line_ids:
+            if line.lot_id:
+                existing_by_lot[line.lot_id.id] = line
+        
+        _logger.info(f"[TC_SYNC] Viaje {self.name}: {len(existing_by_lot)} lotes ya existentes en el viaje")
+
+        # =====================================================================
+        # PASO 3: Preparar mapa de allocations para asignación automática
+        # =====================================================================
         from .utils.transit_manager import TransitManager
         
         purchase = self.picking_id.purchase_id
@@ -323,15 +346,32 @@ class StockTransitVoyage(models.Model):
                 allocations_map[alloc.product_id.id].append(alloc)
                 allocation_consumed[alloc.id] = 0.0
 
+        # =====================================================================
+        # PASO 4: Recorrer move_lines del picking y sincronizar
+        # =====================================================================
+        lines_to_create = []
+        lines_updated = 0
+        lines_created_count = 0
+        lots_in_picking = set()  # Para trackear qué lotes vienen en el picking
+        
+        # Agrupar hold orders por (partner, order) para creación consolidada
+        hold_orders_map = {}
+
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
                 continue
             
+            lot_id = move_line.lot_id.id
+            lots_in_picking.add(lot_id)
+            product_id = move_line.product_id.id
+            qty_done = move_line.quantity  # ODOO 19
+
+            # -----------------------------------------------------------------
+            # Determinar asignación automática desde allocations
+            # -----------------------------------------------------------------
             partner_to_assign = False
             order_to_assign = False
             allocation_to_use = False
-            product_id = move_line.product_id.id
-            qty_done = move_line.quantity  # ODOO 19 FIX
             
             if product_id in allocations_map:
                 for alloc in allocations_map[product_id]:
@@ -356,6 +396,9 @@ class StockTransitVoyage(models.Model):
                         allocation_consumed[alloc.id] = consumed_this_load + qty_done
                         break
 
+            # -----------------------------------------------------------------
+            # Buscar quant físico
+            # -----------------------------------------------------------------
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
@@ -363,18 +406,59 @@ class StockTransitVoyage(models.Model):
                 ('location_id', '=', move_line.location_dest_id.id)
             ], limit=1)
 
-            # =====================================================================
-            # FIX PRINCIPAL: Extraer contenedor desde x_contenedor del lote
-            # El campo x_contenedor se llena desde el Packing List (portal/wizard)
-            # Fallback a lot.ref si x_contenedor está vacío
-            # =====================================================================
+            # -----------------------------------------------------------------
+            # Extraer contenedor desde x_contenedor del lote
+            # -----------------------------------------------------------------
             lot_container = ''
             if hasattr(move_line.lot_id, 'x_contenedor') and move_line.lot_id.x_contenedor:
                 lot_container = move_line.lot_id.x_contenedor
             elif move_line.lot_id.ref:
                 lot_container = move_line.lot_id.ref
-            # =====================================================================
 
+            # =================================================================
+            # CASO A: Lote YA EXISTE en el viaje → ACTUALIZAR
+            # =================================================================
+            if lot_id in existing_by_lot:
+                existing_line = existing_by_lot[lot_id]
+                update_vals = {}
+                
+                # Actualizar cantidad si cambió
+                if existing_line.product_uom_qty != qty_done:
+                    update_vals['product_uom_qty'] = qty_done
+                
+                # Actualizar quant si no tenía o cambió
+                if found_quant and existing_line.quant_id.id != found_quant.id:
+                    update_vals['quant_id'] = found_quant.id
+                
+                # Actualizar contenedor si cambió y el nuevo no está vacío
+                if lot_container and existing_line.container_number != lot_container:
+                    update_vals['container_number'] = lot_container
+                
+                # Actualizar allocation si no tenía
+                if allocation_to_use and not existing_line.allocation_id:
+                    update_vals['allocation_id'] = allocation_to_use.id
+                
+                # NO sobreescribir partner/order si ya tiene asignación manual
+                # Solo asignar si la línea está sin asignar
+                if not existing_line.partner_id and partner_to_assign:
+                    update_vals['partner_id'] = partner_to_assign.id
+                    update_vals['order_id'] = order_to_assign.id if order_to_assign else False
+                    update_vals['allocation_status'] = 'reserved'
+                
+                if update_vals:
+                    # Usar super().write para evitar triggear la lógica de reserva
+                    # en el override de write de stock.transit.line
+                    self.env['stock.transit.line'].browse(existing_line.id).with_context(
+                        skip_reservation_logic=True
+                    ).write(update_vals)
+                    lines_updated += 1
+                    _logger.info(f"[TC_SYNC] Lote {move_line.lot_id.name} ACTUALIZADO en viaje {self.name}")
+                
+                continue
+
+            # =================================================================
+            # CASO B: Lote NUEVO → CREAR línea
+            # =================================================================
             line_vals = {
                 'voyage_id': self.id,
                 'product_id': move_line.product_id.id,
@@ -384,33 +468,52 @@ class StockTransitVoyage(models.Model):
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'order_id': order_to_assign.id if order_to_assign else False,
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
-                'container_number': lot_container,  # FIX: Ahora usa x_contenedor
+                'container_number': lot_container,
                 'allocation_id': allocation_to_use.id if allocation_to_use else False,
             }
-            transit_lines.append(line_vals)
-        
-        created_lines = self.env['stock.transit.line'].create(transit_lines)
-        
-        # =====================================================================
-        # ELIMINADO: Ya no sobreescribimos self.container_number manualmente
-        # Ahora es un campo computado que se calcula desde las líneas
-        # =====================================================================
+            lines_to_create.append(line_vals)
+            
+            # Trackear para hold orders
+            if partner_to_assign and order_to_assign:
+                key = (partner_to_assign.id, order_to_assign.id)
+                if key not in hold_orders_map:
+                    hold_orders_map[key] = {
+                        'partner': partner_to_assign,
+                        'order': order_to_assign,
+                        'line_vals_indices': []
+                    }
+                hold_orders_map[key]['line_vals_indices'].append(len(lines_to_create) - 1)
 
+        # =====================================================================
+        # PASO 5: Crear líneas nuevas en batch
+        # =====================================================================
+        created_lines = self.env['stock.transit.line']
+        if lines_to_create:
+            created_lines = self.env['stock.transit.line'].create(lines_to_create)
+            lines_created_count = len(created_lines)
+        
+        # =====================================================================
+        # PASO 6: Actualizar allocations consumidas
+        # =====================================================================
         for alloc_id, qty_consumed in allocation_consumed.items():
             if qty_consumed > 0:
                 alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
                 new_received = alloc.qty_received + qty_consumed
                 alloc.write({'qty_received': min(new_received, alloc.quantity), 'state': 'in_transit'})
 
-        lines_by_order = {}
-        for line in created_lines:
-            if line.partner_id and line.order_id:
-                key = (line.partner_id, line.order_id)
-                if key not in lines_by_order:
-                    lines_by_order[key] = []
-                lines_by_order[key].append(line)
-        
-        for (partner, order), lines in lines_by_order.items():
+        # =====================================================================
+        # PASO 7: Crear Hold Orders para líneas NUEVAS con asignación
+        # =====================================================================
+        for key, data in hold_orders_map.items():
+            partner = data['partner']
+            order = data['order']
+            indices = data['line_vals_indices']
+            
+            # Obtener las líneas creadas correspondientes
+            relevant_lines = [created_lines[i] for i in indices if i < len(created_lines)]
+            if not relevant_lines:
+                continue
+            
             hold_order = self.env['stock.lot.hold.order'].create({
                 'partner_id': partner.id,
                 'user_id': self.env.user.id,
@@ -418,9 +521,20 @@ class StockTransitVoyage(models.Model):
                 'fecha_orden': fields.Datetime.now(),
                 'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
             })
-            for line in lines:
+            
+            for line in relevant_lines:
                 TransitManager.reassign_lot(self.env, line, partner, order, notes=False, hold_order_obj=hold_order)
+            
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()
             else:
                 hold_order.unlink()
+
+        # =====================================================================
+        # PASO 8: Log resumen
+        # =====================================================================
+        summary = f"Sincronización completada: {lines_created_count} nuevos, {lines_updated} actualizados"
+        _logger.info(f"[TC_SYNC] {self.name}: {summary}")
+        
+        if lines_created_count > 0 or lines_updated > 0:
+            self.message_post(body=f"🔄 {summary}")

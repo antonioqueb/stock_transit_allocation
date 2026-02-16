@@ -174,6 +174,10 @@ class StockTransitLine(models.Model):
         Override write para detectar cambios en partner_id/order_id
         y ejecutar la lógica de reserva automáticamente.
         """
+        # Si viene del sync, no ejecutar lógica de reserva
+        if self.env.context.get('skip_reservation_logic'):
+            return super(StockTransitLine, self).write(vals)
+        
         # Detectar si hay cambio de asignación
         assignment_changed = 'partner_id' in vals or 'order_id' in vals
         
