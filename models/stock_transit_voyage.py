@@ -154,7 +154,6 @@ class StockTransitVoyage(models.Model):
         
         next_status = self.STATUS_SEQUENCE[next_idx]
         
-        # Validaciones especiales por estado
         if next_status == 'delivered':
             if self.reception_picking_id and self.reception_picking_id.state != 'done':
                 raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física (Worksheet) haya sido validada."))
@@ -167,7 +166,6 @@ class StockTransitVoyage(models.Model):
                     line.allocation_id.action_mark_received(line.product_uom_qty)
             return
         
-        # Marcar allocations en tránsito cuando zarpa
         if next_status == 'on_sea':
             if self.picking_id and self.picking_id.purchase_id:
                 allocations = self.env['purchase.order.line.allocation'].search([
@@ -197,11 +195,9 @@ class StockTransitVoyage(models.Model):
         self.write({'custom_status': prev_status})
 
     def action_confirm_transit(self):
-        """Legacy: mantener compatibilidad — ahora avanza al siguiente estado."""
         self.action_advance_status()
 
     def action_arrive(self):
-        """Legacy: cerrar viaje — avanza hasta delivered con validación."""
         self.ensure_one()
         if self.reception_picking_id and self.reception_picking_id.state != 'done':
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física (Worksheet) haya sido validada."))
@@ -217,7 +213,6 @@ class StockTransitVoyage(models.Model):
     def action_cancel(self):
         self.write({'custom_status': 'cancel'})
 
-    
     def action_generate_reception(self):
         """
         PASO 1: Genera el Picking y los Movimientos (Demanda) en estado BORRADOR.
@@ -264,7 +259,8 @@ class StockTransitVoyage(models.Model):
 
         products_map = {}
         for line in valid_lines:
-            if line.product_uom_qty <= 0: continue
+            if line.product_uom_qty <= 0:
+                continue
             if line.product_id not in products_map:
                 products_map[line.product_id] = 0.0
             products_map[line.product_id] += line.product_uom_qty
@@ -279,6 +275,7 @@ class StockTransitVoyage(models.Model):
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
                 'state': 'draft',
+                'name': product.name,
             })
         
         self.write({
@@ -295,7 +292,83 @@ class StockTransitVoyage(models.Model):
             'view_mode': 'form',
             'target': 'current',
         }
-    
+
+    def action_sync_reception_from_voyage(self):
+        """
+        Sincroniza los lotes del Voyage al reception_picking_id.
+        Llamado desde el botón '📦 Recibir en Almacén' en el formulario del Voyage.
+        """
+        self.ensure_one()
+        if not self.reception_picking_id:
+            raise UserError(_("Primero debe generar la Recepción Física con el botón '🏭 Generar Recepción Física'."))
+
+        picking = self.reception_picking_id
+
+        if picking.state == 'done':
+            raise UserError(_("La recepción ya fue validada."))
+
+        # Confirmar el picking si está en borrador
+        if picking.state == 'draft':
+            picking.action_confirm()
+
+        # Limpiar move_lines existentes para re-sincronizar limpio
+        picking.move_line_ids.unlink()
+
+        lines_created = 0
+        for line in self.line_ids:
+            if not line.lot_id or line.product_uom_qty <= 0:
+                continue
+
+            # Buscar move correspondiente al producto
+            move = picking.move_ids.filtered(
+                lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel']
+            )
+
+            if not move:
+                # Crear demanda si no existe para este producto
+                move = self.env['stock.move'].create({
+                    'picking_id': picking.id,
+                    'product_id': line.product_id.id,
+                    'product_uom': line.product_id.uom_id.id,
+                    'product_uom_qty': line.product_uom_qty,
+                    'location_id': picking.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                    'company_id': self.company_id.id,
+                    'name': line.product_id.name,
+                })
+                move._action_confirm()
+            else:
+                move = move[0]
+
+            try:
+                self.env['stock.move.line'].create({
+                    'picking_id': picking.id,
+                    'move_id': move.id,
+                    'product_id': line.product_id.id,
+                    'product_uom_id': line.product_id.uom_id.id,
+                    'lot_id': line.lot_id.id,
+                    'location_id': picking.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                    'quantity': line.product_uom_qty,
+                })
+                lines_created += 1
+            except Exception as e:
+                _logger.error(f"[TC_ERROR] Error creando move.line para lote {line.lot_id.name}: {e}")
+
+        if lines_created == 0:
+            raise UserError(_("No hay líneas con lote asignado en el viaje para sincronizar. Verifique que las líneas tengan lote y cantidad > 0."))
+
+        picking.message_post(body=f"🔄 {lines_created} lotes sincronizados desde Viaje {self.name}.")
+        self.message_post(body=f"📦 Recepción física sincronizada: {lines_created} lotes cargados en {picking.name}.")
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': picking.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
     def action_load_from_purchase(self):
         """
         Carga líneas en el Voyage desde la Orden de Compra.
@@ -305,10 +378,8 @@ class StockTransitVoyage(models.Model):
         if not self.purchase_id:
             return
         
-        # Allocations ya presentes en el viaje
         existing_alloc_ids = self.line_ids.mapped('allocation_id.id')
         
-        # Solo cargar allocations nuevas
         allocations = self.env['purchase.order.line.allocation'].search([
             ('purchase_order_id', '=', self.purchase_id.id),
             ('id', 'not in', existing_alloc_ids)
@@ -327,7 +398,6 @@ class StockTransitVoyage(models.Model):
                 'container_number': 'PENDIENTE',
             })
         
-        # Líneas de stock existentes (sin allocation, sin cliente)
         existing_stock_lines = self.line_ids.filtered(
             lambda l: not l.allocation_id and not l.partner_id and not l.order_id
         )
@@ -370,28 +440,16 @@ class StockTransitVoyage(models.Model):
     def action_load_from_picking(self):
         """
         Sincroniza lotes desde el Picking al Voyage.
-        
-        REGLAS ANTI-DUPLICADO:
-        1. Si un lote ya existe en el viaje → ACTUALIZA (qty, container, quant)
-        2. Si un lote es nuevo → CREA línea nueva
-        3. Las líneas placeholder (sin lote) se eliminan al sincronizar
-        4. Lotes que ya no están en el picking → se marcan o eliminan
         """
         self.ensure_one()
         if not self.picking_id:
             return
         
-        # =====================================================================
-        # PASO 1: Eliminar líneas placeholder (sin lote) — son pre-asignaciones
-        # =====================================================================
         placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
         if placeholder_lines:
             _logger.info(f"[TC_SYNC] Eliminando {len(placeholder_lines)} líneas placeholder sin lote")
             placeholder_lines.unlink()
 
-        # =====================================================================
-        # PASO 2: Indexar líneas existentes por lot_id para detección rápida
-        # =====================================================================
         existing_by_lot = {}
         for line in self.line_ids:
             if line.lot_id:
@@ -399,9 +457,6 @@ class StockTransitVoyage(models.Model):
         
         _logger.info(f"[TC_SYNC] Viaje {self.name}: {len(existing_by_lot)} lotes ya existentes en el viaje")
 
-        # =====================================================================
-        # PASO 3: Preparar mapa de allocations para asignación automática
-        # =====================================================================
         from .utils.transit_manager import TransitManager
         
         purchase = self.picking_id.purchase_id
@@ -420,15 +475,10 @@ class StockTransitVoyage(models.Model):
                 allocations_map[alloc.product_id.id].append(alloc)
                 allocation_consumed[alloc.id] = 0.0
 
-        # =====================================================================
-        # PASO 4: Recorrer move_lines del picking y sincronizar
-        # =====================================================================
         lines_to_create = []
         lines_updated = 0
         lines_created_count = 0
-        lots_in_picking = set()  # Para trackear qué lotes vienen en el picking
-        
-        # Agrupar hold orders por (partner, order) para creación consolidada
+        lots_in_picking = set()
         hold_orders_map = {}
 
         for move_line in self.picking_id.move_line_ids:
@@ -440,9 +490,6 @@ class StockTransitVoyage(models.Model):
             product_id = move_line.product_id.id
             qty_done = move_line.quantity  # ODOO 19
 
-            # -----------------------------------------------------------------
-            # Determinar asignación automática desde allocations
-            # -----------------------------------------------------------------
             partner_to_assign = False
             order_to_assign = False
             allocation_to_use = False
@@ -470,9 +517,6 @@ class StockTransitVoyage(models.Model):
                         allocation_consumed[alloc.id] = consumed_this_load + qty_done
                         break
 
-            # -----------------------------------------------------------------
-            # Buscar quant físico
-            # -----------------------------------------------------------------
             found_quant = self.env['stock.quant'].search([
                 ('lot_id', '=', move_line.lot_id.id), 
                 ('product_id', '=', move_line.product_id.id),
@@ -480,48 +524,34 @@ class StockTransitVoyage(models.Model):
                 ('location_id', '=', move_line.location_dest_id.id)
             ], limit=1)
 
-            # -----------------------------------------------------------------
-            # Extraer contenedor desde x_contenedor del lote
-            # -----------------------------------------------------------------
             lot_container = ''
             if hasattr(move_line.lot_id, 'x_contenedor') and move_line.lot_id.x_contenedor:
                 lot_container = move_line.lot_id.x_contenedor
             elif move_line.lot_id.ref:
                 lot_container = move_line.lot_id.ref
 
-            # =================================================================
-            # CASO A: Lote YA EXISTE en el viaje → ACTUALIZAR
-            # =================================================================
             if lot_id in existing_by_lot:
                 existing_line = existing_by_lot[lot_id]
                 update_vals = {}
                 
-                # Actualizar cantidad si cambió
                 if existing_line.product_uom_qty != qty_done:
                     update_vals['product_uom_qty'] = qty_done
                 
-                # Actualizar quant si no tenía o cambió
                 if found_quant and existing_line.quant_id.id != found_quant.id:
                     update_vals['quant_id'] = found_quant.id
                 
-                # Actualizar contenedor si cambió y el nuevo no está vacío
                 if lot_container and existing_line.container_number != lot_container:
                     update_vals['container_number'] = lot_container
                 
-                # Actualizar allocation si no tenía
                 if allocation_to_use and not existing_line.allocation_id:
                     update_vals['allocation_id'] = allocation_to_use.id
                 
-                # NO sobreescribir partner/order si ya tiene asignación manual
-                # Solo asignar si la línea está sin asignar
                 if not existing_line.partner_id and partner_to_assign:
                     update_vals['partner_id'] = partner_to_assign.id
                     update_vals['order_id'] = order_to_assign.id if order_to_assign else False
                     update_vals['allocation_status'] = 'reserved'
                 
                 if update_vals:
-                    # Usar super().write para evitar triggear la lógica de reserva
-                    # en el override de write de stock.transit.line
                     self.env['stock.transit.line'].browse(existing_line.id).with_context(
                         skip_reservation_logic=True
                     ).write(update_vals)
@@ -530,9 +560,6 @@ class StockTransitVoyage(models.Model):
                 
                 continue
 
-            # =================================================================
-            # CASO B: Lote NUEVO → CREAR línea
-            # =================================================================
             line_vals = {
                 'voyage_id': self.id,
                 'product_id': move_line.product_id.id,
@@ -547,7 +574,6 @@ class StockTransitVoyage(models.Model):
             }
             lines_to_create.append(line_vals)
             
-            # Trackear para hold orders
             if partner_to_assign and order_to_assign:
                 key = (partner_to_assign.id, order_to_assign.id)
                 if key not in hold_orders_map:
@@ -558,32 +584,22 @@ class StockTransitVoyage(models.Model):
                     }
                 hold_orders_map[key]['line_vals_indices'].append(len(lines_to_create) - 1)
 
-        # =====================================================================
-        # PASO 5: Crear líneas nuevas en batch
-        # =====================================================================
         created_lines = self.env['stock.transit.line']
         if lines_to_create:
             created_lines = self.env['stock.transit.line'].create(lines_to_create)
             lines_created_count = len(created_lines)
         
-        # =====================================================================
-        # PASO 6: Actualizar allocations consumidas
-        # =====================================================================
         for alloc_id, qty_consumed in allocation_consumed.items():
             if qty_consumed > 0:
                 alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
                 new_received = alloc.qty_received + qty_consumed
                 alloc.write({'qty_received': min(new_received, alloc.quantity), 'state': 'in_transit'})
 
-        # =====================================================================
-        # PASO 7: Crear Hold Orders para líneas NUEVAS con asignación
-        # =====================================================================
         for key, data in hold_orders_map.items():
             partner = data['partner']
             order = data['order']
             indices = data['line_vals_indices']
             
-            # Obtener las líneas creadas correspondientes
             relevant_lines = [created_lines[i] for i in indices if i < len(created_lines)]
             if not relevant_lines:
                 continue
@@ -604,9 +620,6 @@ class StockTransitVoyage(models.Model):
             else:
                 hold_order.unlink()
 
-        # =====================================================================
-        # PASO 8: Log resumen
-        # =====================================================================
         summary = f"Sincronización completada: {lines_created_count} nuevos, {lines_updated} actualizados"
         _logger.info(f"[TC_SYNC] {self.name}: {summary}")
         
