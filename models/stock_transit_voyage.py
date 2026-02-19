@@ -275,7 +275,7 @@ class StockTransitVoyage(models.Model):
                 'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
                 'state': 'draft',
-                'name': product.name,
+                # FIX Odoo 19: 'name' no es campo escribible en stock.move
             })
         
         self.write({
@@ -326,6 +326,7 @@ class StockTransitVoyage(models.Model):
 
             if not move:
                 # Crear demanda si no existe para este producto
+                # FIX Odoo 19: 'name' no es campo escribible en stock.move
                 move = self.env['stock.move'].create({
                     'picking_id': picking.id,
                     'product_id': line.product_id.id,
@@ -334,7 +335,6 @@ class StockTransitVoyage(models.Model):
                     'location_id': picking.location_id.id,
                     'location_dest_id': picking.location_dest_id.id,
                     'company_id': self.company_id.id,
-                    'name': line.product_id.name,
                 })
                 move._action_confirm()
             else:
