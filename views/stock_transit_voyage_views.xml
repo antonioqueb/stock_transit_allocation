@@ -35,13 +35,11 @@
         <field name="arch" type="xml">
             <form string="Gestión de Tránsito">
                 <header>
-                    <!-- BOTÓN PRINCIPAL: Avanzar al siguiente estado -->
                     <button name="action_advance_status" type="object" 
                             class="btn-primary"
                             invisible="custom_status in ['delivered', 'cancel']"
                             string="⏩ Avanzar Estado"/>
                     
-                    <!-- BOTÓN SECUNDARIO: Retroceder estado -->
                     <button name="action_retreat_status" type="object" 
                             class="btn-secondary"
                             invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
@@ -49,7 +47,6 @@
 
                     <separator/>
 
-                    <!-- Acciones de carga de datos -->
                     <button name="action_load_from_purchase" string="🔄 Cargar desde OC" type="object" 
                             class="btn-info" 
                             invisible="picking_id != False or custom_status == 'delivered'"/>
@@ -58,22 +55,18 @@
                             class="btn-secondary" 
                             invisible="picking_id == False or custom_status == 'delivered'"/>
 
-                    <!-- Recepción física -->
                     <button name="action_generate_reception" string="🏭 Generar Recepción Física" type="object" 
                             class="btn-warning"
                             invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
                     
-                    <!-- Ver recepción existente -->
                     <button name="action_generate_reception" string="📋 Ver Recepción (Worksheet)" type="object" 
                             class="btn-success"
                             invisible="reception_picking_id == False"/>
 
-                    <!-- Recibir en Almacén: sincronizar picking con lotes del viaje -->
                     <button name="action_sync_reception_from_voyage" string="📦 Recibir en Almacén" type="object" 
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
-                    <!-- Cerrar viaje directo -->
                     <button name="action_arrive" string="🏁 Cerrar Viaje" type="object" 
                             class="btn-secondary" 
                             invisible="custom_status in ['delivered', 'cancel']"
@@ -98,7 +91,6 @@
                             <field name="purchase_id" readonly="1" invisible="not purchase_id"/>
                             <field name="picking_id" readonly="1" invisible="not picking_id"/>
                             <field name="reception_picking_id" readonly="1" invisible="not reception_picking_id"/>
-                            
                             <field name="shipping_line" placeholder="Ej. MSC / Maersk"/>
                             <field name="vessel_name"/>
                             <field name="bl_number" string="Folio / BL"/>
@@ -114,19 +106,67 @@
 
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
-                            <!--
-                                WIDGET PERSONALIZADO: transit_voyage_lines
-                                Renderiza la tabla con botones de propagación integrados.
-                                Los botones ↓1 y ↓↓ aparecen al lado del cliente cuando
-                                la fila tiene cliente asignado y hay filas debajo.
-                            -->
-                            <field name="line_ids" widget="transit_voyage_lines"/>
+                            <field name="line_ids">
+                                <!--
+                                    Lista editable estándar de Odoo.
+                                    Se agrega el campo "propagate_btn" DESPUÉS de partner_id
+                                    con el widget transit_propagate_btn que muestra los botones ↓1 y ↓↓.
+                                    
+                                    IMPORTANTE: La columna "propagate_btn" no tiene encabezado de texto
+                                    (string=" ") y es muy estrecha, solo contiene los dos botones.
+                                -->
+                                <list create="0" delete="0" 
+                                      decoration-success="allocation_status == 'reserved'" 
+                                      decoration-muted="not lot_id" 
+                                      editable="bottom">
+                                    <field name="container_number" optional="show" readonly="1"/> 
+                                    <field name="product_id" readonly="1"/>
+                                    <field name="lot_id" placeholder="Esperando recepción..." decoration-bf="1" readonly="1"/>
+                                    <field name="product_uom_qty" string="m²" sum="Total m²" readonly="1"/>
+                                    
+                                    <field name="eligible_partner_ids" column_invisible="1"/>
+                                    <field name="partner_id" 
+                                           widget="many2one"
+                                           options="{'no_create': True, 'no_create_edit': True}"
+                                           placeholder="Seleccionar cliente..."/>
+                                    
+                                    <!--
+                                        CAMPO DE PROPAGACIÓN:
+                                        El widget transit_propagate_btn renderiza dos botones:
+                                          ↓1  = propaga al siguiente registro
+                                          ↓↓  = propaga a todos los registros siguientes
+                                        
+                                        Solo aparecen cuando el registro actual tiene
+                                        partner_id asignado y hay filas debajo.
+                                        
+                                        nolabel="1" oculta el encabezado de columna en la lista.
+                                        width="60px" mantiene la columna compacta.
+                                    -->
+                                    <field name="propagate_btn"
+                                           widget="transit_propagate_btn"
+                                           string=" "
+                                           nolabel="1"
+                                           width="60px"
+                                           readonly="0"/>
+                                    
+                                    <field name="eligible_order_ids" column_invisible="1"/>
+                                    <field name="order_id" 
+                                           widget="many2one"
+                                           options="{'no_create': True, 'no_create_edit': True}"
+                                           placeholder="Seleccionar orden..."/>
+                                    
+                                    <field name="allocation_status" widget="badge" readonly="1"
+                                           decoration-success="allocation_status == 'reserved'"
+                                           decoration-info="allocation_status == 'available'"/>
+                                    <field name="notes" optional="hide"/>
+                                </list>
+                            </field>
                             
                             <div class="alert alert-info mt-2" role="alert">
                                 <strong>💡 Propagación Rápida:</strong>
-                                Cuando asignes un <b>Cliente</b> a una fila, aparecerán dos botones:
-                                <span class="badge bg-primary ms-1">↓1</span> propaga al siguiente,
-                                <span class="badge bg-success ms-1">↓↓</span> propaga a todos los de abajo.
+                                Al asignar un <b>Cliente</b>, aparecen dos botones:
+                                <span class="badge bg-primary ms-1 me-1">↓1</span> propaga a la siguiente fila,
+                                <span class="badge bg-success ms-1 me-1">↓↓</span> propaga a todas las siguientes.
                                 <br/>
                                 <strong>📦 Contenedores:</strong> Se cargan automáticamente desde el Packing List del proveedor.
                             </div>
@@ -190,31 +230,25 @@
                                            'cancel': 'danger'
                                        }}"/>
                             </div>
-                            
                             <div class="text-muted mb-1">
                                 <i class="fa fa-shopping-cart me-1"/> 
                                 <field name="purchase_id"/>
                             </div>
-                            
                             <div class="text-muted mb-1" t-if="record.container_number.raw_value">
                                 <small><i class="fa fa-cube me-1"/> <field name="container_number"/></small>
                             </div>
-                            
                             <div class="text-muted mb-1" t-if="record.shipping_line.raw_value">
                                 <small><i class="fa fa-globe me-1"/> <field name="shipping_line"/></small>
                             </div>
-                            
                             <div class="text-muted mb-1" t-if="record.vessel_name.raw_value">
                                 <i class="fa fa-ship me-1"/> <field name="vessel_name"/>
                             </div>
-                            
                             <div class="d-flex justify-content-between align-items-center mt-auto">
                                 <span class="text-muted small">
                                     <i class="fa fa-calendar me-1"/> 
                                     <field name="eta" widget="remaining_days"/>
                                 </span>
                             </div>
-                            
                             <div class="mt-2">
                                 <field name="allocation_percent" widget="progressbar"/>
                             </div>
@@ -237,7 +271,6 @@
                   decoration-success="voyage_status == 'delivered'"
                   decoration-info="voyage_status in ['on_sea', 'booking']"
                   decoration-warning="voyage_status in ['solicitud', 'production']">
-                
                 <field name="purchase_id" string="OC Sistema"/>
                 <field name="date_order" string="Fecha OC" widget="date"/>
                 <field name="voyage_status" widget="badge" 
@@ -264,7 +297,7 @@
     <!-- ACCIONES -->
     <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
         <field name="name">Sábana de Seguimiento</field>
-        <field name="res_model" >stock.transit.sheet</field>
+        <field name="res_model">stock.transit.sheet</field>
         <field name="view_mode">list</field>
         <field name="view_id" ref="view_transit_sheet_list"/>
     </record>

@@ -8,13 +8,14 @@
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
         
         Novedades v5.0:
-        - WIDGET PERSONALIZADO para líneas del viaje con propagación rápida.
-        - BOTONES DE PROPAGACIÓN: ↓1 (propaga al siguiente) y ↓↓ (propaga a todos abajo).
-        - Los botones aparecen al lado del campo Cliente cuando hay valor asignado.
+        - BOTONES DE PROPAGACIÓN en la lista de líneas del viaje.
+        - ↓1: Propaga cliente/pedido a la siguiente fila.
+        - ↓↓: Propaga cliente/pedido a todas las filas siguientes.
+        - Los botones aparecen automáticamente cuando hay cliente asignado.
+        - La lista sigue siendo 100% editable (Many2one nativos de Odoo).
         - CONSOLIDACIÓN DE LÍNEAS: Una sola línea por producto en la OC.
         - ALLOCATIONS: Modelo intermedio para trackear qué cantidad va a cada cliente.
         - Reasignación en tránsito funcionando con allocations.
-        - Vista de asignaciones en la orden de compra.
     """,
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
@@ -33,16 +34,16 @@
     ],
     'assets': {
         'web.assets_backend': [
-            # CSS existente
+            # CSS existentes
             'stock_transit_allocation/static/src/css/transit_style.css',
-            # NUEVO CSS para el widget de líneas del viaje
+            # NUEVO: CSS para botones de propagación
             'stock_transit_allocation/static/src/css/transit_voyage_lines.css',
             # JS existentes
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
-            # NUEVO widget de líneas del viaje con propagación (JS primero, XML después)
+            # NUEVO: Widget de propagación (JS antes que XML)
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.js',
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.xml',
         ],

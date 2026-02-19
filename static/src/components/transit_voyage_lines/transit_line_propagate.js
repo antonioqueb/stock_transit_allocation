@@ -1,231 +1,200 @@
 /** @odoo-module **/
 /**
  * ARCHIVO: transit_line_propagate.js
- * Widget OWL que reemplaza la lista estándar de stock.transit.line dentro del formulario
- * del viaje, añadiendo botones de propagación rápida de cliente/orden.
+ *
+ * Widget "transit_propagate_btn" - Se inserta como columna en la lista EDITABLE
+ * de stock.transit.line dentro del formulario del viaje.
+ *
+ * Estrategia:
+ *  - Es un field widget estándar de Odoo (standardFieldProps).
+ *  - Se aplica a un campo char dummy "x_propagate_placeholder" (no guardado)
+ *    o simplemente se pone sobre el campo allocation_status con override.
+ *  - Para no necesitar campo extra, lo aplicamos a un campo dummy definido en Python.
+ *  - El widget accede a props.record.model.root para navegar el form padre
+ *    y encontrar todos los records del one2many line_ids.
+ *  - Con el ID del record actual, calcula el índice y propaga.
  */
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, useState, onWillUpdateProps } from "@odoo/owl";
+import { Component, useState } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
-// =============================================================================
-// CAMPO DE PROPAGACIÓN - Botones que aparecen al lado del campo partner_id
-// =============================================================================
-export class TransitPropagateButtons extends Component {
-    static template = "stock_transit_allocation.TransitPropagateButtons";
-    static props = {
-        rowIndex: Number,
-        totalRows: Number,
-        hasValue: Boolean,
-        onPropagateOne: Function,
-        onPropagateAll: Function,
-    };
-
-    get isLast() {
-        return this.props.rowIndex >= this.props.totalRows - 1;
-    }
-
-    get hasBelow() {
-        return this.props.rowIndex < this.props.totalRows - 1;
-    }
-
-    onClickOne(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        this.props.onPropagateOne(this.props.rowIndex);
-    }
-
-    onClickAll(ev) {
-        ev.preventDefault();
-        ev.stopPropagation();
-        this.props.onPropagateAll(this.props.rowIndex);
-    }
-}
-
-// =============================================================================
-// WIDGET PRINCIPAL: Tabla de líneas con propagación integrada
-// Se usa como widget="transit_voyage_lines" en el field line_ids
-// =============================================================================
-export class TransitVoyageLinesWidget extends Component {
-    static template = "stock_transit_allocation.TransitVoyageLinesWidget";
+export class TransitPropagateBtnField extends Component {
+    static template = "stock_transit_allocation.TransitPropagateBtnField";
     static props = {
         ...standardFieldProps,
     };
-    static components = { TransitPropagateButtons };
 
     setup() {
-        this.orm = useService("orm");
         this.notification = useService("notification");
-        this.action = useService("action");
-
-        this.state = useState({
-            hoveredRow: null,
-        });
-
-        onWillUpdateProps(() => {
-            // Reaccionar si cambia el record
-        });
+        this.state = useState({ loading: false });
     }
 
-    // ─── Helpers ─────────────────────────────────────────────────────────────
-
-    get lines() {
-        const field = this.props.record.data[this.props.name];
-        if (!field || !field.records) return [];
-        return field.records;
-    }
-
-    get totalRows() {
-        return this.lines.length;
-    }
-
-    _getPartner(rec) {
-        const p = rec.data.partner_id;
-        if (!p) return null;
-        if (Array.isArray(p) && p[0]) return { id: p[0], name: p[1] || "" };
-        if (typeof p === "object" && p.id) return { id: p.id, name: p.display_name || "" };
-        return null;
-    }
-
-    _getOrder(rec) {
-        const o = rec.data.order_id;
-        if (!o) return null;
-        if (Array.isArray(o) && o[0]) return { id: o[0], name: o[1] || "" };
-        if (typeof o === "object" && o.id) return { id: o.id, name: o.display_name || "" };
-        return null;
-    }
-
-    _getLot(rec) {
-        const l = rec.data.lot_id;
-        if (!l) return null;
-        if (Array.isArray(l) && l[0]) return { id: l[0], name: l[1] || "" };
-        if (typeof l === "object" && l.id) return { id: l.id, name: l.display_name || "" };
-        return null;
-    }
-
-    _getProduct(rec) {
-        const p = rec.data.product_id;
-        if (!p) return null;
-        if (Array.isArray(p) && p[0]) return { id: p[0], name: p[1] || "" };
-        if (typeof p === "object" && p.id) return { id: p.id, name: p.display_name || "" };
-        return null;
-    }
-
-    // ─── Propagación ─────────────────────────────────────────────────────────
+    // ─── Helpers para navegar el árbol de records ─────────────────────────────
 
     /**
-     * Propaga partner_id + order_id de la fila `fromIndex` a la siguiente.
+     * Devuelve todos los records del one2many line_ids del form padre.
+     * Navega: props.record (la fila actual) → model.root (el voyage form) → data.line_ids.records
      */
-    async propagateOne(fromIndex) {
-        const records = this.lines;
-        if (fromIndex >= records.length - 1) return;
+    _getAllLineRecords() {
+        try {
+            const root = this.props.record.model.root;
+            const lineIds = root.data.line_ids;
+            if (!lineIds || !lineIds.records) return [];
+            return lineIds.records;
+        } catch (e) {
+            console.error("[TRANSIT PROPAGATE] Error accediendo a line_ids:", e);
+            return [];
+        }
+    }
 
-        const src = records[fromIndex];
-        const tgt = records[fromIndex + 1];
+    /**
+     * Devuelve el índice del record actual dentro de la lista de líneas.
+     */
+    _getCurrentIndex() {
+        const allRecords = this._getAllLineRecords();
+        const currentId = this.props.record.id;
+        return allRecords.findIndex(r => r.id === currentId);
+    }
 
-        const partner = this._getPartner(src);
-        const order = this._getOrder(src);
+    /**
+     * Lee partner_id y order_id del record actual de forma segura.
+     */
+    _getSourceValues() {
+        const data = this.props.record.data;
+        return {
+            partner_id: data.partner_id || false,
+            order_id: data.order_id || false,
+        };
+    }
 
-        if (!partner) {
-            this.notification.add("La fila no tiene cliente asignado", { type: "warning" });
-            return;
+    /**
+     * Verifica si hay un partner asignado en el record actual.
+     */
+    get hasPartner() {
+        const p = this.props.record.data.partner_id;
+        if (!p) return false;
+        // Many2one puede venir como [id, name] o como objeto con id
+        if (Array.isArray(p)) return !!p[0];
+        if (typeof p === "object") return !!(p.id);
+        return false;
+    }
+
+    /**
+     * ¿Hay filas debajo del record actual?
+     */
+    get hasRowsBelow() {
+        const allRecords = this._getAllLineRecords();
+        const idx = this._getCurrentIndex();
+        return idx >= 0 && idx < allRecords.length - 1;
+    }
+
+    // ─── Lógica de propagación ────────────────────────────────────────────────
+
+    /**
+     * Propaga partner_id + order_id al record target.
+     */
+    async _applyToRecord(targetRecord, src) {
+        const updates = {};
+
+        if (src.partner_id) {
+            updates.partner_id = src.partner_id;
+        }
+        // Solo propagar order_id si también hay partner
+        if (src.partner_id && src.order_id) {
+            // Verificar que la orden sea del mismo partner (puede haber cambiado)
+            // Por seguridad, propagamos también y dejamos que el onchange maneje la validación
+            updates.order_id = src.order_id;
+        } else if (src.partner_id) {
+            // Hay partner pero no order, limpiar order en destino para forzar selección
+            updates.order_id = false;
         }
 
+        await targetRecord.update(updates);
+    }
+
+    /**
+     * Propaga al siguiente (↓1).
+     */
+    async onPropagateOne(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        if (!this.hasPartner || !this.hasRowsBelow) return;
+
+        this.state.loading = true;
         try {
-            const vals = {};
-            vals.partner_id = src.data.partner_id;
-            if (order) vals.order_id = src.data.order_id;
-            await tgt.update(vals);
+            const allRecords = this._getAllLineRecords();
+            const idx = this._getCurrentIndex();
+            if (idx < 0 || idx >= allRecords.length - 1) return;
+
+            const src = this._getSourceValues();
+            const target = allRecords[idx + 1];
+
+            await this._applyToRecord(target, src);
+
+            const partnerName = this._getPartnerName();
             this.notification.add(
-                `✓ Propagado → fila ${fromIndex + 2}: ${partner.name}`,
-                { type: "success" }
+                `✓ Propagado → fila ${idx + 2}` + (partnerName ? `: ${partnerName}` : ""),
+                { type: "success", sticky: false }
             );
         } catch (e) {
-            this.notification.add("Error: " + e.message, { type: "danger" });
+            console.error("[TRANSIT PROPAGATE ONE] Error:", e);
+            this.notification.add("Error al propagar: " + e.message, { type: "danger" });
+        } finally {
+            this.state.loading = false;
         }
     }
 
     /**
-     * Propaga partner_id + order_id de la fila `fromIndex` a TODAS las siguientes.
+     * Propaga a todos los de abajo (↓↓).
      */
-    async propagateAll(fromIndex) {
-        const records = this.lines;
-        if (fromIndex >= records.length - 1) return;
+    async onPropagateAll(ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
 
-        const src = records[fromIndex];
-        const partner = this._getPartner(src);
-        const order = this._getOrder(src);
+        if (!this.hasPartner || !this.hasRowsBelow) return;
 
-        if (!partner) {
-            this.notification.add("La fila no tiene cliente asignado", { type: "warning" });
-            return;
-        }
-
-        const count = records.length - fromIndex - 1;
+        this.state.loading = true;
         try {
-            for (let i = fromIndex + 1; i < records.length; i++) {
-                const vals = {};
-                vals.partner_id = src.data.partner_id;
-                if (order) vals.order_id = src.data.order_id;
-                await records[i].update(vals);
+            const allRecords = this._getAllLineRecords();
+            const idx = this._getCurrentIndex();
+            if (idx < 0 || idx >= allRecords.length - 1) return;
+
+            const src = this._getSourceValues();
+            const count = allRecords.length - idx - 1;
+
+            for (let i = idx + 1; i < allRecords.length; i++) {
+                await this._applyToRecord(allRecords[i], src);
             }
+
+            const partnerName = this._getPartnerName();
             this.notification.add(
-                `✓ Propagado a ${count} fila(s): ${partner.name}`,
-                { type: "success" }
+                `✓ Propagado a ${count} fila(s)` + (partnerName ? `: ${partnerName}` : ""),
+                { type: "success", sticky: false }
             );
         } catch (e) {
-            this.notification.add("Error: " + e.message, { type: "danger" });
+            console.error("[TRANSIT PROPAGATE ALL] Error:", e);
+            this.notification.add("Error al propagar: " + e.message, { type: "danger" });
+        } finally {
+            this.state.loading = false;
         }
     }
 
-    // ─── UI Helpers ───────────────────────────────────────────────────────────
-
-    getAllocationStatus(rec) {
-        return rec.data.allocation_status || "available";
-    }
-
-    getRowClass(rec, index) {
-        const status = this.getAllocationStatus(rec);
-        const lot = this._getLot(rec);
-        let cls = "transit-line-row";
-        if (status === "reserved") cls += " row-reserved";
-        else if (!lot) cls += " row-muted";
-        if (this.state.hoveredRow === index) cls += " row-hovered";
-        return cls;
-    }
-
-    onRowMouseEnter(index) {
-        this.state.hoveredRow = index;
-    }
-
-    onRowMouseLeave() {
-        this.state.hoveredRow = null;
-    }
-
-    /**
-     * Formatea el m2
-     */
-    fmt(val) {
-        if (!val) return "0.00";
-        return parseFloat(val).toFixed(2);
-    }
-
-    get totalM2() {
-        return this.lines.reduce((sum, r) => sum + (r.data.product_uom_qty || 0), 0).toFixed(2);
-    }
-
-    get reservedM2() {
-        return this.lines
-            .filter((r) => r.data.allocation_status === "reserved")
-            .reduce((sum, r) => sum + (r.data.product_uom_qty || 0), 0)
-            .toFixed(2);
+    _getPartnerName() {
+        const p = this.props.record.data.partner_id;
+        if (!p) return "";
+        if (Array.isArray(p) && p[1]) return p[1];
+        if (typeof p === "object" && p.display_name) return p.display_name;
+        return "";
     }
 }
 
-// Registrar como vista de campo para one2many
-registry.category("fields").add("transit_voyage_lines", {
-    component: TransitVoyageLinesWidget,
-    displayName: "Transit Voyage Lines with Propagation",
-    supportedTypes: ["one2many"],
+// Registrar el widget como field type
+registry.category("fields").add("transit_propagate_btn", {
+    component: TransitPropagateBtnField,
+    displayName: "Transit Propagate Button",
+    // No tiene tipo de campo nativo asociado — funciona como widget sobre char/boolean
+    supportedTypes: ["boolean", "char"],
+    extractProps: ({ attrs }) => ({}),
 });
