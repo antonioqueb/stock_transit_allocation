@@ -59,7 +59,6 @@
                             invisible="picking_id == False or custom_status == 'delivered'"/>
 
                     <!-- Recepción física -->
-                    <!-- CORREGIDO: Ahora visible en todos los estados relevantes hasta que se crea la recepción -->
                     <button name="action_generate_reception" string="🏭 Generar Recepción Física" type="object" 
                             class="btn-warning"
                             invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
@@ -115,40 +114,19 @@
 
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
-                            <field name="line_ids">
-                                <list create="0" delete="0" 
-                                      decoration-success="allocation_status == 'reserved'" 
-                                      decoration-muted="not lot_id" 
-                                      editable="bottom">
-                                    <field name="container_number" optional="show" readonly="1"/> 
-                                    <field name="product_id" readonly="1"/>
-                                    <field name="lot_id" placeholder="Esperando recepción..." decoration-bf="1" readonly="1"/>
-                                    <field name="product_uom_qty" string="m²" sum="Total m²" readonly="1"/>
-                                    
-                                    <field name="eligible_partner_ids" column_invisible="1"/>
-                                    <field name="partner_id" 
-                                           widget="many2one"
-                                           options="{'no_create': True, 'no_create_edit': True}"
-                                           placeholder="Seleccionar cliente..."/>
-                                    
-                                    <field name="eligible_order_ids" column_invisible="1"/>
-                                    <field name="order_id" 
-                                           widget="many2one"
-                                           options="{'no_create': True, 'no_create_edit': True}"
-                                           placeholder="Seleccionar orden..."/>
-                                    
-                                    <field name="allocation_status" widget="badge" readonly="1"
-                                           decoration-success="allocation_status == 'reserved'"
-                                           decoration-info="allocation_status == 'available'"/>
-                                    <field name="notes" optional="hide"/>
-                                </list>
-                            </field>
+                            <!--
+                                WIDGET PERSONALIZADO: transit_voyage_lines
+                                Renderiza la tabla con botones de propagación integrados.
+                                Los botones ↓1 y ↓↓ aparecen al lado del cliente cuando
+                                la fila tiene cliente asignado y hay filas debajo.
+                            -->
+                            <field name="line_ids" widget="transit_voyage_lines"/>
                             
                             <div class="alert alert-info mt-2" role="alert">
-                                <strong>💡 Asignación Rápida:</strong> 
-                                Seleccione directamente el <b>Cliente</b> (solo aparecen clientes con pedidos de ese producto) 
-                                y luego la <b>Orden</b> (filtrada automáticamente). 
-                                Los cambios se guardan al salir de la celda.
+                                <strong>💡 Propagación Rápida:</strong>
+                                Cuando asignes un <b>Cliente</b> a una fila, aparecerán dos botones:
+                                <span class="badge bg-primary ms-1">↓1</span> propaga al siguiente,
+                                <span class="badge bg-success ms-1">↓↓</span> propaga a todos los de abajo.
                                 <br/>
                                 <strong>📦 Contenedores:</strong> Se cargan automáticamente desde el Packing List del proveedor.
                             </div>

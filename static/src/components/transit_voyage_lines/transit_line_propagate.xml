@@ -1,0 +1,204 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- ================================================================ -->
+    <!-- BOTONES DE PROPAGACIÓN                                           -->
+    <!-- ================================================================ -->
+    <t t-name="stock_transit_allocation.TransitPropagateButtons" owl="1">
+        <span class="transit-propagate-btns" t-if="props.hasValue and props.rowIndex >= 0">
+            <!-- Propagar al siguiente -->
+            <button
+                t-if="hasBelow"
+                class="transit-prop-btn transit-prop-one"
+                t-on-click="onClickOne"
+                title="Propagar a la siguiente fila (↓1)">
+                <i class="fa fa-arrow-down"/>
+            </button>
+            <!-- Propagar a todos los de abajo -->
+            <button
+                t-if="hasBelow"
+                class="transit-prop-btn transit-prop-all"
+                t-on-click="onClickAll"
+                title="Propagar a todas las filas siguientes (↓↓)">
+                <i class="fa fa-angle-double-down"/>
+            </button>
+        </span>
+    </t>
+
+    <!-- ================================================================ -->
+    <!-- TABLA PRINCIPAL DE LÍNEAS DEL VIAJE                              -->
+    <!-- ================================================================ -->
+    <t t-name="stock_transit_allocation.TransitVoyageLinesWidget" owl="1">
+        <div class="transit-lines-wrapper">
+
+            <!-- Resumen rápido -->
+            <div class="transit-lines-summary">
+                <span class="summary-item">
+                    <i class="fa fa-list-ol me-1 text-muted"/>
+                    <strong><t t-esc="lines.length"/></strong> líneas
+                </span>
+                <span class="summary-item">
+                    <i class="fa fa-cube me-1 text-muted"/>
+                    Total: <strong><t t-esc="totalM2"/> m²</strong>
+                </span>
+                <span class="summary-item summary-reserved">
+                    <i class="fa fa-check-circle me-1"/>
+                    Asignado: <strong><t t-esc="reservedM2"/> m²</strong>
+                </span>
+                <span class="summary-hint">
+                    <i class="fa fa-info-circle me-1"/>
+                    Usa <kbd>↓1</kbd> o <kbd>↓↓</kbd> para propagar cliente/pedido hacia abajo
+                </span>
+            </div>
+
+            <!-- Tabla -->
+            <div class="transit-lines-scroll">
+                <table class="transit-lines-table">
+                    <thead>
+                        <tr>
+                            <th class="col-container">Contenedor</th>
+                            <th class="col-product">Producto</th>
+                            <th class="col-lot">Lote / Placa</th>
+                            <th class="col-m2 text-end">m²</th>
+                            <th class="col-partner">
+                                Cliente
+                                <span class="th-hint">· botones ↓ propagan hacia abajo</span>
+                            </th>
+                            <th class="col-order">Pedido</th>
+                            <th class="col-status text-center">Estado</th>
+                            <th class="col-notes">Notas</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <t t-if="lines.length === 0">
+                            <tr>
+                                <td colspan="8" class="transit-empty-row">
+                                    <i class="fa fa-inbox fa-2x text-muted mb-2 d-block"/>
+                                    Sin líneas. Carga desde OC o Picking.
+                                </td>
+                            </tr>
+                        </t>
+
+                        <t t-foreach="lines" t-as="line" t-key="line.id or line_index">
+                            <t t-set="partner" t-value="_getPartner(line)"/>
+                            <t t-set="order" t-value="_getOrder(line)"/>
+                            <t t-set="lot" t-value="_getLot(line)"/>
+                            <t t-set="product" t-value="_getProduct(line)"/>
+                            <t t-set="status" t-value="getAllocationStatus(line)"/>
+                            <t t-set="hasPartner" t-value="partner !== null"/>
+
+                            <tr t-att-class="getRowClass(line, line_index)"
+                                t-on-mouseenter="() => onRowMouseEnter(line_index)"
+                                t-on-mouseleave="onRowMouseLeave">
+
+                                <!-- Contenedor -->
+                                <td class="col-container">
+                                    <span class="container-tag" t-if="line.data.container_number and line.data.container_number !== 'PENDIENTE'">
+                                        <i class="fa fa-cube me-1"/>
+                                        <t t-esc="line.data.container_number"/>
+                                    </span>
+                                    <span class="text-muted small" t-else="">—</span>
+                                </td>
+
+                                <!-- Producto -->
+                                <td class="col-product">
+                                    <span class="product-name" t-if="product">
+                                        <t t-esc="product.name"/>
+                                    </span>
+                                    <span class="text-muted" t-else="">—</span>
+                                </td>
+
+                                <!-- Lote -->
+                                <td class="col-lot">
+                                    <span class="lot-badge" t-if="lot">
+                                        <t t-esc="lot.name"/>
+                                    </span>
+                                    <span class="lot-pending text-muted" t-else="">
+                                        <i class="fa fa-clock-o me-1"/>Esperando...
+                                    </span>
+                                </td>
+
+                                <!-- M2 -->
+                                <td class="col-m2 text-end fw-bold">
+                                    <t t-esc="fmt(line.data.product_uom_qty)"/>
+                                </td>
+
+                                <!-- Cliente + Botones de Propagación -->
+                                <td class="col-partner">
+                                    <div class="partner-cell-wrapper">
+                                        <div class="partner-display" t-if="hasPartner">
+                                            <span class="partner-name">
+                                                <i class="fa fa-user me-1 text-muted"/>
+                                                <t t-esc="partner.name"/>
+                                            </span>
+                                        </div>
+                                        <div class="partner-empty" t-else="">
+                                            <span class="text-muted small">
+                                                <i class="fa fa-user-o me-1"/>Sin asignar
+                                            </span>
+                                        </div>
+                                        <!-- Botones de propagación -->
+                                        <TransitPropagateButtons
+                                            t-if="hasPartner and line_index lt totalRows - 1"
+                                            rowIndex="line_index"
+                                            totalRows="totalRows"
+                                            hasValue="hasPartner"
+                                            onPropagateOne="(i) => this.propagateOne(i)"
+                                            onPropagateAll="(i) => this.propagateAll(i)"
+                                        />
+                                    </div>
+                                </td>
+
+                                <!-- Pedido -->
+                                <td class="col-order">
+                                    <span class="order-badge" t-if="order">
+                                        <i class="fa fa-file-text-o me-1"/>
+                                        <t t-esc="order.name"/>
+                                    </span>
+                                    <span class="text-muted small" t-else="">—</span>
+                                </td>
+
+                                <!-- Estado -->
+                                <td class="col-status text-center">
+                                    <span t-if="status === 'reserved'"
+                                          class="status-badge status-reserved">
+                                        <i class="fa fa-check-circle me-1"/>Asignado
+                                    </span>
+                                    <span t-else=""
+                                          class="status-badge status-available">
+                                        <i class="fa fa-circle-o me-1"/>Disponible
+                                    </span>
+                                </td>
+
+                                <!-- Notas -->
+                                <td class="col-notes">
+                                    <span class="text-muted small" t-if="line.data.notes">
+                                        <i class="fa fa-comment-o me-1"/>
+                                        <t t-esc="line.data.notes"/>
+                                    </span>
+                                </td>
+                            </tr>
+                        </t>
+                    </tbody>
+
+                    <!-- Footer con totales -->
+                    <tfoot t-if="lines.length > 0">
+                        <tr class="transit-total-row">
+                            <td colspan="3" class="text-end fw-semibold text-muted">Total:</td>
+                            <td class="col-m2 text-end fw-bold">
+                                <t t-esc="totalM2"/> m²
+                            </td>
+                            <td colspan="4">
+                                <span class="reserved-summary">
+                                    <i class="fa fa-check-circle me-1 text-success"/>
+                                    <t t-esc="reservedM2"/> m² asignados
+                                </span>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </div>
+    </t>
+
+</templates>
