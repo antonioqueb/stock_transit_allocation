@@ -59,13 +59,20 @@
                             invisible="picking_id == False or custom_status == 'delivered'"/>
 
                     <!-- Recepción física -->
+                    <!-- CORREGIDO: Ahora visible en todos los estados relevantes hasta que se crea la recepción -->
                     <button name="action_generate_reception" string="🏭 Generar Recepción Física" type="object" 
                             class="btn-warning"
-                            invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port'] or reception_picking_id != False"/>
+                            invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
                     
+                    <!-- Ver recepción existente -->
                     <button name="action_generate_reception" string="📋 Ver Recepción (Worksheet)" type="object" 
                             class="btn-success"
                             invisible="reception_picking_id == False"/>
+
+                    <!-- Recibir en Almacén: sincronizar picking con lotes del viaje -->
+                    <button name="action_sync_reception_from_voyage" string="📦 Recibir en Almacén" type="object" 
+                            class="btn-primary"
+                            invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
                     <!-- Cerrar viaje directo -->
                     <button name="action_arrive" string="🏁 Cerrar Viaje" type="object" 
