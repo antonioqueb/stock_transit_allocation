@@ -192,44 +192,61 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
 }
 
 // ─── Panel masivo ─────────────────────────────────────────────────────────────
+// Fondo claro para que los <select> nativos del browser sean legibles.
+// Con fondo oscuro + rgba transparente, Chrome ignora color/background del select.
 .tvl-bulk-panel {
     display:       flex;
     align-items:   center;
-    gap:           6px;
-    background:    $tvl-accent;
+    gap:           8px;
+    background:    #f1f5f9;
+    border:        1px solid #cbd5e1;
     border-radius: $tvl-radius;
-    padding:       4px 10px 4px 8px;
+    padding:       6px 12px 6px 10px;
     animation:     tvl-fadein .2s ease;
+    flex-wrap:     wrap;
 }
 
-// FIX: contador con fondo claro y texto oscuro legible
+// FIX: contador con fondo oscuro y texto blanco (contraste correcto)
 .tvl-bulk-count {
-    background:    #e2e8f0;
-    color:         $tvl-accent;
-    padding:       1px 8px;
+    background:    $tvl-accent;
+    color:         #ffffff;
+    padding:       2px 10px;
     border-radius: $tvl-radius-pill;
-    font-size:     10px;
+    font-size:     11px;
     font-weight:   700;
     line-height:   1.6;
     white-space:   nowrap;
 }
 
 .tvl-bulk-select {
-    border:        1px solid rgba(255,255,255,.25);
-    border-radius: $tvl-radius-sm;
-    background:    rgba(255,255,255,.15);
-    color:         #fff;
-    font-family:   $tvl-font;
-    font-size:     11px;
-    padding:       3px 6px;
-    outline:       none;
-    min-width:     140px;
+    // appearance: auto = select nativo del browser, garantiza texto legible
+    -webkit-appearance: auto;
+    appearance:         auto;
+    border:             1px solid #cbd5e1;
+    border-radius:      $tvl-radius-sm;
+    background:         #ffffff;
+    color:              $tvl-text;
+    font-family:        $tvl-font;
+    font-size:          11px;
+    padding:            4px 8px;
+    outline:            none;
+    min-width:          150px;
+    cursor:             pointer;
 
-    option { background: #1e293b; color: #fff; }
+    &:focus {
+        border-color: $tvl-blue;
+        box-shadow:   0 0 0 2px rgba(37,99,235,.15);
+    }
+
+    option {
+        background: #ffffff;
+        color:      $tvl-text;
+    }
 
     &:disabled {
-        opacity: 0.5;
-        cursor:  not-allowed;
+        background: #f3f4f6;
+        color:      $tvl-text-muted;
+        cursor:     not-allowed;
     }
 }
 
