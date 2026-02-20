@@ -36,18 +36,13 @@
     <record id="view_order_list_transit_inherit" model="ir.ui.view">
         <field name="name">sale.order.list.transit.inherit</field>
         <field name="model">sale.order</field>
-        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="inherit_id" ref="sale.view_quotation_with_onboarding_list"/>
         <field name="arch" type="xml">
-            <xpath expr="//list" position="inside">
-                <field name="has_mandar_pedir" column_invisible="1"/>
-            </xpath>
             <xpath expr="//field[@name='name']" position="after">
                 <field name="has_mandar_pedir"
-                       string="🛒"
-                       optional="show"
-                       widget="boolean_toggle"
-                       readonly="1"
-                       title="Tiene líneas Mandar Pedir"/>
+                    string="🛒 Pedir"
+                    optional="show"
+                    readonly="1"/>
             </xpath>
         </field>
     </record>
