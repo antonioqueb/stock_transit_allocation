@@ -2,6 +2,7 @@
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 
+
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
@@ -15,19 +16,64 @@ class SaleOrder(models.Model):
                 raise UserError(_("No puede eliminar el pedido %s porque ya tiene mercancía recibida en tránsito (Torre de Control).") % order.name)
         return super(SaleOrder, self).unlink()
 
+    has_mandar_pedir = fields.Boolean(
+        string='Tiene Mandar Pedir',
+        compute='_compute_transit_status',
+        store=True,
+    )
+
+    @api.depends('order_line.auto_transit_assign')
+    def _compute_transit_status(self):
+        for order in self:
+            order.has_mandar_pedir = any(
+                l.auto_transit_assign for l in order.order_line if not l.display_type
+            )
+
+
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
 
     auto_transit_assign = fields.Boolean(
-        string='Mandar Pedir', 
+        string='Mandar Pedir',
         default=False,
         help="Si está marcado, se considerará para la asignación automática en la Torre de Control "
              "cuando se genere la compra."
     )
-    
+
     has_stone_lots = fields.Boolean(
         string='Tiene Placas Asignadas',
         compute='_compute_has_stone_lots',
+        store=True,
+    )
+
+    transit_status = fields.Selection(
+        selection=[
+            ('solicitud', 'Solicitud Enviada'),
+            ('production', 'Producción'),
+            ('booking', 'Booking'),
+            ('puerto_origen', 'Puerto Origen'),
+            ('on_sea', 'En Altamar'),
+            ('puerto_destino', 'Puerto Destino'),
+            ('arrived_port', 'Arribo a Puerto'),
+            ('reception_pending', 'En Recepción'),
+            ('delivered', 'Entregado'),
+            ('cancel', 'Cancelado'),
+        ],
+        string='Estado Embarque',
+        compute='_compute_transit_info',
+        store=True,
+    )
+
+    transit_eta = fields.Date(
+        string='ETA Embarque',
+        compute='_compute_transit_info',
+        store=True,
+    )
+
+    transit_voyage_id = fields.Many2one(
+        'stock.transit.voyage',
+        string='Viaje',
+        compute='_compute_transit_info',
         store=True,
     )
 
@@ -35,6 +81,62 @@ class SaleOrderLine(models.Model):
     def _compute_has_stone_lots(self):
         for line in self:
             line.has_stone_lots = bool(line.lot_ids)
+
+    @api.depends('auto_transit_assign', 'order_id', 'product_id')
+    def _compute_transit_info(self):
+        for line in self:
+            if not line.auto_transit_assign or not line.product_id or not line.order_id:
+                line.transit_status = False
+                line.transit_eta = False
+                line.transit_voyage_id = False
+                continue
+
+            allocation = self.env['purchase.order.line.allocation'].search([
+                ('sale_line_id', '=', line.id),
+                ('state', 'not in', ['cancelled', 'done']),
+            ], order='id desc', limit=1)
+
+            if not allocation:
+                transit_line = self.env['stock.transit.line'].search([
+                    ('order_id', '=', line.order_id.id),
+                    ('product_id', '=', line.product_id.id),
+                ], order='id desc', limit=1)
+
+                if transit_line and transit_line.voyage_id:
+                    line.transit_status = transit_line.voyage_id.custom_status
+                    line.transit_eta = transit_line.voyage_id.eta
+                    line.transit_voyage_id = transit_line.voyage_id
+                else:
+                    line.transit_status = False
+                    line.transit_eta = False
+                    line.transit_voyage_id = False
+                continue
+
+            transit_line = self.env['stock.transit.line'].search([
+                ('order_id', '=', line.order_id.id),
+                ('product_id', '=', line.product_id.id),
+            ], order='id desc', limit=1)
+
+            if transit_line and transit_line.voyage_id:
+                line.transit_status = transit_line.voyage_id.custom_status
+                line.transit_eta = transit_line.voyage_id.eta
+                line.transit_voyage_id = transit_line.voyage_id
+            else:
+                po = allocation.purchase_order_id
+                if po:
+                    voyage = self.env['stock.transit.voyage'].search([
+                        ('purchase_id', '=', po.id),
+                        ('custom_status', '!=', 'cancel'),
+                    ], order='id desc', limit=1)
+                    if voyage:
+                        line.transit_status = voyage.custom_status
+                        line.transit_eta = voyage.eta
+                        line.transit_voyage_id = voyage
+                        continue
+
+                line.transit_status = False
+                line.transit_eta = False
+                line.transit_voyage_id = False
 
     @api.onchange('auto_transit_assign')
     def _onchange_auto_transit_assign(self):
