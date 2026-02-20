@@ -20,12 +20,12 @@ const COLUMNS = [
     { key: "purchase_id",      label: "OC Sistema",         width: "110px" },
     { key: "date_order",       label: "Fecha OC",           width: "90px"  },
     { key: "voyage_status",    label: "Estado",             width: "120px" },
-    { key: "salesperson_id",   label: "Vendedor",           width: "100px" },
+    { key: "salesperson_id",   label: "Vendedor",           width: "160px" },  // 100 → 160
     { key: "order_id",         label: "Sales Order",        width: "110px" },
     { key: "partner_id",       label: "Cliente / Proyecto", width: "160px" },
     { key: "proforma_ref",     label: "Proforma",           width: "110px" },
-    { key: "vendor_id",        label: "Proveedor",          width: "130px" },
-    { key: "product_id",       label: "Descripción",        width: "160px" },
+    { key: "vendor_id",        label: "Proveedor",          width: "200px" },  // 130 → 200
+    { key: "product_id",       label: "Descripción",        width: "240px" },  // 160 → 240
     { key: "product_uom_qty",  label: "m² Embarcados",      width: "100px", align: "right", isNum: true },
     { key: "container_number", label: "Contenedor",         width: "110px" },
     { key: "bl_number",        label: "BL / Folio",         width: "120px" },
