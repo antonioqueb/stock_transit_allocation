@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Vista de lista para Allocations -->
     <record id="view_purchase_line_allocation_list" model="ir.ui.view">
         <field name="name">purchase.order.line.allocation.list</field>
         <field name="model">purchase.order.line.allocation</field>
@@ -11,7 +10,7 @@
                 <field name="product_id"/>
                 <field name="quantity"/>
                 <field name="qty_received"/>
-                <field name="state" widget="badge" 
+                <field name="state" widget="badge"
                     decoration-info="state == 'pending'"
                     decoration-warning="state == 'in_transit'"
                     decoration-success="state == 'done'"/>
@@ -19,17 +18,11 @@
         </field>
     </record>
 
-    <!-- Herencia del formulario de Orden de Compra -->
     <record id="view_purchase_order_form_inherit_transit" model="ir.ui.view">
         <field name="name">purchase.order.form.inherit.transit</field>
         <field name="model">purchase.order</field>
         <field name="inherit_id" ref="purchase.purchase_order_form"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='partner_ref']" position="after">
-                <field name="sale_order_ids" widget="many2many_tags" readonly="1" 
-                    string="Pedidos Vinculados"/>
-            </xpath>
-            
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="allocation_summary" string="Clientes" readonly="1" optional="show"/>
                 <field name="total_allocated" string="Total Asignado" readonly="1" optional="hide"/>
@@ -37,7 +30,6 @@
         </field>
     </record>
 
-    <!-- Herencia del formulario de Línea de Compra -->
     <record id="view_purchase_order_line_form_inherit_allocations" model="ir.ui.view">
         <field name="name">purchase.order.line.form.inherit.allocations</field>
         <field name="model">purchase.order.line</field>
@@ -61,7 +53,6 @@
         </field>
     </record>
 
-    <!-- Acción para ver todas las allocations -->
     <record id="action_purchase_line_allocations" model="ir.actions.act_window">
         <field name="name">Asignaciones de Compra</field>
         <field name="res_model">purchase.order.line.allocation</field>
@@ -69,7 +60,6 @@
         <field name="context">{'search_default_group_by_purchase': 1}</field>
     </record>
 
-    <!-- Búsqueda de allocations -->
     <record id="view_purchase_line_allocation_search" model="ir.ui.view">
         <field name="name">purchase.order.line.allocation.search</field>
         <field name="model">purchase.order.line.allocation</field>
@@ -82,15 +72,14 @@
                 <filter name="pending" string="Pendientes" domain="[('state', '=', 'pending')]"/>
                 <filter name="in_transit" string="En Tránsito" domain="[('state', '=', 'in_transit')]"/>
                 <filter name="done" string="Recibidas" domain="[('state', '=', 'done')]"/>
-                    <filter name="group_by_purchase" string="Orden de Compra" context="{'group_by': 'purchase_order_id'}"/>
-                    <filter name="group_by_sale" string="Orden de Venta" context="{'group_by': 'sale_order_id'}"/>
-                    <filter name="group_by_partner" string="Cliente" context="{'group_by': 'partner_id'}"/>
-                    <filter name="group_by_state" string="Estado" context="{'group_by': 'state'}"/>
+                <filter name="group_by_purchase" string="Orden de Compra" context="{'group_by': 'purchase_order_id'}"/>
+                <filter name="group_by_sale" string="Orden de Venta" context="{'group_by': 'sale_order_id'}"/>
+                <filter name="group_by_partner" string="Cliente" context="{'group_by': 'partner_id'}"/>
+                <filter name="group_by_state" string="Estado" context="{'group_by': 'state'}"/>
             </search>
         </field>
     </record>
 
-    <!-- Menú para ver allocations -->
     <menuitem id="menu_purchase_allocations"
               name="Asignaciones"
               parent="purchase.menu_procurement_management"
