@@ -23,8 +23,8 @@
         'security/transit_security.xml',
         'security/ir.model.access.csv',
         'data/ir_sequence_data.xml',
+        'views/stock_transit_sheet_action.xml',  
         'views/stock_transit_voyage_views.xml',
-        'views/stock_transit_sheet_action.xml',          # <-- NUEVO: acción client para sábana
         'views/stock_picking_views.xml',
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
