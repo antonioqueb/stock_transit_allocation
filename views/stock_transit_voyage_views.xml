@@ -107,14 +107,6 @@
                     <notebook>
                         <page string="Contenido y Asignación" name="lots">
                             <field name="line_ids">
-                                <!--
-                                    Lista editable estándar de Odoo.
-                                    Se agrega el campo "propagate_btn" DESPUÉS de partner_id
-                                    con el widget transit_propagate_btn que muestra los botones ↓1 y ↓↓.
-                                    
-                                    IMPORTANTE: La columna "propagate_btn" no tiene encabezado de texto
-                                    (string=" ") y es muy estrecha, solo contiene los dos botones.
-                                -->
                                 <list create="0" delete="0" 
                                       decoration-success="allocation_status == 'reserved'" 
                                       decoration-muted="not lot_id" 
@@ -130,18 +122,6 @@
                                            options="{'no_create': True, 'no_create_edit': True}"
                                            placeholder="Seleccionar cliente..."/>
                                     
-                                    <!--
-                                        CAMPO DE PROPAGACIÓN:
-                                        El widget transit_propagate_btn renderiza dos botones:
-                                          ↓1  = propaga al siguiente registro
-                                          ↓↓  = propaga a todos los registros siguientes
-                                        
-                                        Solo aparecen cuando el registro actual tiene
-                                        partner_id asignado y hay filas debajo.
-                                        
-                                        nolabel="1" oculta el encabezado de columna en la lista.
-                                        width="60px" mantiene la columna compacta.
-                                    -->
                                     <field name="propagate_btn"
                                            widget="transit_propagate_btn"
                                            string=" "
@@ -260,9 +240,10 @@
     </record>
 
     <!-- ========================================================== -->
-    <!-- SÁBANA DE SEGUIMIENTO                                      -->
+    <!-- SÁBANA DE SEGUIMIENTO — Vista de lista nativa              -->
+    <!-- (Se mantiene para fallback, pero la acción apunta al      -->
+    <!-- componente OWL personalizado)                             -->
     <!-- ========================================================== -->
-
     <record id="view_transit_sheet_list" model="ir.ui.view">
         <field name="name">stock.transit.sheet.list</field>
         <field name="model">stock.transit.sheet</field>
@@ -294,14 +275,7 @@
         </field>
     </record>
 
-    <!-- ACCIONES -->
-    <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
-        <field name="name">Sábana de Seguimiento</field>
-        <field name="res_model">stock.transit.sheet</field>
-        <field name="view_mode">list</field>
-        <field name="view_id" ref="view_transit_sheet_list"/>
-    </record>
-
+    <!-- ACCIÓN VIAJES -->
     <record id="action_stock_transit_voyage_main" model="ir.actions.act_window">
         <field name="name">Viajes y Contenedores</field>
         <field name="res_model">stock.transit.voyage</field>

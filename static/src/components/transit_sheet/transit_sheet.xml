@@ -1,0 +1,301 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+<t t-name="stock_transit_allocation.TransitSheetView" owl="1">
+<div class="ts-root" t-on-click.self="closeColMenu">
+
+    <!-- ══════════════════════════════════════════════════════════
+         BARRA DE CONTROL
+    ══════════════════════════════════════════════════════════ -->
+    <div class="ts-toolbar">
+
+        <!-- Título + conteo -->
+        <div class="ts-toolbar__title">
+            <i class="fa fa-table ts-toolbar__icon"/>
+            <span class="ts-toolbar__label">Sábana de Seguimiento</span>
+            <span class="ts-count" t-esc="state.filtered.length"/>
+            <span class="ts-count-label"> registros</span>
+        </div>
+
+        <!-- Búsqueda -->
+        <div class="ts-search-wrap">
+            <i class="fa fa-search ts-search-icon"/>
+            <input class="ts-search-input"
+                   type="text"
+                   placeholder="Buscar OC, SO, cliente, producto, contenedor..."
+                   t-att-value="state.searchText"
+                   t-on-input="onSearch"/>
+            <button class="ts-search-clear"
+                    t-if="state.searchText"
+                    t-on-click="clearSearch">
+                <i class="fa fa-times"/>
+            </button>
+        </div>
+
+        <!-- Agrupación -->
+        <div class="ts-btn-group ts-group-by" role="group">
+            <span class="ts-btn-group__label">Agrupar:</span>
+            <button t-attf-class="ts-pill #{state.groupBy === 'none'    ? 'ts-pill--active' : ''}"
+                    t-on-click="() => this.setGroupBy('none')">Sin grupos</button>
+            <button t-attf-class="ts-pill #{state.groupBy === 'voyage'  ? 'ts-pill--active' : ''}"
+                    t-on-click="() => this.setGroupBy('voyage')">Viaje</button>
+            <button t-attf-class="ts-pill #{state.groupBy === 'partner' ? 'ts-pill--active' : ''}"
+                    t-on-click="() => this.setGroupBy('partner')">Cliente</button>
+            <button t-attf-class="ts-pill #{state.groupBy === 'status'  ? 'ts-pill--active' : ''}"
+                    t-on-click="() => this.setGroupBy('status')">Estado</button>
+        </div>
+
+        <!-- Acciones -->
+        <div class="ts-toolbar__actions">
+            <!-- Columnas -->
+            <div class="ts-col-menu-wrap">
+                <button class="ts-btn-icon" t-on-click="toggleColMenu" title="Mostrar/ocultar columnas">
+                    <i class="fa fa-columns"/>
+                </button>
+                <div class="ts-col-menu" t-if="state.showColMenu">
+                    <div class="ts-col-menu__title">Columnas visibles</div>
+                    <t t-foreach="COLUMNS" t-as="col" t-key="col.key">
+                        <label class="ts-col-menu__item">
+                            <input type="checkbox"
+                                   t-att-checked="!colHidden(col.key)"
+                                   t-on-change="() => this.toggleCol(col.key)"/>
+                            <span t-esc="col.label"/>
+                        </label>
+                    </t>
+                </div>
+            </div>
+            <!-- Refresh -->
+            <button class="ts-btn-icon" t-on-click="refresh" title="Actualizar datos">
+                <i t-attf-class="fa fa-refresh #{state.loading ? 'fa-spin' : ''}"/>
+            </button>
+        </div>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         CHIPS DE FILTRO POR ESTADO
+    ══════════════════════════════════════════════════════════ -->
+    <div class="ts-status-bar">
+        <button t-attf-class="ts-status-chip #{!state.statusFilter ? 'ts-status-chip--all' : ''}"
+                t-on-click="() => this.onStatusFilter('')">
+            Todos
+            <span class="ts-status-chip__count" t-esc="state.records.length"/>
+        </button>
+        <t t-foreach="allStatuses" t-as="st" t-key="st.key">
+            <t t-set="cnt" t-value="state.records.filter(r => r.voyage_status === st.key).length"/>
+            <button t-if="cnt > 0"
+                    t-attf-class="ts-status-chip #{st.cls} #{isFiltered(st.key) ? 'ts-status-chip--selected' : ''}"
+                    t-on-click="() => this.onStatusFilter(st.key)">
+                <t t-esc="st.label"/>
+                <span class="ts-status-chip__count" t-esc="cnt"/>
+            </button>
+        </t>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         ESTADO: CARGANDO
+    ══════════════════════════════════════════════════════════ -->
+    <div class="ts-loading" t-if="state.loading">
+        <i class="fa fa-spinner fa-spin fa-2x ts-loading__icon"/>
+        <span class="ts-loading__text">Cargando sábana...</span>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         ESTADO: SIN DATOS
+    ══════════════════════════════════════════════════════════ -->
+    <div class="ts-empty" t-elif="state.filtered.length === 0">
+        <i class="fa fa-inbox fa-3x ts-empty__icon"/>
+        <p class="ts-empty__text">No hay registros que coincidan con los filtros.</p>
+        <button class="ts-btn-outline" t-on-click="clearSearch">Limpiar búsqueda</button>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════════
+         TABLA PRINCIPAL
+    ══════════════════════════════════════════════════════════ -->
+    <t t-elif="!state.loading">
+        <div class="ts-table-scroll-wrapper">
+            <table class="ts-table">
+
+                <!-- CABECERA -->
+                <thead class="ts-thead">
+                    <tr>
+                        <t t-foreach="visibleCols" t-as="col" t-key="col.key">
+                            <th t-attf-class="ts-th #{col.align === 'right' ? 'ts-th--right' : ''}"
+                                t-att-style="'min-width:' + col.width + '; width:' + col.width"
+                                t-on-click="() => this.onSort(col.key)">
+                                <span t-esc="col.label"/>
+                                <i t-attf-class="fa #{sortIcon(col.key)} ts-sort-icon"/>
+                            </th>
+                        </t>
+                    </tr>
+                </thead>
+
+                <!-- CUERPO: SIN AGRUPACIÓN -->
+                <tbody t-if="!isGrouped">
+                    <t t-foreach="state.filtered" t-as="row" t-key="row.id">
+                        <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status || 'none'}">
+                            <t t-foreach="visibleCols" t-as="col" t-key="col.key">
+                                <!-- OC Sistema -->
+                                <td t-if="col.key === 'purchase_id'"
+                                    class="ts-td ts-td--link"
+                                    t-on-click="(ev) => this.openPurchase(idOf(row.purchase_id), ev)">
+                                    <span t-esc="strOf(row.purchase_id)"/>
+                                </td>
+                                <!-- Sales Order -->
+                                <td t-elif="col.key === 'order_id'"
+                                    class="ts-td ts-td--link"
+                                    t-on-click="(ev) => this.openSaleOrder(idOf(row.order_id), ev)">
+                                    <span t-esc="strOf(row.order_id)"/>
+                                </td>
+                                <!-- Estado -->
+                                <td t-elif="col.key === 'voyage_status'" class="ts-td ts-td--center">
+                                    <span t-attf-class="ts-badge #{statusInfo(row.voyage_status).cls}"
+                                          t-esc="statusInfo(row.voyage_status).label"/>
+                                </td>
+                                <!-- Fechas -->
+                                <td t-elif="col.key === 'date_order'" class="ts-td ts-td--date">
+                                    <span t-esc="fmtDate(row.date_order ? row.date_order.split(' ')[0] : '')"/>
+                                </td>
+                                <td t-elif="col.key === 'etd'" class="ts-td ts-td--date">
+                                    <span t-esc="fmtDate(row.etd)"/>
+                                </td>
+                                <td t-elif="col.key === 'eta'" class="ts-td ts-td--date">
+                                    <t t-set="isLate" t-value="row.eta and row.voyage_status !== 'delivered' and row.eta lt new Date().toISOString().split('T')[0]"/>
+                                    <span t-attf-class="#{row.voyage_status !== 'delivered' and row.eta ? 'ts-eta' : ''}"
+                                          t-esc="fmtDate(row.eta)"/>
+                                </td>
+                                <td t-elif="col.key === 'arrival_date'" class="ts-td ts-td--date">
+                                    <span t-esc="fmtDate(row.arrival_date)"/>
+                                </td>
+                                <!-- m² -->
+                                <td t-elif="col.key === 'product_uom_qty'" class="ts-td ts-td--num">
+                                    <span t-esc="fmtNum(row.product_uom_qty)"/>
+                                </td>
+                                <!-- Contenedor -->
+                                <td t-elif="col.key === 'container_number'" class="ts-td">
+                                    <span t-if="row.container_number and row.container_number !== 'PENDIENTE'"
+                                          class="ts-chip-container"
+                                          t-esc="row.container_number"/>
+                                    <span t-else="" class="ts-text-muted">—</span>
+                                </td>
+                                <!-- Default: many2one o char -->
+                                <td t-else="" class="ts-td">
+                                    <span t-esc="strOf(row[col.key])"/>
+                                </td>
+                            </t>
+                        </tr>
+                    </t>
+
+                    <!-- FILA TOTALES -->
+                    <tr class="ts-tr-total">
+                        <t t-foreach="visibleCols" t-as="col" t-key="col.key">
+                            <td t-if="col.key === 'purchase_id'" class="ts-td-total ts-td-total--label">
+                                TOTAL (<t t-esc="state.filtered.length"/> reg.)
+                            </td>
+                            <td t-elif="col.key === 'product_uom_qty'" class="ts-td-total ts-td-total--num">
+                                <t t-esc="fmtNum(totalM2)"/> m²
+                            </td>
+                            <td t-else="" class="ts-td-total"/>
+                        </t>
+                    </tr>
+                </tbody>
+
+                <!-- CUERPO: CON AGRUPACIÓN -->
+                <tbody t-if="isGrouped">
+                    <t t-foreach="state.groups" t-as="grp" t-key="grp.key">
+                        <!-- Cabecera de grupo -->
+                        <tr class="ts-group-header"
+                            t-on-click="() => this.toggleGroup(grp.key)">
+                            <td t-att-colspan="visibleCols.length">
+                                <div class="ts-group-header__inner">
+                                    <i t-attf-class="fa #{grpCollapsed(grp.key) ? 'fa-chevron-right' : 'fa-chevron-down'} ts-group-chevron"/>
+                                    <span class="ts-group-label" t-esc="grp.label"/>
+                                    <span class="ts-group-badge"><t t-esc="grp.rows.length"/> registros</span>
+                                    <span class="ts-group-m2">
+                                        <t t-esc="fmtNum(grp.total_m2)"/> m²
+                                    </span>
+                                </div>
+                            </td>
+                        </tr>
+
+                        <!-- Filas del grupo -->
+                        <t t-if="!grpCollapsed(grp.key)">
+                            <t t-foreach="grp.rows" t-as="row" t-key="row.id">
+                                <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status || 'none'}">
+                                    <t t-foreach="visibleCols" t-as="col" t-key="col.key">
+                                        <td t-if="col.key === 'purchase_id'"
+                                            class="ts-td ts-td--link"
+                                            t-on-click="(ev) => this.openPurchase(idOf(row.purchase_id), ev)">
+                                            <span t-esc="strOf(row.purchase_id)"/>
+                                        </td>
+                                        <td t-elif="col.key === 'order_id'"
+                                            class="ts-td ts-td--link"
+                                            t-on-click="(ev) => this.openSaleOrder(idOf(row.order_id), ev)">
+                                            <span t-esc="strOf(row.order_id)"/>
+                                        </td>
+                                        <td t-elif="col.key === 'voyage_status'" class="ts-td ts-td--center">
+                                            <span t-attf-class="ts-badge #{statusInfo(row.voyage_status).cls}"
+                                                  t-esc="statusInfo(row.voyage_status).label"/>
+                                        </td>
+                                        <td t-elif="col.key === 'date_order'" class="ts-td ts-td--date">
+                                            <span t-esc="fmtDate(row.date_order ? row.date_order.split(' ')[0] : '')"/>
+                                        </td>
+                                        <td t-elif="col.key === 'etd'" class="ts-td ts-td--date">
+                                            <span t-esc="fmtDate(row.etd)"/>
+                                        </td>
+                                        <td t-elif="col.key === 'eta'" class="ts-td ts-td--date">
+                                            <span t-attf-class="#{row.voyage_status !== 'delivered' and row.eta ? 'ts-eta' : ''}"
+                                                  t-esc="fmtDate(row.eta)"/>
+                                        </td>
+                                        <td t-elif="col.key === 'arrival_date'" class="ts-td ts-td--date">
+                                            <span t-esc="fmtDate(row.arrival_date)"/>
+                                        </td>
+                                        <td t-elif="col.key === 'product_uom_qty'" class="ts-td ts-td--num">
+                                            <span t-esc="fmtNum(row.product_uom_qty)"/>
+                                        </td>
+                                        <td t-elif="col.key === 'container_number'" class="ts-td">
+                                            <span t-if="row.container_number and row.container_number !== 'PENDIENTE'"
+                                                  class="ts-chip-container"
+                                                  t-esc="row.container_number"/>
+                                            <span t-else="" class="ts-text-muted">—</span>
+                                        </td>
+                                        <td t-else="" class="ts-td">
+                                            <span t-esc="strOf(row[col.key])"/>
+                                        </td>
+                                    </t>
+                                </tr>
+                            </t>
+                            <!-- Subtotal de grupo -->
+                            <tr class="ts-tr-subtotal">
+                                <t t-foreach="visibleCols" t-as="col" t-key="col.key">
+                                    <td t-if="col.key === 'purchase_id'" class="ts-td-subtotal ts-td-subtotal--label">
+                                        Subtotal grupo
+                                    </td>
+                                    <td t-elif="col.key === 'product_uom_qty'" class="ts-td-subtotal ts-td-subtotal--num">
+                                        <t t-esc="fmtNum(grp.total_m2)"/> m²
+                                    </td>
+                                    <td t-else="" class="ts-td-subtotal"/>
+                                </t>
+                            </tr>
+                        </t>
+                    </t>
+
+                    <!-- Total general -->
+                    <tr class="ts-tr-total">
+                        <t t-foreach="visibleCols" t-as="col" t-key="col.key">
+                            <td t-if="col.key === 'purchase_id'" class="ts-td-total ts-td-total--label">
+                                TOTAL GENERAL (<t t-esc="state.filtered.length"/> reg.)
+                            </td>
+                            <td t-elif="col.key === 'product_uom_qty'" class="ts-td-total ts-td-total--num">
+                                <t t-esc="fmtNum(totalM2)"/> m²
+                            </td>
+                            <td t-else="" class="ts-td-total"/>
+                        </t>
+                    </tr>
+                </tbody>
+
+            </table>
+        </div>
+    </t>
+
+</div>
+</t>
+</templates>

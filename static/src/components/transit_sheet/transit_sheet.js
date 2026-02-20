@@ -1,0 +1,339 @@
+/** @odoo-module **/
+/**
+ * ARCHIVO: transit_sheet.js
+ *
+ * Vista personalizada para la Sábana de Seguimiento (stock.transit.sheet).
+ * Reemplaza la vista de lista nativa con una tabla HTML altamente personalizada.
+ *
+ * Características:
+ * - Todos los registros siempre visibles (sin expansión)
+ * - Filtros nativos preservados via SearchModel
+ * - Columnas fijas con estilo refinado
+ * - Agrupación por viaje con totales
+ * - Badges de estado con colores semánticos
+ */
+import { registry } from "@web/core/registry";
+import { Component, useState, onWillStart, onMounted } from "@odoo/owl";
+import { useService } from "@web/core/utils/hooks";
+
+// Mapeo de estados a etiquetas y clases CSS
+const STATUS_MAP = {
+    solicitud:         { label: "Solicitud",          cls: "ts-badge--solicitud" },
+    production:        { label: "Producción",         cls: "ts-badge--production" },
+    booking:           { label: "Booking",            cls: "ts-badge--booking" },
+    puerto_origen:     { label: "Puerto Origen",      cls: "ts-badge--puerto" },
+    on_sea:            { label: "En Altamar",         cls: "ts-badge--sea" },
+    puerto_destino:    { label: "Pto. Destino",       cls: "ts-badge--puerto" },
+    arrived_port:      { label: "Arribo Puerto",      cls: "ts-badge--arrived" },
+    reception_pending: { label: "En Recepción",       cls: "ts-badge--reception" },
+    delivered:         { label: "Entregado",          cls: "ts-badge--delivered" },
+    cancel:            { label: "Cancelado",          cls: "ts-badge--cancel" },
+};
+
+const COLUMNS = [
+    { key: "purchase_id",      label: "OC Sistema",        width: "110px" },
+    { key: "date_order",       label: "Fecha OC",          width: "90px"  },
+    { key: "voyage_status",    label: "Estado",            width: "120px" },
+    { key: "salesperson_id",   label: "Vendedor",          width: "100px" },
+    { key: "order_id",         label: "Sales Order",       width: "110px" },
+    { key: "partner_id",       label: "Cliente / Proyecto",width: "160px" },
+    { key: "proforma_ref",     label: "Proforma",          width: "110px" },
+    { key: "vendor_id",        label: "Proveedor",         width: "130px" },
+    { key: "product_id",       label: "Descripción",       width: "160px" },
+    { key: "product_uom_qty",  label: "m² Embarcados",     width: "100px", align: "right", isNum: true },
+    { key: "container_number", label: "Contenedor",        width: "110px" },
+    { key: "bl_number",        label: "BL / Folio",        width: "120px" },
+    { key: "etd",              label: "ETD",               width: "85px"  },
+    { key: "eta",              label: "ETA",               width: "85px"  },
+    { key: "arrival_date",     label: "Llegada Real",      width: "90px"  },
+];
+
+export class TransitSheetView extends Component {
+    static template = "stock_transit_allocation.TransitSheetView";
+
+    setup() {
+        this.orm        = useService("orm");
+        this.action     = useService("action");
+        this.notification = useService("notification");
+
+        this.COLUMNS = COLUMNS;
+        this.STATUS_MAP = STATUS_MAP;
+
+        this.state = useState({
+            records:        [],
+            filtered:       [],
+            loading:        true,
+            // Filtros locales
+            searchText:     "",
+            statusFilter:   "",
+            sortKey:        "eta",
+            sortDir:        "asc",
+            // Agrupación
+            groupBy:        "none",  // 'none' | 'voyage' | 'partner' | 'status'
+            groups:         [],
+            collapsedGroups:{},
+            // Columnas opcionales
+            hiddenCols:     new Set(["arrival_date"]),
+            showColMenu:    false,
+        });
+
+        onWillStart(async () => {
+            await this.loadData();
+        });
+    }
+
+    // ─── Data ──────────────────────────────────────────────────────────────────
+
+    async loadData() {
+        this.state.loading = true;
+        try {
+            const fields = COLUMNS.map(c => c.key).concat([
+                "voyage_id", "shipping_line",
+            ]);
+            const records = await this.orm.searchRead(
+                "stock.transit.sheet",
+                [],
+                fields,
+                { order: "eta asc, voyage_id desc", limit: 2000 }
+            );
+            this.state.records = records;
+            this.applyFiltersAndSort();
+        } catch (e) {
+            console.error("[TransitSheet] Error cargando datos:", e);
+            this.notification.add("Error al cargar la sábana", { type: "danger" });
+        } finally {
+            this.state.loading = false;
+        }
+    }
+
+    async refresh() {
+        await this.loadData();
+        this.notification.add("Datos actualizados", { type: "success", sticky: false });
+    }
+
+    // ─── Filtros y Sort ────────────────────────────────────────────────────────
+
+    applyFiltersAndSort() {
+        let data = [...this.state.records];
+
+        // Búsqueda de texto
+        const q = this.state.searchText.trim().toLowerCase();
+        if (q) {
+            data = data.filter(r => {
+                return (
+                    this._str(r.purchase_id).toLowerCase().includes(q) ||
+                    this._str(r.order_id).toLowerCase().includes(q) ||
+                    this._str(r.partner_id).toLowerCase().includes(q) ||
+                    this._str(r.product_id).toLowerCase().includes(q) ||
+                    this._str(r.vendor_id).toLowerCase().includes(q) ||
+                    (r.bl_number || "").toLowerCase().includes(q) ||
+                    (r.container_number || "").toLowerCase().includes(q) ||
+                    (r.proforma_ref || "").toLowerCase().includes(q)
+                );
+            });
+        }
+
+        // Filtro de estado
+        if (this.state.statusFilter) {
+            data = data.filter(r => r.voyage_status === this.state.statusFilter);
+        }
+
+        // Ordenamiento
+        const key = this.state.sortKey;
+        const dir = this.state.sortDir === "asc" ? 1 : -1;
+        data.sort((a, b) => {
+            const va = this._sortVal(a, key);
+            const vb = this._sortVal(b, key);
+            if (va < vb) return -1 * dir;
+            if (va > vb) return  1 * dir;
+            return 0;
+        });
+
+        this.state.filtered = data;
+        this._buildGroups(data);
+    }
+
+    _sortVal(r, key) {
+        const v = r[key];
+        if (!v) return "";
+        if (Array.isArray(v)) return v[1] || "";
+        return v;
+    }
+
+    _buildGroups(data) {
+        if (this.state.groupBy === "none") {
+            this.state.groups = [];
+            return;
+        }
+
+        const map = new Map();
+        for (const r of data) {
+            let key, label;
+            if (this.state.groupBy === "voyage") {
+                key   = r.voyage_id?.[0] || 0;
+                label = r.voyage_id?.[1] || "Sin viaje";
+            } else if (this.state.groupBy === "partner") {
+                key   = r.partner_id?.[0] || 0;
+                label = r.partner_id?.[1] || "Sin cliente";
+            } else if (this.state.groupBy === "status") {
+                key   = r.voyage_status || "none";
+                label = STATUS_MAP[key]?.label || key;
+            }
+            if (!map.has(key)) map.set(key, { key, label, rows: [], total_m2: 0 });
+            const g = map.get(key);
+            g.rows.push(r);
+            g.total_m2 += r.product_uom_qty || 0;
+        }
+        this.state.groups = [...map.values()];
+    }
+
+    // ─── Handlers de UI ────────────────────────────────────────────────────────
+
+    onSearch(ev) {
+        this.state.searchText = ev.target.value;
+        this.applyFiltersAndSort();
+    }
+
+    clearSearch() {
+        this.state.searchText = "";
+        this.applyFiltersAndSort();
+    }
+
+    onStatusFilter(status) {
+        this.state.statusFilter = this.state.statusFilter === status ? "" : status;
+        this.applyFiltersAndSort();
+    }
+
+    onSort(key) {
+        if (this.state.sortKey === key) {
+            this.state.sortDir = this.state.sortDir === "asc" ? "desc" : "asc";
+        } else {
+            this.state.sortKey = key;
+            this.state.sortDir = "asc";
+        }
+        this.applyFiltersAndSort();
+    }
+
+    setGroupBy(mode) {
+        this.state.groupBy = mode;
+        this.state.collapsedGroups = {};
+        this._buildGroups(this.state.filtered);
+    }
+
+    toggleGroup(key) {
+        this.state.collapsedGroups[key] = !this.state.collapsedGroups[key];
+    }
+
+    toggleCol(key) {
+        const h = this.state.hiddenCols;
+        if (h.has(key)) h.delete(key); else h.add(key);
+    }
+
+    toggleColMenu() {
+        this.state.showColMenu = !this.state.showColMenu;
+    }
+
+    closeColMenu() {
+        this.state.showColMenu = false;
+    }
+
+    // Abrir voyaje
+    openVoyage(voyageId, ev) {
+        ev?.stopPropagation();
+        if (!voyageId) return;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "stock.transit.voyage",
+            res_id: voyageId,
+            views: [[false, "form"]],
+            target: "current",
+        });
+    }
+
+    openSaleOrder(soId, ev) {
+        ev?.stopPropagation();
+        if (!soId) return;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "sale.order",
+            res_id: soId,
+            views: [[false, "form"]],
+            target: "current",
+        });
+    }
+
+    openPurchase(poId, ev) {
+        ev?.stopPropagation();
+        if (!poId) return;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "purchase.order",
+            res_id: poId,
+            views: [[false, "form"]],
+            target: "current",
+        });
+    }
+
+    // ─── Helpers de render ─────────────────────────────────────────────────────
+
+    _str(val) {
+        if (!val) return "—";
+        if (Array.isArray(val)) return val[1] || "—";
+        return String(val);
+    }
+
+    _id(val) {
+        if (!val) return false;
+        if (Array.isArray(val)) return val[0];
+        return val;
+    }
+
+    _fmtDate(val) {
+        if (!val) return "—";
+        // Odoo devuelve "YYYY-MM-DD"
+        const [y, m, d] = val.split("-");
+        return `${d}/${m}/${y}`;
+    }
+
+    _fmtNum(val) {
+        if (!val && val !== 0) return "—";
+        return Number(val).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    statusInfo(code) {
+        return STATUS_MAP[code] || { label: code || "—", cls: "" };
+    }
+
+    sortIcon(key) {
+        if (this.state.sortKey !== key) return "fa-sort";
+        return this.state.sortDir === "asc" ? "fa-sort-asc" : "fa-sort-desc";
+    }
+
+    get visibleCols() {
+        return COLUMNS.filter(c => !this.state.hiddenCols.has(c.key));
+    }
+
+    get totalM2() {
+        return this.state.filtered.reduce((s, r) => s + (r.product_uom_qty || 0), 0);
+    }
+
+    get allStatuses() {
+        return Object.entries(STATUS_MAP).map(([k, v]) => ({ key: k, ...v }));
+    }
+
+    get isGrouped() {
+        return this.state.groupBy !== "none";
+    }
+
+    // Helpers para template (necesarios porque OWL no permite llamadas complejas inline)
+    strOf(val)      { return this._str(val); }
+    idOf(val)       { return this._id(val); }
+    fmtDate(val)    { return this._fmtDate(val); }
+    fmtNum(val)     { return this._fmtNum(val); }
+    colHidden(key)  { return this.state.hiddenCols.has(key); }
+    isFiltered(s)   { return this.state.statusFilter === s; }
+    grpCollapsed(k) { return !!this.state.collapsedGroups[k]; }
+}
+
+TransitSheetView.template = "stock_transit_allocation.TransitSheetView";
+registry.category("actions").add("action_transit_sheet_custom", TransitSheetView);
