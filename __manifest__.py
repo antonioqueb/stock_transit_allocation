@@ -27,12 +27,12 @@
         'security/transit_security.xml',
         'security/ir.model.access.csv',
         'data/ir_sequence_data.xml',
-        'views/stock_transit_sheet_action.xml',  
+        'views/stock_transit_sheet_action.xml',
         'views/stock_transit_voyage_views.xml',
         'views/stock_picking_views.xml',
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
-        'views/to_be_purchased_views.xml', 
+        'views/to_be_purchased_views.xml',
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
     ],
@@ -45,9 +45,9 @@
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.scss',
             # Kanban
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.scss',
-            # NUEVO: Estilos del formulario del viaje (hero header + panel datos)
+            # Formulario del viaje (hero header + panel datos)
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form_odoo.scss',
-            # NUEVO: Estilos del componente de lista agrupada por producto
+            # Lista agrupada por producto (widget field)
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.scss',
             # JS existentes
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
@@ -62,6 +62,9 @@
             # Kanban
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.js',
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.xml',
+            # Widget agrupado por producto en el formulario del viaje
+            'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.js',
+            'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.xml',
         ],
     },
     'installable': True,
