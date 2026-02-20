@@ -174,6 +174,7 @@ class StockTransitLine(models.Model):
         """
         Override write para detectar cambios en partner_id/order_id
         y ejecutar la lógica de reserva automáticamente.
+        Solo ejecuta reserva física cuando hay AMBOS: partner_id Y order_id.
         """
         # Si viene del sync, no ejecutar lógica de reserva
         if self.env.context.get('skip_reservation_logic'):
@@ -205,16 +206,19 @@ class StockTransitLine(models.Model):
                 if old.get('partner_id') != (new_partner.id if new_partner else False) or \
                    old.get('order_id') != (new_order.id if new_order else False):
                     
-                    # Actualizar estado de asignación
+                    # Actualizar estado de asignación:
+                    # Solo "reserved" cuando hay AMBOS partner Y order
                     new_status = 'reserved' if (new_partner and new_order) else 'available'
                     if line.allocation_status != new_status:
                         super(StockTransitLine, line).write({'allocation_status': new_status})
                     
                     # Ejecutar lógica de reserva/liberación
+                    # Solo crear Hold Order cuando hay AMBOS
                     if new_partner and new_order:
                         line._execute_reservation_logic(new_partner, new_order)
                     elif not new_partner:
                         line._execute_release_logic()
+                    # Si solo hay partner sin order: no hacer nada en inventario, esperar order
                     
                     # Log en el viaje
                     if line.voyage_id:
@@ -223,6 +227,11 @@ class StockTransitLine(models.Model):
                                 line.lot_id.name or line.product_id.name,
                                 new_partner.name,
                                 new_order.name
+                            )
+                        elif new_partner and not new_order:
+                            msg = Markup("👤 <b>Cliente asignado (sin orden aún):</b> %s → %s") % (
+                                line.lot_id.name or line.product_id.name,
+                                new_partner.name,
                             )
                         else:
                             msg = Markup("🔓 <b>Liberado a Stock:</b> %s") % (
@@ -313,11 +322,11 @@ class StockTransitLine(models.Model):
             line.qty_proforma = po_qty
             line.qty_original_demand = so_qty
 
-    @api.constrains('partner_id', 'order_id')
-    def _check_order_assignment(self):
-        for record in self:
-            if record.partner_id and not record.order_id:
-                raise ValidationError(_("Debe seleccionar una Orden de Venta para el cliente %s." % record.partner_id.name))
+    # CONSTRAINT ELIMINADO: _check_order_assignment
+    # Razón: Al editar inline en la torre de control, el usuario primero selecciona
+    # el cliente y LUEGO la orden. El constraint bloqueaba el save intermedio con
+    # partner_id pero sin order_id, impidiendo el flujo normal de selección en 2 pasos.
+    # La validación de negocio se mantiene a nivel de Hold Order (TransitManager).
 
 
 class StockTransitSheet(models.Model):

@@ -1,7 +1,6 @@
 // ============================================================
 // transit_voyage_form.scss
 // Lista de lotes agrupada por producto — Viaje en Tránsito
-// Estética: industrial refinado, coherente con kanban y sábana
 // ============================================================
 
 // ─── Variables ────────────────────────────────────────────────────────────────
@@ -26,6 +25,7 @@ $tvl-shadow-sm:     0 1px 2px rgba(0,0,0,.05);
 $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
+// FIX: width 100% para que ocupe todo el ancho disponible
 .tvl-root {
     font-family:    $tvl-font;
     font-size:      12px;
@@ -34,6 +34,8 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
     border:         1px solid $tvl-border;
     border-radius:  $tvl-radius;
     overflow:       hidden;
+    width:          100%;
+    box-sizing:     border-box;
 }
 
 // ─── Loading ──────────────────────────────────────────────────────────────────
@@ -69,6 +71,8 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
     background:    $tvl-bg-group;
     border-bottom: 1px solid $tvl-border;
     flex-wrap:     wrap;
+    width:         100%;
+    box-sizing:    border-box;
 
     &__left {
         display:     flex;
@@ -180,19 +184,22 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
     animation:     tvl-fadein .2s ease;
 }
 
+// FIX: contador con fondo claro y texto oscuro legible
 .tvl-bulk-count {
-    background:    #fff;
+    background:    #e2e8f0;
     color:         $tvl-accent;
-    padding:       1px 7px;
+    padding:       1px 8px;
     border-radius: $tvl-radius-pill;
     font-size:     10px;
     font-weight:   700;
+    line-height:   1.6;
+    white-space:   nowrap;
 }
 
 .tvl-bulk-select {
     border:        1px solid rgba(255,255,255,.25);
     border-radius: $tvl-radius-sm;
-    background:    rgba(255,255,255,.1);
+    background:    rgba(255,255,255,.15);
     color:         #fff;
     font-family:   $tvl-font;
     font-size:     11px;
@@ -200,7 +207,12 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
     outline:       none;
     min-width:     140px;
 
-    option { background: $tvl-accent; color: #fff; }
+    option { background: #1e293b; color: #fff; }
+
+    &:disabled {
+        opacity: 0.5;
+        cursor:  not-allowed;
+    }
 }
 
 @keyframes tvl-fadein {
@@ -223,10 +235,12 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
 .tvl-groups {
     display:        flex;
     flex-direction: column;
+    width:          100%;
 }
 
 .tvl-group {
     border-bottom: 1px solid $tvl-border;
+    width:         100%;
 
     &:last-child { border-bottom: none; }
 }
@@ -241,6 +255,8 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
     user-select:   none;
     transition:    background .12s;
     gap:           12px;
+    width:         100%;
+    box-sizing:    border-box;
 
     &:hover { background: darken(#f1f5f9, 3%); }
 
@@ -363,8 +379,10 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
 }
 
 // ─── Tabla de lotes ───────────────────────────────────────────────────────────
+// FIX: ancho completo con scroll horizontal cuando sea necesario
 .tvl-table-wrap {
     overflow-x: auto;
+    width:      100%;
 
     &::-webkit-scrollbar { height: 4px; }
     &::-webkit-scrollbar-thumb { background: $tvl-border; border-radius: 2px; }
@@ -372,8 +390,10 @@ $tvl-shadow:        0 2px 8px rgba(0,0,0,.08);
 
 .tvl-table {
     width:           100%;
+    min-width:       900px;   // evita que se comprima demasiado, scroll horizontal en pantallas chicas
     border-collapse: collapse;
     font-size:       11px;
+    table-layout:    auto;    // columnas se ajustan al contenido
 }
 
 // Cabecera

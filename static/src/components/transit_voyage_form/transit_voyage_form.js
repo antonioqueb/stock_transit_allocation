@@ -178,21 +178,51 @@ class TransitVoyageLinesWidget extends Component {
         return e && e.lineId === lineId && e.field === field;
     }
 
+    /**
+     * Al cambiar cliente: actualiza localmente y guarda solo el partner.
+     * NO requiere order_id para guardar — el constraint fue eliminado en Python.
+     * Limpia la orden previamente seleccionada y abre selector de orden automáticamente.
+     */
     async onPartnerChange(line, ev) {
         const partnerId = parseInt(ev.target.value) || false;
-        this.state.editingCell = null;
-        await this.orm.write("stock.transit.line", [line.id], { partner_id: partnerId || false, order_id: false });
+
+        // Actualizar state local inmediatamente
         line.partner_id = partnerId ? [partnerId, this._partnerName(partnerId)] : false;
         line.order_id   = false;
         line.allocation_status = "available";
-        // Recalcular m² reservados del grupo
         this._recalcGroup(line);
+
+        // Guardar en DB: partner + limpiar order. El constraint ya no bloquea esto.
+        try {
+            await this.orm.write("stock.transit.line", [line.id], {
+                partner_id: partnerId || false,
+                order_id: false,
+            });
+        } catch (e) {
+            this.notification.add("Error guardando cliente: " + e.message, { type: "danger" });
+            return;
+        }
+
+        // Si hay cliente, abrir inmediatamente el selector de orden
+        if (partnerId) {
+            this.state.editingCell = { lineId: line.id, field: 'order_id' };
+        } else {
+            this.state.editingCell = null;
+        }
     }
 
     async onOrderChange(line, ev) {
         const orderId = parseInt(ev.target.value) || false;
         this.state.editingCell = null;
-        await this.orm.write("stock.transit.line", [line.id], { order_id: orderId || false });
+
+        // Guardar en DB
+        try {
+            await this.orm.write("stock.transit.line", [line.id], { order_id: orderId || false });
+        } catch (e) {
+            this.notification.add("Error guardando orden: " + e.message, { type: "danger" });
+            return;
+        }
+
         line.order_id = orderId ? [orderId, this._orderName(line, orderId)] : false;
         const hasAssignment = line.partner_id && orderId;
         line.allocation_status = hasAssignment ? "reserved" : "available";
