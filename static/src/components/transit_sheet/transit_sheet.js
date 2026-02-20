@@ -143,19 +143,19 @@ export class TransitSheetView extends Component {
         }
         const map = new Map();
         for (const r of data) {
-            let key, label;
+            let grpKey, label;
             if (this.state.groupBy === "voyage") {
-                key   = r.voyage_id?.[0] || 0;
-                label = r.voyage_id?.[1] || "Sin viaje";
+                grpKey = r.voyage_id ? r.voyage_id[0] : 0;
+                label  = r.voyage_id ? r.voyage_id[1] : "Sin viaje";
             } else if (this.state.groupBy === "partner") {
-                key   = r.partner_id?.[0] || 0;
-                label = r.partner_id?.[1] || "Sin cliente";
+                grpKey = r.partner_id ? r.partner_id[0] : 0;
+                label  = r.partner_id ? r.partner_id[1] : "Sin cliente";
             } else if (this.state.groupBy === "status") {
-                key   = r.voyage_status || "none";
-                label = STATUS_MAP[key]?.label || key;
+                grpKey = r.voyage_status || "none";
+                label  = STATUS_MAP[grpKey] ? STATUS_MAP[grpKey].label : grpKey;
             }
-            if (!map.has(key)) map.set(key, { key, label, rows: [], total_m2: 0 });
-            const g = map.get(key);
+            if (!map.has(grpKey)) map.set(grpKey, { key: grpKey, label, rows: [], total_m2: 0 });
+            const g = map.get(grpKey);
             g.rows.push(r);
             g.total_m2 += r.product_uom_qty || 0;
         }
@@ -212,10 +212,10 @@ export class TransitSheetView extends Component {
         this.state.showColMenu = false;
     }
 
-    // ─── Navegación — reciben la fila completa, no el valor pre-extraído ───────
+    // ─── Navegación ───────────────────────────────────────────────────────────
 
     openSaleOrder(row, ev) {
-        ev && ev.stopPropagation();
+        if (ev) ev.stopPropagation();
         const id = this._id(row.order_id);
         if (!id) return;
         this.action.doAction({
@@ -228,7 +228,7 @@ export class TransitSheetView extends Component {
     }
 
     openPurchase(row, ev) {
-        ev && ev.stopPropagation();
+        if (ev) ev.stopPropagation();
         const id = this._id(row.purchase_id);
         if (!id) return;
         this.action.doAction({
@@ -240,12 +240,8 @@ export class TransitSheetView extends Component {
         });
     }
 
-    // ─── Helpers ──────────────────────────────────────────────────────────────
+    // ─── Helpers internos ────────────────────────────────────────────────────
 
-    /**
-     * Extrae el ID de un campo Many2one de forma segura.
-     * Odoo devuelve: [id, "nombre"] | false | undefined
-     */
     _id(val) {
         if (!val) return false;
         if (Array.isArray(val)) return val[0] || false;
@@ -259,11 +255,19 @@ export class TransitSheetView extends Component {
         return String(val);
     }
 
+    /**
+     * Formatea una fecha YYYY-MM-DD o datetime "YYYY-MM-DD HH:MM:SS" a DD/MM/YYYY.
+     * No usa String() en el template — todo pasa por este método JS.
+     */
     _fmtDate(val) {
         if (!val) return "—";
-        const parts = String(val).split(/[T\s]/)[0].split("-");
-        if (parts.length !== 3) return String(val);
-        return `${parts[2]}/${parts[1]}/${parts[0]}`;
+        // val puede ser string "2025-03-15" o "2025-03-15 00:00:00" o false
+        const raw = (typeof val === "string") ? val : "";
+        if (!raw) return "—";
+        const datepart = raw.indexOf(" ") > -1 ? raw.split(" ")[0] : raw;
+        const parts = datepart.split("-");
+        if (parts.length !== 3) return raw;
+        return parts[2] + "/" + parts[1] + "/" + parts[0];
     }
 
     _fmtNum(val) {
@@ -283,6 +287,8 @@ export class TransitSheetView extends Component {
         return this.state.sortDir === "asc" ? "fa-sort-asc" : "fa-sort-desc";
     }
 
+    // ─── Getters / wrappers para el template ─────────────────────────────────
+
     get visibleCols() {
         return COLUMNS.filter(c => !this.state.hiddenCols.has(c.key));
     }
@@ -299,14 +305,16 @@ export class TransitSheetView extends Component {
         return this.state.groupBy !== "none";
     }
 
-    // Wrappers para el template
-    strOf(val)      { return this._str(val); }
-    fmtDate(val)    { return this._fmtDate(val); }
-    fmtNum(val)     { return this._fmtNum(val); }
-    colHidden(key)  { return this.state.hiddenCols.has(key); }
-    isFiltered(s)   { return this.state.statusFilter === s; }
-    grpCollapsed(k) { return !!this.state.collapsedGroups[k]; }
-    hasLink(val)    { return !!this._id(val); }
+    // Wrappers simples — el template solo llama métodos sin lógica inline
+    strOf(val)          { return this._str(val); }
+    fmtDate(val)        { return this._fmtDate(val); }
+    fmtDateOrder(row)   { return this._fmtDate(row.date_order); }   // evita split en template
+    fmtNum(val)         { return this._fmtNum(val); }
+    colHidden(key)      { return this.state.hiddenCols.has(key); }
+    isFiltered(s)       { return this.state.statusFilter === s; }
+    grpCollapsed(k)     { return !!this.state.collapsedGroups[k]; }
+    hasLink(val)        { return !!this._id(val); }
+    isContainer(val)    { return val && val !== "PENDIENTE"; }
 }
 
 TransitSheetView.template = "stock_transit_allocation.TransitSheetView";

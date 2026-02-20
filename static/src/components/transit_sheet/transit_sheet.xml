@@ -65,7 +65,7 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
-         CHIPS DE FILTRO POR ESTADO
+         CHIPS DE ESTADO
     ══════════════════════════════════════════════════════════ -->
     <div class="ts-status-bar">
         <button t-attf-class="ts-status-chip #{!state.statusFilter ? 'ts-status-chip--all' : ''}"
@@ -84,17 +84,13 @@
         </t>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════════
-         LOADING
-    ══════════════════════════════════════════════════════════ -->
+    <!-- LOADING -->
     <div class="ts-loading" t-if="state.loading">
         <i class="fa fa-spinner fa-spin fa-2x ts-loading__icon"/>
         <span class="ts-loading__text">Cargando sábana...</span>
     </div>
 
-    <!-- ══════════════════════════════════════════════════════════
-         VACÍO
-    ══════════════════════════════════════════════════════════ -->
+    <!-- VACÍO -->
     <div class="ts-empty" t-elif="state.filtered.length === 0">
         <i class="fa fa-inbox fa-3x ts-empty__icon"/>
         <p class="ts-empty__text">No hay registros que coincidan con los filtros.</p>
@@ -103,6 +99,8 @@
 
     <!-- ══════════════════════════════════════════════════════════
          TABLA
+         REGLA CLAVE: Cero llamadas a String(), split(), etc.
+         Todo pasa por métodos JS del componente.
     ══════════════════════════════════════════════════════════ -->
     <t t-elif="!state.loading">
         <div class="ts-table-scroll-wrapper">
@@ -122,72 +120,59 @@
                     </tr>
                 </thead>
 
-                <!-- ════════════════════════════════════════════
-                     MACRO: una fila de datos
-                     Se repite en tbody flat y en tbody agrupado.
-                     Pasamos `row` como variable de contexto.
-                ════════════════════════════════════════════ -->
-
-                <!-- CUERPO PLANO (sin agrupación) -->
+                <!-- ════════════════════════════
+                     CUERPO PLANO
+                ════════════════════════════ -->
                 <tbody t-if="!isGrouped">
                     <t t-foreach="state.filtered" t-as="row" t-key="row.id">
-                        <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status || 'none'}">
+                        <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status or 'none'}">
                             <t t-foreach="visibleCols" t-as="col" t-key="col.key">
 
-                                <!-- OC Sistema -->
                                 <td t-if="col.key === 'purchase_id'"
                                     t-attf-class="ts-td #{hasLink(row.purchase_id) ? 'ts-td--link' : ''}"
                                     t-on-click="(ev) => this.openPurchase(row, ev)">
                                     <span t-esc="strOf(row.purchase_id)"/>
                                 </td>
 
-                                <!-- Sales Order -->
                                 <td t-elif="col.key === 'order_id'"
                                     t-attf-class="ts-td #{hasLink(row.order_id) ? 'ts-td--link' : ''}"
                                     t-on-click="(ev) => this.openSaleOrder(row, ev)">
                                     <span t-esc="strOf(row.order_id)"/>
                                 </td>
 
-                                <!-- Estado -->
                                 <td t-elif="col.key === 'voyage_status'" class="ts-td ts-td--center">
                                     <span t-attf-class="ts-badge #{statusInfo(row.voyage_status).cls}"
                                           t-esc="statusInfo(row.voyage_status).label"/>
                                 </td>
 
-                                <!-- Fecha OC -->
+                                <!-- date_order usa fmtDateOrder(row) — sin String() inline -->
                                 <td t-elif="col.key === 'date_order'" class="ts-td ts-td--date">
-                                    <span t-esc="fmtDate(row.date_order ? String(row.date_order).split(' ')[0] : '')"/>
+                                    <span t-esc="fmtDateOrder(row)"/>
                                 </td>
 
-                                <!-- ETD -->
                                 <td t-elif="col.key === 'etd'" class="ts-td ts-td--date">
                                     <span t-esc="fmtDate(row.etd)"/>
                                 </td>
 
-                                <!-- ETA -->
                                 <td t-elif="col.key === 'eta'" class="ts-td ts-td--date">
                                     <span t-esc="fmtDate(row.eta)"/>
                                 </td>
 
-                                <!-- Llegada Real -->
                                 <td t-elif="col.key === 'arrival_date'" class="ts-td ts-td--date">
                                     <span t-esc="fmtDate(row.arrival_date)"/>
                                 </td>
 
-                                <!-- m² -->
                                 <td t-elif="col.key === 'product_uom_qty'" class="ts-td ts-td--num">
                                     <span t-esc="fmtNum(row.product_uom_qty)"/>
                                 </td>
 
-                                <!-- Contenedor -->
                                 <td t-elif="col.key === 'container_number'" class="ts-td">
-                                    <span t-if="row.container_number and row.container_number !== 'PENDIENTE'"
+                                    <span t-if="isContainer(row.container_number)"
                                           class="ts-chip-container"
                                           t-esc="row.container_number"/>
                                     <span t-else="" class="ts-text-muted">—</span>
                                 </td>
 
-                                <!-- Resto: many2one o char simples -->
                                 <td t-else="" class="ts-td">
                                     <span t-esc="strOf(row[col.key])"/>
                                 </td>
@@ -196,7 +181,7 @@
                         </tr>
                     </t>
 
-                    <!-- Fila total -->
+                    <!-- Fila de totales -->
                     <tr class="ts-tr-total">
                         <t t-foreach="visibleCols" t-as="col" t-key="col.key">
                             <td t-if="col.key === 'purchase_id'" class="ts-td-total ts-td-total--label">
@@ -210,11 +195,12 @@
                     </tr>
                 </tbody>
 
-                <!-- CUERPO AGRUPADO -->
+                <!-- ════════════════════════════
+                     CUERPO AGRUPADO
+                ════════════════════════════ -->
                 <tbody t-if="isGrouped">
                     <t t-foreach="state.groups" t-as="grp" t-key="grp.key">
 
-                        <!-- Cabecera de grupo -->
                         <tr class="ts-group-header" t-on-click="() => this.toggleGroup(grp.key)">
                             <td t-att-colspan="visibleCols.length">
                                 <div class="ts-group-header__inner">
@@ -226,10 +212,9 @@
                             </td>
                         </tr>
 
-                        <!-- Filas del grupo -->
                         <t t-if="!grpCollapsed(grp.key)">
                             <t t-foreach="grp.rows" t-as="row" t-key="row.id">
-                                <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status || 'none'}">
+                                <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status or 'none'}">
                                     <t t-foreach="visibleCols" t-as="col" t-key="col.key">
 
                                         <td t-if="col.key === 'purchase_id'"
@@ -250,7 +235,7 @@
                                         </td>
 
                                         <td t-elif="col.key === 'date_order'" class="ts-td ts-td--date">
-                                            <span t-esc="fmtDate(row.date_order ? String(row.date_order).split(' ')[0] : '')"/>
+                                            <span t-esc="fmtDateOrder(row)"/>
                                         </td>
 
                                         <td t-elif="col.key === 'etd'" class="ts-td ts-td--date">
@@ -270,7 +255,7 @@
                                         </td>
 
                                         <td t-elif="col.key === 'container_number'" class="ts-td">
-                                            <span t-if="row.container_number and row.container_number !== 'PENDIENTE'"
+                                            <span t-if="isContainer(row.container_number)"
                                                   class="ts-chip-container"
                                                   t-esc="row.container_number"/>
                                             <span t-else="" class="ts-text-muted">—</span>
@@ -284,7 +269,6 @@
                                 </tr>
                             </t>
 
-                            <!-- Subtotal de grupo -->
                             <tr class="ts-tr-subtotal">
                                 <t t-foreach="visibleCols" t-as="col" t-key="col.key">
                                     <td t-if="col.key === 'purchase_id'" class="ts-td-subtotal ts-td-subtotal--label">
@@ -300,7 +284,6 @@
 
                     </t>
 
-                    <!-- Total general -->
                     <tr class="ts-tr-total">
                         <t t-foreach="visibleCols" t-as="col" t-key="col.key">
                             <td t-if="col.key === 'purchase_id'" class="ts-td-total ts-td-total--label">
