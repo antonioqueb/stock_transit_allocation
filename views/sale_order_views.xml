@@ -8,11 +8,12 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="has_stone_lots" column_invisible="1"/>
-                <field name="auto_transit_assign" optional="show" width="100px"
+                <field name="auto_transit_assign"
+                       optional="show"
+                       width="100px"
                        readonly="has_stone_lots"/>
                 <field name="transit_status"
-                       optional="show"
-                       column_invisible="not auto_transit_assign"
+                       optional="hide"
                        widget="badge"
                        decoration-secondary="transit_status == 'solicitud'"
                        decoration-warning="transit_status in ['production', 'booking', 'puerto_origen']"
@@ -22,8 +23,7 @@
                        string="Estado Embarque"
                        readonly="1"/>
                 <field name="transit_eta"
-                       optional="show"
-                       column_invisible="not auto_transit_assign"
+                       optional="hide"
                        string="ETA Embarque"
                        readonly="1"/>
             </xpath>
