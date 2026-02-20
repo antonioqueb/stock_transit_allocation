@@ -369,6 +369,20 @@ class StockTransitVoyage(models.Model):
             'target': 'current',
         }
 
+    def write(self, vals):
+        res = super().write(vals)
+        if 'custom_status' in vals or 'eta' in vals:
+            # Invalidar cache de las líneas de venta relacionadas
+            transit_lines = self.mapped('line_ids')
+            order_ids = transit_lines.mapped('order_id')
+            if order_ids:
+                sol = self.env['sale.order.line'].search([
+                    ('order_id', 'in', order_ids.ids),
+                    ('auto_transit_assign', '=', True),
+                ])
+                sol._compute_transit_info()
+        return res
+
     def action_load_from_purchase(self):
         """
         Carga líneas en el Voyage desde la Orden de Compra.

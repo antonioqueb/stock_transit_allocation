@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- ── Formulario: columnas extra en líneas ── -->
     <record id="view_order_form_transit_inherit" model="ir.ui.view">
         <field name="name">sale.order.form.transit.inherit</field>
         <field name="model">sale.order</field>
@@ -9,6 +10,61 @@
                 <field name="has_stone_lots" column_invisible="1"/>
                 <field name="auto_transit_assign" optional="show" width="100px"
                        readonly="has_stone_lots"/>
+                <!-- Estado del embarque: solo visible si mandar pedir -->
+                <field name="transit_status"
+                       optional="show"
+                       column_invisible="not auto_transit_assign"
+                       widget="badge"
+                       decoration-secondary="transit_status == 'solicitud'"
+                       decoration-warning="transit_status in ['production', 'booking', 'puerto_origen']"
+                       decoration-info="transit_status in ['on_sea', 'puerto_destino']"
+                       decoration-danger="transit_status == 'arrived_port'"
+                       decoration-success="transit_status == 'delivered'"
+                       string="Estado Embarque"
+                       readonly="1"/>
+                <!-- ETA: solo visible si mandar pedir -->
+                <field name="transit_eta"
+                       optional="show"
+                       column_invisible="not auto_transit_assign"
+                       string="ETA Embarque"
+                       readonly="1"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── Lista de SO: indicador has_mandar_pedir ── -->
+    <record id="view_order_list_transit_inherit" model="ir.ui.view">
+        <field name="name">sale.order.list.transit.inherit</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list" position="inside">
+                <field name="has_mandar_pedir" column_invisible="1"/>
+            </xpath>
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="has_mandar_pedir"
+                       string="🛒"
+                       optional="show"
+                       widget="boolean_toggle"
+                       readonly="1"
+                       title="Tiene líneas Mandar Pedir"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ── Vista de búsqueda: filtro y agrupación ── -->
+    <record id="view_sales_order_filter_transit_inherit" model="ir.ui.view">
+        <field name="name">sale.order.filter.transit.inherit</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_sales_order_filter"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='my_sale_orders_filter']" position="after">
+                <filter name="has_mandar_pedir"
+                        string="Con Mandar Pedir"
+                        domain="[('has_mandar_pedir', '=', True)]"/>
+                <filter name="group_mandar_pedir"
+                        string="Agrupar por Mandar Pedir"
+                        context="{'group_by': 'has_mandar_pedir'}"/>
             </xpath>
         </field>
     </record>
