@@ -22,7 +22,7 @@ const COLUMNS = [
     { key: "voyage_status",    label: "Estado",             width: "120px" },
     { key: "salesperson_id",   label: "Vendedor",           width: "160px" },  // 100 → 160
     { key: "order_id",         label: "Sales Order",        width: "110px" },
-    { key: "partner_id",       label: "Cliente / Proyecto", width: "200px" },
+    { key: "partner_id",       label: "Cliente / Proyecto", width: "260px" },
     { key: "proforma_ref",     label: "Proforma",           width: "110px" },
     { key: "vendor_id",        label: "Proveedor",          width: "200px" },  // 130 → 200
     { key: "product_id",       label: "Descripción",        width: "290px" },  // 160 → 290
