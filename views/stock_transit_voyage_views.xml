@@ -46,25 +46,25 @@
                     <button name="action_advance_status" type="object"
                             class="btn-primary"
                             invisible="custom_status in ['delivered', 'cancel']"
-                            string="⏩ Avanzar Estado"/>
+                            string="⏩"/>
                     <button name="action_retreat_status" type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
-                            string="⏪ Retroceder"/>
+                            string="⏪"/>
                     <separator/>
-                    <button name="action_load_from_purchase" string="🔄 Cargar desde OC" type="object"
+                    <button name="action_load_from_purchase" string="🔄 Cargar" type="object"
                             class="btn-info"
                             invisible="picking_id != False or custom_status == 'delivered'"/>
-                    <button name="action_load_from_picking" string="🚢 Sincronizar Lotes" type="object"
+                    <button name="action_load_from_picking" string="🚢 Sincronizar" type="object"
                             class="btn-secondary"
                             invisible="picking_id == False or custom_status == 'delivered'"/>
-                    <button name="action_generate_reception" string="🏭 Generar Recepción Física" type="object"
+                    <button name="action_generate_reception" string="🏭 Recibir" type="object"
                             class="btn-warning"
                             invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
-                    <button name="action_generate_reception" string="📋 Ver Recepción" type="object"
+                    <button name="action_generate_reception" string="📋 Recepción" type="object"
                             class="btn-success"
                             invisible="reception_picking_id == False"/>
-                    <button name="action_sync_reception_from_voyage" string="📦 Recibir en Almacén" type="object"
+                    <button name="action_sync_reception_from_voyage" string="📦 Recepcionar" type="object"
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
                     <button name="action_arrive" string="🏁 Cerrar Viaje" type="object"
