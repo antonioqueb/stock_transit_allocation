@@ -213,7 +213,7 @@
                         <div class="vf-lots-section__header">
                             <div class="vf-lots-section__title">
                                 <i class="fa fa-th-list"/> Contenido del Embarque
-                                <span class="vf-lots-section__subtitle">Por producto · agrupado</span>
+                                <span class="vf-lots-section__subtitle">Agrupado por producto · Click para expandir/colapsar</span>
                             </div>
                             <div class="vf-lots-section__actions">
                                 <div class="vf-info-tip">
@@ -223,66 +223,8 @@
                             </div>
                         </div>
 
-                        <!-- Lista original editable (fallback Odoo) -->
-                        <!-- 
-                             NOTA: Mantenemos la lista nativa de Odoo aquí
-                             porque el componente OWL de agrupación es un PLUS
-                             visual. La lista nativa garantiza la compatibilidad
-                             con los onchanges, constrains y el framework Odoo.
-                             El componente JS de agrupación se monta en la vista
-                             del cliente action separada.
-                             
-                             Si quieres solo el componente OWL, puedes ocultar esta lista.
-                        -->
-                        <field name="line_ids" widget="one2many" class="vf-lines-table">
-                            <list create="0" delete="0"
-                                  decoration-success="allocation_status == 'reserved'"
-                                  decoration-muted="not lot_id"
-                                  editable="bottom"
-                                  default_order="product_id asc, lot_id asc"
-                                  optional_columns_enabled="true">
-
-                                <!-- Columnas de identificación del lote -->
-                                <field name="product_id" readonly="1" optional="show"
-                                       decoration-bf="1"/>
-                                <field name="lot_id" readonly="1" optional="show"
-                                       placeholder="Sin lote aún..."/>
-                                <field name="container_number" readonly="1" optional="show"/>
-
-                                <!-- Dimensiones del lote -->
-                                <field name="x_bloque" readonly="1" optional="show" string="Bloque"/>
-                                <field name="x_atado" readonly="1" optional="show" string="Atado"/>
-                                <field name="x_grosor" readonly="1" optional="show" string="Grosor"/>
-                                <field name="x_alto" readonly="1" optional="show" string="Alto (cm)"/>
-                                <field name="x_ancho" readonly="1" optional="show" string="Ancho (cm)"/>
-
-                                <!-- Métricas -->
-                                <field name="product_uom_qty" string="m²" sum="Total m²" readonly="1"/>
-
-                                <!-- Asignación -->
-                                <field name="eligible_partner_ids" column_invisible="1"/>
-                                <field name="partner_id"
-                                       widget="many2one"
-                                       options="{'no_create': True, 'no_create_edit': True}"
-                                       placeholder="Seleccionar cliente..."/>
-                                <field name="propagate_btn"
-                                       widget="transit_propagate_btn"
-                                       string=" "
-                                       nolabel="1"
-                                       width="60px"
-                                       readonly="0"/>
-                                <field name="eligible_order_ids" column_invisible="1"/>
-                                <field name="order_id"
-                                       widget="many2one"
-                                       options="{'no_create': True, 'no_create_edit': True}"
-                                       placeholder="Seleccionar orden..."/>
-                                <field name="allocation_status" widget="badge" readonly="1"
-                                       decoration-success="allocation_status == 'reserved'"
-                                       decoration-info="allocation_status == 'available'"
-                                       optional="show"/>
-                                <field name="notes" optional="hide"/>
-                            </list>
-                        </field>
+                        <!-- Widget OWL que agrupa por producto -->
+                        <field name="line_ids" widget="transit_voyage_lines"/>
                     </div>
 
                     <!-- ════════════════════════════════════════════════
