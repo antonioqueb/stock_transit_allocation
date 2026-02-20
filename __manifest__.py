@@ -49,6 +49,10 @@
             # NUEVO: Sábana personalizada (JS antes que XML)
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.js',
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.xml',
+
+            'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.scss',
+            'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.js',
+            'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.xml',
         ],
     },
     'installable': True,

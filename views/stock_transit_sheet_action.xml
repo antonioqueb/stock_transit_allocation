@@ -1,8 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Client action con ID NUEVO (no conflicta con el act_window existente) -->
+    <!-- Client action: Sábana de Seguimiento -->
     <record id="action_transit_sheet_custom_client" model="ir.actions.client">
         <field name="name">Sábana de Seguimiento</field>
         <field name="tag">action_transit_sheet_custom</field>
+    </record>
+
+    <!-- Client action: Kanban Viajes y Contenedores -->
+    <record id="action_transit_kanban_custom_client" model="ir.actions.client">
+        <field name="name">Viajes y Contenedores</field>
+        <field name="tag">action_transit_kanban_custom</field>
     </record>
 </odoo>
