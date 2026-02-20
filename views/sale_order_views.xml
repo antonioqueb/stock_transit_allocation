@@ -10,7 +10,6 @@
                 <field name="has_stone_lots" column_invisible="1"/>
                 <field name="auto_transit_assign" optional="show" width="100px"
                        readonly="has_stone_lots"/>
-                <!-- Estado del embarque: solo visible si mandar pedir -->
                 <field name="transit_status"
                        optional="show"
                        column_invisible="not auto_transit_assign"
@@ -22,27 +21,11 @@
                        decoration-success="transit_status == 'delivered'"
                        string="Estado Embarque"
                        readonly="1"/>
-                <!-- ETA: solo visible si mandar pedir -->
                 <field name="transit_eta"
                        optional="show"
                        column_invisible="not auto_transit_assign"
                        string="ETA Embarque"
                        readonly="1"/>
-            </xpath>
-        </field>
-    </record>
-
-    <!-- ── Lista de SO: indicador has_mandar_pedir ── -->
-    <record id="view_order_list_transit_inherit" model="ir.ui.view">
-        <field name="name">sale.order.list.transit.inherit</field>
-        <field name="model">sale.order</field>
-        <field name="inherit_id" ref="sale.view_quotation_with_onboarding_list"/>
-        <field name="arch" type="xml">
-            <xpath expr="//field[@name='name']" position="after">
-                <field name="has_mandar_pedir"
-                    string="🛒 Pedir"
-                    optional="show"
-                    readonly="1"/>
             </xpath>
         </field>
     </record>
