@@ -287,7 +287,7 @@
               web_icon="stock_transit_allocation,static/description/icon.png" sequence="10"/>
 
     <menuitem id="menu_transit_sheet" name="Sábana de Seguimiento" 
-              parent="menu_transit_root" action="action_transit_tracking_sheet" sequence="1"/>
+              parent="menu_transit_root" action="action_transit_sheet_custom_client" sequence="1"/>
 
     <menuitem id="menu_transit_voyage_dashboard" name="Viajes y Contenedores" 
               parent="menu_transit_root" action="action_stock_transit_voyage_main" sequence="2"/>
