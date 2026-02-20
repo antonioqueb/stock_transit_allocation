@@ -443,6 +443,7 @@ $ts-radius-pill:    20px;
     border-top:    2px solid $ts-border-strong;
     font-size:     11px;
     color:         $ts-accent;
+    width:         40px;
 
     &--label { color: $ts-text-secondary; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
     &--num   { text-align: right; font-variant-numeric: tabular-nums; }
