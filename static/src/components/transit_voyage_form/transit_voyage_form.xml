@@ -36,32 +36,6 @@
             </div>
 
             <div class="tvl-toolbar__right">
-                <!-- Panel masivo -->
-                <t t-if="selectedCount > 0">
-                    <div class="tvl-bulk-panel">
-                        <span class="tvl-bulk-count"><t t-esc="selectedCount"/> sel.</span>
-                        <select class="tvl-bulk-select" t-on-change="onBulkPartnerChange">
-                            <option value="">— Cliente —</option>
-                            <t t-foreach="state.allPartners" t-as="pt" t-key="pt.id">
-                                <option t-att-value="pt.id" t-esc="pt.name"/>
-                            </t>
-                        </select>
-                        <select class="tvl-bulk-select"
-                                t-att-disabled="!state.bulkPartner"
-                                t-on-change="onBulkOrderChange">
-                            <option value="">— Orden —</option>
-                            <t t-foreach="bulkOrders" t-as="o" t-key="o.id">
-                                <option t-att-value="o.id" t-esc="o.name"/>
-                            </t>
-                        </select>
-                        <button class="tvl-btn tvl-btn--assign" t-on-click="assignBulk">
-                            <i class="fa fa-check"/> Asignar
-                        </button>
-                        <button class="tvl-btn tvl-btn--ghost" t-on-click="clearBulk">
-                            <i class="fa fa-times"/>
-                        </button>
-                    </div>
-                </t>
                 <button class="tvl-btn tvl-btn--refresh" t-on-click="refresh" title="Recargar">
                     <i class="fa fa-refresh"/>
                 </button>
@@ -244,7 +218,7 @@
                                             </t>
                                         </td>
 
-                                        <!-- Botón propagar — solo si tiene cliente y hay filas abajo -->
+                                        <!-- Botón propagar -->
                                         <td class="tvl-td tvl-td--prop">
                                             <t t-if="line.partner_id and line_index &lt; group.lines.length - 1">
                                                 <button class="tvl-prop-btn"
@@ -335,6 +309,145 @@
         </div>
 
     </t>
+
+    <!-- ══════════════════════════════════════════════════════════
+         BARRA FLOTANTE DE ASIGNACIÓN MASIVA
+         Aparece en la parte inferior cuando hay lotes seleccionados
+    ══════════════════════════════════════════════════════════ -->
+    <t t-if="selectedCount > 0">
+        <div class="tvl-floating-bar">
+            <div class="tvl-floating-bar__left">
+                <!-- Contador de lotes -->
+                <div class="tvl-floating-bar__counter">
+                    <span class="tvl-floating-bar__count" t-esc="selectedCount"/>
+                    <span class="tvl-floating-bar__count-label">lotes</span>
+                </div>
+                <!-- Separador -->
+                <div class="tvl-floating-bar__sep"/>
+                <!-- Total m² -->
+                <div class="tvl-floating-bar__m2">
+                    <i class="fa fa-th"/>
+                    <span t-esc="fmtNum(selectedM2)"/> m² seleccionados
+                </div>
+            </div>
+            <div class="tvl-floating-bar__right">
+                <button class="tvl-floating-bar__btn-clear" t-on-click="clearSelection">
+                    <i class="fa fa-times"/> Cancelar
+                </button>
+                <button class="tvl-floating-bar__btn-assign" t-on-click="openAssignPopup">
+                    <i class="fa fa-user-plus"/> Asignar Cliente
+                </button>
+            </div>
+        </div>
+    </t>
+
+    <!-- ══════════════════════════════════════════════════════════
+         POPUP DE ASIGNACIÓN
+    ══════════════════════════════════════════════════════════ -->
+    <t t-if="state.showAssignPopup">
+        <!-- Backdrop -->
+        <div class="tvl-popup-backdrop" t-on-click="closeAssignPopup"/>
+
+        <!-- Dialog -->
+        <div class="tvl-popup">
+            <!-- Header -->
+            <div class="tvl-popup__header">
+                <div class="tvl-popup__header-icon">
+                    <i class="fa fa-user-plus"/>
+                </div>
+                <div class="tvl-popup__header-text">
+                    <h4 class="tvl-popup__title">Asignar Lotes</h4>
+                    <p class="tvl-popup__subtitle">
+                        <strong t-esc="selectedCount"/> lotes · <t t-esc="fmtNum(selectedM2)"/> m²
+                    </p>
+                </div>
+                <button class="tvl-popup__close" t-on-click="closeAssignPopup">
+                    <i class="fa fa-times"/>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="tvl-popup__body">
+
+                <!-- Resumen de lotes seleccionados -->
+                <div class="tvl-popup__summary">
+                    <div class="tvl-popup__summary-title">
+                        <i class="fa fa-list-ul"/> Resumen de selección
+                    </div>
+                    <div class="tvl-popup__summary-rows">
+                        <t t-foreach="selectedSummary" t-as="row" t-key="row.product">
+                            <div class="tvl-popup__summary-row">
+                                <span class="tvl-popup__summary-product" t-esc="row.product"/>
+                                <div class="tvl-popup__summary-meta">
+                                    <span class="tvl-popup__summary-count">
+                                        <i class="fa fa-tag"/> <t t-esc="row.count"/> lotes
+                                    </span>
+                                    <span class="tvl-popup__summary-m2">
+                                        <t t-esc="fmtNum(row.m2)"/> m²
+                                    </span>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- Selector de cliente -->
+                <div class="tvl-popup__field-group">
+                    <label class="tvl-popup__label">
+                        <i class="fa fa-user"/> Cliente
+                        <span class="tvl-popup__required">*</span>
+                    </label>
+                    <select class="tvl-popup__select"
+                            t-on-change="onPopupPartnerChange">
+                        <option value="">— Seleccionar cliente —</option>
+                        <t t-foreach="state.allPartners" t-as="pt" t-key="pt.id">
+                            <option t-att-value="pt.id"
+                                    t-att-selected="state.popupPartner === pt.id"
+                                    t-esc="pt.name"/>
+                        </t>
+                    </select>
+                </div>
+
+                <!-- Selector de orden de venta -->
+                <div class="tvl-popup__field-group">
+                    <label t-attf-class="tvl-popup__label #{!state.popupPartner ? 'tvl-popup__label--disabled' : ''}">
+                        <i class="fa fa-file-text-o"/> Sales Order
+                        <span class="tvl-popup__optional">(opcional)</span>
+                    </label>
+                    <select class="tvl-popup__select"
+                            t-att-disabled="!state.popupPartner"
+                            t-on-change="onPopupOrderChange">
+                        <option value="">— Seleccionar orden —</option>
+                        <t t-foreach="popupOrders" t-as="o" t-key="o.id">
+                            <option t-att-value="o.id"
+                                    t-att-selected="state.popupOrder === o.id"
+                                    t-esc="o.name"/>
+                        </t>
+                    </select>
+                    <p t-if="!state.popupPartner" class="tvl-popup__hint">
+                        Seleccione un cliente primero
+                    </p>
+                    <p t-elif="popupOrders.length === 0" class="tvl-popup__hint tvl-popup__hint--warn">
+                        <i class="fa fa-exclamation-triangle"/> Sin órdenes para este cliente
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="tvl-popup__footer">
+                <button class="tvl-popup__btn-cancel" t-on-click="closeAssignPopup">
+                    Cancelar
+                </button>
+                <button t-attf-class="tvl-popup__btn-confirm #{!state.popupPartner ? 'tvl-popup__btn-confirm--disabled' : ''}"
+                        t-on-click="confirmAssign"
+                        t-att-disabled="!state.popupPartner">
+                    <i class="fa fa-check"/> Confirmar Asignación
+                </button>
+            </div>
+        </div>
+    </t>
+
 </div>
 
 </t>

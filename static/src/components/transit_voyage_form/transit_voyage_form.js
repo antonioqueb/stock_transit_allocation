@@ -2,7 +2,7 @@
 /**
  * TransitVoyageLinesWidget
  * Field widget que reemplaza la lista nativa de stock.transit.line
- * con una vista agrupada por producto + propagación inline.
+ * con una vista agrupada por producto + propagación inline + barra flotante de asignación.
  *
  * Uso en XML: <field name="line_ids" widget="transit_voyage_lines"/>
  */
@@ -29,8 +29,10 @@ class TransitVoyageLinesWidget extends Component {
             allOrders:     {},
             editingCell:   null,   // { lineId, field }
             selectedLines: new Set(),
-            bulkPartner:   null,
-            bulkOrder:     null,
+            // Popup de asignación masiva
+            showAssignPopup: false,
+            popupPartner:    null,
+            popupOrder:      null,
         });
 
         onWillStart(async () => {
@@ -123,7 +125,7 @@ class TransitVoyageLinesWidget extends Component {
                     total_m2:     0,
                     reserved_m2:  0,
                     lot_count:    0,
-                    blocks:       new Map(), // <-- NUEVO
+                    blocks:       new Map(),
                 });
             }
             const g = map.get(pid);
@@ -132,7 +134,6 @@ class TransitVoyageLinesWidget extends Component {
             if (line.allocation_status === "reserved") g.reserved_m2 += line.product_uom_qty || 0;
             if (line.lot_id) g.lot_count++;
 
-            // Agrupación por bloque
             const blockName = line.x_bloque || "Sin Bloque";
             if (!g.blocks.has(blockName)) {
                 g.blocks.set(blockName, { name: blockName, total_m2: 0, count: 0 });
@@ -141,15 +142,10 @@ class TransitVoyageLinesWidget extends Component {
             b.total_m2 += line.product_uom_qty || 0;
             b.count++;
         }
-        // Convertir blocks Map a Array ordenado por count desc
         this.state.groups = [...map.values()].map(g => ({
             ...g,
             blocks: [...g.blocks.values()].sort((a, b) => b.count - a.count),
         }));
-    }
-
-    _getBlocksForGroup(group) {
-        return group.blocks || [];
     }
 
     async _loadPartnersAndOrders(lines) {
@@ -196,21 +192,14 @@ class TransitVoyageLinesWidget extends Component {
         return e && e.lineId === lineId && e.field === field;
     }
 
-    /**
-     * Al cambiar cliente: actualiza localmente y guarda solo el partner.
-     * NO requiere order_id para guardar — el constraint fue eliminado en Python.
-     * Limpia la orden previamente seleccionada y abre selector de orden automáticamente.
-     */
     async onPartnerChange(line, ev) {
         const partnerId = parseInt(ev.target.value) || false;
 
-        // Actualizar state local inmediatamente
         line.partner_id = partnerId ? [partnerId, this._partnerName(partnerId)] : false;
         line.order_id   = false;
         line.allocation_status = "available";
         this._recalcGroup(line);
 
-        // Guardar en DB: partner + limpiar order. El constraint ya no bloquea esto.
         try {
             await this.orm.write("stock.transit.line", [line.id], {
                 partner_id: partnerId || false,
@@ -221,7 +210,6 @@ class TransitVoyageLinesWidget extends Component {
             return;
         }
 
-        // Si hay cliente, abrir inmediatamente el selector de orden
         if (partnerId) {
             this.state.editingCell = { lineId: line.id, field: 'order_id' };
         } else {
@@ -233,7 +221,6 @@ class TransitVoyageLinesWidget extends Component {
         const orderId = parseInt(ev.target.value) || false;
         this.state.editingCell = null;
 
-        // Guardar en DB
         try {
             await this.orm.write("stock.transit.line", [line.id], { order_id: orderId || false });
         } catch (e) {
@@ -291,43 +278,88 @@ class TransitVoyageLinesWidget extends Component {
     isLineSelected(id) { return this.state.selectedLines.has(id); }
     get selectedCount() { return this.state.selectedLines.size; }
 
-    async assignBulk() {
-        if (!this.state.selectedLines.size || !this.state.bulkPartner) {
-            this.notification.add("Seleccione líneas y un cliente", { type: "warning" });
+    // ─── M² total de los seleccionados ────────────────────────────────────────
+    get selectedM2() {
+        let total = 0;
+        for (const g of this.state.groups) {
+            for (const l of g.lines) {
+                if (this.state.selectedLines.has(l.id)) {
+                    total += l.product_uom_qty || 0;
+                }
+            }
+        }
+        return total;
+    }
+
+    // ─── Resumen de lotes seleccionados para el popup ─────────────────────────
+    get selectedSummary() {
+        const rows = [];
+        for (const g of this.state.groups) {
+            const gLines = g.lines.filter(l => this.state.selectedLines.has(l.id));
+            if (!gLines.length) continue;
+            rows.push({
+                product: g.product_name,
+                count: gLines.length,
+                m2: gLines.reduce((s, l) => s + (l.product_uom_qty || 0), 0),
+            });
+        }
+        return rows;
+    }
+
+    // ─── Popup de asignación masiva ───────────────────────────────────────────
+
+    openAssignPopup() {
+        if (!this.state.selectedLines.size) {
+            this.notification.add("Seleccione al menos un lote", { type: "warning" });
+            return;
+        }
+        this.state.popupPartner = null;
+        this.state.popupOrder   = null;
+        this.state.showAssignPopup = true;
+    }
+
+    closeAssignPopup() {
+        this.state.showAssignPopup = false;
+    }
+
+    onPopupPartnerChange(ev) {
+        this.state.popupPartner = parseInt(ev.target.value) || null;
+        this.state.popupOrder   = null;
+    }
+
+    onPopupOrderChange(ev) {
+        this.state.popupOrder = parseInt(ev.target.value) || null;
+    }
+
+    get popupOrders() {
+        if (!this.state.popupPartner) return [];
+        return this.state.allOrders[this.state.popupPartner] || [];
+    }
+
+    async confirmAssign() {
+        if (!this.state.popupPartner) {
+            this.notification.add("Seleccione un cliente", { type: "warning" });
             return;
         }
         const ids  = [...this.state.selectedLines];
-        const vals = { partner_id: this.state.bulkPartner, order_id: this.state.bulkOrder || false };
+        const vals = {
+            partner_id: this.state.popupPartner,
+            order_id:   this.state.popupOrder || false,
+        };
         try {
             await this.orm.write("stock.transit.line", ids, vals);
-            this.notification.add(`${ids.length} líneas asignadas`, { type: "success" });
+            this.notification.add(`${ids.length} lotes asignados`, { type: "success" });
             this.state.selectedLines = new Set();
-            this.state.bulkPartner   = null;
-            this.state.bulkOrder     = null;
+            this.state.showAssignPopup = false;
             await this.refresh();
         } catch (e) {
             this.notification.add("Error: " + e.message, { type: "danger" });
         }
     }
 
-    clearBulk() {
+    clearSelection() {
         this.state.selectedLines = new Set();
-        this.state.bulkPartner   = null;
-        this.state.bulkOrder     = null;
-    }
-
-    onBulkPartnerChange(ev) {
-        this.state.bulkPartner = parseInt(ev.target.value) || null;
-        this.state.bulkOrder   = null;
-    }
-
-    onBulkOrderChange(ev) {
-        this.state.bulkOrder = parseInt(ev.target.value) || null;
-    }
-
-    get bulkOrders() {
-        if (!this.state.bulkPartner) return [];
-        return this.state.allOrders[this.state.bulkPartner] || [];
+        this.state.showAssignPopup = false;
     }
 
     // ─── Propagación ─────────────────────────────────────────────────────────
