@@ -12,7 +12,7 @@ from odoo.tools import drop_view_if_exists
 
 class StockTransitSheet(models.Model):
     _name = 'stock.transit.sheet'
-    _description = 'Sábana de Seguimiento (Resumen)'
+    _description = 'Cronograma (Resumen)'
     _auto = False
     _order = 'eta asc, voyage_id desc'
 

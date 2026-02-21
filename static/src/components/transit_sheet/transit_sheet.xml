@@ -10,7 +10,7 @@
 
         <div class="ts-toolbar__title">
             <i class="fa fa-table ts-toolbar__icon"/>
-            <span class="ts-toolbar__label">Sábana de Seguimiento</span>
+            <span class="ts-toolbar__label">Cronograma</span>
             <span class="ts-count" t-esc="state.filtered.length"/>
             <span class="ts-count-label"> registros</span>
         </div>

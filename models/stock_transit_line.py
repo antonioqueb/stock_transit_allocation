@@ -331,7 +331,7 @@ class StockTransitLine(models.Model):
 
 class StockTransitSheet(models.Model):
     _name = 'stock.transit.sheet'
-    _description = 'Sábana de Seguimiento (Resumen)'
+    _description = 'Cronograma (Resumen)'
     _auto = False
     _order = 'eta asc, voyage_id desc'
 

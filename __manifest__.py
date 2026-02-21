@@ -15,7 +15,7 @@
         - Asignación masiva multi-selección con panel flotante.
 
         Novedades v5.1:
-        - SÁBANA DE SEGUIMIENTO: Vista completamente personalizada con componente OWL.
+        - Cronograma: Vista completamente personalizada con componente OWL.
         - BOTONES DE PROPAGACIÓN en la lista de líneas del viaje.
         - CONSOLIDACIÓN DE LÍNEAS: Una sola línea por producto en la OC.
         - ALLOCATIONS: Modelo intermedio para trackear qué cantidad va a cada cliente.
@@ -36,14 +36,14 @@
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
         'wizard/transit_status_change_wizard_views.xml',
-        
+
     ],
     'assets': {
         'web.assets_backend': [
             # CSS existentes
             'stock_transit_allocation/static/src/css/transit_style.css',
             'stock_transit_allocation/static/src/css/transit_voyage_lines.css',
-            # Sábana de seguimiento
+            # Cronograma
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.scss',
             # Kanban
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.scss',

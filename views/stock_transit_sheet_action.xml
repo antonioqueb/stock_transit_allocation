@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Client action: Sábana de Seguimiento -->
+    <!-- Client action: Cronograma -->
     <record id="action_transit_sheet_custom_client" model="ir.actions.client">
-        <field name="name">Sábana de Seguimiento</field>
+        <field name="name">Cronograma</field>
         <field name="tag">action_transit_sheet_custom</field>
     </record>
 

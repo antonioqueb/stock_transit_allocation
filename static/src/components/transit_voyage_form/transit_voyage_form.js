@@ -123,6 +123,7 @@ class TransitVoyageLinesWidget extends Component {
                     total_m2:     0,
                     reserved_m2:  0,
                     lot_count:    0,
+                    blocks:       new Map(), // <-- NUEVO
                 });
             }
             const g = map.get(pid);
@@ -130,8 +131,25 @@ class TransitVoyageLinesWidget extends Component {
             g.total_m2 += line.product_uom_qty || 0;
             if (line.allocation_status === "reserved") g.reserved_m2 += line.product_uom_qty || 0;
             if (line.lot_id) g.lot_count++;
+
+            // Agrupación por bloque
+            const blockName = line.x_bloque || "Sin Bloque";
+            if (!g.blocks.has(blockName)) {
+                g.blocks.set(blockName, { name: blockName, total_m2: 0, count: 0 });
+            }
+            const b = g.blocks.get(blockName);
+            b.total_m2 += line.product_uom_qty || 0;
+            b.count++;
         }
-        this.state.groups = [...map.values()];
+        // Convertir blocks Map a Array ordenado por count desc
+        this.state.groups = [...map.values()].map(g => ({
+            ...g,
+            blocks: [...g.blocks.values()].sort((a, b) => b.count - a.count),
+        }));
+    }
+
+    _getBlocksForGroup(group) {
+        return group.blocks || [];
     }
 
     async _loadPartnersAndOrders(lines) {
