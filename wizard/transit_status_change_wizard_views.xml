@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_transit_status_change_wizard_form" model="ir.ui.view">
+        <field name="name">transit.status.change.wizard.form</field>
+        <field name="model">transit.status.change.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Cambio de Estado">
+                <group>
+                    <group string="Cambio de Etapa">
+                        <field name="current_status" widget="badge"/>
+                        <field name="next_status_label" readonly="1"/>
+                    </group>
+                    <group string="Viaje">
+                        <field name="voyage_id" readonly="1"/>
+                        <field name="direction" invisible="1"/>
+                    </group>
+                </group>
+                <group string="Comentario (opcional)">
+                    <field name="notes" nolabel="1" placeholder="Motivo del cambio: retraso en puerto, cambio de buque, problema aduanal..."/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Confirmar Cambio" class="btn-primary"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

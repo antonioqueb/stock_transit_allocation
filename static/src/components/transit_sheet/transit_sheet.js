@@ -16,22 +16,40 @@ const STATUS_MAP = {
     cancel:            { label: "Cancelado",          cls: "ts-badge--cancel" },
 };
 
+// Cambio #4: mapa de alertas ETA
+const ETA_ALERT_MAP = {
+    ok:      { label: "En Tiempo",         cls: "ts-eta-ok",      icon: "fa-circle" },
+    warning: { label: "Próximo a Vencer",  cls: "ts-eta-warning", icon: "fa-exclamation-triangle" },
+    danger:  { label: "Vencido",           cls: "ts-eta-danger",  icon: "fa-times-circle" },
+    done:    { label: "Entregado",         cls: "ts-eta-done",    icon: "fa-check-circle" },
+};
+
 const COLUMNS = [
-    { key: "purchase_id",      label: "OC Sistema",         width: "110px" },
-    { key: "date_order",       label: "Fecha OC",           width: "90px"  },
-    { key: "voyage_status",    label: "Estado",             width: "120px" },
-    { key: "salesperson_id",   label: "Vendedor",           width: "160px" },  // 100 → 160
-    { key: "order_id",         label: "Sales Order",        width: "110px" },
-    { key: "partner_id",       label: "Cliente / Proyecto", width: "260px" },
-    { key: "proforma_ref",     label: "Proforma",           width: "110px" },
-    { key: "vendor_id",        label: "Proveedor",          width: "200px" },  // 130 → 200
-    { key: "product_id",       label: "Descripción",        width: "290px" },  // 160 → 290
-    { key: "product_uom_qty",  label: "m² Embarcados",      width: "100px", align: "right", isNum: true },
-    { key: "container_number", label: "Contenedor",         width: "110px" },
-    { key: "bl_number",        label: "BL / Folio",         width: "120px" },
-    { key: "etd",              label: "ETD",                width: "85px"  },
-    { key: "eta",              label: "ETA",                width: "85px"  },
-    { key: "arrival_date",     label: "Llegada Real",       width: "90px"  },
+    { key: "purchase_id",         label: "OC Sistema",          width: "110px" },
+    { key: "date_order",          label: "Fecha OC",            width: "90px"  },
+    { key: "voyage_status",       label: "Estado",              width: "120px" },
+    // Cambio #4: columna alerta ETA
+    { key: "eta_alert_level",     label: "Alerta",              width: "100px" },
+    { key: "salesperson_id",      label: "Vendedor",            width: "160px" },
+    { key: "order_id",            label: "Sales Order",         width: "110px" },
+    { key: "partner_id",          label: "Cliente / Proyecto",  width: "260px" },
+    { key: "proforma_ref",        label: "Proforma",            width: "110px" },
+    { key: "vendor_id",           label: "Proveedor",           width: "200px" },
+    { key: "product_id",          label: "Descripción",         width: "290px" },
+    // Cambio #7: categoría
+    { key: "product_categ_id",    label: "Categoría",           width: "130px" },
+    { key: "product_uom_qty",     label: "m² Embarcados",       width: "100px", align: "right", isNum: true },
+    { key: "container_number",    label: "Contenedor",          width: "110px" },
+    { key: "bl_number",           label: "BL / Folio",          width: "120px" },
+    { key: "etd",                 label: "ETD",                 width: "85px"  },
+    { key: "eta",                 label: "ETA",                 width: "85px"  },
+    // Cambio #3: ETA original
+    { key: "eta_original",        label: "ETA Original",        width: "90px"  },
+    // Cambio #3: días de retraso
+    { key: "delay_days",          label: "Días Retraso",        width: "90px", align: "right", isNum: true },
+    { key: "arrival_date",        label: "Llegada Real",        width: "90px"  },
+    // Cambio #8: entregado en bodega
+    { key: "arrival_date_bodega", label: "En Bodega",           width: "90px"  },
 ];
 
 export class TransitSheetView extends Component {
@@ -44,6 +62,7 @@ export class TransitSheetView extends Component {
 
         this.COLUMNS    = COLUMNS;
         this.STATUS_MAP = STATUS_MAP;
+        this.ETA_ALERT_MAP = ETA_ALERT_MAP;
 
         this.state = useState({
             records:         [],
@@ -51,12 +70,14 @@ export class TransitSheetView extends Component {
             loading:         true,
             searchText:      "",
             statusFilter:    "",
+            alertFilter:     "",
             sortKey:         "eta",
             sortDir:         "asc",
             groupBy:         "none",
             groups:          [],
             collapsedGroups: {},
-            hiddenCols:      new Set(["arrival_date"]),
+            // Ocultas por defecto: delay_days, eta_original, arrival_date_bodega, arrival_date
+            hiddenCols:      new Set(["arrival_date", "eta_original", "delay_days"]),
             showColMenu:     false,
         });
 
@@ -105,6 +126,7 @@ export class TransitSheetView extends Component {
                 this._str(r.partner_id).toLowerCase().includes(q) ||
                 this._str(r.product_id).toLowerCase().includes(q) ||
                 this._str(r.vendor_id).toLowerCase().includes(q) ||
+                this._str(r.product_categ_id).toLowerCase().includes(q) ||
                 (r.bl_number || "").toLowerCase().includes(q) ||
                 (r.container_number || "").toLowerCase().includes(q) ||
                 (r.proforma_ref || "").toLowerCase().includes(q)
@@ -113,6 +135,11 @@ export class TransitSheetView extends Component {
 
         if (this.state.statusFilter) {
             data = data.filter(r => r.voyage_status === this.state.statusFilter);
+        }
+
+        // Cambio #4: filtro por alerta
+        if (this.state.alertFilter) {
+            data = data.filter(r => r.eta_alert_level === this.state.alertFilter);
         }
 
         const key = this.state.sortKey;
@@ -153,6 +180,10 @@ export class TransitSheetView extends Component {
             } else if (this.state.groupBy === "status") {
                 grpKey = r.voyage_status || "none";
                 label  = STATUS_MAP[grpKey] ? STATUS_MAP[grpKey].label : grpKey;
+            } else if (this.state.groupBy === "category") {
+                // Cambio #7: agrupar por categoría
+                grpKey = r.product_categ_id ? r.product_categ_id[0] : 0;
+                label  = r.product_categ_id ? r.product_categ_id[1] : "Sin categoría";
             }
             if (!map.has(grpKey)) map.set(grpKey, { key: grpKey, label, rows: [], total_m2: 0 });
             const g = map.get(grpKey);
@@ -176,6 +207,12 @@ export class TransitSheetView extends Component {
 
     onStatusFilter(status) {
         this.state.statusFilter = this.state.statusFilter === status ? "" : status;
+        this.applyFiltersAndSort();
+    }
+
+    // Cambio #4: filtro por alerta
+    onAlertFilter(level) {
+        this.state.alertFilter = this.state.alertFilter === level ? "" : level;
         this.applyFiltersAndSort();
     }
 
@@ -255,13 +292,8 @@ export class TransitSheetView extends Component {
         return String(val);
     }
 
-    /**
-     * Formatea una fecha YYYY-MM-DD o datetime "YYYY-MM-DD HH:MM:SS" a DD/MM/YYYY.
-     * No usa String() en el template — todo pasa por este método JS.
-     */
     _fmtDate(val) {
         if (!val) return "—";
-        // val puede ser string "2025-03-15" o "2025-03-15 00:00:00" o false
         const raw = (typeof val === "string") ? val : "";
         if (!raw) return "—";
         const datepart = raw.indexOf(" ") > -1 ? raw.split(" ")[0] : raw;
@@ -280,6 +312,11 @@ export class TransitSheetView extends Component {
 
     statusInfo(code) {
         return STATUS_MAP[code] || { label: code || "—", cls: "" };
+    }
+
+    // Cambio #4: info de alerta
+    alertInfo(level) {
+        return ETA_ALERT_MAP[level] || { label: "—", cls: "", icon: "fa-circle" };
     }
 
     sortIcon(key) {
@@ -301,17 +338,34 @@ export class TransitSheetView extends Component {
         return Object.entries(STATUS_MAP).map(([k, v]) => ({ key: k, ...v }));
     }
 
+    // Cambio #4: contadores de alerta para chips
+    get alertCounts() {
+        const counts = { ok: 0, warning: 0, danger: 0, done: 0 };
+        for (const r of this.state.records) {
+            if (r.eta_alert_level && counts[r.eta_alert_level] !== undefined) {
+                counts[r.eta_alert_level]++;
+            }
+        }
+        return counts;
+    }
+
     get isGrouped() {
         return this.state.groupBy !== "none";
     }
 
-    // Wrappers simples — el template solo llama métodos sin lógica inline
     strOf(val)          { return this._str(val); }
     fmtDate(val)        { return this._fmtDate(val); }
-    fmtDateOrder(row)   { return this._fmtDate(row.date_order); }   // evita split en template
+    fmtDateOrder(row)   { return this._fmtDate(row.date_order); }
     fmtNum(val)         { return this._fmtNum(val); }
+    fmtDelayDays(val)   {
+        if (!val && val !== 0) return "—";
+        const n = Number(val);
+        if (n === 0) return "0 días";
+        return (n > 0 ? "+" : "") + n + " días";
+    }
     colHidden(key)      { return this.state.hiddenCols.has(key); }
     isFiltered(s)       { return this.state.statusFilter === s; }
+    isAlertFiltered(l)  { return this.state.alertFilter === l; }
     grpCollapsed(k)     { return !!this.state.collapsedGroups[k]; }
     hasLink(val)        { return !!this._id(val); }
     isContainer(val)    { return val && val !== "PENDIENTE"; }

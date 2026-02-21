@@ -19,7 +19,7 @@
             <i class="fa fa-search ts-search-icon"/>
             <input class="ts-search-input"
                    type="text"
-                   placeholder="Buscar OC, SO, cliente, producto, contenedor..."
+                   placeholder="Buscar OC, SO, cliente, producto, categoría, contenedor..."
                    t-att-value="state.searchText"
                    t-on-input="onSearch"/>
             <button class="ts-search-clear"
@@ -31,14 +31,16 @@
 
         <div class="ts-btn-group ts-group-by" role="group">
             <span class="ts-btn-group__label">Agrupar:</span>
-            <button t-attf-class="ts-pill #{state.groupBy === 'none'    ? 'ts-pill--active' : ''}"
+            <button t-attf-class="ts-pill #{state.groupBy === 'none'     ? 'ts-pill--active' : ''}"
                     t-on-click="() => this.setGroupBy('none')">Sin grupos</button>
-            <button t-attf-class="ts-pill #{state.groupBy === 'voyage'  ? 'ts-pill--active' : ''}"
+            <button t-attf-class="ts-pill #{state.groupBy === 'voyage'   ? 'ts-pill--active' : ''}"
                     t-on-click="() => this.setGroupBy('voyage')">Viaje</button>
-            <button t-attf-class="ts-pill #{state.groupBy === 'partner' ? 'ts-pill--active' : ''}"
+            <button t-attf-class="ts-pill #{state.groupBy === 'partner'  ? 'ts-pill--active' : ''}"
                     t-on-click="() => this.setGroupBy('partner')">Cliente</button>
-            <button t-attf-class="ts-pill #{state.groupBy === 'status'  ? 'ts-pill--active' : ''}"
+            <button t-attf-class="ts-pill #{state.groupBy === 'status'   ? 'ts-pill--active' : ''}"
                     t-on-click="() => this.setGroupBy('status')">Estado</button>
+            <button t-attf-class="ts-pill #{state.groupBy === 'category' ? 'ts-pill--active' : ''}"
+                    t-on-click="() => this.setGroupBy('category')">Categoría</button>
         </div>
 
         <div class="ts-toolbar__actions">
@@ -65,9 +67,10 @@
     </div>
 
     <!-- ══════════════════════════════════════════════════════════
-         CHIPS DE ESTADO
+         CHIPS DE ESTADO + ALERTAS ETA (cambio #4)
     ══════════════════════════════════════════════════════════ -->
     <div class="ts-status-bar">
+        <!-- Chips de estado -->
         <button t-attf-class="ts-status-chip #{!state.statusFilter ? 'ts-status-chip--all' : ''}"
                 t-on-click="() => this.onStatusFilter('')">
             Todos
@@ -82,6 +85,23 @@
                 <span class="ts-status-chip__count" t-esc="cnt"/>
             </button>
         </t>
+
+        <!-- Separador visual -->
+        <span class="ts-alert-sep">|</span>
+
+        <!-- Chips de alerta ETA (cambio #4) -->
+        <button t-if="alertCounts.warning > 0"
+                t-attf-class="ts-alert-chip ts-alert-chip--warning #{isAlertFiltered('warning') ? 'ts-alert-chip--selected' : ''}"
+                t-on-click="() => this.onAlertFilter('warning')">
+            <i class="fa fa-exclamation-triangle"/> Próximos
+            <span class="ts-status-chip__count" t-esc="alertCounts.warning"/>
+        </button>
+        <button t-if="alertCounts.danger > 0"
+                t-attf-class="ts-alert-chip ts-alert-chip--danger #{isAlertFiltered('danger') ? 'ts-alert-chip--selected' : ''}"
+                t-on-click="() => this.onAlertFilter('danger')">
+            <i class="fa fa-times-circle"/> Vencidos
+            <span class="ts-status-chip__count" t-esc="alertCounts.danger"/>
+        </button>
     </div>
 
     <!-- LOADING -->
@@ -99,8 +119,6 @@
 
     <!-- ══════════════════════════════════════════════════════════
          TABLA
-         REGLA CLAVE: Cero llamadas a String(), split(), etc.
-         Todo pasa por métodos JS del componente.
     ══════════════════════════════════════════════════════════ -->
     <t t-elif="!state.loading">
         <div class="ts-table-scroll-wrapper">
@@ -120,12 +138,11 @@
                     </tr>
                 </thead>
 
-                <!-- ════════════════════════════
-                     CUERPO PLANO
-                ════════════════════════════ -->
+                <!-- ════ CUERPO PLANO ════ -->
                 <tbody t-if="!isGrouped">
                     <t t-foreach="state.filtered" t-as="row" t-key="row.id">
-                        <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status or 'none'}">
+                        <!-- Cambio #4: clase de alerta en la fila -->
+                        <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status or 'none'} ts-tr-alert--#{row.eta_alert_level or 'ok'}">
                             <t t-foreach="visibleCols" t-as="col" t-key="col.key">
 
                                 <td t-if="col.key === 'purchase_id'"
@@ -145,7 +162,32 @@
                                           t-esc="statusInfo(row.voyage_status).label"/>
                                 </td>
 
-                                <!-- date_order usa fmtDateOrder(row) — sin String() inline -->
+                                <!-- Cambio #4: columna alerta ETA -->
+                                <td t-elif="col.key === 'eta_alert_level'" class="ts-td ts-td--center">
+                                    <t t-if="row.eta_alert_level">
+                                        <span t-attf-class="ts-eta-badge #{alertInfo(row.eta_alert_level).cls}">
+                                            <i t-attf-class="fa #{alertInfo(row.eta_alert_level).icon} me-1"/>
+                                            <t t-esc="alertInfo(row.eta_alert_level).label"/>
+                                        </span>
+                                    </t>
+                                    <span t-else="" class="ts-text-muted">—</span>
+                                </td>
+
+                                <!-- Cambio #7: categoría del producto -->
+                                <td t-elif="col.key === 'product_categ_id'" class="ts-td">
+                                    <span t-if="row.product_categ_id" class="ts-categ-chip" t-esc="strOf(row.product_categ_id)"/>
+                                    <span t-else="" class="ts-text-muted">—</span>
+                                </td>
+
+                                <!-- Cambio #3: delay_days con color -->
+                                <td t-elif="col.key === 'delay_days'" class="ts-td ts-td--num">
+                                    <t t-if="row.delay_days">
+                                        <span t-attf-class="ts-delay #{row.delay_days > 0 ? 'ts-delay--late' : 'ts-delay--ok'}"
+                                              t-esc="fmtDelayDays(row.delay_days)"/>
+                                    </t>
+                                    <span t-else="" class="ts-text-muted">—</span>
+                                </td>
+
                                 <td t-elif="col.key === 'date_order'" class="ts-td ts-td--date">
                                     <span t-esc="fmtDateOrder(row)"/>
                                 </td>
@@ -158,8 +200,21 @@
                                     <span t-esc="fmtDate(row.eta)"/>
                                 </td>
 
+                                <!-- Cambio #3: ETA original -->
+                                <td t-elif="col.key === 'eta_original'" class="ts-td ts-td--date">
+                                    <span class="ts-eta-original" t-esc="fmtDate(row.eta_original)"/>
+                                </td>
+
                                 <td t-elif="col.key === 'arrival_date'" class="ts-td ts-td--date">
                                     <span t-esc="fmtDate(row.arrival_date)"/>
+                                </td>
+
+                                <!-- Cambio #8: entregado en bodega -->
+                                <td t-elif="col.key === 'arrival_date_bodega'" class="ts-td ts-td--date">
+                                    <t t-if="row.arrival_date_bodega">
+                                        <span class="ts-bodega-date" t-esc="fmtDate(row.arrival_date_bodega)"/>
+                                    </t>
+                                    <span t-else="" class="ts-text-muted">—</span>
                                 </td>
 
                                 <td t-elif="col.key === 'product_uom_qty'" class="ts-td ts-td--num">
@@ -195,9 +250,7 @@
                     </tr>
                 </tbody>
 
-                <!-- ════════════════════════════
-                     CUERPO AGRUPADO
-                ════════════════════════════ -->
+                <!-- ════ CUERPO AGRUPADO ════ -->
                 <tbody t-if="isGrouped">
                     <t t-foreach="state.groups" t-as="grp" t-key="grp.key">
 
@@ -214,7 +267,7 @@
 
                         <t t-if="!grpCollapsed(grp.key)">
                             <t t-foreach="grp.rows" t-as="row" t-key="row.id">
-                                <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status or 'none'}">
+                                <tr t-attf-class="ts-tr ts-tr--#{row.voyage_status or 'none'} ts-tr-alert--#{row.eta_alert_level or 'ok'}">
                                     <t t-foreach="visibleCols" t-as="col" t-key="col.key">
 
                                         <td t-if="col.key === 'purchase_id'"
@@ -234,6 +287,29 @@
                                                   t-esc="statusInfo(row.voyage_status).label"/>
                                         </td>
 
+                                        <td t-elif="col.key === 'eta_alert_level'" class="ts-td ts-td--center">
+                                            <t t-if="row.eta_alert_level">
+                                                <span t-attf-class="ts-eta-badge #{alertInfo(row.eta_alert_level).cls}">
+                                                    <i t-attf-class="fa #{alertInfo(row.eta_alert_level).icon} me-1"/>
+                                                    <t t-esc="alertInfo(row.eta_alert_level).label"/>
+                                                </span>
+                                            </t>
+                                            <span t-else="" class="ts-text-muted">—</span>
+                                        </td>
+
+                                        <td t-elif="col.key === 'product_categ_id'" class="ts-td">
+                                            <span t-if="row.product_categ_id" class="ts-categ-chip" t-esc="strOf(row.product_categ_id)"/>
+                                            <span t-else="" class="ts-text-muted">—</span>
+                                        </td>
+
+                                        <td t-elif="col.key === 'delay_days'" class="ts-td ts-td--num">
+                                            <t t-if="row.delay_days">
+                                                <span t-attf-class="ts-delay #{row.delay_days > 0 ? 'ts-delay--late' : 'ts-delay--ok'}"
+                                                      t-esc="fmtDelayDays(row.delay_days)"/>
+                                            </t>
+                                            <span t-else="" class="ts-text-muted">—</span>
+                                        </td>
+
                                         <td t-elif="col.key === 'date_order'" class="ts-td ts-td--date">
                                             <span t-esc="fmtDateOrder(row)"/>
                                         </td>
@@ -246,8 +322,19 @@
                                             <span t-esc="fmtDate(row.eta)"/>
                                         </td>
 
+                                        <td t-elif="col.key === 'eta_original'" class="ts-td ts-td--date">
+                                            <span class="ts-eta-original" t-esc="fmtDate(row.eta_original)"/>
+                                        </td>
+
                                         <td t-elif="col.key === 'arrival_date'" class="ts-td ts-td--date">
                                             <span t-esc="fmtDate(row.arrival_date)"/>
+                                        </td>
+
+                                        <td t-elif="col.key === 'arrival_date_bodega'" class="ts-td ts-td--date">
+                                            <t t-if="row.arrival_date_bodega">
+                                                <span class="ts-bodega-date" t-esc="fmtDate(row.arrival_date_bodega)"/>
+                                            </t>
+                                            <span t-else="" class="ts-text-muted">—</span>
                                         </td>
 
                                         <td t-elif="col.key === 'product_uom_qty'" class="ts-td ts-td--num">

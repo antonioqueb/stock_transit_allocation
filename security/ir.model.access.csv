@@ -13,3 +13,4 @@ access_purchase_manager_logic_user,purchase.manager.logic user,model_purchase_ma
 access_purchase_manager_logic_manager,purchase.manager.logic manager,model_purchase_manager_logic,stock_transit_allocation.group_transit_manager,1,1,1,1
 access_purchase_order_line_allocation_user,purchase.order.line.allocation user,model_purchase_order_line_allocation,stock_transit_allocation.group_transit_user,1,1,1,0
 access_purchase_order_line_allocation_manager,purchase.order.line.allocation manager,model_purchase_order_line_allocation,stock_transit_allocation.group_transit_manager,1,1,1,1
+access_transit_status_wizard,transit.status.change.wizard,model_transit_status_change_wizard,base.group_user,1,1,1,1

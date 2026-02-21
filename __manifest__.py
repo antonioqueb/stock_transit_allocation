@@ -35,6 +35,8 @@
         'views/to_be_purchased_views.xml',
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
+        'wizard/transit_status_change_wizard_views.xml',
+        
     ],
     'assets': {
         'web.assets_backend': [
