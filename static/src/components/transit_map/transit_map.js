@@ -107,8 +107,8 @@ export class TransitMapWidget extends Component {
             // container.innerHTML = ''; 
             
             try {
-                this.mapInstance = L.map(container, { zoomControl: true }).setView([20, -40], 2);
-                L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+                    this.mapInstance = L.map(container, { zoomControl: true, scrollWheelZoom: false }).setView([20, -40], 2);                
+                    L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
                     attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
                     maxZoom: 19,
                 }).addTo(this.mapInstance);
