@@ -1,7 +1,7 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, onMounted, onWillUpdateProps, useRef } from "@odoo/owl";
+import { Component, onMounted, onWillUnmount, onWillUpdateProps, useRef } from "@odoo/owl";
 
 export class TransitMapWidget extends Component {
     static template = "stock_transit_allocation.TransitMapWidget";
@@ -10,29 +10,54 @@ export class TransitMapWidget extends Component {
     setup() {
         this.mapContainer = useRef("mapContainer");
         this.mapInstance = null;
+        this._destroyed = false;
 
         onMounted(() => {
-            this.renderMap();
+            // Pequeño delay para asegurar que el DOM está listo y Leaflet cargado
+            setTimeout(() => {
+                if (!this._destroyed) this._renderMap();
+            }, 300);
         });
 
         onWillUpdateProps((nextProps) => {
-            // Renderizar si el payload cambia
-            if (nextProps.record.data[this.props.name] !== this.props.record.data[this.props.name]) {
-                this.renderMap(nextProps.record.data[this.props.name]);
+            const oldVal = this.props.record.data[this.props.name];
+            const newVal = nextProps.record.data[nextProps.name];
+            if (newVal !== oldVal) {
+                setTimeout(() => {
+                    if (!this._destroyed) this._renderMap(newVal);
+                }, 100);
+            }
+        });
+
+        onWillUnmount(() => {
+            this._destroyed = true;
+            if (this.mapInstance) {
+                this.mapInstance.remove();
+                this.mapInstance = null;
             }
         });
     }
 
-    isValidLatLng(loc) {
-        return Array.isArray(loc) && loc.length === 2 && loc[0] != null && loc[1] != null && !isNaN(loc[0]) && !isNaN(loc[1]);
+    _isValidLatLng(loc) {
+        return (
+            Array.isArray(loc) &&
+            loc.length === 2 &&
+            loc[0] != null && loc[1] != null &&
+            !isNaN(parseFloat(loc[0])) && !isNaN(parseFloat(loc[1])) &&
+            !(parseFloat(loc[0]) === 0 && parseFloat(loc[1]) === 0)
+        );
     }
 
-    renderMap(payloadData = null) {
-        if (!this.mapContainer.el) return;
+    _renderMap(payloadOverride = null) {
+        if (this._destroyed || !this.mapContainer.el) return;
 
-        // 1. Obtener y parsear datos
-        const rawData = payloadData || this.props.record.data[this.props.name];
-        if (!rawData) {
+        // 1. Obtener payload
+        const raw = payloadOverride !== null
+            ? payloadOverride
+            : this.props.record.data[this.props.name];
+
+        // Sin datos → destruir mapa si existía y salir
+        if (!raw) {
             if (this.mapInstance) {
                 this.mapInstance.remove();
                 this.mapInstance = null;
@@ -40,100 +65,115 @@ export class TransitMapWidget extends Component {
             return;
         }
 
+        // 2. Parsear JSON
         let data;
         try {
-            data = JSON.parse(rawData);
+            data = typeof raw === "string" ? JSON.parse(raw) : raw;
         } catch (e) {
-            console.error("[TransitMap] Invalid JSON", e);
+            console.error("[TransitMap] JSON inválido:", e, raw);
             return;
         }
 
-        // 2. Inicializar mapa si no existe
-        if (!this.mapInstance && typeof L !== 'undefined') {
-            this.mapInstance = L.map(this.mapContainer.el).setView([20, -40], 2);
-            
-            L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-                attribution: '&copy; OpenStreetMap contributors &copy; CARTO',
-                maxZoom: 19
+        // 3. Verificar que Leaflet esté disponible globalmente
+        if (typeof L === "undefined") {
+            console.error("[TransitMap] Leaflet (L) no está disponible. ¿Cargó el CDN?");
+            return;
+        }
+
+        // 4. Asegurarse de que el contenedor tiene dimensiones
+        const container = this.mapContainer.el;
+        if (container.offsetWidth === 0 || container.offsetHeight === 0) {
+            // Reintentar en 500ms si no tiene dimensiones aún (tab oculta, etc.)
+            setTimeout(() => { if (!this._destroyed) this._renderMap(payloadOverride); }, 500);
+            return;
+        }
+
+        // 5. Inicializar mapa si no existe
+        if (!this.mapInstance) {
+            this.mapInstance = L.map(container, { zoomControl: true }).setView([20, -40], 2);
+            L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+                attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+                maxZoom: 19,
             }).addTo(this.mapInstance);
         }
 
-        if (!this.mapInstance) {
-            console.warn("[TransitMap] Leaflet not loaded globally.");
-            return;
-        }
-
-        // 3. Limpiar capas anteriores
+        // 6. Limpiar capas anteriores (NO el tile layer)
         this.mapInstance.eachLayer((layer) => {
             if (!layer._url) this.mapInstance.removeLayer(layer);
         });
 
+        // 7. Iconos
+        const shipIcon = L.divIcon({
+            html: "🚢",
+            className: "map-ship-icon",
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+        });
+        const portIcon = L.divIcon({
+            html: "⚓",
+            className: "map-port-icon",
+            iconSize: [22, 22],
+            iconAnchor: [11, 11],
+        });
+
+        // 8. Extraer coordenadas
+        const origin  = data.origin?.loc  && this._isValidLatLng(data.origin.loc)       ? data.origin.loc       : null;
+        const dest    = data.destination?.loc && this._isValidLatLng(data.destination.loc) ? data.destination.loc : null;
+        const current = data.current_loc  && this._isValidLatLng(data.current_loc)       ? data.current_loc      : null;
+
         const bounds = [];
-        
-        // Iconos
-        const shipIcon = L.divIcon({html: '🚢', className: 'map-ship-icon', iconSize: [24, 24]});
-        const portIcon = L.divIcon({html: '⚓', className: 'map-port-icon', iconSize: [20, 20]});
 
-        // --- Puntos ---
-        const origin = data.origin && this.isValidLatLng(data.origin.loc) ? data.origin.loc : null;
-        const dest = data.destination && this.isValidLatLng(data.destination.loc) ? data.destination.loc : null;
-        const current = data.current_loc && this.isValidLatLng(data.current_loc) ? data.current_loc : null;
-
-        // Marcador Origen
+        // 9. Marcadores
         if (origin) {
-            L.marker(origin, {icon: portIcon})
+            L.marker(origin, { icon: portIcon })
                 .addTo(this.mapInstance)
-                .bindPopup(`<b>Origen:</b> ${data.origin.name || 'Puerto Salida'}`);
+                .bindPopup(`<b>Origen:</b> ${data.origin?.name || "Puerto Salida"}`);
             bounds.push(origin);
         }
 
-        // Marcador Destino
         if (dest) {
-            L.marker(dest, {icon: portIcon})
+            L.marker(dest, { icon: portIcon })
                 .addTo(this.mapInstance)
-                .bindPopup(`<b>Destino:</b> ${data.destination.name || 'Puerto Llegada'}`);
+                .bindPopup(`<b>Destino:</b> ${data.destination?.name || "Puerto Llegada"}`);
             bounds.push(dest);
         }
 
-        // Marcador Barco (Actual)
         if (current) {
-            L.marker(current, {icon: shipIcon})
+            L.marker(current, { icon: shipIcon })
                 .addTo(this.mapInstance)
-                .bindPopup(`
-                    <div class="text-center">
-                        <b>${data.container || 'Contenedor'}</b><br/>
-                        <span class="badge bg-primary">${data.status_text || 'En tránsito'}</span><br/>
-                        <small>Buque: ${data.vessel || 'N/A'}</small>
-                    </div>
-                `)
+                .bindPopup(
+                    `<div style="text-align:center">
+                        <b>${data.container || "Contenedor"}</b><br/>
+                        <span style="background:#2563eb;color:#fff;padding:2px 8px;border-radius:12px;font-size:11px">
+                            ${data.status_text || "En tránsito"}
+                        </span><br/>
+                        <small>Buque: ${data.vessel || "N/A"}</small>
+                    </div>`
+                )
                 .openPopup();
             bounds.push(current);
         }
 
-        // --- Rutas (Polylines) ---
-        // Lógica flexible: Dibuja lo que tenga disponible
-        if (current && origin) {
-            // Ruta recorrida (Sólida Azul)
-            L.polyline([origin, current], {color: '#2563eb', weight: 4, opacity: 0.8}).addTo(this.mapInstance);
+        // 10. Polylines
+        if (origin && current) {
+            L.polyline([origin, current], { color: "#2563eb", weight: 4, opacity: 0.85 })
+                .addTo(this.mapInstance);
         }
-
         if (current && dest) {
-            // Ruta restante (Punteada Gris)
-            L.polyline([current, dest], {color: '#6b7280', weight: 3, dashArray: '5, 10', opacity: 0.7}).addTo(this.mapInstance);
+            L.polyline([current, dest], { color: "#6b7280", weight: 3, dashArray: "8, 10", opacity: 0.65 })
+                .addTo(this.mapInstance);
         } else if (origin && dest && !current) {
-            // Si no hay posición actual, dibujar ruta teórica Origen -> Destino
-            L.polyline([origin, dest], {color: '#9ca3af', weight: 3, dashArray: '5, 10'}).addTo(this.mapInstance);
+            L.polyline([origin, dest], { color: "#9ca3af", weight: 3, dashArray: "8, 10" })
+                .addTo(this.mapInstance);
         }
 
-        // Ajustar vista
-        if (bounds.length > 0) {
-            // Pequeño timeout para asegurar que el contenedor tiene tamaño antes de ajustar bounds
-            setTimeout(() => {
-                this.mapInstance.invalidateSize(); // CRÍTICO para corregir renderizado en pestañas
-                this.mapInstance.fitBounds(bounds, {padding: [50, 50]});
-            }, 250);
+        // 11. Ajustar vista
+        this.mapInstance.invalidateSize();
+        if (bounds.length > 1) {
+            this.mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
+        } else if (bounds.length === 1) {
+            this.mapInstance.setView(bounds[0], 5);
         } else {
-            // Vista por defecto si no hay coordenadas válidas
             this.mapInstance.setView([20, -40], 2);
         }
     }
