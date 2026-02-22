@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+        <!-- URL de la API -->
+        <record id="shipsgo_api_url" model="ir.config_parameter">
+            <field name="key">stock_transit.shipsgo_api_url</field>
+            <field name="value">https://api.shipsgo.com/v2</field>
+        </record>
+        <!-- Token de Ricardo -->
+        <record id="shipsgo_api_token" model="ir.config_parameter">
+            <field name="key">stock_transit.shipsgo_api_token</field>
+            <field name="value">example-0b01-4a31-a1ac-demo</field>
+        </record>
+    </data>
+</odoo>

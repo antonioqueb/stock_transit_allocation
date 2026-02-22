@@ -1,15 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!-- ======================================================================
-         SCSS del formulario del viaje — header y layout
-    ====================================================================== -->
-
-    <!-- ======================================================================
          VISTAS STOCK.TRANSIT.VOYAGE — Rediseñadas
     ====================================================================== -->
 
     <!-- ────────────────────────────────────────────────────────────────────────
-         LISTA (sin cambios funcionales, solo ajuste cosmético)
+         LISTA (Actualizada con Progreso)
     ──────────────────────────────────────────────────────────────────────── -->
     <record id="view_stock_transit_voyage_list" model="ir.ui.view">
         <field name="name">stock.transit.voyage.list</field>
@@ -29,13 +25,15 @@
                 <field name="bl_number"/>
                 <field name="shipping_line"/>
                 <field name="eta" widget="remaining_days" optional="show"/>
+                <!-- NUEVO: Progreso en la lista -->
+                <field name="transit_progress" widget="progressbar" string="Progreso" optional="show"/>
                 <field name="allocation_percent" widget="progressbar" string="% Asig."/>
             </list>
         </field>
     </record>
 
     <!-- ────────────────────────────────────────────────────────────────────────
-         FORMULARIO — Rediseñado con header tipo dashboard
+         FORMULARIO — Rediseñado con ShipsGo Integration
     ──────────────────────────────────────────────────────────────────────── -->
     <record id="view_stock_transit_voyage_form" model="ir.ui.view">
         <field name="name">stock.transit.voyage.form</field>
@@ -52,12 +50,19 @@
                             invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
                             string="⏪"/>
                     <separator/>
-                    <button name="action_load_from_purchase" string="🔄 Cargar" type="object"
+                    
+                    <!-- NUEVO BOTÓN: Sincronizar ShipsGo -->
+                    <button name="action_sync_shipsgo" string="📡 Sincronizar API" type="object"
                             class="btn-info"
+                            invisible="custom_status == 'delivered'"/>
+
+                    <button name="action_load_from_purchase" string="🔄 Cargar" type="object"
+                            class="btn-secondary"
                             invisible="picking_id != False or custom_status == 'delivered'"/>
-                    <button name="action_load_from_picking" string="🚢 Sincronizar" type="object"
+                    <button name="action_load_from_picking" string="🚢 Sincronizar Lotes" type="object"
                             class="btn-secondary"
                             invisible="picking_id == False or custom_status == 'delivered'"/>
+                    
                     <button name="action_generate_reception" string="🏭 Recibir" type="object"
                             class="btn-warning"
                             invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
@@ -67,6 +72,7 @@
                     <button name="action_sync_reception_from_voyage" string="📦 Recepcionar" type="object"
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
+                    
                     <button name="action_arrive" string="🏁 Cerrar Viaje" type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['delivered', 'cancel']"
@@ -74,6 +80,7 @@
                     <button name="action_cancel" string="Cancelar" type="object"
                             invisible="custom_status in ['delivered', 'cancel']"
                             confirm="¿Está seguro de cancelar este viaje?"/>
+                    
                     <field name="custom_status" widget="statusbar"
                            statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
                 </header>
@@ -203,7 +210,26 @@
                                 </div>
                             </div>
                         </div>
+                    </div>
 
+                    <!-- ════════════════════════════════════════════════
+                         NUEVO: SECCIÓN DE MAPA TRACKING
+                    ════════════════════════════════════════════════ -->
+                    <div class="o_horizontal_separator mt-3 mb-2 text-uppercase fw-bold text-muted small">
+                        Seguimiento en Tiempo Real
+                    </div>
+                    
+                    <!-- Widget del Mapa -->
+                    <field name="shipsgo_payload" widget="transit_map_widget" nolabel="1"/>
+                    
+                    <div class="d-flex justify-content-between text-muted small px-2 mb-3">
+                        <span>
+                            <i class="fa fa-clock-o me-1"/>
+                            Última act: <field name="shipsgo_last_sync" readonly="1" class="d-inline"/>
+                        </span>
+                        <span>
+                            Powered by ShipsGo API v2
+                        </span>
                     </div>
 
                     <!-- ════════════════════════════════════════════════

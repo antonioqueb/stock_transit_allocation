@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_transit_allocation.TransitMapWidget" owl="1">
+        <div class="o_transit_map_wrapper">
+            <t t-if="!props.record.data[props.name]">
+                <div class="o_map_placeholder text-muted">
+                    <i class="fa fa-map-o fa-3x mb-2"/>
+                    <p>Sin datos de rastreo.</p>
+                    <small>Presione "Sincronizar API" para cargar ubicación.</small>
+                </div>
+            </t>
+            <div t-ref="mapContainer" class="o_transit_map_view"></div>
+        </div>
+    </t>
+</templates>
