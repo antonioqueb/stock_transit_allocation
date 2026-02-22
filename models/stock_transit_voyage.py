@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 import logging
-import requests
-import json
 from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -101,127 +99,7 @@ class StockTransitVoyage(models.Model):
     total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True)
     allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True)
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
-    
-    # =========================================================================
-    # SHIPSGO INTEGRATION FIELDS
-    # =========================================================================
-    shipsgo_last_sync = fields.Datetime(string="Última Sincronización API", readonly=True)
-    shipsgo_payload = fields.Text(string="Datos Geoespaciales (JSON)", readonly=True)
-    
-    # Modificado: store=True y readonly=False para permitir escritura manual o por API
-    transit_progress = fields.Integer(
-        string='Progreso Viaje', 
-        compute='_compute_transit_progress', 
-        store=True, 
-        readonly=False
-    )
-
-    # =========================================================================
-    # SHIPSGO API SYNC METHOD
-    # =========================================================================
-    def action_sync_shipsgo(self):
-        """Conecta a ShipsGo, busca por contenedor y actualiza coordenadas y progreso."""
-        self.ensure_one()
-        
-        # 1. Obtener parámetros del sistema
-        Config = self.env['ir.config_parameter'].sudo()
-        api_url = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
-        api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
-
-        if not api_token:
-            raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema (stock_transit.shipsgo_api_token)."))
-
-        # 2. Determinar contenedor a buscar
-        container_ref = False
-        # Prioridad 1: Buscar en las líneas del viaje
-        for line in self.line_ids:
-            if line.container_number and line.container_number not in ('PENDIENTE', 'SN', False):
-                container_ref = line.container_number.strip()
-                break
-        
-        # Prioridad 2: Buscar en el campo computado o nombre si no hay líneas
-        if not container_ref and self.container_number and 'PENDIENTE' not in self.container_number:
-            container_ref = self.container_number.split(',')[0].strip()
-
-        if not container_ref:
-            raise UserError(_("No se encontró un número de contenedor válido en las líneas para consultar a la API."))
-
-        endpoint = f"{api_url}/ocean/shipments"
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": "OdooControlTower/1.0",
-            "X-Shipsgo-User-Token": api_token
-        }
-        params = {
-            "filters[container_number]": f"eq:{container_ref}"
-        }
-
-        _logger.info(f"[ShipsGo] Consultando contenedor {container_ref}...")
-
-        try:
-            response = requests.get(endpoint, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
-            data = response.json()
-            
-            # Verificar estructura de respuesta (data -> list -> shipment)
-            if not data.get('data'):
-                self.message_post(body=f"⚠️ ShipsGo: No se encontraron datos para el contenedor {container_ref}.")
-                return
-
-            # Tomamos el primer resultado
-            shipment = data['data'][0]
-            
-            # 3. Mapeo de datos (ShipsGo V2 structure)
-            lat = shipment.get('lat')
-            lng = shipment.get('lng')
-            percent = shipment.get('percent_complete', 0)
-            
-            # Construir payload para Leaflet Widget
-            map_data = {
-                'container': container_ref,
-                'current_loc': [lat, lng] if lat and lng else None,
-                'origin': {
-                    'name': shipment.get('pol_name', 'Origen'),
-                    'loc': [shipment.get('pol_lat'), shipment.get('pol_lng')]
-                },
-                'destination': {
-                    'name': shipment.get('pod_name', 'Destino'),
-                    'loc': [shipment.get('pod_lat'), shipment.get('pod_lng')]
-                },
-                'vessel': shipment.get('vessel_name', self.vessel_name or 'Desconocido'),
-                'status_text': shipment.get('last_status_text', 'En Tránsito')
-            }
-
-            vals = {
-                'shipsgo_last_sync': fields.Datetime.now(),
-                'shipsgo_payload': json.dumps(map_data),
-                'transit_progress': int(percent) if percent is not None else self.transit_progress
-            }
-
-            # Actualizar datos del registro si vienen en la API
-            if shipment.get('vessel_name'):
-                vals['vessel_name'] = shipment.get('vessel_name')
-            if shipment.get('shipping_line'):
-                vals['shipping_line'] = shipment.get('shipping_line')
-            if shipment.get('pod_eta'):
-                vals['eta'] = shipment.get('pod_eta')
-
-            self.write(vals)
-            
-            self.message_post(body=Markup(
-                f"📡 <b>Sincronización ShipsGo Exitosa</b><br/>"
-                f"Contenedor: {container_ref}<br/>"
-                f"Progreso: {percent}%<br/>"
-                f"Estado: {map_data['status_text']}<br/>"
-                f"Buque: {map_data['vessel']}"
-            ))
-
-        except requests.exceptions.RequestException as e:
-            _logger.error(f"ShipsGo API Connection Error: {e}")
-            raise UserError(_(f"Error al conectar con ShipsGo: {e}"))
-        except Exception as e:
-            _logger.error(f"ShipsGo Processing Error: {e}")
-            raise UserError(_(f"Error procesando datos de ShipsGo: {e}"))
+    transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress', store=False)
 
     # =========================================================================
     # CÓMPUTOS
@@ -314,15 +192,10 @@ class StockTransitVoyage(models.Model):
             rec.allocated_m2 = allocated
             rec.allocation_percent = (allocated / total) * 100 if total > 0 else 0
 
-    @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
+    @api.depends('etd', 'eta', 'custom_status', 'create_date')
     def _compute_transit_progress(self):
         today = fields.Date.today()
         for rec in self:
-            # Si hay datos de ShipsGo recientes (ej. payload existe), respetamos ese valor
-            # y NO sobreescribimos con el cálculo por fechas.
-            if rec.shipsgo_payload:
-                continue
-
             if rec.custom_status == 'delivered':
                 rec.transit_progress = 100
                 continue
@@ -621,7 +494,7 @@ class StockTransitVoyage(models.Model):
                 'product_uom': product.uom_id.id,
                 'picking_id': picking.id,
                 'location_id': source_location.id,
-                'location_dest_id': picking.location_dest_id.id,
+                'location_dest_id': picking_type.default_location_dest_id.id,
                 'company_id': self.company_id.id,
                 'state': 'draft',
             })
