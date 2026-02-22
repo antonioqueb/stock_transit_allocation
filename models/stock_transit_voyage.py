@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
+import requests
+import json
 from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -44,28 +46,14 @@ class StockTransitVoyage(models.Model):
     
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
-
-    # =========================================================================
-    # CAMBIO #3: ETA original (inmutable) y cálculo de días de retraso
-    # =========================================================================
-    eta_original = fields.Date(
-        string='ETA Original',
-        readonly=True,
-        copy=False,
-        tracking=True,
-        help="Primer ETA registrado. Nunca se sobreescribe una vez guardado.",
-    )
-
+    eta_original = fields.Date(string='ETA Original', readonly=True, copy=False, tracking=True)
+    
     delay_days = fields.Integer(
         string='Días de Retraso',
         compute='_compute_delay_days',
-        store=True,
-        help="Días entre ETA original y ETA actual (o fecha real de llegada en bodega).",
+        store=True
     )
-
-    # =========================================================================
-    # CAMBIO #4: Nivel de alerta ETA
-    # =========================================================================
+    
     eta_alert_level = fields.Selection([
         ('ok',      'En Tiempo'),
         ('warning', 'Próximo a Vencer'),
@@ -74,22 +62,13 @@ class StockTransitVoyage(models.Model):
     ], string='Alerta ETA', compute='_compute_eta_alert', store=True)
 
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
-
-    # =========================================================================
-    # CAMBIO #8: Fecha real de entrega en bodega
-    # =========================================================================
-    arrival_date_bodega = fields.Date(
-        string='Entregado en Bodega',
-        tracking=True,
-        help="Fecha real de ingreso físico a bodega.",
-    )
+    arrival_date_bodega = fields.Date(string='Entregado en Bodega', tracking=True)
 
     picking_id = fields.Many2one('stock.picking', string='Recepción (Tránsito)', 
-        domain=[('picking_type_code', '=', 'incoming')], help="Recepción administrativa en ubicación de tránsito")
+        domain=[('picking_type_code', '=', 'incoming')])
     
     reception_picking_id = fields.Many2one('stock.picking', string='Recepción Física (Bodega)',
-        domain=[('picking_type_code', '=', 'internal')], readonly=True,
-        help="Transferencia interna para ingreso físico y validación de medidas (Worksheet)")
+        domain=[('picking_type_code', '=', 'internal')], readonly=True)
 
     purchase_id = fields.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
     
@@ -99,7 +78,138 @@ class StockTransitVoyage(models.Model):
     total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True)
     allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True)
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
-    transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress', store=False)
+    
+    # =========================================================================
+    # SHIPSGO & TRACKING FIELDS
+    # =========================================================================
+    shipsgo_last_sync = fields.Datetime(string="Última Sincronización API", readonly=True)
+    shipsgo_payload = fields.Text(string="Datos Geoespaciales (JSON)", readonly=True)
+    
+    transit_progress = fields.Integer(
+        string='Progreso Viaje', 
+        compute='_compute_transit_progress', 
+        store=True, 
+        readonly=False
+    )
+
+    # =========================================================================
+    # HELPER: Limpieza de Coordenadas (Para evitar errores en el mapa)
+    # =========================================================================
+    def _clean_coord(self, lat, lng):
+        """Convierte coordenadas a float y valida que no sean 0 o None"""
+        try:
+            f_lat = float(lat) if lat else 0.0
+            f_lng = float(lng) if lng else 0.0
+            # Si ambas son 0 o alguna falla, retornamos None para que el mapa no grafique en el océano cerca de África
+            if f_lat == 0.0 and f_lng == 0.0:
+                return None
+            return [f_lat, f_lng]
+        except (ValueError, TypeError):
+            return None
+
+    # =========================================================================
+    # ACCIÓN: SINCRONIZAR SHIPSGO API
+    # =========================================================================
+    def action_sync_shipsgo(self):
+        """Conecta a ShipsGo, busca por contenedor y actualiza coordenadas y progreso."""
+        self.ensure_one()
+        
+        # 1. Obtener configuración
+        Config = self.env['ir.config_parameter'].sudo()
+        api_url = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
+        api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
+
+        if not api_token:
+            raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema (stock_transit.shipsgo_api_token)."))
+
+        # 2. Buscar contenedor
+        container_ref = False
+        # Prioridad 1: Buscar en las líneas del viaje
+        for line in self.line_ids:
+            if line.container_number and line.container_number not in ('PENDIENTE', 'SN', False):
+                container_ref = line.container_number.strip()
+                break
+        
+        # Prioridad 2: Buscar en el campo computado o manual si no hay líneas
+        if not container_ref and self.container_number and 'PENDIENTE' not in self.container_number:
+            container_ref = self.container_number.split(',')[0].strip()
+
+        if not container_ref:
+            raise UserError(_("No se encontró un número de contenedor válido en las líneas para consultar."))
+
+        endpoint = f"{api_url}/ocean/shipments"
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "OdooControlTower/1.0",
+            "X-Shipsgo-User-Token": api_token
+        }
+        params = {
+            "filters[container_number]": f"eq:{container_ref}"
+        }
+
+        _logger.info(f"[ShipsGo] Consultando contenedor {container_ref}...")
+
+        try:
+            response = requests.get(endpoint, headers=headers, params=params, timeout=15)
+            response.raise_for_status()
+            data = response.json()
+            
+            if not data.get('data'):
+                self.message_post(body=f"⚠️ ShipsGo: Sin datos para el contenedor {container_ref}.")
+                return
+
+            shipment = data['data'][0]
+            
+            percent = shipment.get('percent_complete', 0)
+            
+            # 3. Limpiar coordenadas usando el helper
+            current_loc = self._clean_coord(shipment.get('lat'), shipment.get('lng'))
+            origin_loc = self._clean_coord(shipment.get('pol_lat'), shipment.get('pol_lng'))
+            dest_loc = self._clean_coord(shipment.get('pod_lat'), shipment.get('pod_lng'))
+
+            # 4. Construir payload JSON para el mapa
+            map_data = {
+                'container': container_ref,
+                'current_loc': current_loc,
+                'origin': {
+                    'name': shipment.get('pol_name', 'Origen'),
+                    'loc': origin_loc
+                },
+                'destination': {
+                    'name': shipment.get('pod_name', 'Destino'),
+                    'loc': dest_loc
+                },
+                'vessel': shipment.get('vessel_name', self.vessel_name or 'Desconocido'),
+                'status_text': shipment.get('last_status_text', 'En Tránsito')
+            }
+
+            vals = {
+                'shipsgo_last_sync': fields.Datetime.now(),
+                'shipsgo_payload': json.dumps(map_data),
+                'transit_progress': int(percent) if percent is not None else self.transit_progress
+            }
+
+            # Actualizar campos nativos si la API trae datos
+            if shipment.get('vessel_name'):
+                vals['vessel_name'] = shipment.get('vessel_name')
+            if shipment.get('shipping_line'):
+                vals['shipping_line'] = shipment.get('shipping_line')
+            if shipment.get('pod_eta'):
+                vals['eta'] = shipment.get('pod_eta')
+
+            self.write(vals)
+            
+            self.message_post(body=Markup(
+                f"📡 <b>Sincronización ShipsGo Exitosa</b><br/>"
+                f"Contenedor: {container_ref}<br/>"
+                f"Progreso: {percent}%<br/>"
+                f"Estado: {map_data['status_text']}<br/>"
+                f"Buque: {map_data['vessel']}"
+            ))
+
+        except Exception as e:
+            _logger.error(f"ShipsGo Error: {e}")
+            raise UserError(_(f"Error al conectar con ShipsGo: {e}"))
 
     # =========================================================================
     # CÓMPUTOS
@@ -152,17 +262,14 @@ class StockTransitVoyage(models.Model):
             if vals.get('name', _('Nuevo')) == _('Nuevo'):
                 vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
             vals.pop('container_number', None)
-            # CAMBIO #3: capturar eta_original en creación
             if vals.get('eta') and not vals.get('eta_original'):
                 vals['eta_original'] = vals['eta']
         return super(StockTransitVoyage, self).create(vals_list)
 
     def write(self, vals):
-        # CAMBIO #3: preservar eta_original — se fija la primera vez que hay ETA
         if 'eta' in vals:
             for rec in self:
                 if not rec.eta_original and vals.get('eta'):
-                    # Solo actualizar eta_original si aún no tiene uno
                     super(StockTransitVoyage, rec).write({'eta_original': vals['eta']})
         
         res = super().write(vals)
@@ -177,7 +284,6 @@ class StockTransitVoyage(models.Model):
                 ])
                 sol._compute_transit_info()
 
-        # CAMBIO #4: disparar notificaciones si entra en alerta
         if 'eta' in vals or 'custom_status' in vals:
             self._check_eta_alerts()
 
@@ -192,10 +298,15 @@ class StockTransitVoyage(models.Model):
             rec.allocated_m2 = allocated
             rec.allocation_percent = (allocated / total) * 100 if total > 0 else 0
 
-    @api.depends('etd', 'eta', 'custom_status', 'create_date')
+    @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
         today = fields.Date.today()
         for rec in self:
+            # Si hay datos de ShipsGo recientes (ej. payload existe), respetamos ese valor
+            # y NO sobreescribimos con el cálculo por fechas.
+            if rec.shipsgo_payload:
+                continue
+
             if rec.custom_status == 'delivered':
                 rec.transit_progress = 100
                 continue
@@ -494,7 +605,7 @@ class StockTransitVoyage(models.Model):
                 'product_uom': product.uom_id.id,
                 'picking_id': picking.id,
                 'location_id': source_location.id,
-                'location_dest_id': picking_type.default_location_dest_id.id,
+                'location_dest_id': picking.location_dest_id.id,
                 'company_id': self.company_id.id,
                 'state': 'draft',
             })
