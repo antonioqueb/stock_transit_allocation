@@ -11,21 +11,20 @@ export class TransitMapWidget extends Component {
         this.mapContainer = useRef("mapContainer");
         this.mapInstance = null;
         this._destroyed = false;
+        this.retryCount = 0; // Contador de reintentos
 
         onMounted(() => {
-            // Pequeño delay para asegurar que el DOM está listo y Leaflet cargado
-            setTimeout(() => {
-                if (!this._destroyed) this._renderMap();
-            }, 300);
+            // Intentar renderizar inmediatamente
+            this._tryRender();
         });
 
         onWillUpdateProps((nextProps) => {
             const oldVal = this.props.record.data[this.props.name];
             const newVal = nextProps.record.data[nextProps.name];
             if (newVal !== oldVal) {
-                setTimeout(() => {
-                    if (!this._destroyed) this._renderMap(newVal);
-                }, 100);
+                // Resetear reintentos si los datos cambian
+                this.retryCount = 0;
+                this._tryRender(newVal);
             }
         });
 
@@ -36,6 +35,12 @@ export class TransitMapWidget extends Component {
                 this.mapInstance = null;
             }
         });
+    }
+
+    _tryRender(payloadOverride = null) {
+        if (this._destroyed) return;
+        // Pequeño delay inicial para asegurar DOM pintado
+        setTimeout(() => this._renderMap(payloadOverride), 100);
     }
 
     _isValidLatLng(loc) {
@@ -56,7 +61,7 @@ export class TransitMapWidget extends Component {
             ? payloadOverride
             : this.props.record.data[this.props.name];
 
-        // Sin datos → destruir mapa si existía y salir
+        // Sin datos -> Limpiar y salir (el XML ya muestra el placeholder si raw es false)
         if (!raw) {
             if (this.mapInstance) {
                 this.mapInstance.remove();
@@ -65,7 +70,21 @@ export class TransitMapWidget extends Component {
             return;
         }
 
-        // 2. Parsear JSON
+        // 2. VERIFICACIÓN CRÍTICA: ¿Está cargado Leaflet?
+        if (typeof L === "undefined") {
+            if (this.retryCount < 20) { // Reintentar durante 10 segundos (20 * 500ms)
+                this.retryCount++;
+                console.warn(`[TransitMap] Leaflet no está listo todavía. Reintentando (${this.retryCount}/20)...`);
+                setTimeout(() => {
+                    if (!this._destroyed) this._renderMap(payloadOverride);
+                }, 500);
+            } else {
+                console.error("[TransitMap] Error: Leaflet no se pudo cargar desde el CDN.");
+            }
+            return;
+        }
+
+        // 3. Parsear JSON
         let data;
         try {
             data = typeof raw === "string" ? JSON.parse(raw) : raw;
@@ -74,30 +93,38 @@ export class TransitMapWidget extends Component {
             return;
         }
 
-        // 3. Verificar que Leaflet esté disponible globalmente
-        if (typeof L === "undefined") {
-            console.error("[TransitMap] Leaflet (L) no está disponible. ¿Cargó el CDN?");
-            return;
-        }
-
         // 4. Asegurarse de que el contenedor tiene dimensiones
         const container = this.mapContainer.el;
         if (container.offsetWidth === 0 || container.offsetHeight === 0) {
-            // Reintentar en 500ms si no tiene dimensiones aún (tab oculta, etc.)
+            // Si está oculto (tab inactiva), reintentar brevemente
             setTimeout(() => { if (!this._destroyed) this._renderMap(payloadOverride); }, 500);
             return;
         }
 
         // 5. Inicializar mapa si no existe
         if (!this.mapInstance) {
-            this.mapInstance = L.map(container, { zoomControl: true }).setView([20, -40], 2);
-            L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
-                attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
-                maxZoom: 19,
-            }).addTo(this.mapInstance);
+            // IMPORTANTE: Resetear el contenedor por si acaso hubo intentos fallidos previos
+            // container.innerHTML = ''; 
+            
+            try {
+                this.mapInstance = L.map(container, { zoomControl: true }).setView([20, -40], 2);
+                L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+                    attribution: "&copy; OpenStreetMap contributors &copy; CARTO",
+                    maxZoom: 19,
+                }).addTo(this.mapInstance);
+                
+                // Fix común de Leaflet cuando se carga en contenedores dinámicos
+                setTimeout(() => {
+                    if (this.mapInstance) this.mapInstance.invalidateSize();
+                }, 200);
+
+            } catch (err) {
+                console.error("[TransitMap] Error inicializando Leaflet:", err);
+                return;
+            }
         }
 
-        // 6. Limpiar capas anteriores (NO el tile layer)
+        // 6. Limpiar capas anteriores
         this.mapInstance.eachLayer((layer) => {
             if (!layer._url) this.mapInstance.removeLayer(layer);
         });
@@ -168,11 +195,17 @@ export class TransitMapWidget extends Component {
         }
 
         // 11. Ajustar vista
-        this.mapInstance.invalidateSize();
-        if (bounds.length > 1) {
-            this.mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
-        } else if (bounds.length === 1) {
-            this.mapInstance.setView(bounds[0], 5);
+        if (bounds.length > 0) {
+            // Pequeño delay para asegurar que invalidateSize ha corrido
+            setTimeout(() => {
+                if(this.mapInstance) {
+                    if (bounds.length > 1) {
+                        this.mapInstance.fitBounds(bounds, { padding: [50, 50], maxZoom: 8 });
+                    } else {
+                        this.mapInstance.setView(bounds[0], 5);
+                    }
+                }
+            }, 250);
         } else {
             this.mapInstance.setView([20, -40], 2);
         }
