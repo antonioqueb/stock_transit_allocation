@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
+import requests
+import json
 from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -44,28 +46,14 @@ class StockTransitVoyage(models.Model):
     
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
-
-    # =========================================================================
-    # CAMBIO #3: ETA original (inmutable) y cálculo de días de retraso
-    # =========================================================================
-    eta_original = fields.Date(
-        string='ETA Original',
-        readonly=True,
-        copy=False,
-        tracking=True,
-        help="Primer ETA registrado. Nunca se sobreescribe una vez guardado.",
-    )
-
+    eta_original = fields.Date(string='ETA Original', readonly=True, copy=False, tracking=True)
+    
     delay_days = fields.Integer(
         string='Días de Retraso',
         compute='_compute_delay_days',
-        store=True,
-        help="Días entre ETA original y ETA actual (o fecha real de llegada en bodega).",
+        store=True
     )
-
-    # =========================================================================
-    # CAMBIO #4: Nivel de alerta ETA
-    # =========================================================================
+    
     eta_alert_level = fields.Selection([
         ('ok',      'En Tiempo'),
         ('warning', 'Próximo a Vencer'),
@@ -74,22 +62,13 @@ class StockTransitVoyage(models.Model):
     ], string='Alerta ETA', compute='_compute_eta_alert', store=True)
 
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
-
-    # =========================================================================
-    # CAMBIO #8: Fecha real de entrega en bodega
-    # =========================================================================
-    arrival_date_bodega = fields.Date(
-        string='Entregado en Bodega',
-        tracking=True,
-        help="Fecha real de ingreso físico a bodega.",
-    )
+    arrival_date_bodega = fields.Date(string='Entregado en Bodega', tracking=True)
 
     picking_id = fields.Many2one('stock.picking', string='Recepción (Tránsito)', 
-        domain=[('picking_type_code', '=', 'incoming')], help="Recepción administrativa en ubicación de tránsito")
+        domain=[('picking_type_code', '=', 'incoming')])
     
     reception_picking_id = fields.Many2one('stock.picking', string='Recepción Física (Bodega)',
-        domain=[('picking_type_code', '=', 'internal')], readonly=True,
-        help="Transferencia interna para ingreso físico y validación de medidas (Worksheet)")
+        domain=[('picking_type_code', '=', 'internal')], readonly=True)
 
     purchase_id = fields.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
     
@@ -99,7 +78,158 @@ class StockTransitVoyage(models.Model):
     total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True)
     allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True)
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
-    transit_progress = fields.Integer(string='Progreso Viaje', compute='_compute_transit_progress', store=False)
+    
+    # =========================================================================
+    # SHIPSGO & TRACKING FIELDS
+    # =========================================================================
+    shipsgo_last_sync = fields.Datetime(string="Última Sincronización API", readonly=True)
+    shipsgo_payload = fields.Text(string="Datos Geoespaciales (JSON)", readonly=True)
+    
+    transit_progress = fields.Integer(
+        string='Progreso Viaje', 
+        compute='_compute_transit_progress', 
+        store=True, 
+        readonly=False
+    )
+
+    # =========================================================================
+    # HELPER: Limpieza de Coordenadas
+    # =========================================================================
+    def _clean_coord(self, lat, lng):
+        """Convierte coordenadas a float y valida que no sean 0 o None"""
+        try:
+            if lat is None or lng is None:
+                return None
+            f_lat = float(lat)
+            f_lng = float(lng)
+            if f_lat == 0.0 and f_lng == 0.0:
+                return None
+            return [f_lat, f_lng]
+        except (ValueError, TypeError):
+            return None
+
+    # =========================================================================
+    # ACCIÓN: SINCRONIZAR SHIPSGO API
+    # =========================================================================
+    def action_sync_shipsgo(self):
+        """Conecta a ShipsGo, busca por contenedor y actualiza coordenadas y progreso."""
+        self.ensure_one()
+        
+        # 1. Obtener configuración
+        Config = self.env['ir.config_parameter'].sudo()
+        api_url = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
+        api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
+
+        if not api_token:
+            raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema."))
+
+        # 2. Buscar contenedor (Prioridad: Líneas > Campo Computado > Nombre)
+        container_ref = False
+        
+        # A) Buscar en líneas
+        for line in self.line_ids:
+            if line.container_number and line.container_number not in ('PENDIENTE', 'SN', False):
+                container_ref = line.container_number
+                break
+        
+        # B) Buscar en campo computado
+        if not container_ref and self.container_number and 'PENDIENTE' not in self.container_number:
+            container_ref = self.container_number.split(',')[0]
+
+        # C) Limpieza final (quitar espacios, mayúsculas)
+        if container_ref:
+            container_ref = str(container_ref).strip().upper()
+
+        if not container_ref:
+            raise UserError(_("No se encontró un número de contenedor válido en las líneas para consultar."))
+
+        endpoint = f"{api_url}/ocean/shipments"
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "OdooControlTower/1.0",
+            "X-Shipsgo-User-Token": api_token
+        }
+        params = {
+            "filters[container_number]": f"eq:{container_ref}"
+        }
+
+        _logger.info(f"[ShipsGo] Request a: {endpoint}")
+        _logger.info(f"[ShipsGo] Params: {params}")
+
+        try:
+            response = requests.get(endpoint, headers=headers, params=params, timeout=15)
+            response.raise_for_status()
+            
+            # LOG DE LA RESPUESTA PARA DEPURACIÓN
+            _logger.info(f"[ShipsGo] Respuesta RAW: {response.text}")
+            
+            data = response.json()
+            
+            # Verificar si 'data' viene vacío (Causa común del error que reportas)
+            if not data.get('data') or len(data['data']) == 0:
+                msg = f"⚠️ ShipsGo: La API respondió correctamente pero NO devolvió datos para {container_ref}. Verifique que el contenedor esté agregado a su cuenta de ShipsGo."
+                self.message_post(body=msg)
+                
+                # Crear un payload vacío para que el mapa muestre "Sin datos" en lugar de error
+                self.write({
+                    'shipsgo_last_sync': fields.Datetime.now(),
+                    'shipsgo_payload': False # Esto hará que el mapa muestre el placeholder "Sin datos"
+                })
+                return
+
+            # Tomamos el primer resultado
+            shipment = data['data'][0]
+            
+            percent = shipment.get('percent_complete', 0)
+            
+            # 3. Limpiar coordenadas
+            current_loc = self._clean_coord(shipment.get('lat'), shipment.get('lng'))
+            origin_loc = self._clean_coord(shipment.get('pol_lat'), shipment.get('pol_lng'))
+            dest_loc = self._clean_coord(shipment.get('pod_lat'), shipment.get('pod_lng'))
+
+            # 4. Construir payload JSON
+            map_data = {
+                'container': container_ref,
+                'current_loc': current_loc,
+                'origin': {
+                    'name': shipment.get('pol_name', 'Origen'),
+                    'loc': origin_loc
+                },
+                'destination': {
+                    'name': shipment.get('pod_name', 'Destino'),
+                    'loc': dest_loc
+                },
+                'vessel': shipment.get('vessel_name', self.vessel_name or 'Desconocido'),
+                'status_text': shipment.get('last_status_text', 'En Tránsito')
+            }
+
+            vals = {
+                'shipsgo_last_sync': fields.Datetime.now(),
+                'shipsgo_payload': json.dumps(map_data),
+                'transit_progress': int(percent) if percent is not None else self.transit_progress
+            }
+
+            # Actualizar campos nativos si la API trae datos
+            if shipment.get('vessel_name'):
+                vals['vessel_name'] = shipment.get('vessel_name')
+            if shipment.get('shipping_line'):
+                vals['shipping_line'] = shipment.get('shipping_line')
+            if shipment.get('pod_eta'):
+                vals['eta'] = shipment.get('pod_eta')
+
+            self.write(vals)
+            
+            self.message_post(body=Markup(
+                f"📡 <b>Sincronización ShipsGo Exitosa</b><br/>"
+                f"Contenedor: {container_ref}<br/>"
+                f"Progreso: {percent}%<br/>"
+                f"Estado: {map_data['status_text']}<br/>"
+                f"Buque: {map_data['vessel']}"
+            ))
+
+        except Exception as e:
+            _logger.error(f"ShipsGo Error Crítico: {e}")
+            raise UserError(_(f"Error al conectar con ShipsGo: {e}"))
 
     # =========================================================================
     # CÓMPUTOS
@@ -129,11 +259,7 @@ class StockTransitVoyage(models.Model):
     @api.depends('eta', 'custom_status')
     def _compute_eta_alert(self):
         today = fields.Date.today()
-        try:
-            warning_days = int(self.env['ir.config_parameter'].sudo().get_param(
-                'stock_transit_allocation.eta_warning_days', '7'))
-        except Exception:
-            warning_days = 7
+        warning_days = 7
         for rec in self:
             if rec.custom_status == 'delivered':
                 rec.eta_alert_level = 'done'
@@ -152,17 +278,14 @@ class StockTransitVoyage(models.Model):
             if vals.get('name', _('Nuevo')) == _('Nuevo'):
                 vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
             vals.pop('container_number', None)
-            # CAMBIO #3: capturar eta_original en creación
             if vals.get('eta') and not vals.get('eta_original'):
                 vals['eta_original'] = vals['eta']
         return super(StockTransitVoyage, self).create(vals_list)
 
     def write(self, vals):
-        # CAMBIO #3: preservar eta_original — se fija la primera vez que hay ETA
         if 'eta' in vals:
             for rec in self:
                 if not rec.eta_original and vals.get('eta'):
-                    # Solo actualizar eta_original si aún no tiene uno
                     super(StockTransitVoyage, rec).write({'eta_original': vals['eta']})
         
         res = super().write(vals)
@@ -177,7 +300,6 @@ class StockTransitVoyage(models.Model):
                 ])
                 sol._compute_transit_info()
 
-        # CAMBIO #4: disparar notificaciones si entra en alerta
         if 'eta' in vals or 'custom_status' in vals:
             self._check_eta_alerts()
 
@@ -192,10 +314,14 @@ class StockTransitVoyage(models.Model):
             rec.allocated_m2 = allocated
             rec.allocation_percent = (allocated / total) * 100 if total > 0 else 0
 
-    @api.depends('etd', 'eta', 'custom_status', 'create_date')
+    @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
         today = fields.Date.today()
         for rec in self:
+            # Si hay datos de ShipsGo recientes, respetamos ese valor
+            if rec.shipsgo_payload:
+                continue
+
             if rec.custom_status == 'delivered':
                 rec.transit_progress = 100
                 continue
@@ -203,9 +329,7 @@ class StockTransitVoyage(models.Model):
                 rec.transit_progress = 0
                 continue
 
-            start_date = rec.etd
-            if not start_date and rec.create_date:
-                start_date = rec.create_date.date()
+            start_date = rec.etd or (rec.create_date.date() if rec.create_date else False)
             if not start_date or not rec.eta:
                 rec.transit_progress = 0
                 continue
@@ -228,18 +352,17 @@ class StockTransitVoyage(models.Model):
     # =========================================================================
 
     def _check_eta_alerts(self):
-        """Envía notificación al responsable del viaje cuando entra en alerta."""
         for rec in self:
             if rec.eta_alert_level not in ('warning', 'danger'):
                 continue
             if rec.custom_status == 'delivered':
                 continue
-            # Buscar usuario responsable (el que creó el viaje o la PO)
+            
             responsible = False
             if rec.purchase_id and rec.purchase_id.user_id:
                 responsible = rec.purchase_id.user_id
+            
             if not responsible:
-                # Notificar a todos los seguidores del viaje
                 followers = rec.message_partner_ids
                 if not followers:
                     continue
@@ -249,12 +372,7 @@ class StockTransitVoyage(models.Model):
                     "⚠️ <b>Alerta ETA %s</b><br/>"
                     "El embarque <b>%s</b> tiene ETA %s y está en estado <b>%s</b>."
                 ) % (level_label, rec.name, eta_str, rec.custom_status)
-                rec.message_post(
-                    body=body,
-                    partner_ids=followers.ids,
-                    message_type='comment',
-                    subtype_xmlid='mail.mt_comment',
-                )
+                rec.message_post(body=body, partner_ids=followers.ids, message_type='comment', subtype_xmlid='mail.mt_comment')
                 continue
 
             level_label = 'VENCIDO' if rec.eta_alert_level == 'danger' else 'PRÓXIMO A VENCER'
@@ -263,15 +381,10 @@ class StockTransitVoyage(models.Model):
                 "⚠️ <b>Alerta ETA %s</b><br/>"
                 "El embarque <b>%s</b> tiene ETA %s y está en estado <b>%s</b>."
             ) % (level_label, rec.name, eta_str, rec.custom_status)
-            rec.message_post(
-                body=body,
-                partner_ids=responsible.partner_id.ids,
-                message_type='comment',
-                subtype_xmlid='mail.mt_comment',
-            )
+            rec.message_post(body=body, partner_ids=responsible.partner_id.ids, message_type='comment', subtype_xmlid='mail.mt_comment')
 
     # =========================================================================
-    # AVANCE SECUENCIAL DE ESTADOS
+    # MÉTODOS DE ESTADO (WIZARD)
     # =========================================================================
     
     STATUS_SEQUENCE = [
@@ -292,12 +405,7 @@ class StockTransitVoyage(models.Model):
         'cancel':            'Cancelado',
     }
 
-    # -------------------------------------------------------------------------
-    # CAMBIO #2: Botones públicos ahora abren el wizard de nota
-    # -------------------------------------------------------------------------
-
     def action_advance_status(self):
-        """Abre wizard para confirmar avance con nota opcional."""
         self.ensure_one()
         if self.custom_status in ('delivered', 'cancel'):
             return
@@ -313,7 +421,6 @@ class StockTransitVoyage(models.Model):
         }
 
     def action_retreat_status(self):
-        """Abre wizard para confirmar retroceso con nota opcional."""
         self.ensure_one()
         if self.custom_status in ('solicitud', 'delivered', 'cancel'):
             return
@@ -328,12 +435,7 @@ class StockTransitVoyage(models.Model):
             },
         }
 
-    # -------------------------------------------------------------------------
-    # Métodos internos usados por el wizard
-    # -------------------------------------------------------------------------
-
     def _do_advance_status(self, notes=None):
-        """Ejecuta el avance real de estado. Llamado desde el wizard."""
         self.ensure_one()
         current = self.custom_status
         if current in ('cancel', 'delivered'):
@@ -373,18 +475,14 @@ class StockTransitVoyage(models.Model):
                     allocations.action_mark_in_transit()
             self.write({'custom_status': next_status})
 
-        # Registrar en chatter
         old_label = self.STATUS_LABELS.get(current, current)
         new_label = self.STATUS_LABELS.get(self.custom_status, self.custom_status)
-        msg_parts = [
-            Markup("⏩ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)
-        ]
+        msg_parts = [Markup("⏩ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)]
         if notes:
             msg_parts.append(Markup("<br/>📝 <b>Nota:</b> %s") % notes)
         self.message_post(body=Markup('').join(msg_parts))
 
     def _do_retreat_status(self, notes=None):
-        """Ejecuta el retroceso real de estado. Llamado desde el wizard."""
         self.ensure_one()
         current = self.custom_status
         if current == 'cancel':
@@ -403,186 +501,14 @@ class StockTransitVoyage(models.Model):
         new_label = self.STATUS_LABELS.get(prev_status, prev_status)
         self.write({'custom_status': prev_status})
 
-        msg_parts = [
-            Markup("⏪ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)
-        ]
+        msg_parts = [Markup("⏪ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)]
         if notes:
             msg_parts.append(Markup("<br/>📝 <b>Nota:</b> %s") % notes)
         self.message_post(body=Markup('').join(msg_parts))
 
-    # -------------------------------------------------------------------------
-    # Acciones legacy (mantienen compatibilidad)
-    # -------------------------------------------------------------------------
-
-    def action_confirm_transit(self):
-        return self.action_advance_status()
-
-    def action_arrive(self):
-        self.ensure_one()
-        if self.reception_picking_id and self.reception_picking_id.state != 'done':
-            raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
-        write_vals = {
-            'arrival_date': fields.Date.today(),
-            'custom_status': 'delivered'
-        }
-        if not self.arrival_date_bodega:
-            write_vals['arrival_date_bodega'] = fields.Date.today()
-        self.write(write_vals)
-        for line in self.line_ids:
-            if line.allocation_id and line.allocation_id.state != 'done':
-                line.allocation_id.action_mark_received(line.product_uom_qty)
-
-    def action_cancel(self):
-        self.write({'custom_status': 'cancel'})
-
-    def action_generate_reception(self):
-        """
-        PASO 1: Genera el Picking y los Movimientos (Demanda) en estado BORRADOR.
-        """
-        self.ensure_one()
-        _logger.info(f"[TC_DEBUG] >>> PASO 1: Creando Picking para Viaje: {self.name}")
-
-        if self.reception_picking_id:
-            return {
-                'type': 'ir.actions.act_window',
-                'res_model': 'stock.picking',
-                'res_id': self.reception_picking_id.id,
-                'view_mode': 'form',
-                'target': 'current',
-            }
-
-        picking_type = self.env['stock.picking.type'].search([
-            ('code', '=', 'internal'),
-            ('company_id', '=', self.company_id.id)
-        ], limit=1)
-        
-        if not picking_type:
-            raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
-
-        valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
-        if not valid_lines:
-            raise UserError(_("No hay líneas válidas para mover."))
-            
-        source_location = valid_lines[0].quant_id.location_id
-        if not source_location:
-             raise UserError(_("No se pudo determinar la ubicación de origen."))
-
-        picking = self.env['stock.picking'].create({
-            'picking_type_id': picking_type.id,
-            'location_id': source_location.id,
-            'location_dest_id': picking_type.default_location_dest_id.id,
-            'origin': f"{self.name} (Recepción Física)",
-            'company_id': self.company_id.id,
-            'move_type': 'direct',
-            'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
-            'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
-            'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
-        })
-
-        products_map = {}
-        for line in valid_lines:
-            if line.product_uom_qty <= 0:
-                continue
-            if line.product_id not in products_map:
-                products_map[line.product_id] = 0.0
-            products_map[line.product_id] += line.product_uom_qty
-
-        for product, qty in products_map.items():
-            self.env['stock.move'].create({
-                'product_id': product.id,
-                'product_uom_qty': qty,
-                'product_uom': product.uom_id.id,
-                'picking_id': picking.id,
-                'location_id': source_location.id,
-                'location_dest_id': picking_type.default_location_dest_id.id,
-                'company_id': self.company_id.id,
-                'state': 'draft',
-            })
-        
-        self.write({
-            'reception_picking_id': picking.id,
-            'custom_status': 'reception_pending'
-        })
-        
-        _logger.info(f"[TC_DEBUG] Picking {picking.name} creado en BORRADOR. ID: {picking.id}")
-
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'stock.picking',
-            'res_id': picking.id,
-            'view_mode': 'form',
-            'target': 'current',
-        }
-
-    def action_sync_reception_from_voyage(self):
-        """
-        Sincroniza los lotes del Voyage al reception_picking_id.
-        """
-        self.ensure_one()
-        if not self.reception_picking_id:
-            raise UserError(_("Primero debe generar la Recepción Física con el botón '🏭 Generar Recepción Física'."))
-
-        picking = self.reception_picking_id
-
-        if picking.state == 'done':
-            raise UserError(_("La recepción ya fue validada."))
-
-        if picking.state == 'draft':
-            picking.action_confirm()
-
-        picking.move_line_ids.unlink()
-
-        lines_created = 0
-        for line in self.line_ids:
-            if not line.lot_id or line.product_uom_qty <= 0:
-                continue
-
-            move = picking.move_ids.filtered(
-                lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel']
-            )
-
-            if not move:
-                move = self.env['stock.move'].create({
-                    'picking_id': picking.id,
-                    'product_id': line.product_id.id,
-                    'product_uom': line.product_id.uom_id.id,
-                    'product_uom_qty': line.product_uom_qty,
-                    'location_id': picking.location_id.id,
-                    'location_dest_id': picking.location_dest_id.id,
-                    'company_id': self.company_id.id,
-                })
-                move._action_confirm()
-            else:
-                move = move[0]
-
-            try:
-                self.env['stock.move.line'].create({
-                    'picking_id': picking.id,
-                    'move_id': move.id,
-                    'product_id': line.product_id.id,
-                    'product_uom_id': line.product_id.uom_id.id,
-                    'lot_id': line.lot_id.id,
-                    'location_id': picking.location_id.id,
-                    'location_dest_id': picking.location_dest_id.id,
-                    'quantity': line.product_uom_qty,
-                })
-                lines_created += 1
-            except Exception as e:
-                _logger.error(f"[TC_ERROR] Error creando move.line para lote {line.lot_id.name}: {e}")
-
-        if lines_created == 0:
-            raise UserError(_("No hay líneas con lote asignado en el viaje para sincronizar."))
-
-        picking.message_post(body=f"🔄 {lines_created} lotes sincronizados desde Viaje {self.name}.")
-        self.message_post(body=f"📦 Recepción física sincronizada: {lines_created} lotes cargados en {picking.name}.")
-
-        return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'stock.picking',
-            'res_id': picking.id,
-            'view_mode': 'form',
-            'target': 'current',
-        }
+    # =========================================================================
+    # ACCIONES DE CARGA Y RECEPCIÓN
+    # =========================================================================
 
     def action_load_from_purchase(self):
         self.ensure_one()
@@ -609,16 +535,13 @@ class StockTransitVoyage(models.Model):
                 'container_number': 'PENDIENTE',
             })
         
-        existing_stock_lines = self.line_ids.filtered(
-            lambda l: not l.allocation_id and not l.partner_id and not l.order_id
-        )
+        existing_stock_lines = self.line_ids.filtered(lambda l: not l.allocation_id and not l.partner_id and not l.order_id)
         existing_stock_by_product = {l.product_id.id: l for l in existing_stock_lines}
         
         for po_line in self.purchase_id.order_line:
             total_po_qty = po_line.product_qty
             total_allocated = sum(po_line.allocation_ids.mapped('quantity'))
             extra_for_stock = total_po_qty - total_allocated
-            
             product_id = po_line.product_id.id
             
             if product_id in existing_stock_by_product:
@@ -641,12 +564,8 @@ class StockTransitVoyage(models.Model):
                     'notes': 'Para Stock (cantidad extra en OC)',
                 })
         
-        created_count = 0
         if transit_lines:
             self.env['stock.transit.line'].create(transit_lines)
-            created_count = len(transit_lines)
-        
-        _logger.info(f"[TC_SYNC] action_load_from_purchase: {created_count} líneas nuevas creadas para {self.name}")
 
     def action_load_from_picking(self):
         self.ensure_one()
@@ -657,13 +576,9 @@ class StockTransitVoyage(models.Model):
         if placeholder_lines:
             placeholder_lines.unlink()
 
-        existing_by_lot = {}
-        for line in self.line_ids:
-            if line.lot_id:
-                existing_by_lot[line.lot_id.id] = line
-
-        from .utils.transit_manager import TransitManager
+        existing_by_lot = {line.lot_id.id: line for line in self.line_ids if line.lot_id}
         
+        from .utils.transit_manager import TransitManager
         purchase = self.picking_id.purchase_id
         allocations_map = {}
         allocation_consumed = {}
@@ -673,7 +588,6 @@ class StockTransitVoyage(models.Model):
                 ('purchase_order_id', '=', purchase.id),
                 ('state', 'not in', ['done', 'cancelled'])
             ], order='id asc')
-            
             for alloc in allocations:
                 if alloc.product_id.id not in allocations_map:
                     allocations_map[alloc.product_id.id] = []
@@ -681,8 +595,6 @@ class StockTransitVoyage(models.Model):
                 allocation_consumed[alloc.id] = 0.0
 
         lines_to_create = []
-        lines_updated = 0
-        lines_created_count = 0
         hold_orders_map = {}
 
         for move_line in self.picking_id.move_line_ids:
@@ -701,14 +613,12 @@ class StockTransitVoyage(models.Model):
                 for alloc in allocations_map[product_id]:
                     already_received = alloc.qty_received
                     consumed_this_load = allocation_consumed.get(alloc.id, 0.0)
-                    total_consumed = already_received + consumed_this_load
-                    remaining = alloc.quantity - total_consumed
+                    remaining = alloc.quantity - (already_received + consumed_this_load)
                     
                     if remaining > 0:
                         allocation_to_use = alloc
                         partner_to_assign = alloc.partner_id
                         order_to_assign = alloc.sale_order_id
-                        
                         if alloc.sale_line_id:
                             auto_assign = getattr(alloc.sale_line_id, 'auto_transit_assign', True)
                             if not auto_assign:
@@ -716,7 +626,6 @@ class StockTransitVoyage(models.Model):
                                 order_to_assign = False
                                 allocation_to_use = False
                                 continue
-                        
                         allocation_consumed[alloc.id] = consumed_this_load + qty_done
                         break
 
@@ -736,7 +645,6 @@ class StockTransitVoyage(models.Model):
             if lot_id in existing_by_lot:
                 existing_line = existing_by_lot[lot_id]
                 update_vals = {}
-                
                 if existing_line.product_uom_qty != qty_done:
                     update_vals['product_uom_qty'] = qty_done
                 if found_quant and existing_line.quant_id.id != found_quant.id:
@@ -751,10 +659,7 @@ class StockTransitVoyage(models.Model):
                     update_vals['allocation_status'] = 'reserved'
                 
                 if update_vals:
-                    self.env['stock.transit.line'].browse(existing_line.id).with_context(
-                        skip_reservation_logic=True
-                    ).write(update_vals)
-                    lines_updated += 1
+                    self.env['stock.transit.line'].browse(existing_line.id).with_context(skip_reservation_logic=True).write(update_vals)
                 continue
 
             line_vals = {
@@ -774,17 +679,12 @@ class StockTransitVoyage(models.Model):
             if partner_to_assign and order_to_assign:
                 key = (partner_to_assign.id, order_to_assign.id)
                 if key not in hold_orders_map:
-                    hold_orders_map[key] = {
-                        'partner': partner_to_assign,
-                        'order': order_to_assign,
-                        'line_vals_indices': []
-                    }
+                    hold_orders_map[key] = {'partner': partner_to_assign, 'order': order_to_assign, 'line_vals_indices': []}
                 hold_orders_map[key]['line_vals_indices'].append(len(lines_to_create) - 1)
 
         created_lines = self.env['stock.transit.line']
         if lines_to_create:
             created_lines = self.env['stock.transit.line'].create(lines_to_create)
-            lines_created_count = len(created_lines)
         
         for alloc_id, qty_consumed in allocation_consumed.items():
             if qty_consumed > 0:
@@ -796,10 +696,8 @@ class StockTransitVoyage(models.Model):
             partner = data['partner']
             order = data['order']
             indices = data['line_vals_indices']
-            
             relevant_lines = [created_lines[i] for i in indices if i < len(created_lines)]
-            if not relevant_lines:
-                continue
+            if not relevant_lines: continue
             
             hold_order = self.env['stock.lot.hold.order'].create({
                 'partner_id': partner.id,
@@ -817,8 +715,143 @@ class StockTransitVoyage(models.Model):
             else:
                 hold_order.unlink()
 
-        summary = f"Sincronización completada: {lines_created_count} nuevos, {lines_updated} actualizados"
-        _logger.info(f"[TC_SYNC] {self.name}: {summary}")
+    def action_generate_reception(self):
+        self.ensure_one()
+        if self.reception_picking_id:
+            return {
+                'type': 'ir.actions.act_window',
+                'res_model': 'stock.picking',
+                'res_id': self.reception_picking_id.id,
+                'view_mode': 'form',
+                'target': 'current',
+            }
+
+        picking_type = self.env['stock.picking.type'].search([
+            ('code', '=', 'internal'),
+            ('company_id', '=', self.company_id.id)
+        ], limit=1)
+        if not picking_type:
+            raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
+
+        valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
+        if not valid_lines:
+            raise UserError(_("No hay líneas válidas para mover."))
+            
+        source_location = valid_lines[0].quant_id.location_id
         
-        if lines_created_count > 0 or lines_updated > 0:
-            self.message_post(body=Markup("🔄 %s") % summary)
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': picking_type.id,
+            'location_id': source_location.id,
+            'location_dest_id': picking_type.default_location_dest_id.id,
+            'origin': f"{self.name} (Recepción Física)",
+            'company_id': self.company_id.id,
+            'move_type': 'direct',
+            'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
+            'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
+            'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
+        })
+
+        products_map = {}
+        for line in valid_lines:
+            if line.product_uom_qty <= 0: continue
+            if line.product_id not in products_map: products_map[line.product_id] = 0.0
+            products_map[line.product_id] += line.product_uom_qty
+
+        for product, qty in products_map.items():
+            self.env['stock.move'].create({
+                'product_id': product.id,
+                'product_uom_qty': qty,
+                'product_uom': product.uom_id.id,
+                'picking_id': picking.id,
+                'location_id': source_location.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'company_id': self.company_id.id,
+                'state': 'draft',
+            })
+        
+        self.write({
+            'reception_picking_id': picking.id,
+            'custom_status': 'reception_pending'
+        })
+        
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': picking.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
+    def action_sync_reception_from_voyage(self):
+        self.ensure_one()
+        if not self.reception_picking_id:
+            raise UserError(_("Primero debe generar la Recepción Física."))
+
+        picking = self.reception_picking_id
+        if picking.state == 'done':
+            raise UserError(_("La recepción ya fue validada."))
+        if picking.state == 'draft':
+            picking.action_confirm()
+
+        picking.move_line_ids.unlink()
+        lines_created = 0
+        for line in self.line_ids:
+            if not line.lot_id or line.product_uom_qty <= 0: continue
+            move = picking.move_ids.filtered(lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel'])
+            if not move:
+                move = self.env['stock.move'].create({
+                    'picking_id': picking.id,
+                    'product_id': line.product_id.id,
+                    'product_uom': line.product_id.uom_id.id,
+                    'product_uom_qty': line.product_uom_qty,
+                    'location_id': picking.location_id.id,
+                    'location_dest_id': picking.location_dest_id.id,
+                    'company_id': self.company_id.id,
+                })
+                move._action_confirm()
+            else:
+                move = move[0]
+
+            self.env['stock.move.line'].create({
+                'picking_id': picking.id,
+                'move_id': move.id,
+                'product_id': line.product_id.id,
+                'product_uom_id': line.product_id.uom_id.id,
+                'lot_id': line.lot_id.id,
+                'location_id': picking.location_id.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'quantity': line.product_uom_qty,
+            })
+            lines_created += 1
+
+        if lines_created == 0:
+            raise UserError(_("No hay líneas con lote asignado para sincronizar."))
+
+        picking.message_post(body=f"🔄 {lines_created} lotes sincronizados desde Viaje {self.name}.")
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': picking.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
+    def action_arrive(self):
+        self.ensure_one()
+        if self.reception_picking_id and self.reception_picking_id.state != 'done':
+            raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
+        
+        write_vals = {
+            'arrival_date': fields.Date.today(),
+            'custom_status': 'delivered'
+        }
+        if not self.arrival_date_bodega:
+            write_vals['arrival_date_bodega'] = fields.Date.today()
+        self.write(write_vals)
+        
+        for line in self.line_ids:
+            if line.allocation_id and line.allocation_id.state != 'done':
+                line.allocation_id.action_mark_received(line.product_uom_qty)
+
+    def action_cancel(self):
+        self.write({'custom_status': 'cancel'})
