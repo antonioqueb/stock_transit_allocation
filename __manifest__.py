@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.7.0.0',
+    'version': '19.0.8.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
         
+        Novedades v8.0 (Folium Map):
+        - Mapa generado server-side con Folium (Python), sin dependencia de CDN JS.
+        - Se elimina Leaflet CDN del frontend.
+        - El mapa se renderiza como campo Html nativo de Odoo.
+
         Novedades v7.0 (ShipsGo Integration):
         - Integración con API ShipsGo v2.
-        - Mapa interactivo Leaflet en el formulario de viaje.
         - Sincronización automática de progreso y ubicación.
 
         Novedades v6.0:
@@ -19,11 +23,14 @@
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
     'depends': ['stock', 'sale_management', 'purchase', 'web', 'stock_lot_dimensions', 'sale_stock', 'inventory_shopping_cart', 'sale_stone_selection'],
+    'external_dependencies': {
+        'python': ['folium'],
+    },
     'data': [
         'security/transit_security.xml',
         'security/ir.model.access.csv',
         'data/ir_sequence_data.xml',
-        'data/ir_config_parameter_data.xml',  # NUEVO
+        'data/ir_config_parameter_data.xml',
         'views/stock_transit_sheet_action.xml',
         'views/stock_transit_voyage_views.xml',
         'views/stock_picking_views.xml',
@@ -36,18 +43,12 @@
     ],
     'assets': {
         'web.assets_backend': [
-            # Librerías Externas (Leaflet CDN)
-            'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
-            'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-
             # CSS existentes
             'stock_transit_allocation/static/src/css/transit_style.css',
             'stock_transit_allocation/static/src/css/transit_voyage_lines.css',
-            
-            # NUEVO: Widget del Mapa
-            'stock_transit_allocation/static/src/components/transit_map/transit_map.scss',
-            'stock_transit_allocation/static/src/components/transit_map/transit_map.js',
-            'stock_transit_allocation/static/src/components/transit_map/transit_map.xml',
+
+            # ELIMINADO: Leaflet CDN (ya no se necesita en frontend)
+            # ELIMINADO: transit_map widget JS/SCSS/XML (reemplazado por campo Html de Folium)
 
             # Cronograma
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.scss',
