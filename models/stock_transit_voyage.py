@@ -111,126 +111,227 @@ class StockTransitVoyage(models.Model):
     # =========================================================================
     # ACCIÓN: SINCRONIZAR SHIPSGO API
     # =========================================================================
+    
     def action_sync_shipsgo(self):
-        """Conecta a ShipsGo, busca por contenedor y actualiza coordenadas y progreso."""
+        """Sincroniza datos de ShipsGo v2 usando shipments + geojson endpoints."""
         self.ensure_one()
-        
-        # 1. Obtener configuración
+
         Config = self.env['ir.config_parameter'].sudo()
-        api_url = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
+        api_url   = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
         api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
 
         if not api_token:
             raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema."))
 
-        # 2. Buscar contenedor (Prioridad: Líneas > Campo Computado > Nombre)
+        # ── Número de contenedor ───────────────────────────────────────────────
         container_ref = False
-        
-        # A) Buscar en líneas
         for line in self.line_ids:
-            if line.container_number and line.container_number not in ('PENDIENTE', 'SN', False):
+            if line.container_number and line.container_number not in ('PENDIENTE', 'SN', False, ''):
                 container_ref = line.container_number
                 break
-        
-        # B) Buscar en campo computado
-        if not container_ref and self.container_number and 'PENDIENTE' not in self.container_number:
-            container_ref = self.container_number.split(',')[0]
-
-        # C) Limpieza final (quitar espacios, mayúsculas)
+        if not container_ref and self.container_number and 'PENDIENTE' not in (self.container_number or ''):
+            container_ref = str(self.container_number).split(',')[0].strip()
         if container_ref:
             container_ref = str(container_ref).strip().upper()
-
         if not container_ref:
-            raise UserError(_("No se encontró un número de contenedor válido en las líneas para consultar."))
+            raise UserError(_("No se encontró un número de contenedor válido en las líneas."))
 
-        endpoint = f"{api_url}/ocean/shipments"
         headers = {
             "Accept": "application/json",
             "User-Agent": "OdooControlTower/1.0",
-            "X-Shipsgo-User-Token": api_token
-        }
-        params = {
-            "filters[container_number]": f"eq:{container_ref}"
+            "X-Shipsgo-User-Token": api_token,
         }
 
-        _logger.info(f"[ShipsGo] Request a: {endpoint}")
-        _logger.info(f"[ShipsGo] Params: {params}")
-
+        # ── 1. GET /ocean/shipments ────────────────────────────────────────────
         try:
-            response = requests.get(endpoint, headers=headers, params=params, timeout=15)
-            response.raise_for_status()
-            
-            # LOG DE LA RESPUESTA PARA DEPURACIÓN
-            _logger.info(f"[ShipsGo] Respuesta RAW: {response.text}")
-            
-            data = response.json()
-            
-            # Verificar si 'data' viene vacío (Causa común del error que reportas)
-            if not data.get('data') or len(data['data']) == 0:
-                msg = f"⚠️ ShipsGo: La API respondió correctamente pero NO devolvió datos para {container_ref}. Verifique que el contenedor esté agregado a su cuenta de ShipsGo."
-                self.message_post(body=msg)
-                
-                # Crear un payload vacío para que el mapa muestre "Sin datos" en lugar de error
-                self.write({
-                    'shipsgo_last_sync': fields.Datetime.now(),
-                    'shipsgo_payload': False # Esto hará que el mapa muestre el placeholder "Sin datos"
-                })
-                return
-
-            # Tomamos el primer resultado
-            shipment = data['data'][0]
-            
-            percent = shipment.get('percent_complete', 0)
-            
-            # 3. Limpiar coordenadas
-            current_loc = self._clean_coord(shipment.get('lat'), shipment.get('lng'))
-            origin_loc = self._clean_coord(shipment.get('pol_lat'), shipment.get('pol_lng'))
-            dest_loc = self._clean_coord(shipment.get('pod_lat'), shipment.get('pod_lng'))
-
-            # 4. Construir payload JSON
-            map_data = {
-                'container': container_ref,
-                'current_loc': current_loc,
-                'origin': {
-                    'name': shipment.get('pol_name', 'Origen'),
-                    'loc': origin_loc
-                },
-                'destination': {
-                    'name': shipment.get('pod_name', 'Destino'),
-                    'loc': dest_loc
-                },
-                'vessel': shipment.get('vessel_name', self.vessel_name or 'Desconocido'),
-                'status_text': shipment.get('last_status_text', 'En Tránsito')
-            }
-
-            vals = {
-                'shipsgo_last_sync': fields.Datetime.now(),
-                'shipsgo_payload': json.dumps(map_data),
-                'transit_progress': int(percent) if percent is not None else self.transit_progress
-            }
-
-            # Actualizar campos nativos si la API trae datos
-            if shipment.get('vessel_name'):
-                vals['vessel_name'] = shipment.get('vessel_name')
-            if shipment.get('shipping_line'):
-                vals['shipping_line'] = shipment.get('shipping_line')
-            if shipment.get('pod_eta'):
-                vals['eta'] = shipment.get('pod_eta')
-
-            self.write(vals)
-            
-            self.message_post(body=Markup(
-                f"📡 <b>Sincronización ShipsGo Exitosa</b><br/>"
-                f"Contenedor: {container_ref}<br/>"
-                f"Progreso: {percent}%<br/>"
-                f"Estado: {map_data['status_text']}<br/>"
-                f"Buque: {map_data['vessel']}"
-            ))
-
+            r = requests.get(
+                f"{api_url}/ocean/shipments",
+                headers=headers,
+                params={"filters[container_number]": f"eq:{container_ref}"},
+                timeout=20,
+            )
+            r.raise_for_status()
+            data = r.json()
         except Exception as e:
-            _logger.error(f"ShipsGo Error Crítico: {e}")
             raise UserError(_(f"Error al conectar con ShipsGo: {e}"))
 
+        # La API devuelve data['shipments'], NO data['data']
+        shipments = data.get('shipments') or data.get('data') or []
+        if not shipments:
+            self.message_post(body=_(f"⚠️ ShipsGo no devolvió datos para {container_ref}."))
+            self.write({'shipsgo_last_sync': fields.Datetime.now()})
+            return
+
+        shipment = shipments[0]
+        shipment_id = shipment.get('id')
+
+        # ── Helper para navegar dicts anidados ────────────────────────────────
+        def safe_get(d, keys, default=None):
+            for k in keys:
+                if isinstance(d, dict):
+                    d = d.get(k)
+                else:
+                    return default
+            return d if d is not None else default
+
+        # ── Datos del shipment ─────────────────────────────────────────────────
+        route_info      = safe_get(shipment, ['route'], {})
+        transit_pct     = route_info.get('transit_percentage', 0) or 0
+        status_text     = shipment.get('status', 'N/A')
+        checked_at      = shipment.get('checked_at', '')
+        carrier_name    = safe_get(shipment, ['carrier', 'name'], '')
+
+        pol_name        = safe_get(route_info, ['port_of_loading',  'location', 'name'], '')
+        pod_name        = safe_get(route_info, ['port_of_discharge', 'location', 'name'], '')
+        date_loading    = safe_get(route_info, ['port_of_loading',  'date_of_loading'], '')
+        date_discharge  = safe_get(route_info, ['port_of_discharge', 'date_of_discharge'], '')
+        pol_country     = safe_get(route_info, ['port_of_loading',  'location', 'country', 'code'], '')
+        pod_country     = safe_get(route_info, ['port_of_discharge', 'location', 'country', 'code'], '')
+
+        # ── 2. GET /ocean/shipments/{id}/geojson ──────────────────────────────
+        geojson_data = {}
+        current_location = None
+        vessel_name = ''
+        voyage_number = ''
+        past_lines = []
+        current_lines = []
+        future_lines = []
+        pol_coordinates = None
+        pod_coordinates = None
+        all_pol_candidates = []
+        all_pod_candidates = []
+
+        if shipment_id:
+            try:
+                gr = requests.get(
+                    f"{api_url}/ocean/shipments/{shipment_id}/geojson",
+                    headers=headers,
+                    timeout=20,
+                )
+                gr.raise_for_status()
+                geojson_data = gr.json()
+            except Exception as e:
+                _logger.warning(f"[ShipsGo] No se pudo obtener GeoJSON para {shipment_id}: {e}")
+
+        # ── Parsear GeoJSON ────────────────────────────────────────────────────
+        features = safe_get(geojson_data, ['geojson', 'features'], [])
+
+        for feature in features:
+            geom_type = feature.get('geometry', {}).get('type')
+            props     = feature.get('properties', {})
+            status    = props.get('status')
+            coords_raw = feature.get('geometry', {}).get('coordinates', [])
+
+            # Posición actual del barco
+            if current_location is None and props.get('current') is not None:
+                cur = props['current']
+                lon, lat = cur['coordinates'][0], cur['coordinates'][1]
+                current_location = [lat, lon]
+                vessel_name  = safe_get(props, ['vessel', 'name'], '')
+                voyage_number = props.get('voyage', '')
+
+            if geom_type == 'Point':
+                loc_name = safe_get(props, ['location', 'name'], '')
+                lat_lon  = (coords_raw[1], coords_raw[0])
+                if status == 'PAST':
+                    all_pol_candidates.append({'coords': lat_lon, 'name': loc_name})
+                elif status == 'FUTURE':
+                    all_pod_candidates.append({'coords': lat_lon, 'name': loc_name})
+
+            elif geom_type == 'LineString':
+                line_coords = [(c[1], c[0]) for c in coords_raw]
+                if status == 'PAST':
+                    past_lines.append(line_coords)
+                elif status == 'CURRENT':
+                    current_lines.append({'coords': line_coords, 'props': props})
+                elif status == 'FUTURE':
+                    future_lines.append(line_coords)
+
+        if all_pol_candidates:
+            pol_coordinates = list(all_pol_candidates[0]['coords'])
+            if not pol_name:
+                pol_name = all_pol_candidates[0]['name']
+        if all_pod_candidates:
+            pod_coordinates = list(all_pod_candidates[-1]['coords'])
+            if not pod_name:
+                pod_name = all_pod_candidates[-1]['name']
+
+        # ── Construir línea CURRENT dividida (pasado=gris / futuro=verde) ─────
+        current_past_coords  = []
+        current_future_coords = []
+        for seg in current_lines:
+            cur_prop = seg['props'].get('current')
+            if cur_prop:
+                idx = cur_prop.get('index', -1)
+                all_c = seg['coords']
+                if idx >= 0:
+                    current_past_coords  = all_c[:idx + 1]
+                    current_future_coords = all_c[idx:]
+                else:
+                    current_future_coords = all_c
+            else:
+                current_future_coords = seg['coords']
+
+        # ── Payload para el mapa JS ────────────────────────────────────────────
+        map_data = {
+            'container':    container_ref,
+            'current_loc':  current_location,
+            'vessel':       vessel_name or shipment.get('vessel_name', ''),
+            'voyage':       voyage_number,
+            'status':       status_text,
+            'transit_pct':  int(transit_pct),
+            'checked_at':   checked_at,
+            'carrier':      carrier_name,
+            'origin': {
+                'name':    pol_name,
+                'loc':     pol_coordinates,
+                'country': pol_country,
+                'date':    date_loading,
+            },
+            'destination': {
+                'name':    pod_name,
+                'loc':     pod_coordinates,
+                'country': pod_country,
+                'date':    date_discharge,
+            },
+            'route': {
+                'past':           past_lines,
+                'current_past':   current_past_coords,
+                'current_future': current_future_coords,
+                'future':         future_lines,
+            },
+        }
+
+        vals = {
+            'shipsgo_last_sync': fields.Datetime.now(),
+            'shipsgo_payload':   json.dumps(map_data),
+            'transit_progress':  int(transit_pct),
+        }
+        if vessel_name:
+            vals['vessel_name'] = vessel_name
+        if carrier_name:
+            vals['shipping_line'] = carrier_name
+        if date_discharge:
+            vals['eta'] = date_discharge
+
+        self.write(vals)
+
+        self.message_post(body=Markup(
+            "📡 <b>Sincronización ShipsGo</b><br/>"
+            "Contenedor: {container} | Estado: {status}<br/>"
+            "Progreso: {pct}% | Buque: {vessel}<br/>"
+            "POL: {pol} → POD: {pod}<br/>"
+            "Pos. actual: {loc}"
+        ).format(
+            container = container_ref,
+            status    = status_text,
+            pct       = int(transit_pct),
+            vessel    = vessel_name or 'N/A',
+            pol       = pol_name or 'N/A',
+            pod       = pod_name or 'N/A',
+            loc       = str(current_location) if current_location else '⚠️ sin coordenadas',
+        ))
+    
     # =========================================================================
     # CÓMPUTOS
     # =========================================================================
