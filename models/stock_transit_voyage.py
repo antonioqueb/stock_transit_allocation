@@ -168,6 +168,8 @@ class StockTransitVoyage(models.Model):
             tiles='cartodbpositron',
             width='100%',
             height='100%',
+            scrollWheelZoom=False,
+
         )
 
         # Marcador de origen
@@ -384,7 +386,7 @@ class StockTransitVoyage(models.Model):
             <div id="fallback_map" style="width:100%;height:100%;"></div>
             <script>
                 (function() {{
-                    var map = L.map('fallback_map').setView([20, -40], 2);
+                    var map = L.map('fallback_map', {scrollWheelZoom: false}).setView([20, -40], 2);
                     L.tileLayer('https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager/{{z}}/{{x}}/{{y}}{{r}}.png', {{
                         attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
                     }}).addTo(map);
