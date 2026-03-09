@@ -13,7 +13,7 @@ class PurchaseOrderProformaLink(models.Model):
     )
     proforma_shipment_count = fields.Integer(
         string='Embarques Portal',
-        compute='_compute_proforma_header',
+        compute='_compute_proforma_shipment_count',
     )
 
     def _compute_proforma_header(self):
@@ -21,6 +21,11 @@ class PurchaseOrderProformaLink(models.Model):
         for po in self:
             header = ProformaHeader.search([('purchase_id', '=', po.id)], limit=1)
             po.proforma_header_id = header.id if header else False
+
+    def _compute_proforma_shipment_count(self):
+        ProformaHeader = self.env['supplier.proforma.header']
+        for po in self:
+            header = ProformaHeader.search([('purchase_id', '=', po.id)], limit=1)
             po.proforma_shipment_count = len(header.shipment_ids) if header else 0
 
     def action_open_proforma_header(self):
