@@ -98,10 +98,8 @@
                 <filter name="draft" string="Borrador" domain="[('status','=','draft')]"/>
                 <filter name="partial" string="Parcial" domain="[('status','=','partial')]"/>
                 <filter name="complete" string="Completa" domain="[('status','=','complete')]"/>
-                <group expand="0" string="Agrupar por">
                     <filter name="group_partner" string="Proveedor" context="{'group_by':'partner_id'}"/>
                     <filter name="group_status" string="Estado" context="{'group_by':'status'}"/>
-                </group>
             </search>
         </field>
     </record>

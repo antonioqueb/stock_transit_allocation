@@ -135,11 +135,9 @@
                 <filter name="maritime" string="Marítimo" domain="[('shipment_type','=','maritime')]"/>
                 <filter name="in_transit" string="En Tránsito" domain="[('status','in',['departed','in_transit'])]"/>
                 <filter name="arrived" string="Arribados" domain="[('status','in',['arrived','delivered'])]"/>
-                <group expand="0" string="Agrupar por">
                     <filter name="group_purchase" string="Orden de Compra" context="{'group_by':'purchase_id'}"/>
                     <filter name="group_status" string="Estado" context="{'group_by':'status'}"/>
                     <filter name="group_shipping" string="Naviera" context="{'group_by':'shipping_line'}"/>
-                </group>
             </search>
         </field>
     </record>
