@@ -21,7 +21,7 @@ class PurchaseOrderProformaLink(models.Model):
         for po in self:
             header = ProformaHeader.search([('purchase_id', '=', po.id)], limit=1)
             po.proforma_header_id = header.id if header else False
-            po.proforma_shipment_count = header.shipment_count if header else 0
+            po.proforma_shipment_count = len(header.shipment_ids) if header else 0
 
     def action_open_proforma_header(self):
         """Abre o crea la proforma.header para esta OC."""
