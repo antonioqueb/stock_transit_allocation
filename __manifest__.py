@@ -1,16 +1,21 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.8.0.0',
+    'version': '19.0.9.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
         
+        Novedades v9.0 (Portal Embarques):
+        - Nuevos modelos: supplier.proforma.header, supplier.shipment, 
+          supplier.shipment.invoice, supplier.shipment.packing, supplier.shipment.container
+        - Estructura jerárquica: Proforma → N Embarques → Invoices/PL/Contenedores
+        - Integración con Torre de Control (voyage_id en shipment)
+        - Retrocompatible con datos existentes
+
         Novedades v8.0 (Folium Map):
         - Mapa generado server-side con Folium (Python), sin dependencia de CDN JS.
-        - Se elimina Leaflet CDN del frontend.
-        - El mapa se renderiza como campo Html nativo de Odoo.
 
         Novedades v7.0 (ShipsGo Integration):
         - Integración con API ShipsGo v2.
@@ -22,7 +27,12 @@
     """,
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
-    'depends': ['stock', 'sale_management', 'purchase', 'web', 'stock_lot_dimensions', 'sale_stock', 'inventory_shopping_cart', 'sale_stone_selection'],
+    'depends': [
+        'stock', 'sale_management', 'purchase', 'web',
+        'stock_lot_dimensions', 'sale_stock',
+        'inventory_shopping_cart', 'sale_stone_selection',
+        'stock_lot_packing_import',
+    ],
     'external_dependencies': {
         'python': ['folium'],
     },
@@ -37,28 +47,21 @@
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
         'views/to_be_purchased_views.xml',
+        'views/supplier_proforma_views.xml',
+        'views/supplier_shipment_views.xml',
+        'views/purchase_order_proforma_views.xml',
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
         'wizard/transit_status_change_wizard_views.xml',
     ],
     'assets': {
         'web.assets_backend': [
-            # CSS existentes
             'stock_transit_allocation/static/src/css/transit_style.css',
             'stock_transit_allocation/static/src/css/transit_voyage_lines.css',
-
-            # ELIMINADO: Leaflet CDN (ya no se necesita en frontend)
-            # ELIMINADO: transit_map widget JS/SCSS/XML (reemplazado por campo Html de Folium)
-
-            # Cronograma
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.scss',
-            # Kanban
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.scss',
-            # Formulario del viaje
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form_odoo.scss',
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.scss',
-            
-            # JS existentes
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',

@@ -1,0 +1,146 @@
+# -*- coding: utf-8 -*-
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
+import logging
+
+_logger = logging.getLogger(__name__)
+
+
+class SupplierShipment(models.Model):
+    _name = 'supplier.shipment'
+    _description = 'Embarque del Proveedor'
+    _order = 'proforma_id, sequence, id'
+    _inherit = ['mail.thread']
+
+    proforma_id = fields.Many2one(
+        'supplier.proforma.header', string='Proforma',
+        required=True, ondelete='cascade', index=True,
+    )
+    purchase_id = fields.Many2one(
+        'purchase.order', string='Orden de Compra',
+        related='proforma_id.purchase_id', store=True,
+    )
+    company_id = fields.Many2one(
+        'res.company', string='Compañía',
+        related='proforma_id.company_id', store=True,
+    )
+
+    sequence = fields.Integer(string='Secuencia', default=10)
+    name = fields.Char(
+        string='Referencia', required=True, copy=False,
+        default=lambda self: _('Nuevo'),
+    )
+
+    # --- Datos logísticos ---
+    shipment_type = fields.Selection([
+        ('maritime', 'Marítimo'),
+        ('air', 'Aéreo'),
+        ('land', 'Terrestre'),
+    ], string='Tipo de Embarque', default='maritime')
+
+    shipping_line = fields.Char(string='Naviera', tracking=True)
+    vessel_name = fields.Char(string='Buque / Barco', tracking=True)
+    etd = fields.Date(string='ETD (Salida Estimada)')
+    eta = fields.Date(string='ETA (Llegada Estimada)', tracking=True)
+    port_origin = fields.Char(string='Puerto Salida')
+    port_destination = fields.Char(string='Puerto Destino')
+    notes = fields.Text(string='Observaciones Logísticas')
+
+    # --- BL (pertenece al embarque, NO global) ---
+    bl_number = fields.Char(string='Número de B/L', tracking=True)
+    bl_date = fields.Date(string='Fecha de B/L', tracking=True)
+    bl_file = fields.Binary(string='Archivo B/L', attachment=True)
+    bl_filename = fields.Char(string='Nombre archivo B/L')
+
+    # --- Conteo de contenedores ---
+    container_count = fields.Integer(
+        string='Nº Contenedores', compute='_compute_container_count', store=True,
+    )
+
+    # --- Estado ---
+    status = fields.Selection([
+        ('draft', 'Borrador'),
+        ('in_production', 'En Producción'),
+        ('booked', 'Booking Confirmado'),
+        ('departed', 'Despachado'),
+        ('in_transit', 'En Tránsito'),
+        ('arrived', 'Arribado'),
+        ('delivered', 'Entregado'),
+    ], string='Estado', default='draft', tracking=True)
+
+    # --- Relaciones hijas ---
+    invoice_ids = fields.One2many(
+        'supplier.shipment.invoice', 'shipment_id', string='Invoices',
+    )
+    packing_ids = fields.One2many(
+        'supplier.shipment.packing', 'shipment_id', string='Packing Lists',
+    )
+    container_ids = fields.One2many(
+        'supplier.shipment.container', 'shipment_id', string='Contenedores',
+    )
+
+    # --- Vínculo con Torre de Control ---
+    voyage_id = fields.Many2one(
+        'stock.transit.voyage', string='Viaje Torre de Control',
+        ondelete='set null', index=True, tracking=True,
+    )
+
+    # --- Cómputos ---
+    invoice_count = fields.Integer(compute='_compute_counts', store=True)
+    packing_count = fields.Integer(compute='_compute_counts', store=True)
+
+    @api.depends('container_ids')
+    def _compute_container_count(self):
+        for rec in self:
+            rec.container_count = len(rec.container_ids)
+
+    @api.depends('invoice_ids', 'packing_ids')
+    def _compute_counts(self):
+        for rec in self:
+            rec.invoice_count = len(rec.invoice_ids)
+            rec.packing_count = len(rec.packing_ids)
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        for vals in vals_list:
+            if vals.get('name', _('Nuevo')) == _('Nuevo'):
+                proforma = self.env['supplier.proforma.header'].browse(vals.get('proforma_id'))
+                existing = self.search_count([('proforma_id', '=', vals.get('proforma_id'))])
+                po_name = proforma.purchase_id.name if proforma.purchase_id else 'X'
+                vals['name'] = f"EMB-{po_name}-{existing + 1:03d}"
+        return super().create(vals_list)
+
+    def name_get(self):
+        return [(r.id, r.name or f"EMB-{r.id}") for r in self]
+
+    # --- Sincronización con Torre de Control ---
+    def action_sync_to_voyage(self):
+        """Crea o actualiza el voyage vinculado en la Torre de Control."""
+        self.ensure_one()
+        Voyage = self.env['stock.transit.voyage']
+
+        vals = {}
+        if self.bl_number:
+            vals['bl_number'] = self.bl_number
+        if self.shipping_line:
+            vals['shipping_line'] = self.shipping_line
+        if self.vessel_name:
+            vals['vessel_name'] = self.vessel_name
+        if self.etd:
+            vals['etd'] = self.etd
+        if self.eta:
+            vals['eta'] = self.eta
+
+        if self.voyage_id:
+            self.voyage_id.write(vals)
+            _logger.info(f"[SHIPMENT] Voyage {self.voyage_id.name} actualizado desde embarque {self.name}")
+        else:
+            vals.update({
+                'purchase_id': self.purchase_id.id,
+                'custom_status': 'solicitud',
+            })
+            voyage = Voyage.create(vals)
+            self.write({'voyage_id': voyage.id})
+            _logger.info(f"[SHIPMENT] Voyage {voyage.name} creado desde embarque {self.name}")
+
+        return True

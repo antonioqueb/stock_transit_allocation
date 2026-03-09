@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_supplier_shipment_form" model="ir.ui.view">
+        <field name="name">supplier.shipment.form</field>
+        <field name="model">supplier.shipment</field>
+        <field name="arch" type="xml">
+            <form string="Embarque">
+                <header>
+                    <button name="action_sync_to_voyage" type="object"
+                            string="🔄 Sincronizar con Torre de Control"
+                            class="btn-primary"
+                            invisible="status in ['draft']"/>
+                    <field name="status" widget="statusbar"
+                           statusbar_visible="draft,in_production,booked,departed,in_transit,arrived,delivered"/>
+                </header>
+                <sheet>
+                    <div class="oe_title">
+                        <h1><field name="name" readonly="1"/></h1>
+                    </div>
+                    <group>
+                        <group string="Referencia">
+                            <field name="proforma_id" readonly="1"/>
+                            <field name="purchase_id" readonly="1"/>
+                            <field name="shipment_type"/>
+                            <field name="voyage_id" readonly="1"/>
+                        </group>
+                        <group string="Logística">
+                            <field name="shipping_line"/>
+                            <field name="vessel_name"/>
+                            <field name="port_origin"/>
+                            <field name="port_destination"/>
+                            <field name="etd"/>
+                            <field name="eta"/>
+                        </group>
+                    </group>
+
+                    <group string="Conocimiento de Embarque (B/L)">
+                        <group>
+                            <field name="bl_number"/>
+                            <field name="bl_date"/>
+                        </group>
+                        <group>
+                            <field name="bl_file" filename="bl_filename"/>
+                            <field name="bl_filename" invisible="1"/>
+                        </group>
+                    </group>
+
+                    <group string="Observaciones">
+                        <field name="notes" nolabel="1" placeholder="Observaciones logísticas del embarque..."/>
+                    </group>
+
+                    <notebook>
+                        <page string="Invoices" name="invoices">
+                            <field name="invoice_ids">
+                                <list editable="bottom">
+                                    <field name="invoice_number"/>
+                                    <field name="invoice_date"/>
+                                    <field name="amount"/>
+                                    <field name="currency_id"/>
+                                    <field name="scope"/>
+                                    <field name="file" filename="filename"/>
+                                    <field name="filename" column_invisible="1"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Packing Lists" name="packings">
+                            <field name="packing_ids">
+                                <list editable="bottom">
+                                    <field name="packing_number"/>
+                                    <field name="packing_date"/>
+                                    <field name="scope"/>
+                                    <field name="row_count" string="Líneas" readonly="1"/>
+                                    <field name="file" filename="filename"/>
+                                    <field name="filename" column_invisible="1"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <page string="Contenedores" name="containers">
+                            <field name="container_ids">
+                                <list editable="bottom">
+                                    <field name="container_number"/>
+                                    <field name="seal_number"/>
+                                    <field name="container_type"/>
+                                    <field name="weight"/>
+                                    <field name="volume"/>
+                                    <field name="packages"/>
+                                    <field name="notes"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_supplier_shipment_list" model="ir.ui.view">
+        <field name="name">supplier.shipment.list</field>
+        <field name="model">supplier.shipment</field>
+        <field name="arch" type="xml">
+            <list string="Embarques"
+                  decoration-info="status in ['in_production','booked']"
+                  decoration-warning="status in ['departed','in_transit']"
+                  decoration-success="status in ['arrived','delivered']">
+                <field name="name"/>
+                <field name="purchase_id"/>
+                <field name="shipment_type"/>
+                <field name="shipping_line"/>
+                <field name="bl_number"/>
+                <field name="bl_date"/>
+                <field name="etd"/>
+                <field name="eta"/>
+                <field name="container_count"/>
+                <field name="invoice_count"/>
+                <field name="packing_count"/>
+                <field name="status" widget="badge"/>
+                <field name="voyage_id" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_supplier_shipment_search" model="ir.ui.view">
+        <field name="name">supplier.shipment.search</field>
+        <field name="model">supplier.shipment</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Embarques">
+                <field name="name"/>
+                <field name="purchase_id"/>
+                <field name="bl_number"/>
+                <field name="shipping_line"/>
+                <filter name="maritime" string="Marítimo" domain="[('shipment_type','=','maritime')]"/>
+                <filter name="in_transit" string="En Tránsito" domain="[('status','in',['departed','in_transit'])]"/>
+                <filter name="arrived" string="Arribados" domain="[('status','in',['arrived','delivered'])]"/>
+                <group expand="0" string="Agrupar por">
+                    <filter name="group_purchase" string="Orden de Compra" context="{'group_by':'purchase_id'}"/>
+                    <filter name="group_status" string="Estado" context="{'group_by':'status'}"/>
+                    <filter name="group_shipping" string="Naviera" context="{'group_by':'shipping_line'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_supplier_shipment" model="ir.actions.act_window">
+        <field name="name">Embarques</field>
+        <field name="res_model">supplier.shipment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="view_supplier_shipment_packing_form" model="ir.ui.view">
+        <field name="name">supplier.shipment.packing.form</field>
+        <field name="model">supplier.shipment.packing</field>
+        <field name="arch" type="xml">
+            <form string="Packing List">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="shipment_id" readonly="1"/>
+                            <field name="packing_number"/>
+                            <field name="packing_date"/>
+                        </group>
+                        <group>
+                            <field name="scope"/>
+                            <field name="container_ids" widget="many2many_tags"
+                                   invisible="scope != 'specific_containers'"/>
+                            <field name="file" filename="filename"/>
+                            <field name="filename" invisible="1"/>
+                        </group>
+                    </group>
+                    <field name="row_ids">
+                        <list editable="bottom">
+                            <field name="sequence" widget="handle"/>
+                            <field name="product_id"/>
+                            <field name="container_id"/>
+                            <field name="tipo"/>
+                            <field name="bloque"/>
+                            <field name="atado"/>
+                            <field name="numero_placa"/>
+                            <field name="grosor"/>
+                            <field name="alto"/>
+                            <field name="ancho"/>
+                            <field name="area_m2" readonly="1"/>
+                            <field name="quantity"/>
+                            <field name="peso"/>
+                            <field name="color"/>
+                            <field name="ref_proveedor"/>
+                        </list>
+                    </field>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- MENÚS -->
+    <menuitem id="menu_transit_portal_data" name="Portal Proveedor"
+              parent="menu_transit_root" sequence="20"/>
+
+    <menuitem id="menu_supplier_proformas"
+              name="Proformas"
+              parent="menu_transit_portal_data"
+              action="action_supplier_proforma_header"
+              sequence="1"/>
+
+    <menuitem id="menu_supplier_shipments"
+              name="Embarques"
+              parent="menu_transit_portal_data"
+              action="action_supplier_shipment"
+              sequence="2"/>
+
+</odoo>

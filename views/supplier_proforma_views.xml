@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="view_supplier_proforma_header_form" model="ir.ui.view">
+        <field name="name">supplier.proforma.header.form</field>
+        <field name="model">supplier.proforma.header</field>
+        <field name="arch" type="xml">
+            <form string="Proforma del Proveedor">
+                <header>
+                    <field name="status" widget="statusbar" statusbar_visible="draft,partial,complete"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button class="oe_stat_button" type="object" name="action_view_shipments"
+                                icon="fa-ship" invisible="shipment_count == 0">
+                            <field name="shipment_count" widget="statinfo" string="Embarques"/>
+                        </button>
+                    </div>
+                    <group>
+                        <group string="Referencia">
+                            <field name="purchase_id" readonly="1"/>
+                            <field name="partner_id" readonly="1"/>
+                            <field name="access_id" readonly="1"/>
+                            <field name="proforma_number"/>
+                            <field name="invoice_global_number"/>
+                        </group>
+                        <group string="Datos Comerciales">
+                            <field name="payment_terms"/>
+                            <field name="incoterm"/>
+                            <field name="country_origin"/>
+                            <field name="port_origin"/>
+                            <field name="port_destination"/>
+                        </group>
+                    </group>
+                    <group string="Observaciones Generales">
+                        <field name="general_notes" nolabel="1"
+                               placeholder="Observaciones generales de la proforma..."/>
+                    </group>
+
+                    <notebook>
+                        <page string="Embarques" name="shipments">
+                            <field name="shipment_ids">
+                                <list editable="bottom">
+                                    <field name="sequence" widget="handle"/>
+                                    <field name="name" readonly="1"/>
+                                    <field name="shipment_type"/>
+                                    <field name="shipping_line"/>
+                                    <field name="bl_number"/>
+                                    <field name="bl_date"/>
+                                    <field name="etd"/>
+                                    <field name="eta"/>
+                                    <field name="container_count" readonly="1"/>
+                                    <field name="invoice_count" readonly="1"/>
+                                    <field name="packing_count" readonly="1"/>
+                                    <field name="status" widget="badge"
+                                           decoration-info="status in ['in_production','booked']"
+                                           decoration-warning="status in ['departed','in_transit']"
+                                           decoration-success="status in ['arrived','delivered']"/>
+                                    <field name="voyage_id" optional="show"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="view_supplier_proforma_header_list" model="ir.ui.view">
+        <field name="name">supplier.proforma.header.list</field>
+        <field name="model">supplier.proforma.header</field>
+        <field name="arch" type="xml">
+            <list string="Proformas" decoration-muted="status == 'complete'">
+                <field name="purchase_id"/>
+                <field name="partner_id"/>
+                <field name="proforma_number"/>
+                <field name="incoterm"/>
+                <field name="port_origin"/>
+                <field name="port_destination"/>
+                <field name="shipment_count"/>
+                <field name="status" widget="badge"
+                       decoration-info="status == 'draft'"
+                       decoration-warning="status == 'partial'"
+                       decoration-success="status == 'complete'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_supplier_proforma_header_search" model="ir.ui.view">
+        <field name="name">supplier.proforma.header.search</field>
+        <field name="model">supplier.proforma.header</field>
+        <field name="arch" type="xml">
+            <search string="Buscar Proformas">
+                <field name="purchase_id"/>
+                <field name="partner_id"/>
+                <field name="proforma_number"/>
+                <filter name="draft" string="Borrador" domain="[('status','=','draft')]"/>
+                <filter name="partial" string="Parcial" domain="[('status','=','partial')]"/>
+                <filter name="complete" string="Completa" domain="[('status','=','complete')]"/>
+                <group expand="0" string="Agrupar por">
+                    <filter name="group_partner" string="Proveedor" context="{'group_by':'partner_id'}"/>
+                    <filter name="group_status" string="Estado" context="{'group_by':'status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_supplier_proforma_header" model="ir.actions.act_window">
+        <field name="name">Proformas</field>
+        <field name="res_model">supplier.proforma.header</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+</odoo>

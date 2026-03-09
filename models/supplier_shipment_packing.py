@@ -1,0 +1,112 @@
+# -*- coding: utf-8 -*-
+from odoo import models, fields, api
+
+
+class SupplierShipmentPacking(models.Model):
+    _name = 'supplier.shipment.packing'
+    _description = 'Packing List de Embarque'
+    _order = 'shipment_id, packing_date, id'
+
+    shipment_id = fields.Many2one(
+        'supplier.shipment', string='Embarque',
+        required=True, ondelete='cascade', index=True,
+    )
+    proforma_id = fields.Many2one(
+        'supplier.proforma.header', string='Proforma',
+        related='shipment_id.proforma_id', store=True,
+    )
+    purchase_id = fields.Many2one(
+        'purchase.order', string='OC',
+        related='shipment_id.purchase_id', store=True,
+    )
+
+    packing_number = fields.Char(string='Número de Packing List', required=True)
+    packing_date = fields.Date(string='Fecha')
+    file = fields.Binary(string='Archivo Packing List', attachment=True)
+    filename = fields.Char(string='Nombre archivo')
+
+    scope = fields.Selection([
+        ('full_shipment', 'Embarque Completo'),
+        ('specific_containers', 'Contenedores Específicos'),
+    ], string='Alcance', default='full_shipment')
+
+    container_ids = fields.Many2many(
+        'supplier.shipment.container',
+        'supplier_packing_container_rel',
+        'packing_id', 'container_id',
+        string='Contenedores que Cubre',
+    )
+
+    row_ids = fields.One2many(
+        'supplier.shipment.packing.row', 'packing_id',
+        string='Líneas de Producto',
+    )
+    row_count = fields.Integer(compute='_compute_row_count', store=True)
+
+    @api.depends('row_ids')
+    def _compute_row_count(self):
+        for rec in self:
+            rec.row_count = len(rec.row_ids)
+
+    def name_get(self):
+        return [(r.id, r.packing_number or f"PL-{r.id}") for r in self]
+
+
+class SupplierShipmentPackingRow(models.Model):
+    _name = 'supplier.shipment.packing.row'
+    _description = 'Línea de Packing List (Detalle de Producto)'
+    _order = 'packing_id, sequence, id'
+
+    packing_id = fields.Many2one(
+        'supplier.shipment.packing', string='Packing List',
+        required=True, ondelete='cascade', index=True,
+    )
+    shipment_id = fields.Many2one(
+        'supplier.shipment', string='Embarque',
+        related='packing_id.shipment_id', store=True,
+    )
+    sequence = fields.Integer(default=10)
+
+    product_id = fields.Many2one('product.product', string='Producto', required=True)
+    container_id = fields.Many2one(
+        'supplier.shipment.container', string='Contenedor',
+        help='Contenedor específico de esta línea (opcional)',
+    )
+
+    # --- Dimensiones (para Placas) ---
+    grosor = fields.Char(string='Grosor')
+    alto = fields.Float(string='Alto (m)', digits=(12, 4))
+    ancho = fields.Float(string='Ancho (m)', digits=(12, 4))
+    peso = fields.Float(string='Peso (kg)', digits=(12, 3))
+
+    # --- Cantidad (para Piezas/Formatos) ---
+    quantity = fields.Float(string='Cantidad', digits='Product Unit of Measure')
+
+    # --- Identificadores de lote ---
+    bloque = fields.Char(string='Bloque')
+    numero_placa = fields.Char(string='No. Placa')
+    atado = fields.Char(string='Atado')
+    color = fields.Char(string='Notas / Color')
+    grupo_name = fields.Char(string='Grupo')
+    pedimento = fields.Char(string='Pedimento')
+    ref_proveedor = fields.Char(string='Ref. Proveedor')
+
+    # --- Tipo de unidad ---
+    tipo = fields.Selection([
+        ('Placa', 'Placa'),
+        ('Pieza', 'Pieza'),
+        ('Formato', 'Formato'),
+    ], string='Tipo', default='Placa')
+
+    # --- Computado ---
+    area_m2 = fields.Float(
+        string='Área (m²)', compute='_compute_area', store=True, digits=(12, 4),
+    )
+
+    @api.depends('alto', 'ancho', 'tipo', 'quantity')
+    def _compute_area(self):
+        for row in self:
+            if row.tipo == 'Placa':
+                row.area_m2 = round(row.alto * row.ancho, 4)
+            else:
+                row.area_m2 = row.quantity
