@@ -98,6 +98,14 @@ class SupplierShipmentPackingRow(models.Model):
         ('Formato', 'Formato'),
     ], string='Tipo', default='Placa')
 
+    # ==================== FOTOGRAFÍA DE LA PLACA ====================
+    image = fields.Binary(
+        string='Fotografía',
+        attachment=True,
+        help='Fotografía de la placa/pieza capturada por el proveedor en el portal.',
+    )
+    image_filename = fields.Char(string='Nombre de imagen')
+
     # --- Computado ---
     area_m2 = fields.Float(
         string='Área (m²)', compute='_compute_area', store=True, digits=(12, 4),
