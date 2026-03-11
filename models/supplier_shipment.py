@@ -12,10 +12,9 @@ class SupplierShipment(models.Model):
     _order = 'proforma_id, sequence, id'
     _inherit = ['mail.thread']
 
-    proforma_id = fields.Integer(
-        string='Proforma ID',
-        index=True,
-        help='ID del supplier.proforma.header (sin FK para evitar dependencia circular)',
+    proforma_id = fields.Many2one(
+        'supplier.proforma.header', string='Proforma',
+        required=True, ondelete='cascade', index=True,
     )
     purchase_id = fields.Many2one(
         'purchase.order', string='Orden de Compra',
