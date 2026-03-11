@@ -89,6 +89,10 @@ class SupplierShipment(models.Model):
     invoice_count = fields.Integer(compute='_compute_counts', store=True)
     packing_count = fields.Integer(compute='_compute_counts', store=True)
 
+    block_image_ids = fields.One2many(
+        'supplier.shipment.block.image', 'shipment_id', string='Fotos de Bloques',
+    )
+
     @api.depends('container_ids')
     def _compute_container_count(self):
         for rec in self:

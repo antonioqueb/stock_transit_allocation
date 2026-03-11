@@ -118,3 +118,24 @@ class SupplierShipmentPackingRow(models.Model):
                 row.area_m2 = round(row.alto * row.ancho, 4)
             else:
                 row.area_m2 = row.quantity
+
+
+class SupplierShipmentBlockImage(models.Model):
+    _name = 'supplier.shipment.block.image'
+    _description = 'Fotografía de Bloque (Portal Proveedor)'
+    _order = 'shipment_id, block_name, sequence'
+
+    shipment_id = fields.Many2one(
+        'supplier.shipment', string='Embarque',
+        required=True, ondelete='cascade', index=True,
+    )
+    proforma_id = fields.Many2one(
+        'supplier.proforma.header', string='Proforma',
+        related='shipment_id.proforma_id', store=True,
+    )
+    block_name = fields.Char(string='Nombre del Bloque', required=True, index=True)
+    product_id = fields.Many2one('product.product', string='Producto', required=True)
+    sequence = fields.Integer(default=10)
+    image = fields.Binary(string='Fotografía', required=True, attachment=True)
+    image_filename = fields.Char(string='Nombre archivo')
+    notes = fields.Text(string='Notas')
