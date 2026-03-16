@@ -84,9 +84,9 @@ class StockTransitVoyage(models.Model):
     company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
     line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
     
-    total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True)
-    allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True)
-    allocation_percent = fields.Float(string='% Asignación', compute='_compute_totals')
+    total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True, compute_sudo=True)
+    allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True, compute_sudo=True)
+    allocation_percent = fields.Float(string='% Asignación', compute='_compute_allocation_percent', store=False, compute_sudo=False)
     
     # =========================================================================
     # SHIPSGO & TRACKING FIELDS
@@ -706,11 +706,19 @@ class StockTransitVoyage(models.Model):
     def _compute_totals(self):
         for rec in self:
             total = sum(rec.line_ids.mapped('product_uom_qty'))
-            allocated = sum(rec.line_ids.filtered(lambda l: l.allocation_status == 'reserved').mapped('product_uom_qty'))
+            allocated = sum(
+                rec.line_ids.filtered(lambda l: l.allocation_status == 'reserved').mapped('product_uom_qty')
+            )
             rec.total_m2 = total
             rec.allocated_m2 = allocated
-            rec.allocation_percent = (allocated / total) * 100 if total > 0 else 0
 
+    @api.depends('total_m2', 'allocated_m2')
+    def _compute_allocation_percent(self):
+        for rec in self:
+            rec.allocation_percent = (
+                (rec.allocated_m2 / rec.total_m2) * 100
+                if rec.total_m2 > 0 else 0
+            )
     @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
         today = fields.Date.today()
