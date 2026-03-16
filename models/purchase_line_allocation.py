@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api
 
+
 class PurchaseOrderLineAllocation(models.Model):
     """
     Modelo intermedio que relaciona UNA línea de compra con MÚLTIPLES líneas de venta.
@@ -11,64 +12,64 @@ class PurchaseOrderLineAllocation(models.Model):
     _rec_name = 'display_name'
 
     purchase_line_id = fields.Many2one(
-        'purchase.order.line', 
-        string='Línea de Compra', 
-        required=True, 
-        ondelete='cascade',
-        index=True
-    )
-    sale_line_id = fields.Many2one(
-        'sale.order.line', 
-        string='Línea de Venta', 
+        'purchase.order.line',
+        string='Línea de Compra',
         required=True,
         ondelete='cascade',
-        index=True
+        index=True,
+    )
+    sale_line_id = fields.Many2one(
+        'sale.order.line',
+        string='Línea de Venta',
+        required=True,
+        ondelete='cascade',
+        index=True,
     )
     quantity = fields.Float(
-        string='Cantidad Asignada', 
+        string='Cantidad Asignada',
         digits='Product Unit of Measure',
-        required=True
+        required=True,
     )
-    
+
     purchase_order_id = fields.Many2one(
-        'purchase.order', 
-        related='purchase_line_id.order_id', 
-        store=True, 
-        string='Orden de Compra'
+        'purchase.order',
+        related='purchase_line_id.order_id',
+        store=True,
+        string='Orden de Compra',
     )
     sale_order_id = fields.Many2one(
-        'sale.order', 
-        related='sale_line_id.order_id', 
-        store=True, 
-        string='Orden de Venta'
+        'sale.order',
+        related='sale_line_id.order_id',
+        store=True,
+        string='Orden de Venta',
     )
     partner_id = fields.Many2one(
-        'res.partner', 
-        related='sale_order_id.partner_id', 
-        store=True, 
-        string='Cliente'
+        'res.partner',
+        related='sale_order_id.partner_id',
+        store=True,
+        string='Cliente',
     )
     product_id = fields.Many2one(
-        'product.product', 
-        related='purchase_line_id.product_id', 
-        store=True, 
-        string='Producto'
+        'product.product',
+        related='purchase_line_id.product_id',
+        store=True,
+        string='Producto',
     )
-    
+
     state = fields.Selection([
         ('pending', 'Pendiente'),
         ('in_transit', 'En Tránsito'),
         ('partial', 'Parcialmente Recibido'),
         ('done', 'Recibido Completo'),
-        ('cancelled', 'Cancelado')
-    ], string='Estado', default='pending', tracking=True)
-    
+        ('cancelled', 'Cancelado'),
+    ], string='Estado', default='pending')
+
     qty_received = fields.Float(
         string='Cantidad Recibida',
         digits='Product Unit of Measure',
-        default=0.0
+        default=0.0,
     )
-    
+
     display_name = fields.Char(compute='_compute_display_name', store=True)
 
     @api.depends('sale_order_id', 'partner_id', 'quantity')
@@ -94,17 +95,17 @@ class PurchaseOrderLine(models.Model):
     allocation_ids = fields.One2many(
         'purchase.order.line.allocation',
         'purchase_line_id',
-        string='Asignaciones por Cliente'
+        string='Asignaciones por Cliente',
     )
-    
+
     allocation_summary = fields.Char(
         string='Clientes Asignados',
-        compute='_compute_allocation_summary'
+        compute='_compute_allocation_summary',
     )
-    
+
     total_allocated = fields.Float(
         string='Total Asignado',
-        compute='_compute_allocation_summary'
+        compute='_compute_allocation_summary',
     )
 
     @api.depends('allocation_ids', 'allocation_ids.quantity', 'allocation_ids.partner_id')
@@ -122,7 +123,7 @@ class PurchaseOrderLine(models.Model):
 
     # =========================================================================
     # FIX: Se eliminó el override de _prepare_stock_moves.
-    # 
+    #
     # El problema: cuando una línea de compra tiene allocations de MÚLTIPLES
     # órdenes de venta (consolidación), asignar sale_line_id al stock.move
     # causa que el picking tenga moves apuntando a diferentes SO. El campo

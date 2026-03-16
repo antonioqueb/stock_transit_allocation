@@ -1,6 +1,5 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo import models, fields, api
 
 
 class TransitStatusChangeWizard(models.TransientModel):
@@ -24,23 +23,20 @@ class TransitStatusChangeWizard(models.TransientModel):
         compute='_compute_next_status_label',
     )
 
-    notes = fields.Text(
-        string='Comentario / Motivo',
-        placeholder='Ej. Cambio de barco, demora en puerto, problema aduanal...',
-    )
+    notes = fields.Text(string='Comentario / Motivo')
 
     @api.depends('voyage_id', 'direction')
     def _compute_next_status_label(self):
         STATUS_LABELS = {
-            'solicitud':         'Solicitud Enviada',
-            'production':        'Producción',
-            'booking':           'Booking',
-            'puerto_origen':     'Puerto Origen',
-            'on_sea':            'En Altamar',
-            'puerto_destino':    'Puerto Destino',
-            'arrived_port':      'Arribo a Puerto',
+            'solicitud': 'Solicitud Enviada',
+            'production': 'Producción',
+            'booking': 'Booking',
+            'puerto_origen': 'Puerto Origen',
+            'on_sea': 'En Altamar',
+            'puerto_destino': 'Puerto Destino',
+            'arrived_port': 'Arribo a Puerto',
             'reception_pending': 'En Recepción',
-            'delivered':         'Entregado en Almacén',
+            'delivered': 'Entregado en Almacén',
         }
         STATUS_SEQUENCE = [
             'solicitud', 'production', 'booking', 'puerto_origen',

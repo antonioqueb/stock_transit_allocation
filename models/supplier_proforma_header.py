@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import ValidationError
 
 
 class SupplierProformaHeader(models.Model):
@@ -26,7 +26,6 @@ class SupplierProformaHeader(models.Model):
         related='purchase_id.partner_id', store=True,
     )
 
-    # --- Datos globales de la proforma ---
     proforma_number = fields.Char(string='Número de Proforma', tracking=True)
     invoice_global_number = fields.Char(string='Factura Global', tracking=True)
     payment_terms = fields.Char(string='Condiciones de Pago')
@@ -36,7 +35,6 @@ class SupplierProformaHeader(models.Model):
     incoterm = fields.Char(string='Incoterm')
     general_notes = fields.Text(string='Observaciones Generales')
 
-    # --- Embarques ---
     shipment_ids = fields.One2many(
         'supplier.shipment', 'proforma_id', string='Embarques',
     )
@@ -44,17 +42,23 @@ class SupplierProformaHeader(models.Model):
         string='Nº Embarques', compute='_compute_shipment_count', store=True,
     )
 
-    # --- Estado ---
     status = fields.Selection([
         ('draft', 'Borrador'),
         ('partial', 'Parcialmente Capturado'),
         ('complete', 'Completo'),
     ], string='Estado', default='draft', tracking=True)
 
-    _sql_constraints = [
-        ('purchase_unique', 'unique(purchase_id)',
-         'Ya existe una proforma para esta Orden de Compra.'),
-    ]
+    @api.constrains('purchase_id')
+    def _check_unique_purchase_id(self):
+        for rec in self:
+            if not rec.purchase_id:
+                continue
+            dup = self.search([
+                ('purchase_id', '=', rec.purchase_id.id),
+                ('id', '!=', rec.id),
+            ], limit=1)
+            if dup:
+                raise ValidationError(_('Ya existe una proforma para esta Orden de Compra.'))
 
     @api.depends('shipment_ids')
     def _compute_shipment_count(self):

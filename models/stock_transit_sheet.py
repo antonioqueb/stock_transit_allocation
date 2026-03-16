@@ -1,10 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Parche a stock.transit.line para exponer campos adicionales en la sábana:
-- Categoría del producto (cambio #7)
-- Fecha entregado en bodega del viaje (cambio #8)
-- ETA original y días de retraso (cambio #3)
-- Nivel de alerta ETA (cambio #4)
+Vista SQL resumida para Cronograma / Torre de Control.
 """
 from odoo import models, fields
 from odoo.tools import drop_view_if_exists
@@ -37,34 +33,26 @@ class StockTransitSheet(models.Model):
         ('cancel', 'Cancelado'),
     ], string='Status', readonly=True)
 
-    # Alerta ETA (cambio #4)
     eta_alert_level = fields.Selection([
-        ('ok',      'En Tiempo'),
+        ('ok', 'En Tiempo'),
         ('warning', 'Próximo a Vencer'),
-        ('danger',  'Vencido'),
-        ('done',    'Entregado'),
+        ('danger', 'Vencido'),
+        ('done', 'Entregado'),
     ], string='Alerta ETA', readonly=True)
 
     shipping_line = fields.Char(string='Naviera', readonly=True)
     bl_number = fields.Char(string='Factura de Carga / BL', readonly=True)
     etd = fields.Date(string='ETD', readonly=True)
     eta = fields.Date(string='ETA', readonly=True)
-    
-    # ETA original (cambio #3)
     eta_original = fields.Date(string='ETA Original', readonly=True)
     delay_days = fields.Integer(string='Días de Retraso', readonly=True)
-
     arrival_date = fields.Date(string='Llegada Real', readonly=True)
-    
-    # Entregado en Bodega (cambio #8)
     arrival_date_bodega = fields.Date(string='Entregado en Bodega', readonly=True)
 
     product_uom_qty = fields.Float(string='M2 Embarcados', readonly=True)
     qty_proforma = fields.Float(string='Metraje Proforma', readonly=True)
     qty_original_demand = fields.Float(string='Metraje Pedido Original', readonly=True)
     salesperson_id = fields.Many2one('res.users', string='Vendedor', readonly=True)
-
-    # Categoría del producto (cambio #7)
     product_categ_id = fields.Many2one('product.category', string='Categoría', readonly=True)
 
     def init(self):
@@ -92,14 +80,10 @@ class StockTransitSheet(models.Model):
                     SUM(l.product_uom_qty) as product_uom_qty,
                     MAX(l.qty_proforma) as qty_proforma,
                     MAX(l.qty_original_demand) as qty_original_demand,
-                    -- Cambio #3: ETA original y días de retraso desde el viaje
                     MAX(v.eta_original) as eta_original,
                     MAX(v.delay_days) as delay_days,
-                    -- Cambio #4: Alerta ETA
                     MAX(v.eta_alert_level) as eta_alert_level,
-                    -- Cambio #7: Categoría del producto
                     pt.categ_id as product_categ_id,
-                    -- Cambio #8: Entregado en bodega
                     MAX(v.arrival_date_bodega) as arrival_date_bodega
                 FROM
                     stock_transit_line l
@@ -107,7 +91,12 @@ class StockTransitSheet(models.Model):
                     LEFT JOIN product_product pp ON pp.id = l.product_id
                     LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                 GROUP BY
-                    l.voyage_id, l.product_id, l.order_id, l.purchase_id,
-                    l.partner_id, l.container_number, pt.categ_id
+                    l.voyage_id,
+                    l.product_id,
+                    l.order_id,
+                    l.purchase_id,
+                    l.partner_id,
+                    l.container_number,
+                    pt.categ_id
             )
         """)
