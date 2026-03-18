@@ -11,6 +11,15 @@ class StockPicking(models.Model):
     transit_voyage_ids = fields.One2many('stock.transit.voyage', 'picking_id', string='Viajes de Tránsito')
     transit_count = fields.Integer(compute='_compute_transit_count')
     
+    supplier_shipment_id = fields.Many2one(
+        'supplier.shipment',
+        string='Embarque proveedor',
+        copy=False,
+        index=True,
+        ondelete='set null',
+        help='Relaciona esta recepción con un embarque específico capturado en el portal del proveedor.',
+    )
+    
     # =========================================================================
     # ELIMINADOS: transit_container_number y transit_bl_number
     # Estos datos ahora vienen del portal del proveedor (supplier_container_no, 
