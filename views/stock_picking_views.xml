@@ -26,12 +26,6 @@
                 </button>
             </div>
 
-            <!-- ============================================================ -->
-            <!-- ELIMINADOS: transit_container_number y transit_bl_number      -->
-            <!-- Estos datos ahora vienen del portal del proveedor            -->
-            <!-- (supplier_container_no, supplier_bl_number en stock_lot_packing_import) -->
-            <!-- ============================================================ -->
-
             <!-- Solo dejamos los pedidos consolidados para recepciones -->
             <xpath expr="//field[@name='origin']" position="after">
                 <field name="transit_sale_order_ids" 
