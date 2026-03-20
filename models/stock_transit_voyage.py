@@ -361,7 +361,7 @@ class StockTransitVoyage(models.Model):
         m = folium.Map(
             location=center,
             zoom_start=zoom,
-            tiles='cartodbpositron',
+            tiles='cartodbdark_matter',
             width='100%',
             height='100%',
             scrollWheelZoom=False,
@@ -556,7 +556,7 @@ class StockTransitVoyage(models.Model):
         """
 
         html = f"""
-        <div style="width:100%;height:400px;position:relative;">
+        <div style="width:100%;height:800px;position:relative;">
             <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
             <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
             <div id="fallback_map" style="width:100%;height:100%;"></div>
