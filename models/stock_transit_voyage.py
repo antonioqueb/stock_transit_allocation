@@ -4,8 +4,12 @@ import requests
 import json
 import re
 from markupsafe import Markup
-from odoo import models, fields, api, _
+from odoo import models, api, _
+from odoo import fields as fields_module   # alias para evitar colisión con param 'fields' en read()
 from odoo.exceptions import UserError
+
+# Re-exportar fields para que el resto del código del módulo funcione igual
+fields = fields_module
 
 _logger = logging.getLogger(__name__)
 
@@ -24,9 +28,9 @@ class StockTransitVoyage(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'eta asc'
 
-    name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
+    name = fields_module.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
 
-    custom_status = fields.Selection([
+    custom_status = fields_module.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
         ('booking', 'Booking'),
@@ -39,12 +43,12 @@ class StockTransitVoyage(models.Model):
         ('cancel', 'Cancelado'),
     ], string='Estado', default='solicitud', tracking=True)
 
-    shipping_line = fields.Char(string='Naviera', tracking=True)
-    transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)')
-    vessel_name = fields.Char(string='Buque / Barco', tracking=True)
-    voyage_number = fields.Char(string='No. Viaje', tracking=True)
+    shipping_line = fields_module.Char(string='Naviera', tracking=True)
+    transit_days_expected = fields_module.Integer(string='Tiempo Tránsito (Días)')
+    vessel_name = fields_module.Char(string='Buque / Barco', tracking=True)
+    voyage_number = fields_module.Char(string='No. Viaje', tracking=True)
 
-    container_number = fields.Char(
+    container_number = fields_module.Char(
         string='Contenedores',
         compute='_compute_container_number',
         store=True,
@@ -52,64 +56,64 @@ class StockTransitVoyage(models.Model):
         help="Resumen automático de contenedores presentes en las líneas del viaje"
     )
 
-    bl_number = fields.Char(string='Folio Compra / BL', tracking=True)
+    bl_number = fields_module.Char(string='Folio Compra / BL', tracking=True)
 
-    etd = fields.Date(string='ETD (Salida Estimada)')
-    eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
-    eta_original = fields.Date(string='ETA Original', readonly=True, copy=False, tracking=True)
+    etd = fields_module.Date(string='ETD (Salida Estimada)')
+    eta = fields_module.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
+    eta_original = fields_module.Date(string='ETA Original', readonly=True, copy=False, tracking=True)
 
-    delay_days = fields.Integer(
+    delay_days = fields_module.Integer(
         string='Días de Retraso',
         compute='_compute_delay_days',
         store=True
     )
 
-    eta_alert_level = fields.Selection([
+    eta_alert_level = fields_module.Selection([
         ('ok', 'En Tiempo'),
         ('warning', 'Próximo a Vencer'),
         ('danger', 'Vencido'),
         ('done', 'Entregado'),
     ], string='Alerta ETA', compute='_compute_eta_alert', store=True)
 
-    arrival_date = fields.Date(string='Llegada Real', tracking=True)
-    arrival_date_bodega = fields.Date(string='Entregado en Bodega', tracking=True)
+    arrival_date = fields_module.Date(string='Llegada Real', tracking=True)
+    arrival_date_bodega = fields_module.Date(string='Entregado en Bodega', tracking=True)
 
-    picking_id = fields.Many2one(
+    picking_id = fields_module.Many2one(
         'stock.picking',
         string='Recepción (Tránsito)',
         domain=[('picking_type_code', '=', 'incoming')]
     )
 
-    reception_picking_id = fields.Many2one(
+    reception_picking_id = fields_module.Many2one(
         'stock.picking',
         string='Recepción Física (Bodega)',
         domain=[('picking_type_code', '=', 'internal')],
         readonly=True
     )
 
-    purchase_id = fields.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
+    purchase_id = fields_module.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
 
-    company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
-    line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
+    company_id = fields_module.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
+    line_ids = fields_module.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
 
-    total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True, compute_sudo=True)
-    allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True, compute_sudo=True)
-    allocation_percent = fields.Float(string='% Asignación', compute='_compute_allocation_percent', store=False, compute_sudo=False)
+    total_m2 = fields_module.Float(string='Total m²', compute='_compute_totals', store=True, compute_sudo=True)
+    allocated_m2 = fields_module.Float(string='Asignado m²', compute='_compute_totals', store=True, compute_sudo=True)
+    allocation_percent = fields_module.Float(string='% Asignación', compute='_compute_allocation_percent', store=False, compute_sudo=False)
 
     # =========================================================================
     # SHIPSGO & TRACKING FIELDS
     # =========================================================================
-    shipsgo_last_sync = fields.Datetime(string="Última Sincronización API", readonly=True)
-    shipsgo_payload = fields.Text(string="Datos Geoespaciales (JSON)", readonly=True)
+    shipsgo_last_sync = fields_module.Datetime(string="Última Sincronización API", readonly=True)
+    shipsgo_payload = fields_module.Text(string="Datos Geoespaciales (JSON)", readonly=True)
 
-    shipsgo_map_html = fields.Html(
+    shipsgo_map_html = fields_module.Html(
         string="Mapa de Seguimiento",
         sanitize=False,
         readonly=True,
         help="Mapa interactivo generado por Folium con la ruta del contenedor."
     )
 
-    transit_progress = fields.Integer(
+    transit_progress = fields_module.Integer(
         string='Progreso Viaje',
         compute='_compute_transit_progress',
         store=True,
@@ -158,9 +162,6 @@ class StockTransitVoyage(models.Model):
         return payload
 
     def _make_shipsgo_reference(self, container_ref, shipment_container=False):
-        """
-        Reference estable para duplicate check en ShipsGo.
-        """
         self.ensure_one()
         parts = []
 
@@ -182,9 +183,6 @@ class StockTransitVoyage(models.Model):
         return reference[:128]
 
     def _find_shipsgo_shipment_by_container(self, container_ref):
-        """
-        Busca shipment existente por contenedor.
-        """
         self.ensure_one()
         api_url, headers = self._shipsgo_headers()
 
@@ -204,11 +202,6 @@ class StockTransitVoyage(models.Model):
         return shipments[0] if shipments else False
 
     def _create_or_link_shipsgo_tracking_for_container(self, container_ref, shipment_container=False):
-        """
-        Crea el shipment en ShipsGo si no existe.
-        Si ya existe, lo resuelve y guarda el shipment_id.
-        Si shipment_container viene informado, persiste el resultado ahí.
-        """
         self.ensure_one()
 
         container_ref = self._normalize_container_number(container_ref)
@@ -217,7 +210,6 @@ class StockTransitVoyage(models.Model):
 
         self._validate_container_number(container_ref)
 
-        # Si ya está guardado en el contenedor, usarlo
         if shipment_container and shipment_container.shipsgo_shipment_id:
             return {
                 'id': shipment_container.shipsgo_shipment_id,
@@ -237,7 +229,7 @@ class StockTransitVoyage(models.Model):
                 shipment_container.with_context(skip_auto_shipsgo=True).write({
                     'shipsgo_shipment_id': shipment_id,
                     'shipsgo_reference': reference,
-                    'shipsgo_last_create': fields.Datetime.now(),
+                    'shipsgo_last_create': fields_module.Datetime.now(),
                     'shipsgo_last_error': False,
                 })
 
@@ -259,7 +251,6 @@ class StockTransitVoyage(models.Model):
             "container_number": container_ref,
         }
 
-        # carrier es opcional. Solo si cumple formato tipo SCAC
         carrier_candidate = False
         if shipment_container and shipment_container.shipment_id and shipment_container.shipment_id.shipping_line:
             carrier_candidate = shipment_container.shipment_id.shipping_line.strip().upper()
@@ -304,7 +295,7 @@ class StockTransitVoyage(models.Model):
             shipment_container.with_context(skip_auto_shipsgo=True).write({
                 'shipsgo_shipment_id': shipment_id or 0,
                 'shipsgo_reference': resolved_reference,
-                'shipsgo_last_create': fields.Datetime.now(),
+                'shipsgo_last_create': fields_module.Datetime.now(),
                 'shipsgo_last_error': False,
             })
 
@@ -325,7 +316,6 @@ class StockTransitVoyage(models.Model):
     # HELPER: Limpieza de Coordenadas
     # =========================================================================
     def _clean_coord(self, lat, lng):
-        """Convierte coordenadas a float y valida que no sean 0 o None"""
         try:
             if lat is None or lng is None:
                 return None
@@ -341,10 +331,6 @@ class StockTransitVoyage(models.Model):
     # GENERADOR DE MAPA CON FOLIUM
     # =========================================================================
     def _generate_folium_map(self, map_data):
-        """
-        Genera un mapa HTML interactivo usando Folium a partir de los datos de ShipsGo.
-        Retorna el HTML como string listo para guardar en shipsgo_map_html.
-        """
         if not HAS_FOLIUM:
             return self._generate_fallback_map_html(map_data)
 
@@ -352,7 +338,6 @@ class StockTransitVoyage(models.Model):
         dest_loc = map_data.get('destination', {}).get('loc')
         current_loc = map_data.get('current_loc')
 
-        # Determinar centro y zoom
         all_points = []
         if origin_loc and len(origin_loc) == 2:
             all_points.append(origin_loc)
@@ -373,7 +358,6 @@ class StockTransitVoyage(models.Model):
             center = [avg_lat, avg_lng]
             zoom = 3
 
-        # Crear mapa
         m = folium.Map(
             location=center,
             zoom_start=zoom,
@@ -383,7 +367,6 @@ class StockTransitVoyage(models.Model):
             scrollWheelZoom=False,
         )
 
-        # Marcador de origen
         if origin_loc and len(origin_loc) == 2:
             origin_name = map_data.get('origin', {}).get('name', 'Puerto Origen')
             origin_country = map_data.get('origin', {}).get('country', '')
@@ -403,7 +386,6 @@ class StockTransitVoyage(models.Model):
                 icon=folium.Icon(color='green', icon='anchor', prefix='fa'),
             ).add_to(m)
 
-        # Marcador de destino
         if dest_loc and len(dest_loc) == 2:
             dest_name = map_data.get('destination', {}).get('name', 'Puerto Destino')
             dest_country = map_data.get('destination', {}).get('country', '')
@@ -423,7 +405,6 @@ class StockTransitVoyage(models.Model):
                 icon=folium.Icon(color='red', icon='flag', prefix='fa'),
             ).add_to(m)
 
-        # Marcador de posición actual del barco
         if current_loc and len(current_loc) == 2:
             container = map_data.get('container', 'N/A')
             vessel = map_data.get('vessel', 'N/A')
@@ -451,10 +432,8 @@ class StockTransitVoyage(models.Model):
                 icon=ship_icon,
             ).add_to(m)
 
-        # Líneas de ruta
         route = map_data.get('route', {})
 
-        # Rutas pasadas (gris sólido)
         past_lines = route.get('past', [])
         for line_coords in past_lines:
             if len(line_coords) >= 2:
@@ -465,7 +444,6 @@ class StockTransitVoyage(models.Model):
                     opacity=0.7,
                 ).add_to(m)
 
-        # Ruta current pasada (azul sólido)
         current_past = route.get('current_past', [])
         if len(current_past) >= 2:
             folium.PolyLine(
@@ -475,7 +453,6 @@ class StockTransitVoyage(models.Model):
                 opacity=0.85,
             ).add_to(m)
 
-        # Ruta current futura (azul punteado)
         current_future = route.get('current_future', [])
         if len(current_future) >= 2:
             folium.PolyLine(
@@ -486,7 +463,6 @@ class StockTransitVoyage(models.Model):
                 dash_array='8 10',
             ).add_to(m)
 
-        # Rutas futuras (gris punteado)
         future_lines = route.get('future', [])
         for line_coords in future_lines:
             if len(line_coords) >= 2:
@@ -498,7 +474,6 @@ class StockTransitVoyage(models.Model):
                     dash_array='8 10',
                 ).add_to(m)
 
-        # Fallback: líneas directas si no hay rutas detalladas
         if not past_lines and not current_past and not current_future and not future_lines:
             if origin_loc and current_loc:
                 folium.PolyLine(
@@ -523,17 +498,12 @@ class StockTransitVoyage(models.Model):
                     dash_array='8 10',
                 ).add_to(m)
 
-        # Ajustar bounds
         if len(all_points) > 1:
             m.fit_bounds(all_points, padding=(50, 50))
 
         return m._repr_html_()
 
     def _generate_fallback_map_html(self, map_data):
-        """
-        Genera HTML de mapa básico sin Folium (usando Leaflet CDN directamente en el HTML).
-        Usado como fallback si folium no está instalado.
-        """
         origin_loc = map_data.get('origin', {}).get('loc')
         dest_loc = map_data.get('destination', {}).get('loc')
         current_loc = map_data.get('current_loc')
@@ -610,8 +580,8 @@ class StockTransitVoyage(models.Model):
 
     def action_sync_shipsgo(self):
         """
-        Sincroniza datos de ShipsGo.
-        Si el contenedor aún no existe en ShipsGo, primero lo crea.
+        Sincroniza datos de ShipsGo para este viaje.
+        Llamado por: cron jobs, auto-sync al abrir formulario.
         """
         self.ensure_one()
 
@@ -693,10 +663,10 @@ class StockTransitVoyage(models.Model):
 
         if not shipment_data:
             self.message_post(body=_("⚠️ ShipsGo no devolvió datos para %s.") % container_ref)
-            self.write({'shipsgo_last_sync': fields.Datetime.now()})
+            self.write({'shipsgo_last_sync': fields_module.Datetime.now()})
             if linked_container:
                 linked_container.write({
-                    'shipsgo_last_sync': fields.Datetime.now(),
+                    'shipsgo_last_sync': fields_module.Datetime.now(),
                     'shipsgo_last_error': False,
                 })
             return
@@ -846,7 +816,7 @@ class StockTransitVoyage(models.Model):
             map_html = False
 
         vals = {
-            'shipsgo_last_sync': fields.Datetime.now(),
+            'shipsgo_last_sync': fields_module.Datetime.now(),
             'shipsgo_payload': json.dumps(map_data),
             'shipsgo_map_html': map_html,
             'transit_progress': int(transit_pct),
@@ -862,7 +832,7 @@ class StockTransitVoyage(models.Model):
 
         if linked_container:
             linked_container.write({
-                'shipsgo_last_sync': fields.Datetime.now(),
+                'shipsgo_last_sync': fields_module.Datetime.now(),
                 'shipsgo_last_error': False,
             })
 
@@ -910,7 +880,7 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('eta', 'custom_status')
     def _compute_eta_alert(self):
-        today = fields.Date.today()
+        today = fields_module.Date.today()
         warning_days = 7
         for rec in self:
             if rec.custom_status == 'delivered':
@@ -977,7 +947,7 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
-        today = fields.Date.today()
+        today = fields_module.Date.today()
         for rec in self:
             if rec.shipsgo_payload:
                 continue
@@ -1126,11 +1096,11 @@ class StockTransitVoyage(models.Model):
             if self.reception_picking_id and self.reception_picking_id.state != 'done':
                 raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
             write_vals = {
-                'arrival_date': fields.Date.today(),
+                'arrival_date': fields_module.Date.today(),
                 'custom_status': 'delivered',
             }
             if not self.arrival_date_bodega:
-                write_vals['arrival_date_bodega'] = fields.Date.today()
+                write_vals['arrival_date_bodega'] = fields_module.Date.today()
             self.write(write_vals)
             for line in self.line_ids:
                 if line.allocation_id and line.allocation_id.state != 'done':
@@ -1378,7 +1348,7 @@ class StockTransitVoyage(models.Model):
                 'partner_id': partner.id,
                 'user_id': self.env.user.id,
                 'company_id': self.env.company.id,
-                'fecha_orden': fields.Datetime.now(),
+                'fecha_orden': fields_module.Datetime.now(),
                 'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
             })
 
@@ -1520,11 +1490,11 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
 
         write_vals = {
-            'arrival_date': fields.Date.today(),
+            'arrival_date': fields_module.Date.today(),
             'custom_status': 'delivered'
         }
         if not self.arrival_date_bodega:
-            write_vals['arrival_date_bodega'] = fields.Date.today()
+            write_vals['arrival_date_bodega'] = fields_module.Date.today()
         self.write(write_vals)
 
         for line in self.line_ids:
@@ -1533,3 +1503,90 @@ class StockTransitVoyage(models.Model):
 
     def action_cancel(self):
         self.write({'custom_status': 'cancel'})
+
+    # =========================================================================
+    # CRON & AUTO-SYNC
+    # =========================================================================
+
+    @api.model
+    def action_cron_sync_shipsgo(self):
+        """
+        Ejecutado por los cron jobs (cada 2h y diario a las 5am).
+        Sincroniza todos los viajes activos que tengan contenedores registrados.
+        """
+        voyages = self.search([
+            ('custom_status', 'not in', ['delivered', 'cancel']),
+        ])
+        for voyage in voyages:
+            has_container = self.env['supplier.shipment.container'].search_count([
+                ('shipment_id.voyage_id', '=', voyage.id),
+                ('container_number', '!=', False),
+            ])
+            if not has_container:
+                has_container = any(
+                    line.container_number and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
+                    for line in voyage.line_ids
+                )
+            if not has_container:
+                continue
+            try:
+                voyage.action_sync_shipsgo()
+            except Exception as e:
+                _logger.warning(
+                    "[ShipsGo CRON] Error sincronizando viaje %s: %s",
+                    voyage.name, str(e)
+                )
+
+    def read(self, fields=None, load='_classic_read'):
+        """
+        Auto-sync al abrir el formulario: si el viaje nunca se sincronizó
+        o la última sync fue hace más de 2 horas, dispara sync silenciosa.
+        """
+        result = super().read(fields=fields, load=load)
+
+        # Evitar recursión y llamadas batch/cron
+        if self.env.context.get('no_auto_shipsgo_sync'):
+            return result
+        if len(self) != 1:
+            return result
+
+        voyage = self
+        if voyage.custom_status in ('delivered', 'cancel'):
+            return result
+
+        # Determinar si necesita sync
+        needs_sync = False
+        if not voyage.shipsgo_last_sync:
+            needs_sync = True
+        else:
+            delta = fields_module.Datetime.now() - voyage.shipsgo_last_sync
+            if delta.total_seconds() > 7200:  # 2 horas
+                needs_sync = True
+
+        if not needs_sync:
+            return result
+
+        # Verificar que tenga contenedor antes de intentar
+        has_container = self.env['supplier.shipment.container'].search_count([
+            ('shipment_id.voyage_id', '=', voyage.id),
+            ('container_number', '!=', False),
+        ])
+        if not has_container:
+            has_container = any(
+                line.container_number and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
+                for line in voyage.line_ids
+            )
+        if not has_container:
+            return result
+
+        try:
+            voyage.with_context(no_auto_shipsgo_sync=True).action_sync_shipsgo()
+            # Re-leer para que el cliente reciba datos frescos
+            result = super(StockTransitVoyage, voyage).read(fields=fields, load=load)
+        except Exception as e:
+            _logger.warning(
+                "[ShipsGo AUTO] Error en auto-sync al abrir viaje %s: %s",
+                voyage.name, str(e)
+            )
+
+        return result

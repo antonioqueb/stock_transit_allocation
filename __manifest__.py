@@ -41,6 +41,7 @@
         'security/ir.model.access.csv',
         'data/ir_sequence_data.xml',
         'data/ir_config_parameter_data.xml',
+        'data/ir_cron_data.xml',
         'views/stock_transit_sheet_action.xml',
         'views/stock_transit_voyage_views.xml',
         'views/stock_picking_views.xml',

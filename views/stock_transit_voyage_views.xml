@@ -49,12 +49,6 @@
                             invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
                             string="⏪"/>
                     <separator/>
-                    
-                    <!-- Sincronizar ShipsGo -->
-                    <button name="action_sync_shipsgo" string="📡 Sincronizar API" type="object"
-                            class="btn-info"
-                            invisible="custom_status == 'delivered'"/>
-
                     <button name="action_load_from_purchase" string="🔄 Cargar" type="object"
                             class="btn-secondary"
                             invisible="picking_id != False or custom_status == 'delivered'"/>
