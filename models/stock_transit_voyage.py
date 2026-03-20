@@ -346,24 +346,24 @@ class StockTransitVoyage(models.Model):
         if current_loc and len(current_loc) == 2:
             all_points.append(current_loc)
 
-        if not all_points:
-            center = [20, -40]
-            zoom = 2
-        elif len(all_points) == 1:
-            center = all_points[0]
-            zoom = 5
-        else:
+        if current_loc and len(current_loc) == 2:
+            center = current_loc
+            zoom = 6
+        elif all_points:
             avg_lat = sum(p[0] for p in all_points) / len(all_points)
             avg_lng = sum(p[1] for p in all_points) / len(all_points)
             center = [avg_lat, avg_lng]
-            zoom = 3
+            zoom = 4
+        else:
+            center = [20, -40]
+            zoom = 2
 
         m = folium.Map(
             location=center,
             zoom_start=zoom,
             tiles='cartodbpositron',
             width='100%',
-            height='100%',
+            height='600px',
             scrollWheelZoom=False,
         )
 
@@ -421,7 +421,7 @@ class StockTransitVoyage(models.Model):
             )
             ship_icon = folium.DivIcon(
                 html='<div style="font-size:28px;text-align:center;'
-                     'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
+                    'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
                 icon_size=(32, 32),
                 icon_anchor=(16, 16),
             )
@@ -497,9 +497,6 @@ class StockTransitVoyage(models.Model):
                     weight=3,
                     dash_array='8 10',
                 ).add_to(m)
-
-        if len(all_points) > 1:
-            m.fit_bounds(all_points, padding=(50, 50))
 
         return m._repr_html_()
 
