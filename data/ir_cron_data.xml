@@ -4,11 +4,11 @@
 
         <!-- Cron: Sincronización ShipsGo cada 2 horas -->
         <record id="ir_cron_shipsgo_sync_bihhourly" model="ir.cron">
-            <field name="name">Torre de Control: Sincronizar ShipsGo (cada 2h)</field>
+            <field name="name">Torre de Control: Sincronizar ShipsGo (cada 1h)</field>
             <field name="model_id" ref="model_stock_transit_voyage"/>
             <field name="state">code</field>
             <field name="code">model.action_cron_sync_shipsgo()</field>
-            <field name="interval_number">2</field>
+            <field name="interval_number">1</field>
             <field name="interval_type">hours</field>
             <field name="active">True</field>
             <field name="priority">10</field>
