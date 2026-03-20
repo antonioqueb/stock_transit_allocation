@@ -20,13 +20,6 @@ class StockPicking(models.Model):
         help='Relaciona esta recepción con un embarque específico capturado en el portal del proveedor.',
     )
     
-    # =========================================================================
-    # ELIMINADOS: transit_container_number y transit_bl_number
-    # Estos datos ahora vienen del portal del proveedor (supplier_container_no, 
-    # supplier_bl_number) y se propagan a cada lote vía x_contenedor.
-    # No tiene sentido duplicarlos aquí.
-    # =========================================================================
-    
     transit_sale_order_ids = fields.Many2many('sale.order', string='Pedidos Consolidados', compute='_compute_transit_sale_orders', store=True)
 
     @api.depends('move_ids.sale_line_id')
@@ -38,9 +31,6 @@ class StockPicking(models.Model):
         for pick in self:
             pick.transit_count = len(pick.transit_voyage_ids)
 
-    # -------------------------------------------------------------------------
-    # Paso 2 de la Recepción Manual (Sincronización)
-    # -------------------------------------------------------------------------
     def action_sync_from_voyage(self):
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] Sincronizando Picking {self.name} con Viaje...")
@@ -122,10 +112,6 @@ class StockPicking(models.Model):
         else:
             raise UserError(_("No se encontraron líneas válidas (con lote y cantidad > 0) en el viaje para sincronizar."))
 
-    # -------------------------------------------------------------------------
-    # SOBREESCRITURAS DE COMPORTAMIENTO (VALIDACIÓN Y ASIGNACIÓN)
-    # -------------------------------------------------------------------------
-
     def button_validate(self):
         _logger.info(f"=== [TC_DEBUG] VALIDATE BUTTON CLICKED - Picking {self.name} (ID: {self.id}) ===")
         
@@ -138,7 +124,7 @@ class StockPicking(models.Model):
                 is_transit_loc = True
             
             if is_transit_loc and pick.picking_type_code == 'incoming':
-                _logger.info(f"[TC_DEBUG] Picking {pick.name} detectado como Entrada a Tránsito. Creando/Actualizando Viaje...")
+                _logger.info(f"[TC_DEBUG] Picking {pick.name} detectado como Entrada a Tránsito. Creando Viaje independiente...")
                 pick._create_automatic_transit_voyage()
 
             if pick.picking_type_code == 'internal' and pick.state == 'done':
@@ -222,11 +208,9 @@ class StockPicking(models.Model):
                 continue
             
             target_move = target_move[0]
-            _logger.info(f"    > Move Objetivo ID: {target_move.id} (Pide: {target_move.product_uom_qty})")
 
             if target_move.state in ['partially_available', 'assigned']:
                 try:
-                    _logger.info(f"    > Liberando reservas previas en {target_move.id}...")
                     target_move._do_unreserve()
                 except Exception as e:
                     _logger.warning(f"    [!] Error al des-reservar: {e}")
@@ -244,7 +228,6 @@ class StockPicking(models.Model):
                         'quantity': new_qty,
                         'location_id': move_line.location_dest_id.id, 
                     })
-                    _logger.info(f"    [OK] Reserva ACTUALIZADA en {delivery_picking.name}")
                 else:
                     self.env['stock.move.line'].create({
                         'picking_id': delivery_picking.id,
@@ -256,7 +239,6 @@ class StockPicking(models.Model):
                         'location_dest_id': target_move.location_dest_id.id,
                         'quantity': qty_just_moved, 
                     })
-                    _logger.info(f"    [OK] Reserva CREADA en {delivery_picking.name}")
                 
                 count_success += 1
 
@@ -266,30 +248,47 @@ class StockPicking(models.Model):
         _logger.info(f"[TC_DEBUG] Proceso finalizado. {count_success} lotes asignados exitosamente.")
 
     def _create_automatic_transit_voyage(self):
+        """
+        Crea SIEMPRE un nuevo voyage por picking.
+        No reutiliza voyages existentes de la misma OC.
+        """
         self.ensure_one()
         Voyage = self.env['stock.transit.voyage']
-        
-        voyage = Voyage.search([
-            ('purchase_id', '=', self.purchase_id.id),
-            ('custom_status', '!=', 'cancel')
+
+        # Verificar si este picking ya tiene un voyage vinculado como picking_id
+        existing = Voyage.search([
+            ('picking_id', '=', self.id),
+            ('custom_status', '!=', 'cancel'),
         ], limit=1)
 
-        if voyage:
-            voyage.write({
-                'picking_id': self.id,
-                'bl_number': self.supplier_bl_number if hasattr(self, 'supplier_bl_number') and self.supplier_bl_number else voyage.bl_number,
-                'custom_status': 'on_sea'
-            })
-            voyage.action_load_from_picking()
-        else:
-            voyage = Voyage.create({
-                'picking_id': self.id,
-                'purchase_id': self.purchase_id.id,
-                'bl_number': self.supplier_bl_number if hasattr(self, 'supplier_bl_number') and self.supplier_bl_number else self.origin,
-                'etd': fields.Date.today(),
-                'custom_status': 'on_sea'
-            })
-            voyage.action_load_from_picking()
+        if existing:
+            _logger.info(
+                f"[TC] Picking {self.name} ya tiene voyage {existing.name}, actualizando lotes."
+            )
+            existing.action_load_from_picking()
+            return
+
+        # Crear voyage nuevo exclusivo para este picking
+        bl = (
+            getattr(self, 'supplier_bl_number', None)
+            or self.origin
+            or self.name
+        )
+
+        voyage = Voyage.create({
+            'picking_id': self.id,
+            'purchase_id': self.purchase_id.id if self.purchase_id else False,
+            'bl_number': bl,
+            'etd': fields.Date.today(),
+            'custom_status': 'on_sea',
+        })
+
+        _logger.info(
+            f"[TC] Voyage {voyage.name} creado para picking {self.name} "
+            f"(OC: {self.purchase_id.name if self.purchase_id else 'N/A'})"
+        )
+
+        voyage.action_load_from_picking()
 
     def action_view_transit_voyage(self):
         self.ensure_one()
