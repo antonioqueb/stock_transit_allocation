@@ -119,7 +119,7 @@ class SupplierShipment(models.Model):
 
     # --- Sincronización con Torre de Control ---
     def action_sync_to_voyage(self):
-        """Crea o actualiza el voyage vinculado en la Torre de Control."""
+        """Crea o actualiza el voyage vinculado en la Torre de Control y da de alta tracking por contenedor."""
         self.ensure_one()
         Voyage = self.env['stock.transit.voyage']
 
@@ -137,7 +137,8 @@ class SupplierShipment(models.Model):
 
         if self.voyage_id:
             self.voyage_id.write(vals)
-            _logger.info(f"[SHIPMENT] Voyage {self.voyage_id.name} actualizado desde embarque {self.name}")
+            voyage = self.voyage_id
+            _logger.info(f"[SHIPMENT] Voyage {voyage.name} actualizado desde embarque {self.name}")
         else:
             vals.update({
                 'purchase_id': self.purchase_id.id,
@@ -146,5 +147,21 @@ class SupplierShipment(models.Model):
             voyage = Voyage.create(vals)
             self.write({'voyage_id': voyage.id})
             _logger.info(f"[SHIPMENT] Voyage {voyage.name} creado desde embarque {self.name}")
+
+        # ------------------------------------------------------------
+        # NUEVO: crear / resolver tracking ShipsGo para cada contenedor
+        # ------------------------------------------------------------
+        for container in self.container_ids.filtered(lambda c: c.container_number):
+            try:
+                container.action_create_shipsgo_tracking()
+            except Exception as e:
+                _logger.warning(
+                    "[SHIPMENT] No se pudo crear tracking ShipsGo para %s en %s: %s",
+                    container.container_number, self.name, e
+                )
+                self.message_post(
+                    body=_("⚠️ No se pudo crear tracking ShipsGo para el contenedor %s: %s")
+                    % (container.container_number, str(e))
+                )
 
         return True

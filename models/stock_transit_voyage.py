@@ -2,6 +2,7 @@
 import logging
 import requests
 import json
+import re
 from markupsafe import Markup
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -24,7 +25,7 @@ class StockTransitVoyage(models.Model):
     _order = 'eta asc'
 
     name = fields.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
-    
+
     custom_status = fields.Selection([
         ('solicitud', 'Solicitud Enviada'),
         ('production', 'Producción'),
@@ -32,82 +33,293 @@ class StockTransitVoyage(models.Model):
         ('puerto_origen', 'Puerto Origen'),
         ('on_sea', 'En Altamar / Mar'),
         ('puerto_destino', 'Puerto Destino'),
-        ('arrived_port', 'Arribo a Puerto (Trámite)'), 
-        ('reception_pending', 'En Recepción Física'),   
+        ('arrived_port', 'Arribo a Puerto (Trámite)'),
+        ('reception_pending', 'En Recepción Física'),
         ('delivered', 'Entregado en Almacén'),
         ('cancel', 'Cancelado'),
     ], string='Estado', default='solicitud', tracking=True)
-    
+
     shipping_line = fields.Char(string='Naviera', tracking=True)
     transit_days_expected = fields.Integer(string='Tiempo Tránsito (Días)')
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     voyage_number = fields.Char(string='No. Viaje', tracking=True)
-    
+
     container_number = fields.Char(
-        string='Contenedores', 
+        string='Contenedores',
         compute='_compute_container_number',
         store=True,
         tracking=True,
         help="Resumen automático de contenedores presentes en las líneas del viaje"
     )
-    
+
     bl_number = fields.Char(string='Folio Compra / BL', tracking=True)
-    
+
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
     eta_original = fields.Date(string='ETA Original', readonly=True, copy=False, tracking=True)
-    
+
     delay_days = fields.Integer(
         string='Días de Retraso',
         compute='_compute_delay_days',
         store=True
     )
-    
+
     eta_alert_level = fields.Selection([
-        ('ok',      'En Tiempo'),
+        ('ok', 'En Tiempo'),
         ('warning', 'Próximo a Vencer'),
-        ('danger',  'Vencido'),
-        ('done',    'Entregado'),
+        ('danger', 'Vencido'),
+        ('done', 'Entregado'),
     ], string='Alerta ETA', compute='_compute_eta_alert', store=True)
 
     arrival_date = fields.Date(string='Llegada Real', tracking=True)
     arrival_date_bodega = fields.Date(string='Entregado en Bodega', tracking=True)
 
-    picking_id = fields.Many2one('stock.picking', string='Recepción (Tránsito)', 
-        domain=[('picking_type_code', '=', 'incoming')])
-    
-    reception_picking_id = fields.Many2one('stock.picking', string='Recepción Física (Bodega)',
-        domain=[('picking_type_code', '=', 'internal')], readonly=True)
+    picking_id = fields.Many2one(
+        'stock.picking',
+        string='Recepción (Tránsito)',
+        domain=[('picking_type_code', '=', 'incoming')]
+    )
+
+    reception_picking_id = fields.Many2one(
+        'stock.picking',
+        string='Recepción Física (Bodega)',
+        domain=[('picking_type_code', '=', 'internal')],
+        readonly=True
+    )
 
     purchase_id = fields.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
-    
+
     company_id = fields.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
     line_ids = fields.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
-    
+
     total_m2 = fields.Float(string='Total m²', compute='_compute_totals', store=True, compute_sudo=True)
     allocated_m2 = fields.Float(string='Asignado m²', compute='_compute_totals', store=True, compute_sudo=True)
     allocation_percent = fields.Float(string='% Asignación', compute='_compute_allocation_percent', store=False, compute_sudo=False)
-    
+
     # =========================================================================
     # SHIPSGO & TRACKING FIELDS
     # =========================================================================
     shipsgo_last_sync = fields.Datetime(string="Última Sincronización API", readonly=True)
     shipsgo_payload = fields.Text(string="Datos Geoespaciales (JSON)", readonly=True)
-    
-    # NUEVO: Campo HTML generado por Folium (reemplaza el widget JS de Leaflet)
+
     shipsgo_map_html = fields.Html(
         string="Mapa de Seguimiento",
         sanitize=False,
         readonly=True,
         help="Mapa interactivo generado por Folium con la ruta del contenedor."
     )
-    
+
     transit_progress = fields.Integer(
-        string='Progreso Viaje', 
-        compute='_compute_transit_progress', 
-        store=True, 
+        string='Progreso Viaje',
+        compute='_compute_transit_progress',
+        store=True,
         readonly=False
     )
+
+    # =========================================================================
+    # HELPERS SHIPSGO
+    # =========================================================================
+
+    def _shipsgo_get_config(self):
+        Config = self.env['ir.config_parameter'].sudo()
+        api_url = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
+        api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
+        if not api_token:
+            raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema."))
+        return api_url, api_token
+
+    def _shipsgo_headers(self, json_body=False):
+        api_url, api_token = self._shipsgo_get_config()
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "OdooControlTower/1.0",
+            "X-Shipsgo-User-Token": api_token,
+        }
+        if json_body:
+            headers["Content-Type"] = "application/json"
+        return api_url, headers
+
+    def _normalize_container_number(self, value):
+        return (value or '').strip().upper()
+
+    def _validate_container_number(self, value):
+        if not re.fullmatch(r'^[A-Z]{4}[0-9]{7}$', value or ''):
+            raise UserError(
+                _("El contenedor '%s' no cumple el formato esperado AAAA9999999.") % (value or '')
+            )
+
+    def _extract_shipment_from_response(self, payload):
+        if not isinstance(payload, dict):
+            return {}
+        if isinstance(payload.get('shipment'), dict):
+            return payload['shipment']
+        if isinstance(payload.get('data'), dict):
+            return payload['data']
+        return payload
+
+    def _make_shipsgo_reference(self, container_ref, shipment_container=False):
+        """
+        Reference estable para duplicate check en ShipsGo.
+        """
+        self.ensure_one()
+        parts = []
+
+        if shipment_container and shipment_container.shipment_id:
+            parts.append(shipment_container.shipment_id.name or '')
+
+        if self.name:
+            parts.append(self.name)
+
+        if self.purchase_id:
+            parts.append(self.purchase_id.name or '')
+
+        parts.append(container_ref)
+
+        reference = " | ".join([p for p in parts if p]).strip()
+        if len(reference) < 5:
+            reference = f"{self.name or 'VOYAGE'}-{container_ref}"
+
+        return reference[:128]
+
+    def _find_shipsgo_shipment_by_container(self, container_ref):
+        """
+        Busca shipment existente por contenedor.
+        """
+        self.ensure_one()
+        api_url, headers = self._shipsgo_headers()
+
+        try:
+            r = requests.get(
+                f"{api_url}/ocean/shipments",
+                headers=headers,
+                params={"filters[container_number]": f"eq:{container_ref}"},
+                timeout=20,
+            )
+            r.raise_for_status()
+            payload = r.json()
+        except Exception as e:
+            raise UserError(_("Error buscando shipment existente en ShipsGo: %s") % str(e))
+
+        shipments = payload.get('shipments') or payload.get('data') or []
+        return shipments[0] if shipments else False
+
+    def _create_or_link_shipsgo_tracking_for_container(self, container_ref, shipment_container=False):
+        """
+        Crea el shipment en ShipsGo si no existe.
+        Si ya existe, lo resuelve y guarda el shipment_id.
+        Si shipment_container viene informado, persiste el resultado ahí.
+        """
+        self.ensure_one()
+
+        container_ref = self._normalize_container_number(container_ref)
+        if not container_ref:
+            raise UserError(_("No se recibió un número de contenedor válido para crear tracking."))
+
+        self._validate_container_number(container_ref)
+
+        # Si ya está guardado en el contenedor, usarlo
+        if shipment_container and shipment_container.shipsgo_shipment_id:
+            return {
+                'id': shipment_container.shipsgo_shipment_id,
+                'reference': shipment_container.shipsgo_reference,
+                'container_number': container_ref,
+            }
+
+        existing = self._find_shipsgo_shipment_by_container(container_ref)
+        if existing:
+            shipment_id = existing.get('id')
+            reference = existing.get('reference') or self._make_shipsgo_reference(
+                container_ref,
+                shipment_container=shipment_container
+            )
+
+            if shipment_container and shipment_id:
+                shipment_container.with_context(skip_auto_shipsgo=True).write({
+                    'shipsgo_shipment_id': shipment_id,
+                    'shipsgo_reference': reference,
+                    'shipsgo_last_create': fields.Datetime.now(),
+                    'shipsgo_last_error': False,
+                })
+
+            self.message_post(body=Markup(
+                "🔁 <b>ShipsGo ya existente</b><br/>"
+                "Contenedor: {container}<br/>"
+                "Shipment ID: {shipment_id}"
+            ).format(
+                container=container_ref,
+                shipment_id=shipment_id or 'N/A',
+            ))
+            return existing
+
+        api_url, headers = self._shipsgo_headers(json_body=True)
+        reference = self._make_shipsgo_reference(container_ref, shipment_container=shipment_container)
+
+        payload = {
+            "reference": reference,
+            "container_number": container_ref,
+        }
+
+        # carrier es opcional. Solo si cumple formato tipo SCAC
+        carrier_candidate = False
+        if shipment_container and shipment_container.shipment_id and shipment_container.shipment_id.shipping_line:
+            carrier_candidate = shipment_container.shipment_id.shipping_line.strip().upper()
+        elif self.shipping_line:
+            carrier_candidate = self.shipping_line.strip().upper()
+
+        if carrier_candidate and re.fullmatch(r'^(SG_)?[A-Z0-9]{4}$', carrier_candidate):
+            payload["carrier"] = carrier_candidate
+
+        try:
+            r = requests.post(
+                f"{api_url}/ocean/shipments",
+                headers=headers,
+                json=payload,
+                timeout=20,
+            )
+            try:
+                response_payload = r.json() if r.content else {}
+            except Exception:
+                response_payload = {}
+        except Exception as e:
+            raise UserError(_("Error creando shipment en ShipsGo: %s") % str(e))
+
+        if r.status_code in (200, 201):
+            shipment = self._extract_shipment_from_response(response_payload)
+        elif r.status_code == 409:
+            shipment = self._extract_shipment_from_response(response_payload)
+            if not shipment:
+                shipment = self._find_shipsgo_shipment_by_container(container_ref) or {}
+        elif r.status_code == 402:
+            raise UserError(_("ShipsGo reportó que no hay créditos suficientes para crear el tracking."))
+        elif r.status_code == 429:
+            raise UserError(_("ShipsGo rechazó la creación por demasiadas solicitudes concurrentes. Intente de nuevo."))
+        else:
+            message = response_payload.get('message') if isinstance(response_payload, dict) else False
+            raise UserError(_("ShipsGo devolvió un error al crear el tracking (%s): %s") % (r.status_code, message or r.text))
+
+        shipment_id = shipment.get('id')
+        resolved_reference = shipment.get('reference') or reference
+
+        if shipment_container:
+            shipment_container.with_context(skip_auto_shipsgo=True).write({
+                'shipsgo_shipment_id': shipment_id or 0,
+                'shipsgo_reference': resolved_reference,
+                'shipsgo_last_create': fields.Datetime.now(),
+                'shipsgo_last_error': False,
+            })
+
+        self.message_post(body=Markup(
+            "🆕 <b>Tracking ShipsGo creado</b><br/>"
+            "Contenedor: {container}<br/>"
+            "Shipment ID: {shipment_id}<br/>"
+            "Reference: {reference}"
+        ).format(
+            container=container_ref,
+            shipment_id=shipment_id or 'N/A',
+            reference=resolved_reference,
+        ))
+
+        return shipment
 
     # =========================================================================
     # HELPER: Limpieza de Coordenadas
@@ -139,7 +351,7 @@ class StockTransitVoyage(models.Model):
         origin_loc = map_data.get('origin', {}).get('loc')
         dest_loc = map_data.get('destination', {}).get('loc')
         current_loc = map_data.get('current_loc')
-        
+
         # Determinar centro y zoom
         all_points = []
         if origin_loc and len(origin_loc) == 2:
@@ -148,7 +360,7 @@ class StockTransitVoyage(models.Model):
             all_points.append(dest_loc)
         if current_loc and len(current_loc) == 2:
             all_points.append(current_loc)
-        
+
         if not all_points:
             center = [20, -40]
             zoom = 2
@@ -169,7 +381,6 @@ class StockTransitVoyage(models.Model):
             width='100%',
             height='100%',
             scrollWheelZoom=False,
-
         )
 
         # Marcador de origen
@@ -227,7 +438,6 @@ class StockTransitVoyage(models.Model):
                 f"<small>Progreso: {pct}%</small>"
                 f"</div>"
             )
-            # Icono personalizado del barco
             ship_icon = folium.DivIcon(
                 html='<div style="font-size:28px;text-align:center;'
                      'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
@@ -317,9 +527,7 @@ class StockTransitVoyage(models.Model):
         if len(all_points) > 1:
             m.fit_bounds(all_points, padding=(50, 50))
 
-        # Generar HTML
-        map_html = m._repr_html_()
-        return map_html
+        return m._repr_html_()
 
     def _generate_fallback_map_html(self, map_data):
         """
@@ -336,10 +544,9 @@ class StockTransitVoyage(models.Model):
         origin_name = map_data.get('origin', {}).get('name', 'Origen')
         dest_name = map_data.get('destination', {}).get('name', 'Destino')
 
-        # Construir JS para marcadores
         markers_js = ""
         bounds_js = "var bounds = [];\n"
-        
+
         if origin_loc:
             markers_js += f"""
             L.marker([{origin_loc[0]}, {origin_loc[1]}], {{
@@ -361,16 +568,15 @@ class StockTransitVoyage(models.Model):
             }}).addTo(map).bindPopup('<b>{container}</b><br/>{status}<br/>Buque: {vessel}<br/>Progreso: {pct}%').openPopup();
             bounds.push([{current_loc[0]}, {current_loc[1]}]);
             """
-        
-        # Líneas
+
         if origin_loc and current_loc:
             markers_js += f"""
-            L.polyline([[{origin_loc[0]},{origin_loc[1]}],[{current_loc[0]},{current_loc[1]}]], 
+            L.polyline([[{origin_loc[0]},{origin_loc[1]}],[{current_loc[0]},{current_loc[1]}]],
                 {{color:'#2563eb',weight:4,opacity:0.85}}).addTo(map);
             """
         if current_loc and dest_loc:
             markers_js += f"""
-            L.polyline([[{current_loc[0]},{current_loc[1]}],[{dest_loc[0]},{dest_loc[1]}]], 
+            L.polyline([[{current_loc[0]},{current_loc[1]}],[{dest_loc[0]},{dest_loc[1]}]],
                 {{color:'#6b7280',weight:3,dashArray:'8,10',opacity:0.65}}).addTo(map);
             """
 
@@ -386,7 +592,7 @@ class StockTransitVoyage(models.Model):
             <div id="fallback_map" style="width:100%;height:100%;"></div>
             <script>
                 (function() {{
-                    var map = L.map('fallback_map', {scrollWheelZoom: false}).setView([20, -40], 2);
+                    var map = L.map('fallback_map', {{scrollWheelZoom: false}}).setView([20, -40], 2);
                     L.tileLayer('https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager/{{z}}/{{x}}/{{y}}{{r}}.png', {{
                         attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
                     }}).addTo(map);
@@ -401,60 +607,16 @@ class StockTransitVoyage(models.Model):
     # =========================================================================
     # ACCIÓN: SINCRONIZAR SHIPSGO API
     # =========================================================================
-    
+
     def action_sync_shipsgo(self):
-        """Sincroniza datos de ShipsGo v2 usando shipments + geojson endpoints."""
+        """
+        Sincroniza datos de ShipsGo.
+        Si el contenedor aún no existe en ShipsGo, primero lo crea.
+        """
         self.ensure_one()
 
-        Config = self.env['ir.config_parameter'].sudo()
-        api_url   = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
-        api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
+        api_url, headers = self._shipsgo_headers()
 
-        if not api_token:
-            raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema."))
-
-        # ── Número de contenedor ───────────────────────────────────────────────
-        container_ref = False
-        for line in self.line_ids:
-            if line.container_number and line.container_number not in ('PENDIENTE', 'SN', False, ''):
-                container_ref = line.container_number
-                break
-        if not container_ref and self.container_number and 'PENDIENTE' not in (self.container_number or ''):
-            container_ref = str(self.container_number).split(',')[0].strip()
-        if container_ref:
-            container_ref = str(container_ref).strip().upper()
-        if not container_ref:
-            raise UserError(_("No se encontró un número de contenedor válido en las líneas."))
-
-        headers = {
-            "Accept": "application/json",
-            "User-Agent": "OdooControlTower/1.0",
-            "X-Shipsgo-User-Token": api_token,
-        }
-
-        # ── 1. GET /ocean/shipments ────────────────────────────────────────────
-        try:
-            r = requests.get(
-                f"{api_url}/ocean/shipments",
-                headers=headers,
-                params={"filters[container_number]": f"eq:{container_ref}"},
-                timeout=20,
-            )
-            r.raise_for_status()
-            data = r.json()
-        except Exception as e:
-            raise UserError(_(f"Error al conectar con ShipsGo: {e}"))
-
-        shipments = data.get('shipments') or data.get('data') or []
-        if not shipments:
-            self.message_post(body=_(f"⚠️ ShipsGo no devolvió datos para {container_ref}."))
-            self.write({'shipsgo_last_sync': fields.Datetime.now()})
-            return
-
-        shipment = shipments[0]
-        shipment_id = shipment.get('id')
-
-        # ── Helper para navegar dicts anidados ────────────────────────────────
         def safe_get(d, keys, default=None):
             for k in keys:
                 if isinstance(d, dict):
@@ -463,21 +625,87 @@ class StockTransitVoyage(models.Model):
                     return default
             return d if d is not None else default
 
-        # ── Datos del shipment ─────────────────────────────────────────────────
-        route_info      = safe_get(shipment, ['route'], {})
-        transit_pct     = route_info.get('transit_percentage', 0) or 0
-        status_text     = shipment.get('status', 'N/A')
-        checked_at      = shipment.get('checked_at', '')
-        carrier_name    = safe_get(shipment, ['carrier', 'name'], '')
+        Container = self.env['supplier.shipment.container']
 
-        pol_name        = safe_get(route_info, ['port_of_loading',  'location', 'name'], '')
-        pod_name        = safe_get(route_info, ['port_of_discharge', 'location', 'name'], '')
-        date_loading    = safe_get(route_info, ['port_of_loading',  'date_of_loading'], '')
-        date_discharge  = safe_get(route_info, ['port_of_discharge', 'date_of_discharge'], '')
-        pol_country     = safe_get(route_info, ['port_of_loading',  'location', 'country', 'code'], '')
-        pod_country     = safe_get(route_info, ['port_of_discharge', 'location', 'country', 'code'], '')
+        # ============================================================
+        # 1) Resolver contenedor principal del mapa
+        # ============================================================
+        linked_container = Container.search([
+            ('shipment_id.voyage_id', '=', self.id),
+            ('container_number', '!=', False),
+        ], order='shipsgo_shipment_id desc, id asc', limit=1)
 
-        # ── 2. GET /ocean/shipments/{id}/geojson ──────────────────────────────
+        container_ref = False
+        shipment_id = False
+        shipment_data = {}
+
+        if linked_container:
+            container_ref = self._normalize_container_number(linked_container.container_number)
+
+            if linked_container.shipsgo_shipment_id:
+                shipment_id = linked_container.shipsgo_shipment_id
+            else:
+                shipment_data = self._create_or_link_shipsgo_tracking_for_container(
+                    container_ref=container_ref,
+                    shipment_container=linked_container,
+                )
+                shipment_id = shipment_data.get('id')
+        else:
+            for line in self.line_ids:
+                candidate = self._normalize_container_number(line.container_number)
+                if candidate and candidate not in ('PENDIENTE', 'SN', 'FALSE'):
+                    container_ref = candidate
+                    break
+
+            if not container_ref and self.container_number and 'PENDIENTE' not in (self.container_number or ''):
+                container_ref = self._normalize_container_number(str(self.container_number).split(',')[0].strip())
+
+            if not container_ref:
+                raise UserError(_("No se encontró un número de contenedor válido en las líneas o en el embarque vinculado."))
+
+            shipment_data = self._find_shipsgo_shipment_by_container(container_ref) or {}
+            shipment_id = shipment_data.get('id')
+            if not shipment_id:
+                shipment_data = self._create_or_link_shipsgo_tracking_for_container(container_ref)
+                shipment_id = shipment_data.get('id')
+
+        # ============================================================
+        # 2) Obtener detalle del shipment por ID
+        # ============================================================
+        if shipment_id:
+            try:
+                sr = requests.get(
+                    f"{api_url}/ocean/shipments/{shipment_id}",
+                    headers=headers,
+                    timeout=20,
+                )
+                sr.raise_for_status()
+                try:
+                    shipment_detail_payload = sr.json()
+                except Exception:
+                    shipment_detail_payload = {}
+                shipment_data = self._extract_shipment_from_response(shipment_detail_payload)
+            except Exception as e:
+                _logger.warning("[ShipsGo] No se pudo obtener detalle de shipment %s: %s", shipment_id, e)
+
+        if not shipment_data and container_ref:
+            shipment_data = self._find_shipsgo_shipment_by_container(container_ref) or {}
+
+        if not shipment_data:
+            self.message_post(body=_("⚠️ ShipsGo no devolvió datos para %s.") % container_ref)
+            self.write({'shipsgo_last_sync': fields.Datetime.now()})
+            if linked_container:
+                linked_container.write({
+                    'shipsgo_last_sync': fields.Datetime.now(),
+                    'shipsgo_last_error': False,
+                })
+            return
+
+        shipment_id = shipment_data.get('id') or shipment_id
+
+        # ============================================================
+        # 3) GeoJSON del shipment
+        # ============================================================
         geojson_data = {}
         current_location = None
         vessel_name = ''
@@ -498,29 +726,50 @@ class StockTransitVoyage(models.Model):
                     timeout=20,
                 )
                 gr.raise_for_status()
-                geojson_data = gr.json()
+                try:
+                    geojson_data = gr.json()
+                except Exception:
+                    geojson_data = {}
             except Exception as e:
-                _logger.warning(f"[ShipsGo] No se pudo obtener GeoJSON para {shipment_id}: {e}")
+                _logger.warning("[ShipsGo] No se pudo obtener GeoJSON para %s: %s", shipment_id, e)
 
-        # ── Parsear GeoJSON ────────────────────────────────────────────────────
+        # ============================================================
+        # 4) Datos base del shipment
+        # ============================================================
+        route_info = safe_get(shipment_data, ['route'], {})
+        transit_pct = route_info.get('transit_percentage', 0) or 0
+        status_text = shipment_data.get('status', 'N/A')
+        checked_at = shipment_data.get('checked_at', '')
+        carrier_name = safe_get(shipment_data, ['carrier', 'name'], '')
+
+        pol_name = safe_get(route_info, ['port_of_loading', 'location', 'name'], '')
+        pod_name = safe_get(route_info, ['port_of_discharge', 'location', 'name'], '')
+        date_loading = safe_get(route_info, ['port_of_loading', 'date_of_loading'], '')
+        date_discharge = safe_get(route_info, ['port_of_discharge', 'date_of_discharge'], '')
+        pol_country = safe_get(route_info, ['port_of_loading', 'location', 'country', 'code'], '')
+        pod_country = safe_get(route_info, ['port_of_discharge', 'location', 'country', 'code'], '')
+
+        # ============================================================
+        # 5) Parsear GeoJSON
+        # ============================================================
         features = safe_get(geojson_data, ['geojson', 'features'], [])
 
         for feature in features:
             geom_type = feature.get('geometry', {}).get('type')
-            props     = feature.get('properties', {})
-            status    = props.get('status')
+            props = feature.get('properties', {})
+            status = props.get('status')
             coords_raw = feature.get('geometry', {}).get('coordinates', [])
 
             if current_location is None and props.get('current') is not None:
                 cur = props['current']
                 lon, lat = cur['coordinates'][0], cur['coordinates'][1]
                 current_location = [lat, lon]
-                vessel_name  = safe_get(props, ['vessel', 'name'], '')
+                vessel_name = safe_get(props, ['vessel', 'name'], '')
                 voyage_number = props.get('voyage', '')
 
             if geom_type == 'Point':
                 loc_name = safe_get(props, ['location', 'name'], '')
-                lat_lon  = (coords_raw[1], coords_raw[0])
+                lat_lon = (coords_raw[1], coords_raw[0])
                 if status == 'PAST':
                     all_pol_candidates.append({'coords': lat_lon, 'name': loc_name})
                 elif status == 'FUTURE':
@@ -539,13 +788,13 @@ class StockTransitVoyage(models.Model):
             pol_coordinates = list(all_pol_candidates[0]['coords'])
             if not pol_name:
                 pol_name = all_pol_candidates[0]['name']
+
         if all_pod_candidates:
             pod_coordinates = list(all_pod_candidates[-1]['coords'])
             if not pod_name:
                 pod_name = all_pod_candidates[-1]['name']
 
-        # ── Construir línea CURRENT dividida ──────────────────────────────────
-        current_past_coords  = []
+        current_past_coords = []
         current_future_coords = []
         for seg in current_lines:
             cur_prop = seg['props'].get('current')
@@ -553,55 +802,54 @@ class StockTransitVoyage(models.Model):
                 idx = cur_prop.get('index', -1)
                 all_c = seg['coords']
                 if idx >= 0:
-                    current_past_coords  = all_c[:idx + 1]
+                    current_past_coords = all_c[:idx + 1]
                     current_future_coords = all_c[idx:]
                 else:
                     current_future_coords = all_c
             else:
                 current_future_coords = seg['coords']
 
-        # ── Payload para referencia (se mantiene para compatibilidad) ──────────
         map_data = {
-            'container':    container_ref,
-            'current_loc':  current_location,
-            'vessel':       vessel_name or shipment.get('vessel_name', ''),
-            'voyage':       voyage_number,
-            'status':       status_text,
-            'transit_pct':  int(transit_pct),
-            'checked_at':   checked_at,
-            'carrier':      carrier_name,
+            'container': container_ref,
+            'shipment_id': shipment_id,
+            'current_loc': current_location,
+            'vessel': vessel_name or shipment_data.get('vessel_name', ''),
+            'voyage': voyage_number,
+            'status': status_text,
+            'transit_pct': int(transit_pct),
+            'checked_at': checked_at,
+            'carrier': carrier_name,
             'origin': {
-                'name':    pol_name,
-                'loc':     pol_coordinates,
+                'name': pol_name,
+                'loc': pol_coordinates,
                 'country': pol_country,
-                'date':    date_loading,
+                'date': date_loading,
             },
             'destination': {
-                'name':    pod_name,
-                'loc':     pod_coordinates,
+                'name': pod_name,
+                'loc': pod_coordinates,
                 'country': pod_country,
-                'date':    date_discharge,
+                'date': date_discharge,
             },
             'route': {
-                'past':           past_lines,
-                'current_past':   current_past_coords,
+                'past': past_lines,
+                'current_past': current_past_coords,
                 'current_future': current_future_coords,
-                'future':         future_lines,
+                'future': future_lines,
             },
         }
 
-        # ── Generar mapa HTML con Folium ──────────────────────────────────────
         try:
             map_html = self._generate_folium_map(map_data)
         except Exception as e:
-            _logger.error(f"[ShipsGo] Error generando mapa Folium: {e}")
+            _logger.error("[ShipsGo] Error generando mapa Folium: %s", e)
             map_html = False
 
         vals = {
             'shipsgo_last_sync': fields.Datetime.now(),
-            'shipsgo_payload':   json.dumps(map_data),
-            'shipsgo_map_html':  map_html,
-            'transit_progress':  int(transit_pct),
+            'shipsgo_payload': json.dumps(map_data),
+            'shipsgo_map_html': map_html,
+            'transit_progress': int(transit_pct),
         }
         if vessel_name:
             vals['vessel_name'] = vessel_name
@@ -612,22 +860,29 @@ class StockTransitVoyage(models.Model):
 
         self.write(vals)
 
+        if linked_container:
+            linked_container.write({
+                'shipsgo_last_sync': fields.Datetime.now(),
+                'shipsgo_last_error': False,
+            })
+
         self.message_post(body=Markup(
             "📡 <b>Sincronización ShipsGo</b><br/>"
-            "Contenedor: {container} | Estado: {status}<br/>"
+            "Contenedor: {container} | Shipment ID: {shipment_id} | Estado: {status}<br/>"
             "Progreso: {pct}% | Buque: {vessel}<br/>"
             "POL: {pol} → POD: {pod}<br/>"
             "Pos. actual: {loc}"
         ).format(
-            container = container_ref,
-            status    = status_text,
-            pct       = int(transit_pct),
-            vessel    = vessel_name or 'N/A',
-            pol       = pol_name or 'N/A',
-            pod       = pod_name or 'N/A',
-            loc       = str(current_location) if current_location else '⚠️ sin coordenadas',
+            container=container_ref,
+            shipment_id=shipment_id or 'N/A',
+            status=status_text,
+            pct=int(transit_pct),
+            vessel=vessel_name or 'N/A',
+            pol=pol_name or 'N/A',
+            pod=pod_name or 'N/A',
+            loc=str(current_location) if current_location else '⚠️ sin coordenadas',
         ))
-    
+
     # =========================================================================
     # CÓMPUTOS
     # =========================================================================
@@ -684,7 +939,7 @@ class StockTransitVoyage(models.Model):
             for rec in self:
                 if not rec.eta_original and vals.get('eta'):
                     super(StockTransitVoyage, rec).write({'eta_original': vals['eta']})
-        
+
         res = super().write(vals)
 
         if 'custom_status' in vals or 'eta' in vals:
@@ -719,6 +974,7 @@ class StockTransitVoyage(models.Model):
                 (rec.allocated_m2 / rec.total_m2) * 100
                 if rec.total_m2 > 0 else 0
             )
+
     @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
         today = fields.Date.today()
@@ -737,11 +993,11 @@ class StockTransitVoyage(models.Model):
             if not start_date or not rec.eta:
                 rec.transit_progress = 0
                 continue
-            
+
             if today < start_date:
                 rec.transit_progress = 0
             elif today > rec.eta:
-                rec.transit_progress = 95 
+                rec.transit_progress = 95
             else:
                 total_days = (rec.eta - start_date).days
                 elapsed = (today - start_date).days
@@ -752,7 +1008,7 @@ class StockTransitVoyage(models.Model):
                     rec.transit_progress = 0
 
     # =========================================================================
-    # CAMBIO #4: Notificaciones de alerta ETA
+    # NOTIFICACIONES DE ALERTA ETA
     # =========================================================================
 
     def _check_eta_alerts(self):
@@ -761,11 +1017,11 @@ class StockTransitVoyage(models.Model):
                 continue
             if rec.custom_status == 'delivered':
                 continue
-            
+
             responsible = False
             if rec.purchase_id and rec.purchase_id.user_id:
                 responsible = rec.purchase_id.user_id
-            
+
             if not responsible:
                 followers = rec.message_partner_ids
                 if not followers:
@@ -776,7 +1032,12 @@ class StockTransitVoyage(models.Model):
                     "⚠️ <b>Alerta ETA %s</b><br/>"
                     "El embarque <b>%s</b> tiene ETA %s y está en estado <b>%s</b>."
                 ) % (level_label, rec.name, eta_str, rec.custom_status)
-                rec.message_post(body=body, partner_ids=followers.ids, message_type='comment', subtype_xmlid='mail.mt_comment')
+                rec.message_post(
+                    body=body,
+                    partner_ids=followers.ids,
+                    message_type='comment',
+                    subtype_xmlid='mail.mt_comment'
+                )
                 continue
 
             level_label = 'VENCIDO' if rec.eta_alert_level == 'danger' else 'PRÓXIMO A VENCER'
@@ -785,28 +1046,33 @@ class StockTransitVoyage(models.Model):
                 "⚠️ <b>Alerta ETA %s</b><br/>"
                 "El embarque <b>%s</b> tiene ETA %s y está en estado <b>%s</b>."
             ) % (level_label, rec.name, eta_str, rec.custom_status)
-            rec.message_post(body=body, partner_ids=responsible.partner_id.ids, message_type='comment', subtype_xmlid='mail.mt_comment')
+            rec.message_post(
+                body=body,
+                partner_ids=responsible.partner_id.ids,
+                message_type='comment',
+                subtype_xmlid='mail.mt_comment'
+            )
 
     # =========================================================================
     # MÉTODOS DE ESTADO (WIZARD)
     # =========================================================================
-    
+
     STATUS_SEQUENCE = [
         'solicitud', 'production', 'booking', 'puerto_origen',
         'on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'delivered',
     ]
 
     STATUS_LABELS = {
-        'solicitud':         'Solicitud Enviada',
-        'production':        'Producción',
-        'booking':           'Booking',
-        'puerto_origen':     'Puerto Origen',
-        'on_sea':            'En Altamar',
-        'puerto_destino':    'Puerto Destino',
-        'arrived_port':      'Arribo a Puerto',
+        'solicitud': 'Solicitud Enviada',
+        'production': 'Producción',
+        'booking': 'Booking',
+        'puerto_origen': 'Puerto Origen',
+        'on_sea': 'En Altamar',
+        'puerto_destino': 'Puerto Destino',
+        'arrived_port': 'Arribo a Puerto',
         'reception_pending': 'En Recepción',
-        'delivered':         'Entregado en Almacén',
-        'cancel':            'Cancelado',
+        'delivered': 'Entregado en Almacén',
+        'cancel': 'Cancelado',
     }
 
     def action_advance_status(self):
@@ -918,14 +1184,14 @@ class StockTransitVoyage(models.Model):
         self.ensure_one()
         if not self.purchase_id:
             return
-        
+
         existing_alloc_ids = self.line_ids.mapped('allocation_id.id')
-        
+
         allocations = self.env['purchase.order.line.allocation'].search([
             ('purchase_order_id', '=', self.purchase_id.id),
             ('id', 'not in', existing_alloc_ids)
         ])
-        
+
         transit_lines = []
         for alloc in allocations:
             transit_lines.append({
@@ -938,16 +1204,16 @@ class StockTransitVoyage(models.Model):
                 'allocation_status': 'reserved',
                 'container_number': 'PENDIENTE',
             })
-        
+
         existing_stock_lines = self.line_ids.filtered(lambda l: not l.allocation_id and not l.partner_id and not l.order_id)
         existing_stock_by_product = {l.product_id.id: l for l in existing_stock_lines}
-        
+
         for po_line in self.purchase_id.order_line:
             total_po_qty = po_line.product_qty
             total_allocated = sum(po_line.allocation_ids.mapped('quantity'))
             extra_for_stock = total_po_qty - total_allocated
             product_id = po_line.product_id.id
-            
+
             if product_id in existing_stock_by_product:
                 existing_line = existing_stock_by_product[product_id]
                 if extra_for_stock > 0:
@@ -967,7 +1233,7 @@ class StockTransitVoyage(models.Model):
                     'container_number': 'PENDIENTE',
                     'notes': 'Para Stock (cantidad extra en OC)',
                 })
-        
+
         if transit_lines:
             self.env['stock.transit.line'].create(transit_lines)
 
@@ -975,18 +1241,18 @@ class StockTransitVoyage(models.Model):
         self.ensure_one()
         if not self.picking_id:
             return
-        
+
         placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
         if placeholder_lines:
             placeholder_lines.unlink()
 
         existing_by_lot = {line.lot_id.id: line for line in self.line_ids if line.lot_id}
-        
+
         from .utils.transit_manager import TransitManager
         purchase = self.picking_id.purchase_id
         allocations_map = {}
         allocation_consumed = {}
-        
+
         if purchase:
             allocations = self.env['purchase.order.line.allocation'].search([
                 ('purchase_order_id', '=', purchase.id),
@@ -1004,7 +1270,7 @@ class StockTransitVoyage(models.Model):
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
                 continue
-            
+
             lot_id = move_line.lot_id.id
             product_id = move_line.product_id.id
             qty_done = move_line.quantity
@@ -1012,13 +1278,13 @@ class StockTransitVoyage(models.Model):
             partner_to_assign = False
             order_to_assign = False
             allocation_to_use = False
-            
+
             if product_id in allocations_map:
                 for alloc in allocations_map[product_id]:
                     already_received = alloc.qty_received
                     consumed_this_load = allocation_consumed.get(alloc.id, 0.0)
                     remaining = alloc.quantity - (already_received + consumed_this_load)
-                    
+
                     if remaining > 0:
                         allocation_to_use = alloc
                         partner_to_assign = alloc.partner_id
@@ -1034,7 +1300,7 @@ class StockTransitVoyage(models.Model):
                         break
 
             found_quant = self.env['stock.quant'].search([
-                ('lot_id', '=', move_line.lot_id.id), 
+                ('lot_id', '=', move_line.lot_id.id),
                 ('product_id', '=', move_line.product_id.id),
                 ('quantity', '>', 0),
                 ('location_id', '=', move_line.location_dest_id.id)
@@ -1061,7 +1327,7 @@ class StockTransitVoyage(models.Model):
                     update_vals['partner_id'] = partner_to_assign.id
                     update_vals['order_id'] = order_to_assign.id if order_to_assign else False
                     update_vals['allocation_status'] = 'reserved'
-                
+
                 if update_vals:
                     self.env['stock.transit.line'].browse(existing_line.id).with_context(skip_reservation_logic=True).write(update_vals)
                 continue
@@ -1079,17 +1345,21 @@ class StockTransitVoyage(models.Model):
                 'allocation_id': allocation_to_use.id if allocation_to_use else False,
             }
             lines_to_create.append(line_vals)
-            
+
             if partner_to_assign and order_to_assign:
                 key = (partner_to_assign.id, order_to_assign.id)
                 if key not in hold_orders_map:
-                    hold_orders_map[key] = {'partner': partner_to_assign, 'order': order_to_assign, 'line_vals_indices': []}
+                    hold_orders_map[key] = {
+                        'partner': partner_to_assign,
+                        'order': order_to_assign,
+                        'line_vals_indices': []
+                    }
                 hold_orders_map[key]['line_vals_indices'].append(len(lines_to_create) - 1)
 
         created_lines = self.env['stock.transit.line']
         if lines_to_create:
             created_lines = self.env['stock.transit.line'].create(lines_to_create)
-        
+
         for alloc_id, qty_consumed in allocation_consumed.items():
             if qty_consumed > 0:
                 alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
@@ -1101,8 +1371,9 @@ class StockTransitVoyage(models.Model):
             order = data['order']
             indices = data['line_vals_indices']
             relevant_lines = [created_lines[i] for i in indices if i < len(created_lines)]
-            if not relevant_lines: continue
-            
+            if not relevant_lines:
+                continue
+
             hold_order = self.env['stock.lot.hold.order'].create({
                 'partner_id': partner.id,
                 'user_id': self.env.user.id,
@@ -1110,10 +1381,10 @@ class StockTransitVoyage(models.Model):
                 'fecha_orden': fields.Datetime.now(),
                 'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
             })
-            
+
             for line in relevant_lines:
                 TransitManager.reassign_lot(self.env, line, partner, order, notes=False, hold_order_obj=hold_order)
-            
+
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()
             else:
@@ -1140,9 +1411,9 @@ class StockTransitVoyage(models.Model):
         valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
         if not valid_lines:
             raise UserError(_("No hay líneas válidas para mover."))
-            
+
         source_location = valid_lines[0].quant_id.location_id
-        
+
         picking = self.env['stock.picking'].create({
             'picking_type_id': picking_type.id,
             'location_id': source_location.id,
@@ -1157,8 +1428,10 @@ class StockTransitVoyage(models.Model):
 
         products_map = {}
         for line in valid_lines:
-            if line.product_uom_qty <= 0: continue
-            if line.product_id not in products_map: products_map[line.product_id] = 0.0
+            if line.product_uom_qty <= 0:
+                continue
+            if line.product_id not in products_map:
+                products_map[line.product_id] = 0.0
             products_map[line.product_id] += line.product_uom_qty
 
         for product, qty in products_map.items():
@@ -1172,12 +1445,12 @@ class StockTransitVoyage(models.Model):
                 'company_id': self.company_id.id,
                 'state': 'draft',
             })
-        
+
         self.write({
             'reception_picking_id': picking.id,
             'custom_status': 'reception_pending'
         })
-        
+
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'stock.picking',
@@ -1200,7 +1473,8 @@ class StockTransitVoyage(models.Model):
         picking.move_line_ids.unlink()
         lines_created = 0
         for line in self.line_ids:
-            if not line.lot_id or line.product_uom_qty <= 0: continue
+            if not line.lot_id or line.product_uom_qty <= 0:
+                continue
             move = picking.move_ids.filtered(lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel'])
             if not move:
                 move = self.env['stock.move'].create({
@@ -1244,7 +1518,7 @@ class StockTransitVoyage(models.Model):
         self.ensure_one()
         if self.reception_picking_id and self.reception_picking_id.state != 'done':
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
-        
+
         write_vals = {
             'arrival_date': fields.Date.today(),
             'custom_status': 'delivered'
@@ -1252,7 +1526,7 @@ class StockTransitVoyage(models.Model):
         if not self.arrival_date_bodega:
             write_vals['arrival_date_bodega'] = fields.Date.today()
         self.write(write_vals)
-        
+
         for line in self.line_ids:
             if line.allocation_id and line.allocation_id.state != 'done':
                 line.allocation_id.action_mark_received(line.product_uom_qty)
