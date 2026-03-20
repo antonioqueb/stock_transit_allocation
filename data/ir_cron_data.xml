@@ -10,7 +10,6 @@
             <field name="code">model.action_cron_sync_shipsgo()</field>
             <field name="interval_number">2</field>
             <field name="interval_type">hours</field>
-            <field name="numbercall">-1</field>
             <field name="active">True</field>
             <field name="priority">10</field>
         </record>
@@ -23,7 +22,6 @@
             <field name="code">model.action_cron_sync_shipsgo()</field>
             <field name="interval_number">1</field>
             <field name="interval_type">days</field>
-            <field name="numbercall">-1</field>
             <field name="active">True</field>
             <field name="nextcall">2025-01-01 11:00:00</field>
             <field name="priority">10</field>
