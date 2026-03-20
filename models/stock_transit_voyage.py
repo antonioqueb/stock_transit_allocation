@@ -542,7 +542,7 @@ class StockTransitVoyage(models.Model):
         if origin_loc and current_loc:
             markers_js += f"""
             L.polyline([[{origin_loc[0]},{origin_loc[1]}],[{current_loc[0]},{current_loc[1]}]],
-                {{color:'#2563eb',weight:4,opacity:0.85}}).addTo(map);
+                {{color:'#2563eb',weight:4,opacity:0.85}}).add_to(map);
             """
         if current_loc and dest_loc:
             markers_js += f"""
@@ -581,7 +581,7 @@ class StockTransitVoyage(models.Model):
     def action_sync_shipsgo(self):
         """
         Sincroniza datos de ShipsGo para este viaje.
-        Llamado por: cron jobs, auto-sync al abrir formulario.
+        Llamado por: cron jobs, web_read (auto-sync al abrir formulario).
         """
         self.ensure_one()
 
@@ -1505,6 +1505,34 @@ class StockTransitVoyage(models.Model):
         self.write({'custom_status': 'cancel'})
 
     # =========================================================================
+    # HELPER INTERNO: verificar si el viaje tiene contenedor registrado
+    # =========================================================================
+
+    def _has_valid_container(self):
+        """Retorna True si el viaje tiene al menos un contenedor válido registrado."""
+        self.ensure_one()
+        has_container = self.env['supplier.shipment.container'].search_count([
+            ('shipment_id.voyage_id', '=', self.id),
+            ('container_number', '!=', False),
+        ])
+        if not has_container:
+            has_container = any(
+                line.container_number and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
+                for line in self.line_ids
+            )
+        return bool(has_container)
+
+    def _needs_shipsgo_sync(self):
+        """Retorna True si el viaje requiere sincronización con ShipsGo."""
+        self.ensure_one()
+        if self.custom_status in ('delivered', 'cancel'):
+            return False
+        if not self.shipsgo_last_sync:
+            return True
+        delta = fields_module.Datetime.now() - self.shipsgo_last_sync
+        return delta.total_seconds() > 7200  # 2 horas
+
+    # =========================================================================
     # CRON & AUTO-SYNC
     # =========================================================================
 
@@ -1518,16 +1546,7 @@ class StockTransitVoyage(models.Model):
             ('custom_status', 'not in', ['delivered', 'cancel']),
         ])
         for voyage in voyages:
-            has_container = self.env['supplier.shipment.container'].search_count([
-                ('shipment_id.voyage_id', '=', voyage.id),
-                ('container_number', '!=', False),
-            ])
-            if not has_container:
-                has_container = any(
-                    line.container_number and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
-                    for line in voyage.line_ids
-                )
-            if not has_container:
+            if not voyage._has_valid_container():
                 continue
             try:
                 voyage.action_sync_shipsgo()
@@ -1537,52 +1556,44 @@ class StockTransitVoyage(models.Model):
                     voyage.name, str(e)
                 )
 
-    def read(self, fields=None, load='_classic_read'):
-        """
-        Auto-sync al abrir el formulario: si el viaje nunca se sincronizó
-        o la última sync fue hace más de 2 horas, dispara sync silenciosa.
-        """
-        result = super().read(fields=fields, load=load)
+    # =========================================================================
+    # AUTO-SYNC AL ABRIR EL FORMULARIO — Odoo 18/19
+    # web_read es el método que realmente llama el cliente OWL al abrir un form.
+    # read() ya no se dispara de forma confiable en v18/v19.
+    # =========================================================================
 
-        # Evitar recursión y llamadas batch/cron
-        if self.env.context.get('no_auto_shipsgo_sync'):
-            return result
+    def web_read(self, specification):
+        """
+        Override de web_read para disparar auto-sync de ShipsGo al abrir el formulario.
+        En Odoo 18/19 el cliente OWL llama web_read, no read().
+        Solo sincroniza si:
+        - Es exactamente 1 registro (apertura de formulario individual)
+        - El viaje no está en estado terminal (delivered/cancel)
+        - Tiene contenedor registrado
+        - No se sincronizó en las últimas 2 horas
+        """
+        result = super().web_read(specification)
+
+        # Solo procesar apertura de un formulario individual
         if len(self) != 1:
             return result
 
+        # Evitar recursión
+        if self.env.context.get('no_auto_shipsgo_sync'):
+            return result
+
         voyage = self
-        if voyage.custom_status in ('delivered', 'cancel'):
+
+        if not voyage._needs_shipsgo_sync():
             return result
 
-        # Determinar si necesita sync
-        needs_sync = False
-        if not voyage.shipsgo_last_sync:
-            needs_sync = True
-        else:
-            delta = fields_module.Datetime.now() - voyage.shipsgo_last_sync
-            if delta.total_seconds() > 7200:  # 2 horas
-                needs_sync = True
-
-        if not needs_sync:
-            return result
-
-        # Verificar que tenga contenedor antes de intentar
-        has_container = self.env['supplier.shipment.container'].search_count([
-            ('shipment_id.voyage_id', '=', voyage.id),
-            ('container_number', '!=', False),
-        ])
-        if not has_container:
-            has_container = any(
-                line.container_number and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
-                for line in voyage.line_ids
-            )
-        if not has_container:
+        if not voyage._has_valid_container():
             return result
 
         try:
             voyage.with_context(no_auto_shipsgo_sync=True).action_sync_shipsgo()
-            # Re-leer para que el cliente reciba datos frescos
-            result = super(StockTransitVoyage, voyage).read(fields=fields, load=load)
+            # Re-leer para que el cliente reciba el mapa y datos frescos
+            result = super(StockTransitVoyage, voyage).web_read(specification)
         except Exception as e:
             _logger.warning(
                 "[ShipsGo AUTO] Error en auto-sync al abrir viaje %s: %s",
