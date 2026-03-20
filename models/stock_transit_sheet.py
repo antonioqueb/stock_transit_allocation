@@ -48,6 +48,7 @@ class StockTransitSheet(models.Model):
     delay_days = fields.Integer(string='Días de Retraso', readonly=True)
     arrival_date = fields.Date(string='Llegada Real', readonly=True)
     arrival_date_bodega = fields.Date(string='Entregado en Bodega', readonly=True)
+    invoice_number = fields.Char(string='No. Invoice', readonly=True)
 
     product_uom_qty = fields.Float(string='M2 Embarcados', readonly=True)
     qty_proforma = fields.Float(string='Metraje Proforma', readonly=True)
@@ -84,10 +85,12 @@ class StockTransitSheet(models.Model):
                     MAX(v.delay_days) as delay_days,
                     MAX(v.eta_alert_level) as eta_alert_level,
                     pt.categ_id as product_categ_id,
-                    MAX(v.arrival_date_bodega) as arrival_date_bodega
+                    MAX(v.arrival_date_bodega) as arrival_date_bodega,
+                    MAX(picking.supplier_invoice_number) as invoice_number
                 FROM
                     stock_transit_line l
                     JOIN stock_transit_voyage v ON v.id = l.voyage_id
+                    LEFT JOIN stock_picking picking ON picking.id = v.picking_id
                     LEFT JOIN product_product pp ON pp.id = l.product_id
                     LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                 GROUP BY

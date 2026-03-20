@@ -16,7 +16,6 @@ const STATUS_MAP = {
     cancel:            { label: "Cancelado",          cls: "ts-badge--cancel" },
 };
 
-// Cambio #4: mapa de alertas ETA
 const ETA_ALERT_MAP = {
     ok:      { label: "En Tiempo",         cls: "ts-eta-ok",      icon: "fa-circle" },
     warning: { label: "Próximo a Vencer",  cls: "ts-eta-warning", icon: "fa-exclamation-triangle" },
@@ -28,27 +27,23 @@ const COLUMNS = [
     { key: "purchase_id",         label: "OC Sistema",          width: "110px" },
     { key: "date_order",          label: "Fecha OC",            width: "90px"  },
     { key: "voyage_status",       label: "Estado",              width: "120px" },
-    // Cambio #4: columna alerta ETA
     { key: "eta_alert_level",     label: "Alerta",              width: "100px" },
     { key: "salesperson_id",      label: "Vendedor",            width: "160px" },
     { key: "order_id",            label: "Sales Order",         width: "110px" },
     { key: "partner_id",          label: "Cliente / Proyecto",  width: "260px" },
     { key: "proforma_ref",        label: "Proforma",            width: "110px" },
+    { key: "invoice_number",      label: "No. Invoice",         width: "130px" },
     { key: "vendor_id",           label: "Proveedor",           width: "200px" },
     { key: "product_id",          label: "Descripción",         width: "290px" },
-    // Cambio #7: categoría
     { key: "product_categ_id",    label: "Categoría",           width: "130px" },
     { key: "product_uom_qty",     label: "m² Embarcados",       width: "100px", align: "right", isNum: true },
     { key: "container_number",    label: "Contenedor",          width: "110px" },
     { key: "bl_number",           label: "BL / Folio",          width: "120px" },
     { key: "etd",                 label: "ETD",                 width: "85px"  },
     { key: "eta",                 label: "ETA",                 width: "85px"  },
-    // Cambio #3: ETA original
     { key: "eta_original",        label: "ETA Original",        width: "90px"  },
-    // Cambio #3: días de retraso
     { key: "delay_days",          label: "Días Retraso",        width: "90px", align: "right", isNum: true },
     { key: "arrival_date",        label: "Llegada Real",        width: "90px"  },
-    // Cambio #8: entregado en bodega
     { key: "arrival_date_bodega", label: "En Bodega",           width: "90px"  },
 ];
 
@@ -76,8 +71,7 @@ export class TransitSheetView extends Component {
             groupBy:         "none",
             groups:          [],
             collapsedGroups: {},
-            // Ocultas por defecto: delay_days, eta_original, arrival_date_bodega, arrival_date
-            hiddenCols:      new Set(["arrival_date", "eta_original", "delay_days"]),
+            hiddenCols:      new Set(["arrival_date", "eta_original", "delay_days", "invoice_number"]),
             showColMenu:     false,
         });
 
@@ -129,7 +123,8 @@ export class TransitSheetView extends Component {
                 this._str(r.product_categ_id).toLowerCase().includes(q) ||
                 (r.bl_number || "").toLowerCase().includes(q) ||
                 (r.container_number || "").toLowerCase().includes(q) ||
-                (r.proforma_ref || "").toLowerCase().includes(q)
+                (r.proforma_ref || "").toLowerCase().includes(q) ||
+                (r.invoice_number || "").toLowerCase().includes(q)
             );
         }
 
@@ -137,7 +132,6 @@ export class TransitSheetView extends Component {
             data = data.filter(r => r.voyage_status === this.state.statusFilter);
         }
 
-        // Cambio #4: filtro por alerta
         if (this.state.alertFilter) {
             data = data.filter(r => r.eta_alert_level === this.state.alertFilter);
         }
@@ -181,7 +175,6 @@ export class TransitSheetView extends Component {
                 grpKey = r.voyage_status || "none";
                 label  = STATUS_MAP[grpKey] ? STATUS_MAP[grpKey].label : grpKey;
             } else if (this.state.groupBy === "category") {
-                // Cambio #7: agrupar por categoría
                 grpKey = r.product_categ_id ? r.product_categ_id[0] : 0;
                 label  = r.product_categ_id ? r.product_categ_id[1] : "Sin categoría";
             }
@@ -210,7 +203,6 @@ export class TransitSheetView extends Component {
         this.applyFiltersAndSort();
     }
 
-    // Cambio #4: filtro por alerta
     onAlertFilter(level) {
         this.state.alertFilter = this.state.alertFilter === level ? "" : level;
         this.applyFiltersAndSort();
@@ -314,7 +306,6 @@ export class TransitSheetView extends Component {
         return STATUS_MAP[code] || { label: code || "—", cls: "" };
     }
 
-    // Cambio #4: info de alerta
     alertInfo(level) {
         return ETA_ALERT_MAP[level] || { label: "—", cls: "", icon: "fa-circle" };
     }
@@ -338,7 +329,6 @@ export class TransitSheetView extends Component {
         return Object.entries(STATUS_MAP).map(([k, v]) => ({ key: k, ...v }));
     }
 
-    // Cambio #4: contadores de alerta para chips
     get alertCounts() {
         const counts = { ok: 0, warning: 0, danger: 0, done: 0 };
         for (const r of this.state.records) {
