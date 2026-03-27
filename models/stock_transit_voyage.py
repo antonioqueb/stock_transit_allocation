@@ -421,7 +421,7 @@ class StockTransitVoyage(models.Model):
             )
             ship_icon = folium.DivIcon(
                 html='<div style="font-size:28px;text-align:center;'
-                     'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
+                    'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
                 icon_size=(32, 32),
                 icon_anchor=(16, 16),
             )
@@ -539,7 +539,7 @@ class StockTransitVoyage(models.Model):
         if origin_loc and current_loc:
             markers_js += f"""
             L.polyline([[{origin_loc[0]},{origin_loc[1]}],[{current_loc[0]},{current_loc[1]}]],
-                {{color:'#2563eb',weight:4,opacity:0.85}}).addTo(map);
+                {{color:'#2563eb',weight:4,opacity:0.85}}).add_to(map);
             """
         if current_loc and dest_loc:
             markers_js += f"""
@@ -1357,6 +1357,7 @@ class StockTransitVoyage(models.Model):
             else:
                 hold_order.unlink()
 
+
     # =========================================================================
     # HELPERS RECEPCIÓN FÍSICA
     # =========================================================================
@@ -1399,7 +1400,7 @@ class StockTransitVoyage(models.Model):
 
                 if quant:
                     line.with_context(skip_reservation_logic=True).write({
-                        'quant_id': quant.id
+                        'quant_id': quant.id,
                     })
 
             if not quant:
@@ -1561,7 +1562,6 @@ class StockTransitVoyage(models.Model):
 
             product = self.env['product.product'].browse(product_id)
             move = self.env['stock.move'].create({
-                'name': product.display_name,
                 'picking_id': picking.id,
                 'product_id': product.id,
                 'product_uom': product.uom_id.id,
