@@ -1310,7 +1310,7 @@ class StockTransitVoyage(models.Model):
             if lot_id in existing_by_lot:
                 existing_line = existing_by_lot[lot_id]
                 update_vals = {}
-                if self._qty_differs(line.product_id, existing_line.product_uom_qty, qty_done):
+                if self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done):
                     update_vals['product_uom_qty'] = qty_done
                 if found_quant and existing_line.quant_id.id != found_quant.id:
                     update_vals['quant_id'] = found_quant.id
