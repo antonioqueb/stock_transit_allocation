@@ -421,7 +421,7 @@ class StockTransitVoyage(models.Model):
             )
             ship_icon = folium.DivIcon(
                 html='<div style="font-size:28px;text-align:center;'
-                    'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
+                     'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
                 icon_size=(32, 32),
                 icon_anchor=(16, 16),
             )
@@ -539,7 +539,7 @@ class StockTransitVoyage(models.Model):
         if origin_loc and current_loc:
             markers_js += f"""
             L.polyline([[{origin_loc[0]},{origin_loc[1]}],[{current_loc[0]},{current_loc[1]}]],
-                {{color:'#2563eb',weight:4,opacity:0.85}}).add_to(map);
+                {{color:'#2563eb',weight:4,opacity:0.85}}).addTo(map);
             """
         if current_loc and dest_loc:
             markers_js += f"""
@@ -1357,9 +1357,272 @@ class StockTransitVoyage(models.Model):
             else:
                 hold_order.unlink()
 
+    # =========================================================================
+    # HELPERS RECEPCIÓN FÍSICA
+    # =========================================================================
+
+    def _get_reception_candidate_lines(self):
+        self.ensure_one()
+
+        candidate_lines = self.line_ids.filtered(
+            lambda l: l.lot_id and l.product_id and l.product_uom_qty > 0
+        )
+        if not candidate_lines:
+            raise UserError(_("No hay líneas con lote y cantidad positiva para recibir."))
+
+        Quant = self.env['stock.quant'].sudo()
+        resolved_lines = []
+        missing_lots = []
+        source_location_ids = set()
+
+        for line in candidate_lines:
+            quant = line.quant_id
+
+            quant_is_valid = bool(
+                quant
+                and quant.exists()
+                and quant.product_id.id == line.product_id.id
+                and quant.lot_id.id == line.lot_id.id
+                and quant.quantity > 0
+                and quant.location_id.usage == 'transit'
+                and quant.company_id.id == self.company_id.id
+            )
+
+            if not quant_is_valid:
+                quant = Quant.search([
+                    ('company_id', '=', self.company_id.id),
+                    ('lot_id', '=', line.lot_id.id),
+                    ('product_id', '=', line.product_id.id),
+                    ('quantity', '>', 0),
+                    ('location_id.usage', '=', 'transit'),
+                ], order='id desc', limit=1)
+
+                if quant:
+                    line.with_context(skip_reservation_logic=True).write({
+                        'quant_id': quant.id
+                    })
+
+            if not quant:
+                missing_lots.append(
+                    "%s (%.3f)" % (line.lot_id.display_name, line.product_uom_qty)
+                )
+                continue
+
+            source_location_ids.add(quant.location_id.id)
+            resolved_lines.append({
+                'line': line,
+                'quant': quant,
+            })
+
+        if missing_lots:
+            raise UserError(_(
+                "No se puede preparar la recepción porque estos lotes no tienen quant positivo en una ubicación de tránsito:\n%s"
+            ) % "\n".join(missing_lots[:50]))
+
+        if len(source_location_ids) != 1:
+            locations = self.env['stock.location'].browse(
+                list(source_location_ids)
+            ).mapped('complete_name')
+            raise UserError(_(
+                "Las líneas del viaje apuntan a múltiples ubicaciones de tránsito. "
+                "La recepción física debe salir de una sola ubicación origen.\n%s"
+            ) % "\n".join(locations))
+
+        source_location = self.env['stock.location'].browse(
+            next(iter(source_location_ids))
+        )
+        return resolved_lines, source_location
+
+    def _get_reception_operation_defaults(self, source_location):
+        self.ensure_one()
+
+        picking_types = self.env['stock.picking.type'].search([
+            ('code', '=', 'internal'),
+            ('company_id', '=', self.company_id.id),
+        ], order='sequence, id')
+
+        if not picking_types:
+            raise UserError(_("No se encontró un tipo de operación de traslado interno."))
+
+        picking_type = False
+        for pt in picking_types:
+            if (
+                pt.default_location_dest_id
+                and pt.default_location_dest_id.usage == 'internal'
+                and pt.default_location_dest_id.id != source_location.id
+            ):
+                picking_type = pt
+                break
+
+        if not picking_type:
+            picking_type = picking_types[0]
+
+        dest_location = False
+
+        if (
+            picking_type.default_location_dest_id
+            and picking_type.default_location_dest_id.usage == 'internal'
+            and picking_type.default_location_dest_id.id != source_location.id
+        ):
+            dest_location = picking_type.default_location_dest_id
+
+        if (
+            not dest_location
+            and getattr(picking_type, 'warehouse_id', False)
+            and picking_type.warehouse_id.lot_stock_id
+            and picking_type.warehouse_id.lot_stock_id.id != source_location.id
+        ):
+            dest_location = picking_type.warehouse_id.lot_stock_id
+
+        if not dest_location:
+            warehouse = self.env['stock.warehouse'].search([
+                ('company_id', '=', self.company_id.id),
+            ], order='id', limit=1)
+            if (
+                warehouse
+                and warehouse.lot_stock_id
+                and warehouse.lot_stock_id.id != source_location.id
+            ):
+                dest_location = warehouse.lot_stock_id
+
+        if not dest_location:
+            dest_location = self.env['stock.location'].search([
+                ('company_id', '=', self.company_id.id),
+                ('usage', '=', 'internal'),
+                ('id', '!=', source_location.id),
+            ], order='id', limit=1)
+
+        if not dest_location:
+            raise UserError(_(
+                "No se pudo determinar una ubicación destino interna para la recepción física."
+            ))
+
+        return picking_type, dest_location
+
+    def _sync_reception_picking_lines(self, picking, resolved_lines=None):
+        self.ensure_one()
+        picking.ensure_one()
+
+        if picking.state == 'done':
+            raise UserError(_("La recepción ya fue validada."))
+        if picking.state == 'cancel':
+            raise UserError(_("La recepción está cancelada. Debe generar una nueva."))
+
+        if resolved_lines is None:
+            resolved_lines, source_location = self._get_reception_candidate_lines()
+        else:
+            if not resolved_lines:
+                raise UserError(_("No hay líneas válidas para sincronizar."))
+            source_location = resolved_lines[0]['quant'].location_id
+
+        picking_type, dest_location = self._get_reception_operation_defaults(source_location)
+
+        picking_vals = {}
+        if picking.picking_type_id.id != picking_type.id:
+            picking_vals['picking_type_id'] = picking_type.id
+        if picking.location_id.id != source_location.id:
+            picking_vals['location_id'] = source_location.id
+        if picking.location_dest_id.id != dest_location.id:
+            picking_vals['location_dest_id'] = dest_location.id
+        if picking_vals:
+            picking.write(picking_vals)
+
+        product_totals = {}
+        for item in resolved_lines:
+            line = item['line']
+            product_totals.setdefault(line.product_id.id, 0.0)
+            product_totals[line.product_id.id] += line.product_uom_qty
+
+        move_map = {}
+        existing_moves = picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel'))
+
+        for move in existing_moves:
+            total_qty = product_totals.get(move.product_id.id, 0.0)
+
+            if total_qty <= 0:
+                move.unlink()
+                continue
+
+            move_vals = {}
+            if move.product_uom_qty != total_qty:
+                move_vals['product_uom_qty'] = total_qty
+            if move.location_id.id != picking.location_id.id:
+                move_vals['location_id'] = picking.location_id.id
+            if move.location_dest_id.id != picking.location_dest_id.id:
+                move_vals['location_dest_id'] = picking.location_dest_id.id
+            if move_vals:
+                move.write(move_vals)
+
+            move_map[move.product_id.id] = move
+
+        for product_id, total_qty in product_totals.items():
+            if product_id in move_map:
+                continue
+
+            product = self.env['product.product'].browse(product_id)
+            move = self.env['stock.move'].create({
+                'name': product.display_name,
+                'picking_id': picking.id,
+                'product_id': product.id,
+                'product_uom': product.uom_id.id,
+                'product_uom_qty': total_qty,
+                'location_id': picking.location_id.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'company_id': self.company_id.id,
+            })
+            move_map[product_id] = move
+
+        draft_moves = picking.move_ids.filtered(lambda m: m.state == 'draft')
+        if draft_moves:
+            draft_moves._action_confirm()
+
+        picking.move_line_ids.unlink()
+
+        lines_created = 0
+        for item in resolved_lines:
+            line = item['line']
+            quant = item['quant']
+            move = move_map.get(line.product_id.id)
+
+            if not move:
+                raise UserError(_(
+                    "No se encontró movimiento para el producto %s."
+                ) % line.product_id.display_name)
+
+            self.env['stock.move.line'].create({
+                'picking_id': picking.id,
+                'move_id': move.id,
+                'company_id': self.company_id.id,
+                'product_id': line.product_id.id,
+                'product_uom_id': line.product_id.uom_id.id,
+                'lot_id': line.lot_id.id,
+                'location_id': quant.location_id.id,
+                'location_dest_id': picking.location_dest_id.id,
+                'quantity': line.product_uom_qty,
+            })
+            lines_created += 1
+
+        expected_lines = len(resolved_lines)
+        if lines_created != expected_lines:
+            raise UserError(_(
+                "Se intentaron sincronizar %s lotes pero solo se crearon %s move lines."
+            ) % (expected_lines, lines_created))
+
+        total_qty = sum(product_totals.values())
+        picking.message_post(
+            body=_("🔄 %s lotes sincronizados desde Viaje %s. Total: %.3f")
+            % (lines_created, self.name, total_qty)
+        )
+
+        if hasattr(picking, 'packing_list_imported') and not picking.packing_list_imported:
+            picking.write({'packing_list_imported': True})
+
+        return picking
+
     def action_generate_reception(self):
         self.ensure_one()
-        if self.reception_picking_id:
+
+        if self.reception_picking_id and self.reception_picking_id.state == 'done':
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'stock.picking',
@@ -1368,63 +1631,32 @@ class StockTransitVoyage(models.Model):
                 'target': 'current',
             }
 
-        picking_type = self.env['stock.picking.type'].search([
-            ('code', '=', 'internal'),
-            ('company_id', '=', self.company_id.id)
-        ], limit=1)
-        if not picking_type:
-            raise UserError(_("No se encontró un tipo de operación 'Internal Transfer'."))
+        resolved_lines, source_location = self._get_reception_candidate_lines()
+        picking_type, dest_location = self._get_reception_operation_defaults(source_location)
 
-        valid_lines = self.line_ids.filtered(lambda l: l.lot_id and l.quant_id)
-        if not valid_lines:
-            raise UserError(_("No hay líneas válidas para mover."))
+        picking = self.reception_picking_id
+        if picking and picking.state == 'cancel':
+            picking = False
 
-        source_location = valid_lines[0].quant_id.location_id
-
-        picking = self.env['stock.picking'].create({
-            'picking_type_id': picking_type.id,
-            'location_id': source_location.id,
-            'location_dest_id': picking_type.default_location_dest_id.id,
-            'origin': f"{self.name} (Recepción Física)",
-            'company_id': self.company_id.id,
-            'move_type': 'direct',
-            'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
-            'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
-            'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
-        })
-
-        products_map = {}
-        for line in valid_lines:
-            if line.product_uom_qty <= 0:
-                continue
-            if line.product_id not in products_map:
-                products_map[line.product_id] = 0.0
-            products_map[line.product_id] += line.product_uom_qty
-
-        for product, qty in products_map.items():
-            self.env['stock.move'].create({
-                'product_id': product.id,
-                'product_uom_qty': qty,
-                'product_uom': product.uom_id.id,
-                'picking_id': picking.id,
+        if not picking:
+            picking = self.env['stock.picking'].create({
+                'picking_type_id': picking_type.id,
                 'location_id': source_location.id,
-                'location_dest_id': picking.location_dest_id.id,
+                'location_dest_id': dest_location.id,
+                'origin': f"{self.name} (Recepción Física)",
                 'company_id': self.company_id.id,
-                'state': 'draft',
+                'move_type': 'direct',
+                'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
+                'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
+                'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
             })
 
         self.write({
             'reception_picking_id': picking.id,
-            'custom_status': 'reception_pending'
+            'custom_status': 'reception_pending',
         })
 
-        # =====================================================================
-        # FIX: Marcar packing_list_imported para habilitar flujo de Worksheet
-        # Los lotes ya fueron cargados desde la Torre de Control, equivale a
-        # haber procesado un Packing List.
-        # =====================================================================
-        if hasattr(picking, 'packing_list_imported'):
-            picking.write({'packing_list_imported': True})
+        self._sync_reception_picking_lines(picking, resolved_lines=resolved_lines)
 
         return {
             'type': 'ir.actions.act_window',
@@ -1436,57 +1668,12 @@ class StockTransitVoyage(models.Model):
 
     def action_sync_reception_from_voyage(self):
         self.ensure_one()
+
         if not self.reception_picking_id:
             raise UserError(_("Primero debe generar la Recepción Física."))
 
         picking = self.reception_picking_id
-        if picking.state == 'done':
-            raise UserError(_("La recepción ya fue validada."))
-        if picking.state == 'draft':
-            picking.action_confirm()
-
-        picking.move_line_ids.unlink()
-        lines_created = 0
-        for line in self.line_ids:
-            if not line.lot_id or line.product_uom_qty <= 0:
-                continue
-            move = picking.move_ids.filtered(lambda m: m.product_id.id == line.product_id.id and m.state not in ['done', 'cancel'])
-            if not move:
-                move = self.env['stock.move'].create({
-                    'picking_id': picking.id,
-                    'product_id': line.product_id.id,
-                    'product_uom': line.product_id.uom_id.id,
-                    'product_uom_qty': line.product_uom_qty,
-                    'location_id': picking.location_id.id,
-                    'location_dest_id': picking.location_dest_id.id,
-                    'company_id': self.company_id.id,
-                })
-                move._action_confirm()
-            else:
-                move = move[0]
-
-            self.env['stock.move.line'].create({
-                'picking_id': picking.id,
-                'move_id': move.id,
-                'product_id': line.product_id.id,
-                'product_uom_id': line.product_id.uom_id.id,
-                'lot_id': line.lot_id.id,
-                'location_id': picking.location_id.id,
-                'location_dest_id': picking.location_dest_id.id,
-                'quantity': line.product_uom_qty,
-            })
-            lines_created += 1
-
-        if lines_created == 0:
-            raise UserError(_("No hay líneas con lote asignado para sincronizar."))
-
-        picking.message_post(body=f"🔄 {lines_created} lotes sincronizados desde Viaje {self.name}.")
-
-        # =====================================================================
-        # FIX: Marcar packing_list_imported para habilitar flujo de Worksheet
-        # =====================================================================
-        if hasattr(picking, 'packing_list_imported') and not picking.packing_list_imported:
-            picking.write({'packing_list_imported': True})
+        self._sync_reception_picking_lines(picking)
 
         return {
             'type': 'ir.actions.act_window',
