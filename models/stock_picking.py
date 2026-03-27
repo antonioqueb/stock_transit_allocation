@@ -138,6 +138,17 @@ class StockPicking(models.Model):
         return res
 
     def _assign_lots_to_delivery_orders(self):
+        """
+        Cuando se valida el picking interno (Transit → Stock), asigna los lotes
+        a las entregas (delivery orders) según la pre-asignación del Viaje.
+        
+        Lógica mejorada:
+        1. Busca la entrega pendiente de la SO asignada.
+        2. Busca un move existente para el producto del lote.
+        3. Si no existe un move para ese producto, CREA uno nuevo en la entrega.
+        4. Des-reserva cualquier reserva genérica previa del move.
+        5. Crea move lines específicas con los lotes pre-asignados.
+        """
         self.ensure_one()
         _logger.info(f"[TC_DEBUG] _assign_lots_to_delivery_orders START for {self.name}")
         
@@ -151,12 +162,53 @@ class StockPicking(models.Model):
 
         _logger.info(f"[TC_DEBUG] Voyage vinculado: {voyage.name} (ID: {voyage.id}).")
 
-        lot_to_so_map = {}
+        # =====================================================================
+        # Construir mapa: lot_id → { order_id, product_id (del lote) }
+        # =====================================================================
+        lot_to_assignment = {}
         for line in voyage.line_ids:
             if line.lot_id and line.order_id and line.allocation_status == 'reserved':
-                lot_to_so_map[line.lot_id.id] = line.order_id
+                lot_to_assignment[line.lot_id.id] = {
+                    'order': line.order_id,
+                    'product': line.product_id,
+                }
 
-        _logger.info(f"[TC_DEBUG] Mapa de Asignación (Lote -> SO): {len(lot_to_so_map)} reglas encontradas en el viaje.")
+        _logger.info(f"[TC_DEBUG] Mapa de Asignación (Lote -> SO): {len(lot_to_assignment)} reglas encontradas en el viaje.")
+
+        # =====================================================================
+        # Cache de entregas por SO para no buscar repetidamente
+        # =====================================================================
+        delivery_cache = {}  # so_id → picking or False
+
+        def _find_delivery(target_so):
+            if target_so.id in delivery_cache:
+                return delivery_cache[target_so.id]
+            
+            domain_delivery = [
+                ('picking_type_code', '=', 'outgoing'),
+                ('state', 'in', ['confirmed', 'assigned', 'partially_available']),
+                ('company_id', '=', self.company_id.id),
+            ]
+            
+            delivery = self.env['stock.picking'].search(
+                domain_delivery + [('sale_id', '=', target_so.id)],
+                limit=1
+            )
+            
+            if not delivery:
+                delivery = self.env['stock.picking'].search(
+                    domain_delivery + [('origin', '=', target_so.name)],
+                    limit=1
+                )
+            
+            delivery_cache[target_so.id] = delivery or False
+            return delivery_cache[target_so.id]
+
+        # =====================================================================
+        # Cache de moves des-reservados por (delivery_id, product_id)
+        # para no des-reservar el mismo move múltiples veces
+        # =====================================================================
+        unreserved_moves = set()
 
         count_success = 0
         for move_line in self.move_line_ids:
@@ -164,62 +216,86 @@ class StockPicking(models.Model):
                 continue
             
             qty_just_moved = move_line.quantity if move_line.quantity > 0 else move_line.qty_done
-            
             if qty_just_moved <= 0:
                 continue
 
-            target_so = lot_to_so_map.get(move_line.lot_id.id)
-            if not target_so:
+            assignment = lot_to_assignment.get(move_line.lot_id.id)
+            if not assignment:
                 _logger.info(f"[TC_DEBUG] Lote {move_line.lot_id.name} recibido, pero NO tenía asignación reservada en el Viaje. Queda Libre.")
                 continue
 
+            target_so = assignment['order']
+            lot_product = move_line.product_id
+
             _logger.info(f"--- [TC_DEBUG] Procesando Lote: {move_line.lot_id.name} ---")
             _logger.info(f"    > Destino Comercial: {target_so.name}")
+            _logger.info(f"    > Producto del Lote: {lot_product.name}")
             _logger.info(f"    > Ubicación Física Actual: {move_line.location_dest_id.display_name}")
             _logger.info(f"    > Cantidad: {qty_just_moved}")
 
-            domain_delivery = [
-                ('picking_type_code', '=', 'outgoing'),
-                ('state', 'in', ['confirmed', 'assigned', 'partially_available']),
-                ('company_id', '=', self.company_id.id)
-            ]
-            
-            delivery_picking = self.env['stock.picking'].search(
-                domain_delivery + [('sale_id', '=', target_so.id)], 
-                limit=1
-            )
-            
-            if not delivery_picking:
-                delivery_picking = self.env['stock.picking'].search(
-                    domain_delivery + [('origin', '=', target_so.name)], 
-                    limit=1
-                )
-
+            # -----------------------------------------------------------------
+            # 1. Buscar la entrega pendiente
+            # -----------------------------------------------------------------
+            delivery_picking = _find_delivery(target_so)
             if not delivery_picking:
                 _logger.warning(f"    [!] No se encontró Entrega (Delivery) pendiente para {target_so.name}.")
                 continue
 
+            # -----------------------------------------------------------------
+            # 2. Buscar move existente para este producto en la entrega
+            # -----------------------------------------------------------------
             target_move = delivery_picking.move_ids.filtered(
-                lambda m: m.product_id.id == move_line.product_id.id and m.state not in ['done', 'cancel']
+                lambda m: m.product_id.id == lot_product.id and m.state not in ['done', 'cancel']
             )
 
             if not target_move:
-                _logger.warning(f"    [!] El producto {move_line.product_id.name} no está en la entrega {delivery_picking.name}.")
-                continue
-            
-            target_move = target_move[0]
-
-            if target_move.state in ['partially_available', 'assigned']:
+                # =============================================================
+                # 3. NO existe move para este producto → CREAR uno nuevo
+                # Esto sucede cuando el producto del lote difiere del producto
+                # en la SO (ej: calidad Comercial vs Premium, variantes, etc.)
+                # =============================================================
+                _logger.info(f"    [+] Producto {lot_product.name} no está en la entrega {delivery_picking.name}. Creando move...")
                 try:
-                    target_move._do_unreserve()
+                    new_move = self.env['stock.move'].create({
+                        'picking_id': delivery_picking.id,
+                        'product_id': lot_product.id,
+                        'product_uom': lot_product.uom_id.id,
+                        'product_uom_qty': qty_just_moved,
+                        'name': f"[Torre de Control] {lot_product.display_name}",
+                        'location_id': delivery_picking.location_id.id,
+                        'location_dest_id': delivery_picking.location_dest_id.id,
+                        'company_id': delivery_picking.company_id.id,
+                        'state': 'confirmed',
+                    })
+                    target_move = new_move
+                    _logger.info(f"    [+] Move creado: ID {new_move.id} para {lot_product.name} en {delivery_picking.name}")
                 except Exception as e:
-                    _logger.warning(f"    [!] Error al des-reservar: {e}")
+                    _logger.error(f"    [TC_ERROR] No se pudo crear move para {lot_product.name} en {delivery_picking.name}: {e}")
+                    continue
+            else:
+                target_move = target_move[0]
 
+            # -----------------------------------------------------------------
+            # 4. Des-reservar reservas genéricas previas (solo una vez por move)
+            # -----------------------------------------------------------------
+            move_key = (delivery_picking.id, target_move.id)
+            if move_key not in unreserved_moves:
+                if target_move.state in ('partially_available', 'assigned'):
+                    try:
+                        target_move._do_unreserve()
+                        _logger.info(f"    [~] Des-reservado move {target_move.id} en {delivery_picking.name}")
+                    except Exception as e:
+                        _logger.warning(f"    [!] Error al des-reservar: {e}")
+                unreserved_moves.add(move_key)
+
+            # -----------------------------------------------------------------
+            # 5. Crear o actualizar move line con el lote específico
+            # -----------------------------------------------------------------
             try:
                 existing_reserved = self.env['stock.move.line'].search([
                     ('move_id', '=', target_move.id),
                     ('lot_id', '=', move_line.lot_id.id),
-                    ('picking_id', '=', delivery_picking.id)
+                    ('picking_id', '=', delivery_picking.id),
                 ], limit=1)
 
                 if existing_reserved:
@@ -228,17 +304,19 @@ class StockPicking(models.Model):
                         'quantity': new_qty,
                         'location_id': move_line.location_dest_id.id, 
                     })
+                    _logger.info(f"    [✓] Actualizado move line existente para lote {move_line.lot_id.name}: {new_qty}")
                 else:
                     self.env['stock.move.line'].create({
                         'picking_id': delivery_picking.id,
                         'move_id': target_move.id,
-                        'product_id': move_line.product_id.id,
+                        'product_id': lot_product.id,
                         'lot_id': move_line.lot_id.id,
                         'product_uom_id': move_line.product_uom_id.id,
                         'location_id': move_line.location_dest_id.id,
                         'location_dest_id': target_move.location_dest_id.id,
                         'quantity': qty_just_moved, 
                     })
+                    _logger.info(f"    [✓] Creado move line para lote {move_line.lot_id.name} ({qty_just_moved})")
                 
                 count_success += 1
 
