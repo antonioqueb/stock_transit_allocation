@@ -1418,6 +1418,14 @@ class StockTransitVoyage(models.Model):
             'custom_status': 'reception_pending'
         })
 
+        # =====================================================================
+        # FIX: Marcar packing_list_imported para habilitar flujo de Worksheet
+        # Los lotes ya fueron cargados desde la Torre de Control, equivale a
+        # haber procesado un Packing List.
+        # =====================================================================
+        if hasattr(picking, 'packing_list_imported'):
+            picking.write({'packing_list_imported': True})
+
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'stock.picking',
@@ -1473,6 +1481,13 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("No hay líneas con lote asignado para sincronizar."))
 
         picking.message_post(body=f"🔄 {lines_created} lotes sincronizados desde Viaje {self.name}.")
+
+        # =====================================================================
+        # FIX: Marcar packing_list_imported para habilitar flujo de Worksheet
+        # =====================================================================
+        if hasattr(picking, 'packing_list_imported') and not picking.packing_list_imported:
+            picking.write({'packing_list_imported': True})
+
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'stock.picking',

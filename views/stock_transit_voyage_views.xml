@@ -368,8 +368,10 @@
     <!-- ══════════════════════════════════════════════════════════════════
          MENÚS
     ══════════════════════════════════════════════════════════════════ -->
+    <!-- DESPUÉS -->
     <menuitem id="menu_transit_root" name="Torre de Control"
-              web_icon="stock_transit_allocation,static/description/icon.png" sequence="10"/>
+            web_icon="stock_transit_allocation,static/description/icon.png" sequence="10"
+            groups="purchase.group_purchase_user"/>
 
     <menuitem id="menu_transit_sheet" name="Cronograma"
               parent="menu_transit_root" action="action_transit_sheet_custom_client" sequence="1"/>
