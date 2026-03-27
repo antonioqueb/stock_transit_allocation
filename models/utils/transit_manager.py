@@ -19,8 +19,6 @@ class TransitManager:
         # 1. VALIDACIÓN PARA ESTADO "SOLICITUD" (Sin Lote aún)
         # =====================================================================
         if not lot:
-            # Si no hay lote, es una línea preventiva (etapa solicitud/producción)
-            # Solo actualizamos la asignación visual en la línea de tránsito
             transit_line.write({
                 'partner_id': new_partner_id.id if new_partner_id else False,
                 'order_id': new_order_id.id if new_partner_id else False,
@@ -37,14 +35,12 @@ class TransitManager:
         if not quant or not quant.exists():
             _logger.info(f"TransitManager: Buscando Quant para lote {lot.name}...")
             
-            # Búsqueda flexible
             domain = [
                 ('lot_id', '=', lot.id),
                 ('product_id', '=', product.id),
                 ('quantity', '>', 0),
             ]
             
-            # Intentar ubicación del picking o búsqueda amplia
             location_dest = False
             if transit_line.voyage_id.picking_id:
                 location_dest = transit_line.voyage_id.picking_id.location_dest_id
@@ -71,7 +67,6 @@ class TransitManager:
             'allocation_status': 'reserved' if new_partner_id else 'available'
         })
 
-        # Si no hay quant físico localizado, no podemos realizar la reserva en el inventario
         if not quant:
             return True 
 
@@ -91,7 +86,6 @@ class TransitManager:
 
         # Caso: Asignación a nuevo cliente
         if new_partner_id:
-            # Obtener precio para la reserva
             price_unit = 0.0
             if hasattr(product.product_tmpl_id, 'x_price_usd_1'):
                 price_unit = product.product_tmpl_id.x_price_usd_1
@@ -99,7 +93,6 @@ class TransitManager:
             if price_unit <= 0:
                 price_unit = product.list_price
 
-            # Gestión de la cabecera (Header)
             order = hold_order_obj
             created_local_order = False
 
@@ -130,16 +123,18 @@ class TransitManager:
                 created_local_order = True
 
             # Crear la línea de reserva
+            # lot_ids (Many2many) es el campo principal que action_confirm() valida;
+            # lot_id (Many2one) se mantiene por compatibilidad legacy.
             env['stock.lot.hold.order.line'].sudo().create({
                 'order_id': order.id,
                 'quant_id': quant.id,
                 'lot_id': lot.id,
+                'lot_ids': [(6, 0, [lot.id])],
                 'product_id': product.id,
                 'cantidad_m2': transit_line.product_uom_qty, 
                 'precio_unitario': price_unit,
             })
 
-            # Confirmar si la orden fue creada en este proceso
             if created_local_order:
                 order.action_confirm()
                 _logger.info(f"TransitManager: Reserva {order.name} confirmada para lote {lot.name}")
