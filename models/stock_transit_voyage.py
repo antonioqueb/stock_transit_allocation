@@ -7,6 +7,7 @@ from markupsafe import Markup
 from odoo import models, api, _
 from odoo import fields as fields_module   # alias para evitar colisión con param 'fields' en read()
 from odoo.exceptions import UserError
+from odoo.tools.float_utils import float_round, float_compare, float_is_zero
 
 # Re-exportar fields para que el resto del código del módulo funcione igual
 fields = fields_module
@@ -1092,16 +1093,19 @@ class StockTransitVoyage(models.Model):
         if next_status == 'delivered':
             if self.reception_picking_id and self.reception_picking_id.state != 'done':
                 raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
-            write_vals = {
-                'arrival_date': fields_module.Date.today(),
-                'custom_status': 'delivered',
-            }
-            if not self.arrival_date_bodega:
-                write_vals['arrival_date_bodega'] = fields_module.Date.today()
-            self.write(write_vals)
-            for line in self.line_ids:
-                if line.allocation_id and line.allocation_id.state != 'done':
-                    line.allocation_id.action_mark_received(line.product_uom_qty)
+            if self.reception_picking_id:
+                self._auto_finalize_after_reception()
+            else:
+                write_vals = {
+                    'arrival_date': fields_module.Date.today(),
+                    'custom_status': 'delivered',
+                }
+                if not self.arrival_date_bodega:
+                    write_vals['arrival_date_bodega'] = fields_module.Date.today()
+                self.write(write_vals)
+                for line in self.line_ids:
+                    if line.allocation_id and line.allocation_id.state != 'done':
+                        line.allocation_id.action_mark_received(line.product_uom_qty)
         else:
             if next_status == 'on_sea':
                 if self.picking_id and self.picking_id.purchase_id:
@@ -1146,6 +1150,25 @@ class StockTransitVoyage(models.Model):
     # =========================================================================
     # ACCIONES DE CARGA Y RECEPCIÓN
     # =========================================================================
+
+    # =========================================================================
+    # HELPERS DE CANTIDAD / PRECISIÓN
+    # =========================================================================
+
+    def _get_qty_rounding(self, product):
+        self.ensure_one()
+        rounding = 0.0001
+        if product and getattr(product, 'uom_id', False) and product.uom_id.rounding:
+            rounding = product.uom_id.rounding
+        return rounding
+
+    def _normalize_product_qty(self, product, qty):
+        rounding = self._get_qty_rounding(product)
+        return float_round(qty or 0.0, precision_rounding=rounding)
+
+    def _qty_differs(self, product, qty_a, qty_b):
+        rounding = self._get_qty_rounding(product)
+        return float_compare(qty_a or 0.0, qty_b or 0.0, precision_rounding=rounding) != 0
 
     def action_load_from_purchase(self):
         self.ensure_one()
@@ -1240,7 +1263,19 @@ class StockTransitVoyage(models.Model):
 
             lot_id = move_line.lot_id.id
             product_id = move_line.product_id.id
-            qty_done = move_line.quantity
+
+            found_quant = self.env['stock.quant'].search([
+                ('lot_id', '=', move_line.lot_id.id),
+                ('product_id', '=', move_line.product_id.id),
+                ('quantity', '>', 0),
+                ('location_id', '=', move_line.location_dest_id.id)
+            ], limit=1)
+
+            raw_qty_done = move_line.quantity
+            qty_done = self._normalize_product_qty(
+                move_line.product_id,
+                found_quant.quantity if found_quant else raw_qty_done
+            )
 
             partner_to_assign = False
             order_to_assign = False
@@ -1266,13 +1301,6 @@ class StockTransitVoyage(models.Model):
                         allocation_consumed[alloc.id] = consumed_this_load + qty_done
                         break
 
-            found_quant = self.env['stock.quant'].search([
-                ('lot_id', '=', move_line.lot_id.id),
-                ('product_id', '=', move_line.product_id.id),
-                ('quantity', '>', 0),
-                ('location_id', '=', move_line.location_dest_id.id)
-            ], limit=1)
-
             lot_container = ''
             if hasattr(move_line.lot_id, 'x_contenedor') and move_line.lot_id.x_contenedor:
                 lot_container = move_line.lot_id.x_contenedor
@@ -1282,7 +1310,7 @@ class StockTransitVoyage(models.Model):
             if lot_id in existing_by_lot:
                 existing_line = existing_by_lot[lot_id]
                 update_vals = {}
-                if existing_line.product_uom_qty != qty_done:
+                if self._qty_differs(line.product_id, existing_line.product_uom_qty, qty_done):
                     update_vals['product_uom_qty'] = qty_done
                 if found_quant and existing_line.quant_id.id != found_quant.id:
                     update_vals['quant_id'] = found_quant.id
@@ -1409,10 +1437,23 @@ class StockTransitVoyage(models.Model):
                 )
                 continue
 
+            qty_to_receive = self._normalize_product_qty(line.product_id, quant.quantity)
+            if float_is_zero(qty_to_receive, precision_rounding=self._get_qty_rounding(line.product_id)):
+                missing_lots.append(
+                    "%s (quant cero efectivo)" % (line.lot_id.display_name,)
+                )
+                continue
+
+            if self._qty_differs(line.product_id, line.product_uom_qty, qty_to_receive):
+                line.with_context(skip_reservation_logic=True).write({
+                    'product_uom_qty': qty_to_receive,
+                })
+
             source_location_ids.add(quant.location_id.id)
             resolved_lines.append({
                 'line': line,
                 'quant': quant,
+                'qty_to_receive': qty_to_receive,
             })
 
         if missing_lots:
@@ -1531,8 +1572,9 @@ class StockTransitVoyage(models.Model):
         product_totals = {}
         for item in resolved_lines:
             line = item['line']
+            qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
             product_totals.setdefault(line.product_id.id, 0.0)
-            product_totals[line.product_id.id] += line.product_uom_qty
+            product_totals[line.product_id.id] += qty_to_receive
 
         move_map = {}
         existing_moves = picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel'))
@@ -1545,7 +1587,7 @@ class StockTransitVoyage(models.Model):
                 continue
 
             move_vals = {}
-            if move.product_uom_qty != total_qty:
+            if self._qty_differs(move.product_id, move.product_uom_qty, total_qty):
                 move_vals['product_uom_qty'] = total_qty
             if move.location_id.id != picking.location_id.id:
                 move_vals['location_id'] = picking.location_id.id
@@ -1589,6 +1631,7 @@ class StockTransitVoyage(models.Model):
                     "No se encontró movimiento para el producto %s."
                 ) % line.product_id.display_name)
 
+            qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
             self.env['stock.move.line'].create({
                 'picking_id': picking.id,
                 'move_id': move.id,
@@ -1598,7 +1641,7 @@ class StockTransitVoyage(models.Model):
                 'lot_id': line.lot_id.id,
                 'location_id': quant.location_id.id,
                 'location_dest_id': picking.location_dest_id.id,
-                'quantity': line.product_uom_qty,
+                'quantity': qty_to_receive,
             })
             lines_created += 1
 
@@ -1683,10 +1726,46 @@ class StockTransitVoyage(models.Model):
             'target': 'current',
         }
 
+    def _auto_finalize_after_reception(self):
+        for rec in self:
+            if rec.custom_status in ('delivered', 'cancel'):
+                continue
+
+            if not rec.reception_picking_id or rec.reception_picking_id.state != 'done':
+                continue
+
+            write_vals = {
+                'arrival_date': fields_module.Date.today(),
+                'custom_status': 'delivered',
+            }
+            if not rec.arrival_date_bodega:
+                write_vals['arrival_date_bodega'] = fields_module.Date.today()
+
+            rec.write(write_vals)
+
+            for line in rec.line_ids.filtered(lambda l: l.allocation_id):
+                qty_received = rec._normalize_product_qty(
+                    line.product_id,
+                    line.quant_id.quantity if line.quant_id and line.quant_id.exists() else line.product_uom_qty
+                )
+                if line.allocation_id.state != 'done' and not float_is_zero(
+                    qty_received, precision_rounding=rec._get_qty_rounding(line.product_id)
+                ):
+                    line.allocation_id.action_mark_received(qty_received)
+
+            rec.message_post(
+                body=_("✅ Viaje cerrado automáticamente al validar la recepción física %s.")
+                % (rec.reception_picking_id.name,)
+            )
+
     def action_arrive(self):
         self.ensure_one()
         if self.reception_picking_id and self.reception_picking_id.state != 'done':
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
+
+        if self.reception_picking_id:
+            self._auto_finalize_after_reception()
+            return
 
         write_vals = {
             'arrival_date': fields_module.Date.today(),
