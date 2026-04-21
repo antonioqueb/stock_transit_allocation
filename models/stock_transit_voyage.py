@@ -23,6 +23,14 @@ except ImportError:
     _logger.warning("Folium no está instalado. pip install folium --break-system-packages")
 
 
+# =============================================================================
+# CONSTANTES DE NEGOCIO PARA NOTIFICACIONES
+# =============================================================================
+ETA_DRAMATIC_CHANGE_DAYS = 5      # Diferencia mínima en días para notificar cambio de ETA por API
+ETA_WARNING_DAYS_BEFORE = 1       # Días antes del ETA para alertar "próximo a vencer"
+ETA_OVERDUE_DAYS_AFTER = 1        # Días después del ETA para alertar "vencido" (una sola vez)
+
+
 class StockTransitVoyage(models.Model):
     _name = 'stock.transit.voyage'
     _description = 'Viaje / Contenedor en Tránsito'
@@ -75,6 +83,22 @@ class StockTransitVoyage(models.Model):
         ('danger', 'Vencido'),
         ('done', 'Entregado'),
     ], string='Alerta ETA', compute='_compute_eta_alert', store=True)
+
+    # =========================================================================
+    # FLAGS DE NOTIFICACIÓN (evitan envíos repetidos)
+    # =========================================================================
+    eta_warning_notified = fields_module.Boolean(
+        string='Notificación "Próximo a Vencer" enviada',
+        default=False,
+        copy=False,
+        help='Marca si ya se envió la notificación de próximo a vencer (1 día antes del ETA).'
+    )
+    eta_overdue_notified = fields_module.Boolean(
+        string='Notificación "Vencido" enviada',
+        default=False,
+        copy=False,
+        help='Marca si ya se envió la notificación de vencido (1 día después del ETA). Solo se envía una vez.'
+    )
 
     arrival_date = fields_module.Date(string='Llegada Real', tracking=True)
     arrival_date_bodega = fields_module.Date(string='Entregado en Bodega', tracking=True)
@@ -813,6 +837,24 @@ class StockTransitVoyage(models.Model):
             _logger.error("[ShipsGo] Error generando mapa Folium: %s", e)
             map_html = False
 
+        # =====================================================================
+        # NUEVA LÓGICA: Detectar cambio dramático de ETA por API
+        # =====================================================================
+        old_eta = self.eta
+        new_eta_from_api = False
+        if date_discharge:
+            try:
+                new_eta_from_api = fields_module.Date.from_string(date_discharge[:10])
+            except Exception:
+                new_eta_from_api = False
+
+        eta_changed_dramatically = False
+        days_diff = 0
+        if old_eta and new_eta_from_api and old_eta != new_eta_from_api:
+            days_diff = abs((new_eta_from_api - old_eta).days)
+            if days_diff >= ETA_DRAMATIC_CHANGE_DAYS:
+                eta_changed_dramatically = True
+
         vals = {
             'shipsgo_last_sync': fields_module.Datetime.now(),
             'shipsgo_payload': json.dumps(map_data),
@@ -826,7 +868,26 @@ class StockTransitVoyage(models.Model):
         if date_discharge:
             vals['eta'] = date_discharge
 
-        self.write(vals)
+        # =====================================================================
+        # NUEVA LÓGICA: Si la API reporta 100% o sin coordenadas, marcar como
+        # arrived_port y dejar de sincronizar.
+        # =====================================================================
+        no_more_coordinates = current_location is None
+        is_completed = int(transit_pct) >= 100
+
+        if (is_completed or no_more_coordinates) and self.custom_status not in ('arrived_port', 'reception_pending', 'delivered', 'cancel'):
+            vals['custom_status'] = 'arrived_port'
+            self.message_post(body=Markup(
+                "🏁 <b>Cambio automático de estado:</b> El tracking de ShipsGo "
+                "indica que el contenedor llegó (Progreso: {pct}%, Coordenadas: {coords}). "
+                "Estado actualizado a <b>Arribo a Puerto</b>. La sincronización automática se detiene."
+            ).format(
+                pct=int(transit_pct),
+                coords='Sí' if current_location else 'No',
+            ))
+
+        # Marca de origen para que write() sepa que viene de la API
+        self.with_context(shipsgo_api_update=True, eta_dramatic_change=eta_changed_dramatically, eta_dramatic_diff=days_diff).write(vals)
 
         if linked_container:
             linked_container.write({
@@ -878,8 +939,12 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('eta', 'custom_status')
     def _compute_eta_alert(self):
+        """
+        REGLAS NUEVAS:
+        - 'warning' solo si falta exactamente 1 día (o menos) para el ETA.
+        - 'danger' si la fecha actual ya pasó el ETA.
+        """
         today = fields_module.Date.today()
-        warning_days = 7
         for rec in self:
             if rec.custom_status == 'delivered':
                 rec.eta_alert_level = 'done'
@@ -887,7 +952,7 @@ class StockTransitVoyage(models.Model):
                 rec.eta_alert_level = 'ok'
             elif today > rec.eta:
                 rec.eta_alert_level = 'danger'
-            elif (rec.eta - today).days <= warning_days:
+            elif (rec.eta - today).days <= ETA_WARNING_DAYS_BEFORE:
                 rec.eta_alert_level = 'warning'
             else:
                 rec.eta_alert_level = 'ok'
@@ -903,13 +968,27 @@ class StockTransitVoyage(models.Model):
         return super(StockTransitVoyage, self).create(vals_list)
 
     def write(self, vals):
+        # Establecer eta_original la primera vez
         if 'eta' in vals:
             for rec in self:
                 if not rec.eta_original and vals.get('eta'):
                     super(StockTransitVoyage, rec).write({'eta_original': vals['eta']})
 
+        # Si cambia el ETA y NO viene del cron de la API, resetea los flags
+        # para que un cambio manual pueda volver a disparar alertas legítimas
+        # cuando se acerque la nueva fecha.
+        is_api_update = self.env.context.get('shipsgo_api_update', False)
+        if 'eta' in vals and not is_api_update:
+            for rec in self:
+                if rec.eta != vals.get('eta'):
+                    super(StockTransitVoyage, rec).write({
+                        'eta_warning_notified': False,
+                        'eta_overdue_notified': False,
+                    })
+
         res = super().write(vals)
 
+        # Actualizar info de transit en sale.order.line cuando cambien estado/eta
         if 'custom_status' in vals or 'eta' in vals:
             transit_lines = self.mapped('line_ids')
             order_ids = transit_lines.mapped('order_id')
@@ -920,6 +999,20 @@ class StockTransitVoyage(models.Model):
                 ])
                 sol._compute_transit_info()
 
+        # =====================================================================
+        # NUEVA LÓGICA DE NOTIFICACIONES
+        # Solo se notifica si:
+        # 1) El cambio viene de la API (shipsgo_api_update=True), y
+        # 2) Es un cambio dramático de ETA (eta_dramatic_change=True), o
+        # 3) Es la primera vez que se cruza el umbral de "warning" (1 día), o
+        # 4) Es la primera vez que se cruza el umbral de "vencido" (1 día después)
+        # =====================================================================
+        if is_api_update and self.env.context.get('eta_dramatic_change'):
+            for rec in self:
+                rec._notify_dramatic_eta_change(self.env.context.get('eta_dramatic_diff', 0))
+
+        # Revisión de umbrales de warning/overdue (se llama siempre que cambien
+        # eta o estado, pero los flags evitan notificaciones repetidas)
         if 'eta' in vals or 'custom_status' in vals:
             self._check_eta_alerts()
 
@@ -976,50 +1069,117 @@ class StockTransitVoyage(models.Model):
                     rec.transit_progress = 0
 
     # =========================================================================
-    # NOTIFICACIONES DE ALERTA ETA
+    # NOTIFICACIONES (NUEVA LÓGICA)
     # =========================================================================
 
+    def _get_notification_recipient(self):
+        """
+        Devuelve el responsable a notificar.
+        REGLA NUEVA: Solo el responsable de la OC. Si no hay, no se notifica.
+        """
+        self.ensure_one()
+        if self.purchase_id and self.purchase_id.user_id:
+            return self.purchase_id.user_id
+        return False
+
+    def _notify_dramatic_eta_change(self, days_diff):
+        """
+        Notifica cuando la API actualiza el ETA con una diferencia >= 5 días
+        respecto al ETA anterior.
+        """
+        self.ensure_one()
+
+        responsible = self._get_notification_recipient()
+        if not responsible:
+            return
+
+        if self.custom_status in ('delivered', 'cancel'):
+            return
+
+        eta_str = self.eta.strftime('%d/%m/%Y') if self.eta else '—'
+        body = Markup(
+            "📅 <b>Cambio importante de ETA detectado</b><br/>"
+            "El embarque <b>%s</b> tuvo un ajuste de <b>%s días</b> en su fecha de llegada según ShipsGo.<br/>"
+            "Nuevo ETA: <b>%s</b>"
+        ) % (self.name, days_diff, eta_str)
+
+        self.message_post(
+            body=body,
+            partner_ids=responsible.partner_id.ids,
+            message_type='comment',
+            subtype_xmlid='mail.mt_comment'
+        )
+
     def _check_eta_alerts(self):
+        """
+        REGLAS NUEVAS:
+        - Notificar "Próximo a vencer" SOLO 1 día antes y SOLO 1 vez (flag).
+        - Notificar "Vencido" SOLO 1 día después del ETA y SOLO 1 vez (flag).
+        - Solo al responsable de la OC. Si no hay responsable, no se notifica.
+        """
+        today = fields_module.Date.today()
+
         for rec in self:
-            if rec.eta_alert_level not in ('warning', 'danger'):
-                continue
-            if rec.custom_status == 'delivered':
+            if rec.custom_status in ('delivered', 'cancel'):
                 continue
 
-            responsible = False
-            if rec.purchase_id and rec.purchase_id.user_id:
-                responsible = rec.purchase_id.user_id
+            if not rec.eta:
+                continue
 
+            responsible = rec._get_notification_recipient()
             if not responsible:
-                followers = rec.message_partner_ids
-                if not followers:
-                    continue
-                level_label = 'VENCIDO' if rec.eta_alert_level == 'danger' else 'PRÓXIMO A VENCER'
-                eta_str = rec.eta.strftime('%d/%m/%Y') if rec.eta else '—'
+                continue
+
+            days_to_eta = (rec.eta - today).days
+
+            # ─── PRÓXIMO A VENCER: 1 día antes ───
+            if days_to_eta == ETA_WARNING_DAYS_BEFORE and not rec.eta_warning_notified:
+                eta_str = rec.eta.strftime('%d/%m/%Y')
                 body = Markup(
-                    "⚠️ <b>Alerta ETA %s</b><br/>"
-                    "El embarque <b>%s</b> tiene ETA %s y está en estado <b>%s</b>."
-                ) % (level_label, rec.name, eta_str, rec.custom_status)
+                    "⚠️ <b>Embarque próximo a llegar</b><br/>"
+                    "El embarque <b>%s</b> tiene ETA <b>mañana (%s)</b> y está en estado <b>%s</b>."
+                ) % (rec.name, eta_str, dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status))
+
                 rec.message_post(
                     body=body,
-                    partner_ids=followers.ids,
+                    partner_ids=responsible.partner_id.ids,
                     message_type='comment',
                     subtype_xmlid='mail.mt_comment'
                 )
-                continue
+                # Marcar como notificado para no volver a alertar
+                super(StockTransitVoyage, rec).write({'eta_warning_notified': True})
 
-            level_label = 'VENCIDO' if rec.eta_alert_level == 'danger' else 'PRÓXIMO A VENCER'
-            eta_str = rec.eta.strftime('%d/%m/%Y') if rec.eta else '—'
-            body = Markup(
-                "⚠️ <b>Alerta ETA %s</b><br/>"
-                "El embarque <b>%s</b> tiene ETA %s y está en estado <b>%s</b>."
-            ) % (level_label, rec.name, eta_str, rec.custom_status)
-            rec.message_post(
-                body=body,
-                partner_ids=responsible.partner_id.ids,
-                message_type='comment',
-                subtype_xmlid='mail.mt_comment'
-            )
+            # ─── VENCIDO: 1 día después del ETA, una sola vez ───
+            days_overdue = (today - rec.eta).days
+            if days_overdue == ETA_OVERDUE_DAYS_AFTER and not rec.eta_overdue_notified:
+                eta_str = rec.eta.strftime('%d/%m/%Y')
+                body = Markup(
+                    "🚨 <b>Embarque vencido</b><br/>"
+                    "El embarque <b>%s</b> tenía ETA <b>%s</b> y aún no ha llegado. "
+                    "Estado actual: <b>%s</b>."
+                ) % (rec.name, eta_str, dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status))
+
+                rec.message_post(
+                    body=body,
+                    partner_ids=responsible.partner_id.ids,
+                    message_type='comment',
+                    subtype_xmlid='mail.mt_comment'
+                )
+                super(StockTransitVoyage, rec).write({'eta_overdue_notified': True})
+
+    @api.model
+    def _cron_check_eta_alerts(self):
+        """
+        Cron diario que revisa todos los viajes activos y dispara
+        las notificaciones de "próximo a vencer" y "vencido" cuando corresponda.
+        Esto es necesario porque _check_eta_alerts solo se dispara en write(),
+        y necesitamos que el paso del tiempo también lo dispare.
+        """
+        voyages = self.search([
+            ('custom_status', 'not in', ['delivered', 'cancel']),
+            ('eta', '!=', False),
+        ])
+        voyages._check_eta_alerts()
 
     # =========================================================================
     # MÉTODOS DE ESTADO (WIZARD)
@@ -1801,9 +1961,15 @@ class StockTransitVoyage(models.Model):
         return bool(has_container)
 
     def _needs_shipsgo_sync(self):
-        """Retorna True si el viaje requiere sincronización con ShipsGo."""
+        """
+        Retorna True si el viaje requiere sincronización con ShipsGo.
+
+        REGLA NUEVA: Si el viaje ya está en 'arrived_port', 'reception_pending',
+        'delivered' o 'cancel', NO se sincroniza más. La API ya cumplió su
+        propósito (avisarnos que llegó al puerto destino).
+        """
         self.ensure_one()
-        if self.custom_status in ('delivered', 'cancel'):
+        if self.custom_status in ('arrived_port', 'reception_pending', 'delivered', 'cancel'):
             return False
         if not self.shipsgo_last_sync:
             return True
@@ -1817,11 +1983,15 @@ class StockTransitVoyage(models.Model):
     @api.model
     def action_cron_sync_shipsgo(self):
         """
-        Ejecutado por los cron jobs (cada 2h y diario a las 5am).
-        Sincroniza todos los viajes activos que tengan contenedores registrados.
+        Ejecutado por los cron jobs (cada 1h y diario a las 5am).
+        Sincroniza solo viajes activos en estados anteriores a 'arrived_port'.
+
+        REGLA NUEVA: Una vez que el viaje cambia a 'arrived_port' (ya sea
+        manualmente o automáticamente por la API al detectar 100% / sin
+        coordenadas), se deja de consultar ShipsGo.
         """
         voyages = self.search([
-            ('custom_status', 'not in', ['delivered', 'cancel']),
+            ('custom_status', 'not in', ['arrived_port', 'reception_pending', 'delivered', 'cancel']),
         ])
         for voyage in voyages:
             if not voyage._has_valid_container():
@@ -1846,7 +2016,7 @@ class StockTransitVoyage(models.Model):
         En Odoo 18/19 el cliente OWL llama web_read, no read().
         Solo sincroniza si:
         - Es exactamente 1 registro (apertura de formulario individual)
-        - El viaje no está en estado terminal (delivered/cancel)
+        - El viaje no está en estado terminal o post-arribo
         - Tiene contenedor registrado
         - No se sincronizó en las últimas 2 horas
         """
