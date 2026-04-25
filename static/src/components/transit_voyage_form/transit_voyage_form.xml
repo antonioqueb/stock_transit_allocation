@@ -1,0 +1,454 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+<t t-name="stock_transit_allocation.TransitVoyageLines" owl="1">
+
+<div class="tvl-root">
+
+    <!-- LOADING -->
+    <div t-if="state.loading" class="tvl-loading">
+        <div class="tvl-loading__spinner"/>
+        <span>Cargando lotes...</span>
+    </div>
+
+    <t t-else="">
+
+        <!-- ══════════════ TOOLBAR ══════════════ -->
+        <div class="tvl-toolbar">
+            <div class="tvl-toolbar__left">
+                <span class="tvl-toolbar__stat">
+                    <i class="fa fa-cube"/>
+                    <strong t-esc="state.groups.length"/> productos
+                </span>
+                <span class="tvl-toolbar__divider"/>
+                <span class="tvl-toolbar__stat">
+                    <i class="fa fa-tag"/>
+                    <strong t-esc="state.groups.reduce((s,g) => s + g.lot_count, 0)"/> lotes
+                </span>
+                <span class="tvl-toolbar__divider"/>
+                <span class="tvl-toolbar__stat tvl-toolbar__stat--m2">
+                    <i class="fa fa-th"/>
+                    <strong t-esc="fmtNum(grandTotal)"/> m²
+                </span>
+                <div class="tvl-global-bar">
+                    <div class="tvl-global-bar__fill" t-att-style="'width:' + grandPercent + '%'"/>
+                </div>
+                <span class="tvl-toolbar__pct"><t t-esc="grandPercent"/>% asignado</span>
+            </div>
+
+            <div class="tvl-toolbar__right">
+                <button class="tvl-btn tvl-btn--refresh" t-on-click="refresh" title="Recargar">
+                    <i class="fa fa-refresh"/>
+                </button>
+            </div>
+        </div>
+
+        <!-- VACÍO -->
+        <div t-if="state.groups.length === 0" class="tvl-empty">
+            <div class="tvl-empty__icon">📦</div>
+            <p class="tvl-empty__title">Sin lotes cargados</p>
+            <p class="tvl-empty__sub">Use los botones de sincronización para cargar lotes desde el picking o la OC.</p>
+        </div>
+
+        <!-- ══════════════ GRUPOS POR PRODUCTO ══════════════ -->
+        <div class="tvl-groups" t-if="state.groups.length > 0">
+            <t t-foreach="state.groups" t-as="group" t-key="group.product_id">
+                <div class="tvl-group">
+
+                    <!-- ── Cabecera del producto (desplegable) ── -->
+                    <div class="tvl-group__header" t-on-click="() => this.toggleGroup(group.product_id)">
+                        <div class="tvl-group__header-left">
+                            <input type="checkbox"
+                                   class="tvl-checkbox"
+                                   t-att-checked="isGroupAllSelected(group)"
+                                   t-on-click.stop=""
+                                   t-on-change="(ev) => this.toggleGroupSelect(group, ev)"/>
+                            <i t-attf-class="fa #{isCollapsed(group.product_id) ? 'fa-chevron-right' : 'fa-chevron-down'} tvl-group__chevron"/>
+                            <span class="tvl-group__name" t-esc="group.product_name"/>
+                            <span t-if="group.lot_count" class="tvl-group__badge tvl-group__badge--lots">
+                                <i class="fa fa-tag"/> <t t-esc="group.lot_count"/> lotes
+                            </span>
+                            <span t-if="group.lines.length !== group.lot_count" class="tvl-group__badge tvl-group__badge--lines">
+                                <i class="fa fa-list"/> <t t-esc="group.lines.length"/> líneas
+                            </span>
+                        </div>
+                        <div class="tvl-group__header-right">
+                            <div class="tvl-group__bar-wrap">
+                                <div class="tvl-group__bar">
+                                    <div class="tvl-group__bar-fill" t-att-style="'width:' + pct(group) + '%'"/>
+                                </div>
+                                <span class="tvl-group__bar-pct"><t t-esc="pct(group)"/>%</span>
+                            </div>
+                            <div class="tvl-group__m2-wrap">
+                                <span class="tvl-group__m2-reserved" t-esc="fmtNum(group.reserved_m2)"/>
+                                <span class="tvl-group__m2-sep">/</span>
+                                <span class="tvl-group__m2-total" t-esc="fmtNum(group.total_m2)"/>
+                                <span class="tvl-group__m2-unit">m²</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ── Tabla de lotes del grupo ── -->
+                    <t t-if="!isCollapsed(group.product_id)">
+                        <div class="tvl-table-wrap">
+                            <table class="tvl-table">
+                                <thead>
+                                    <tr>
+                                        <th class="tvl-th tvl-th--chk"></th>
+                                        <th class="tvl-th">Lote / Placa</th>
+                                        <th class="tvl-th">Contenedor</th>
+                                        <th class="tvl-th tvl-th--center">Bloque</th>
+                                        <th class="tvl-th tvl-th--center">Atado</th>
+                                        <th class="tvl-th tvl-th--center">Grosor</th>
+                                        <th class="tvl-th tvl-th--right">Alto</th>
+                                        <th class="tvl-th tvl-th--right">Ancho</th>
+                                        <th class="tvl-th tvl-th--right">m²</th>
+                                        <th class="tvl-th">Cliente</th>
+                                        <th class="tvl-th tvl-th--prop" title="Propagar asignación hacia abajo">↓↓</th>
+                                        <th class="tvl-th">Sales Order</th>
+                                        <th class="tvl-th tvl-th--status">Estado</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                <t t-foreach="group.lines" t-as="line" t-key="line.id">
+                                    <!-- Separador de bloque cuando cambia -->
+                                    <t t-set="currentBlock" t-value="line.x_bloque || 'Sin Bloque'"/>
+                                    <t t-set="prevLine" t-value="line_index > 0 ? group.lines[line_index - 1] : null"/>
+                                    <t t-set="prevBlock" t-value="prevLine ? (prevLine.x_bloque || 'Sin Bloque') : null"/>
+                                    <t t-if="line_index === 0 or currentBlock !== prevBlock">
+                                        <t t-set="blockInfo" t-value="group.blocks.find(b => b.name === currentBlock)"/>
+                                        <tr class="tvl-block-header-row">
+                                            <td colspan="4" class="tvl-block-header-label">
+                                                <i class="fa fa-th-large"/> Bloque: <strong t-esc="currentBlock"/>
+                                                <span class="tvl-block-header-count">
+                                                    <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
+                                                </span>
+                                            </td>
+                                            <td colspan="9" class="tvl-block-header-m2">
+                                                <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
+                                            </td>
+                                        </tr>
+                                    </t>
+
+                                    <tr t-attf-class="tvl-row #{line.allocation_status === 'reserved' ? 'tvl-row--reserved' : ''} #{!line.lot_id ? 'tvl-row--pending' : ''}">
+
+                                        <!-- Checkbox -->
+                                        <td class="tvl-td tvl-td--chk">
+                                            <input type="checkbox" class="tvl-checkbox"
+                                                t-att-checked="isLineSelected(line.id)"
+                                                t-on-change="(ev) => this.toggleLineSelect(line.id, ev)"/>
+                                        </td>
+
+                                        <!-- Lote -->
+                                        <td class="tvl-td">
+                                            <t t-if="line.lot_id">
+                                                <span class="tvl-lot-badge" t-esc="line.lot_id[1]"/>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="tvl-pending-chip">⏳ Sin lote</span>
+                                            </t>
+                                        </td>
+
+                                        <!-- Contenedor -->
+                                        <td class="tvl-td">
+                                            <t t-if="line.container_number and line.container_number !== 'PENDIENTE'">
+                                                <span class="tvl-container-chip" t-esc="line.container_number"/>
+                                            </t>
+                                            <t t-else=""><span class="tvl-muted">—</span></t>
+                                        </td>
+
+                                        <!-- Bloque -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <span t-if="line.x_bloque" class="tvl-dim-chip tvl-dim-chip--bloque" t-esc="line.x_bloque"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Atado -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <span t-if="line.x_atado" class="tvl-dim-chip tvl-dim-chip--atado" t-esc="line.x_atado"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Grosor -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <span t-if="line.x_grosor" class="tvl-dim-val" t-esc="line.x_grosor"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Alto -->
+                                        <td class="tvl-td tvl-td--right tvl-dim-val">
+                                            <t t-if="line.x_alto" t-esc="line.x_alto.toFixed(2)"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Ancho -->
+                                        <td class="tvl-td tvl-td--right tvl-dim-val">
+                                            <t t-if="line.x_ancho" t-esc="line.x_ancho.toFixed(2)"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- m² -->
+                                        <td class="tvl-td tvl-td--right tvl-m2-val">
+                                            <t t-esc="fmtNum(line.product_uom_qty)"/>
+                                        </td>
+
+                                        <!-- Cliente editable -->
+                                        <td class="tvl-td tvl-td--partner">
+                                            <t t-if="isEditing(line.id, 'partner_id')">
+                                                <select class="tvl-inline-select"
+                                                        t-on-change="(ev) => this.onPartnerChange(line, ev)"
+                                                        t-on-blur="() => this.state.editingCell = null">
+                                                    <option value="">— Sin cliente —</option>
+                                                    <t t-foreach="state.allPartners" t-as="pt" t-key="pt.id">
+                                                        <option t-att-value="pt.id"
+                                                                t-att-selected="line.partner_id and line.partner_id[0] === pt.id"
+                                                                t-esc="pt.name"/>
+                                                    </t>
+                                                </select>
+                                            </t>
+                                            <t t-else="">
+                                                <div class="tvl-editable-cell" t-on-click="() => this.startEdit(line.id, 'partner_id')">
+                                                    <t t-if="line.partner_id">
+                                                        <span class="tvl-partner-name" t-esc="line.partner_id[1]"/>
+                                                        <i class="fa fa-pencil tvl-edit-icon"/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <span class="tvl-add-hint"><i class="fa fa-plus-circle"/> Asignar</span>
+                                                    </t>
+                                                </div>
+                                            </t>
+                                        </td>
+
+                                        <!-- Botón propagar -->
+                                        <td class="tvl-td tvl-td--prop">
+                                            <t t-if="line.partner_id and line_index &lt; group.lines.length - 1">
+                                                <button class="tvl-prop-btn"
+                                                        title="Propagar cliente/orden a todos los lotes siguientes de este producto"
+                                                        t-on-click="(ev) => this.propagateDown(group, line_index, ev)">
+                                                    <i class="fa fa-angle-double-down"/>
+                                                </button>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="tvl-prop-placeholder"/>
+                                            </t>
+                                        </td>
+
+                                        <!-- Sales Order editable -->
+                                        <td class="tvl-td tvl-td--order">
+                                            <t t-if="line.partner_id">
+                                                <t t-if="isEditing(line.id, 'order_id')">
+                                                    <select class="tvl-inline-select"
+                                                            t-on-change="(ev) => this.onOrderChange(line, ev)"
+                                                            t-on-blur="() => this.state.editingCell = null">
+                                                        <option value="">— Sin orden —</option>
+                                                        <t t-foreach="getOrdersForLine(line)" t-as="o" t-key="o.id">
+                                                            <option t-att-value="o.id"
+                                                                    t-att-selected="line.order_id and line.order_id[0] === o.id"
+                                                                    t-esc="o.name"/>
+                                                        </t>
+                                                    </select>
+                                                </t>
+                                                <t t-else="">
+                                                    <div class="tvl-editable-cell" t-on-click="() => this.startEdit(line.id, 'order_id')">
+                                                        <t t-if="line.order_id">
+                                                            <span class="tvl-order-name" t-esc="line.order_id[1]"/>
+                                                            <i class="fa fa-pencil tvl-edit-icon"/>
+                                                        </t>
+                                                        <t t-else="">
+                                                            <span class="tvl-add-hint"><i class="fa fa-plus-circle"/> Orden</span>
+                                                        </t>
+                                                    </div>
+                                                </t>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="tvl-muted">—</span>
+                                            </t>
+                                        </td>
+
+                                        <!-- Estado -->
+                                        <td class="tvl-td tvl-td--status">
+                                            <span t-attf-class="tvl-badge #{statusCls(line.allocation_status)}"
+                                                t-esc="statusLabel(line.allocation_status)"/>
+                                        </td>
+
+                                    </tr>
+                                </t>
+
+                                <!-- Subtotal del grupo -->
+                                <tr class="tvl-subtotal-row">
+                                    <td colspan="8" class="tvl-td tvl-subtotal__label">
+                                        Subtotal <strong t-esc="group.product_name"/>
+                                    </td>
+                                    <td class="tvl-td tvl-subtotal__m2">
+                                        <t t-esc="fmtNum(group.total_m2)"/> m²
+                                    </td>
+                                    <td colspan="4" class="tvl-td tvl-subtotal__info">
+                                        <span t-if="group.reserved_m2 > 0" class="tvl-subtotal__reserved">
+                                            <t t-esc="fmtNum(group.reserved_m2)"/> m² reservados
+                                        </span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                            </table>
+                        </div>
+                    </t>
+
+                </div>
+            </t>
+
+            <!-- Total general -->
+            <div class="tvl-grand-total">
+                <span class="tvl-grand-total__label">Total General</span>
+                <div class="tvl-grand-total__bar-wrap">
+                    <div class="tvl-grand-total__bar">
+                        <div class="tvl-grand-total__bar-fill" t-att-style="'width:' + grandPercent + '%'"/>
+                    </div>
+                    <span class="tvl-grand-total__pct"><t t-esc="grandPercent"/>% asignado</span>
+                </div>
+                <span class="tvl-grand-total__m2"><t t-esc="fmtNum(grandTotal)"/> m²</span>
+            </div>
+        </div>
+
+    </t>
+
+    <!-- ══════════════════════════════════════════════════════════
+         BARRA FLOTANTE DE ASIGNACIÓN MASIVA
+         Aparece en la parte inferior cuando hay lotes seleccionados
+    ══════════════════════════════════════════════════════════ -->
+    <t t-if="selectedCount > 0">
+        <div class="tvl-floating-bar">
+            <div class="tvl-floating-bar__left">
+                <!-- Contador de lotes -->
+                <div class="tvl-floating-bar__counter">
+                    <span class="tvl-floating-bar__count" t-esc="selectedCount"/>
+                    <span class="tvl-floating-bar__count-label">lotes</span>
+                </div>
+                <!-- Separador -->
+                <div class="tvl-floating-bar__sep"/>
+                <!-- Total m² -->
+                <div class="tvl-floating-bar__m2">
+                    <i class="fa fa-th"/>
+                    <span t-esc="fmtNum(selectedM2)"/> m² seleccionados
+                </div>
+            </div>
+            <div class="tvl-floating-bar__right">
+                <button class="tvl-floating-bar__btn-clear" t-on-click="clearSelection">
+                    <i class="fa fa-times"/> Cancelar
+                </button>
+                <button class="tvl-floating-bar__btn-assign" t-on-click="openAssignPopup">
+                    <i class="fa fa-user-plus"/> Asignar Cliente
+                </button>
+            </div>
+        </div>
+    </t>
+
+    <!-- ══════════════════════════════════════════════════════════
+         POPUP DE ASIGNACIÓN
+    ══════════════════════════════════════════════════════════ -->
+    <t t-if="state.showAssignPopup">
+        <!-- Backdrop -->
+        <div class="tvl-popup-backdrop" t-on-click="closeAssignPopup"/>
+
+        <!-- Dialog -->
+        <div class="tvl-popup">
+            <!-- Header -->
+            <div class="tvl-popup__header">
+                <div class="tvl-popup__header-icon">
+                    <i class="fa fa-user-plus"/>
+                </div>
+                <div class="tvl-popup__header-text">
+                    <h4 class="tvl-popup__title">Asignar Lotes</h4>
+                    <p class="tvl-popup__subtitle">
+                        <strong t-esc="selectedCount"/> lotes · <t t-esc="fmtNum(selectedM2)"/> m²
+                    </p>
+                </div>
+                <button class="tvl-popup__close" t-on-click="closeAssignPopup">
+                    <i class="fa fa-times"/>
+                </button>
+            </div>
+
+            <!-- Body -->
+            <div class="tvl-popup__body">
+
+                <!-- Resumen de lotes seleccionados -->
+                <div class="tvl-popup__summary">
+                    <div class="tvl-popup__summary-title">
+                        <i class="fa fa-list-ul"/> Resumen de selección
+                    </div>
+                    <div class="tvl-popup__summary-rows">
+                        <t t-foreach="selectedSummary" t-as="row" t-key="row.product">
+                            <div class="tvl-popup__summary-row">
+                                <span class="tvl-popup__summary-product" t-esc="row.product"/>
+                                <div class="tvl-popup__summary-meta">
+                                    <span class="tvl-popup__summary-count">
+                                        <i class="fa fa-tag"/> <t t-esc="row.count"/> lotes
+                                    </span>
+                                    <span class="tvl-popup__summary-m2">
+                                        <t t-esc="fmtNum(row.m2)"/> m²
+                                    </span>
+                                </div>
+                            </div>
+                        </t>
+                    </div>
+                </div>
+
+                <!-- Selector de cliente -->
+                <div class="tvl-popup__field-group">
+                    <label class="tvl-popup__label">
+                        <i class="fa fa-user"/> Cliente
+                        <span class="tvl-popup__required">*</span>
+                    </label>
+                    <select class="tvl-popup__select"
+                            t-on-change="onPopupPartnerChange">
+                        <option value="">— Seleccionar cliente —</option>
+                        <t t-foreach="state.allPartners" t-as="pt" t-key="pt.id">
+                            <option t-att-value="pt.id"
+                                    t-att-selected="state.popupPartner === pt.id"
+                                    t-esc="pt.name"/>
+                        </t>
+                    </select>
+                </div>
+
+                <!-- Selector de orden de venta -->
+                <div class="tvl-popup__field-group">
+                    <label t-attf-class="tvl-popup__label #{!state.popupPartner ? 'tvl-popup__label--disabled' : ''}">
+                        <i class="fa fa-file-text-o"/> Sales Order
+                        <span class="tvl-popup__optional">(opcional)</span>
+                    </label>
+                    <select class="tvl-popup__select"
+                            t-att-disabled="!state.popupPartner"
+                            t-on-change="onPopupOrderChange">
+                        <option value="">— Seleccionar orden —</option>
+                        <t t-foreach="popupOrders" t-as="o" t-key="o.id">
+                            <option t-att-value="o.id"
+                                    t-att-selected="state.popupOrder === o.id"
+                                    t-esc="o.name"/>
+                        </t>
+                    </select>
+                    <p t-if="!state.popupPartner" class="tvl-popup__hint">
+                        Seleccione un cliente primero
+                    </p>
+                    <p t-elif="popupOrders.length === 0" class="tvl-popup__hint tvl-popup__hint--warn">
+                        <i class="fa fa-exclamation-triangle"/> Sin órdenes para este cliente
+                    </p>
+                </div>
+
+            </div>
+
+            <!-- Footer -->
+            <div class="tvl-popup__footer">
+                <button class="tvl-popup__btn-cancel" t-on-click="closeAssignPopup">
+                    Cancelar
+                </button>
+                <button t-attf-class="tvl-popup__btn-confirm #{!state.popupPartner ? 'tvl-popup__btn-confirm--disabled' : ''}"
+                        t-on-click="confirmAssign"
+                        t-att-disabled="!state.popupPartner">
+                    <i class="fa fa-check"/> Confirmar Asignación
+                </button>
+            </div>
+        </div>
+    </t>
+
+</div>
+
+</t>
+</templates>

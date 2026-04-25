@@ -1,0 +1,429 @@
+// ============================================================
+// transit_voyage_form_odoo.scss
+// Estilos del formulario Odoo del Viaje en Tránsito
+// Hero header + panel de datos 3 columnas + tabla de lotes
+// ============================================================
+
+$vf-font:         'DM Sans', system-ui, sans-serif;
+$vf-bg:           #f8f9fb;
+$vf-white:        #ffffff;
+$vf-border:       #e5e7eb;
+$vf-border-strong:#d1d5db;
+$vf-text:         #1f2937;
+$vf-text-muted:   #9ca3af;
+$vf-text-sub:     #6b7280;
+$vf-accent:       #1e293b;
+$vf-blue:         #2563eb;
+$vf-green:        #16a34a;
+$vf-green-light:  #dcfce7;
+$vf-blue-light:   #dbeafe;
+$vf-shadow:       0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+$vf-shadow-md:    0 4px 12px rgba(0,0,0,.1);
+$vf-radius:       8px;
+$vf-radius-sm:    5px;
+$vf-radius-lg:    12px;
+
+// ─── Wrapper del formulario ───────────────────────────────────────────────────
+.o_voyage_form {
+    .o_form_sheet_bg { background: $vf-bg; }
+
+    .o_form_sheet {
+        padding:    0 !important;
+        max-width:  100% !important;
+        background: $vf-bg;
+    }
+}
+
+// ─── HERO HEADER ─────────────────────────────────────────────────────────────
+.vf-hero {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    gap:             24px;
+    padding:         24px 28px 20px;
+    background:      linear-gradient(135deg, $vf-accent 0%, #334155 100%);
+    border-bottom:   none;
+    flex-wrap:       wrap;
+
+    &__left {
+        display:     flex;
+        align-items: center;
+        gap:         16px;
+        flex:        1;
+        min-width:   240px;
+    }
+
+    &__icon {
+        font-size:      32px;
+        line-height:    1;
+        filter:         drop-shadow(0 2px 4px rgba(0,0,0,.3));
+        animation:      vf-float 3s ease-in-out infinite;
+    }
+
+    &__identity {
+        display:        flex;
+        flex-direction: column;
+        gap:            4px;
+    }
+
+    &__ref {
+        font-size:   22px;
+        font-weight: 800;
+        color:       #fff;
+        letter-spacing: -.5px;
+        line-height: 1;
+
+        // Odoo form field dentro del hero
+        .o_field_widget {
+            .o_input, span { 
+                color:       #fff !important;
+                font-weight: 800 !important;
+                font-size:   22px !important;
+                background:  transparent !important;
+                border:      none !important;
+            }
+        }
+    }
+
+    &__vessel, &__naviera {
+        display:     flex;
+        align-items: center;
+        gap:         8px;
+        font-size:   13px;
+        color:       rgba(255,255,255,.7);
+    }
+
+    &__vessel-input, &__naviera-input {
+        .o_input {
+            color:       rgba(255,255,255,.85) !important;
+            background:  rgba(255,255,255,.1) !important;
+            border:      1px solid rgba(255,255,255,.2) !important;
+            border-radius: 4px !important;
+            font-size:   13px !important;
+
+            &::placeholder { color: rgba(255,255,255,.4) !important; }
+            &:focus {
+                background: rgba(255,255,255,.18) !important;
+                border-color: rgba(255,255,255,.4) !important;
+                box-shadow: none !important;
+            }
+        }
+        span { color: rgba(255,255,255,.85) !important; font-size: 13px !important; }
+    }
+
+    &__sep {
+        color:     rgba(255,255,255,.4);
+        font-size: 16px;
+    }
+
+    &__right {
+        flex-shrink: 0;
+    }
+}
+
+@keyframes vf-float {
+    0%, 100% { transform: translateY(0); }
+    50%       { transform: translateY(-4px); }
+}
+
+// ─── KPI Grid ─────────────────────────────────────────────────────────────────
+.vf-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap:     2px;
+    background: rgba(255,255,255,.08);
+    border-radius: $vf-radius;
+    overflow: hidden;
+}
+
+.vf-kpi {
+    display:        flex;
+    flex-direction: column;
+    align-items:    center;
+    gap:            2px;
+    padding:        10px 16px;
+    background:     rgba(255,255,255,.06);
+    transition:     background .15s;
+    min-width:      90px;
+
+    &:hover { background: rgba(255,255,255,.12); }
+
+    &--green { .vf-kpi__number { color: #6ee7b7 !important; } }
+    &--blue  { .vf-kpi__number { color: #93c5fd !important; } }
+
+    &__label {
+        font-size:  9.5px;
+        font-weight:600;
+        color:      rgba(255,255,255,.5);
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        white-space: nowrap;
+    }
+
+    &__value {
+        display:     flex;
+        align-items: baseline;
+        gap:         2px;
+    }
+
+    &__number {
+        font-size:   18px;
+        font-weight: 800;
+        color:       #fff !important;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -.5px;
+        line-height: 1;
+
+        // Override Odoo field
+        .o_field_widget span {
+            color:       inherit !important;
+            font-size:   18px !important;
+            font-weight: 800 !important;
+        }
+    }
+
+    &__unit {
+        font-size:  11px;
+        color:      rgba(255,255,255,.5);
+        font-weight:500;
+    }
+
+    // Widget de progreso del barco dentro del KPI
+    .o_transit_progress_container {
+        width:  80px;
+        height: 20px;
+    }
+}
+
+// ─── PANEL DE DATOS 3 COLUMNAS ────────────────────────────────────────────────
+.vf-data-panel {
+    display:               grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:                   1px;
+    background:            $vf-border;
+    border-bottom:         1px solid $vf-border;
+
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vf-panel-col {
+    background: $vf-white;
+    padding:    0;
+
+    &__header {
+        display:       flex;
+        align-items:   center;
+        gap:           7px;
+        padding:       10px 16px 8px;
+        background:    $vf-bg;
+        border-bottom: 1px solid $vf-border;
+        font-size:     10.5px;
+        font-weight:   700;
+        color:         $vf-text-sub;
+        text-transform:uppercase;
+        letter-spacing:.5px;
+
+        i { color: $vf-blue; font-size: 11px; }
+    }
+
+    &__body {
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap:     6px;
+    }
+}
+
+// Filas de campo dentro del panel
+.vf-field-row {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    min-height:  26px;
+}
+
+.vf-field-label {
+    font-size:   10.5px;
+    font-weight: 600;
+    color:       $vf-text-muted;
+    white-space: nowrap;
+    min-width:   100px;
+    flex-shrink: 0;
+}
+
+.vf-field-val {
+    flex: 1;
+    min-width: 0;
+
+    .o_input, span, a {
+        font-size: 12px !important;
+        color:     $vf-text !important;
+    }
+}
+
+// Display especial para contenedores
+.vf-containers-display {
+    background:    $vf-bg;
+    border:        1px solid $vf-border;
+    border-radius: $vf-radius-sm;
+    padding:       8px 12px;
+    margin-bottom: 6px;
+}
+
+.vf-containers-value {
+    .o_field_widget span {
+        font-family:   'JetBrains Mono', monospace;
+        font-size:     12px !important;
+        color:         $vf-accent !important;
+        font-weight:   600 !important;
+        word-break:    break-all;
+    }
+}
+
+.vf-hint {
+    display:    flex;
+    align-items:center;
+    gap:        5px;
+    font-size:  10px;
+    color:      $vf-text-muted;
+    font-style: italic;
+
+    i { font-size: 10px; }
+}
+
+// ─── SECCIÓN DE LOTES ─────────────────────────────────────────────────────────
+.vf-lots-section {
+    background: $vf-white;
+    border-top: 1px solid $vf-border;
+
+    &__header {
+        display:       flex;
+        align-items:   center;
+        justify-content: space-between;
+        padding:       14px 20px 12px;
+        border-bottom: 1px solid $vf-border;
+        background:    $vf-bg;
+        flex-wrap:     wrap;
+        gap:           10px;
+    }
+
+    &__title {
+        display:     flex;
+        align-items: baseline;
+        gap:         10px;
+        font-size:   13px;
+        font-weight: 700;
+        color:       $vf-text;
+
+        i { color: $vf-blue; }
+    }
+
+    &__subtitle {
+        font-size:   11px;
+        font-weight: 400;
+        color:       $vf-text-muted;
+        font-style:  italic;
+    }
+
+    &__actions {
+        display:     flex;
+        align-items: center;
+        gap:         10px;
+    }
+}
+
+// Tip informativo
+.vf-info-tip {
+    display:       flex;
+    align-items:   center;
+    gap:           6px;
+    background:    $vf-blue-light;
+    border:        1px solid #bfdbfe;
+    border-radius: 20px;
+    padding:       4px 12px;
+    font-size:     10.5px;
+    color:         #1e40af;
+
+    i { color: $vf-blue; }
+    strong { font-weight: 700; }
+}
+
+// Tabla de líneas embellecida
+.vf-lines-table {
+    .o_list_renderer {
+        font-size: 11px !important;
+    }
+
+    // Cabeceras de tabla
+    .o_list_renderer thead th {
+        background:     #f1f5f9 !important;
+        font-size:      9.5px !important;
+        font-weight:    700 !important;
+        color:          $vf-text-sub !important;
+        text-transform: uppercase !important;
+        letter-spacing: .4px !important;
+        padding:        6px 10px !important;
+        border-bottom:  2px solid $vf-border-strong !important;
+    }
+
+    // Filas con estado
+    .o_data_row {
+        transition: background .1s;
+        &:hover td { background: $vf-bg !important; }
+    }
+
+    // Decoración de éxito = borde izquierdo verde
+    .o_data_row.text-success td:first-child {
+        border-left: 3px solid $vf-green !important;
+    }
+}
+
+// ─── FILA DE MÉTRICAS FINALES ─────────────────────────────────────────────────
+.vf-metrics-row {
+    display:    flex;
+    gap:        1px;
+    background: $vf-border;
+    border-top: 1px solid $vf-border;
+    flex-wrap:  wrap;
+}
+
+.vf-metric-card {
+    display:        flex;
+    align-items:    center;
+    gap:            8px;
+    flex:           1;
+    min-width:      180px;
+    padding:        12px 20px;
+    background:     $vf-white;
+
+    &--green {
+        .vf-metric-card__value .o_field_widget span { color: $vf-green !important; }
+    }
+
+    &--progress { flex: 2; }
+
+    &__label {
+        font-size:  10px;
+        font-weight:700;
+        color:      $vf-text-muted;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        white-space:nowrap;
+    }
+
+    &__value {
+        .o_field_widget span {
+            font-size:   16px !important;
+            font-weight: 800 !important;
+            color:       $vf-accent !important;
+            font-variant-numeric: tabular-nums;
+        }
+    }
+
+    &__unit {
+        font-size:   11px;
+        color:       $vf-text-muted;
+    }
+}

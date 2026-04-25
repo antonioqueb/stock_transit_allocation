@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!--
+        Template del botón de propagación.
+        Se renderiza como una celda compacta en la lista editable de line_ids.
+        Muestra los botones SOLO cuando:
+        - El record actual tiene partner_id asignado (hasPartner)
+        - Hay filas debajo (hasRowsBelow)
+    -->
+    <t t-name="stock_transit_allocation.TransitPropagateBtnField" owl="1">
+        <div class="transit-prop-cell">
+            <t t-if="hasPartner and hasRowsBelow">
+                <!-- Botón: propagar al siguiente -->
+                <button
+                    class="transit-prop-btn transit-prop-one"
+                    t-on-click="onPropagateOne"
+                    t-att-disabled="state.loading"
+                    title="Propagar cliente/pedido a la siguiente fila (↓ 1)">
+                    <t t-if="state.loading">
+                        <i class="fa fa-circle-o-notch fa-spin"/>
+                    </t>
+                    <t t-else="">
+                        <i class="fa fa-arrow-down"/>
+                        <span class="prop-label">1</span>
+                    </t>
+                </button>
+
+                <!-- Botón: propagar a todos los de abajo -->
+                <button
+                    class="transit-prop-btn transit-prop-all"
+                    t-on-click="onPropagateAll"
+                    t-att-disabled="state.loading"
+                    title="Propagar cliente/pedido a TODAS las filas siguientes (↓↓ Todo)">
+                    <t t-if="state.loading">
+                        <i class="fa fa-circle-o-notch fa-spin"/>
+                    </t>
+                    <t t-else="">
+                        <i class="fa fa-angle-double-down"/>
+                    </t>
+                </button>
+            </t>
+            <!-- Placeholder invisible cuando no aplica (mantiene ancho de columna) -->
+            <t t-else="">
+                <span class="transit-prop-placeholder"/>
+            </t>
+        </div>
+    </t>
+
+</templates>
