@@ -8,12 +8,6 @@
 // - Fondos, tarjetas, tablas, bordes y textos en escala de grises.
 // - Color únicamente para indicadores, estados, progreso, riesgo,
 //   alertas, KPI críticos y pequeñas secciones informativas.
-//
-// FIX ACTUAL:
-// - Evita overflow horizontal del formulario.
-// - Evita que el header sticky/statusbar desborde y oculte botones.
-// - Permite que los botones del header se envuelvan y se compacten.
-// - Mantiene scroll horizontal solo dentro de tablas, no en todo el formulario.
 // ============================================================
 
 $vf-font:          'DM Sans', system-ui, sans-serif;
@@ -66,124 +60,23 @@ $vf-radius-md:     12px;
 $vf-radius-lg:     18px;
 $vf-radius-xl:     24px;
 
-// ============================================================================
-// FIX GLOBAL CONTROLADO PARA HEADERS STICKY DE FORMULARIOS ODOO
-// Corrige Viajes/Contenedores y Embarques sin tocar XML.
-// ============================================================================
-
-.o_form_view {
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: clip;
-}
-
-.o_form_view .o_form_sheet_bg,
-.o_form_view .o_form_sheet,
-.o_form_view .o_content,
-.o_form_view .o_form_renderer {
-    min-width: 0 !important;
-    max-width: 100% !important;
-    box-sizing: border-box !important;
-}
-
-.o_form_view .o_form_statusbar {
-    width: 100% !important;
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    overflow-x: clip !important;
-    overflow-y: visible !important;
-    padding: 8px 12px !important;
-}
-
-.o_form_view .o_form_statusbar .o_statusbar_buttons {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    flex: 0 1 auto !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow: visible !important;
-}
-
-.o_form_view .o_form_statusbar .o_statusbar_status {
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    flex: 1 1 320px !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: auto !important;
-    overflow-y: hidden !important;
-    scrollbar-width: thin;
-}
-
-.o_form_view .o_form_statusbar .o_statusbar_status::-webkit-scrollbar {
-    height: 4px;
-}
-
-.o_form_view .o_form_statusbar .o_statusbar_status::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.o_form_view .o_form_statusbar .o_statusbar_status::-webkit-scrollbar-thumb {
-    background: #c7c7cc;
-    border-radius: 999px;
-}
-
-.o_form_view .o_form_statusbar .o_statusbar_buttons > button,
-.o_form_view .o_form_statusbar .o_statusbar_buttons .btn,
-.o_form_view .o_form_statusbar button {
-    flex: 0 1 auto !important;
-    min-width: 0 !important;
-    max-width: min(190px, 46vw) !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-    box-sizing: border-box !important;
-}
-
-.o_form_view .o_form_statusbar .o_arrow_button,
-.o_form_view .o_form_statusbar .o_statusbar_status button {
-    min-width: 0 !important;
-    max-width: 170px !important;
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-}
-
 // ─── Wrapper del formulario ───────────────────────────────────────────────────
 .o_voyage_form {
     background: $vf-bg;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow-x: clip !important;
 
     .o_form_sheet_bg {
         background: $vf-bg !important;
         padding: 0 !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        overflow-x: clip !important;
     }
 
     .o_form_sheet {
         width: 100% !important;
         max-width: 100% !important;
-        min-width: 0 !important;
         margin: 0 !important;
         padding: 0 !important;
         background: transparent !important;
         border: none !important;
         box-shadow: none !important;
-        overflow-x: clip !important;
     }
 
     .o_field_widget,
@@ -194,17 +87,6 @@ $vf-radius-xl:     24px;
     }
 
     header {
-        width: 100% !important;
-        max-width: 100% !important;
-        min-width: 0 !important;
-        box-sizing: border-box !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-start !important;
-        flex-wrap: wrap !important;
-        gap: 6px !important;
-        overflow-x: clip !important;
-        overflow-y: visible !important;
         background: rgba(255, 255, 255, .96) !important;
         border-bottom: 1px solid $vf-border !important;
         box-shadow: 0 10px 26px rgba(0, 0, 0, .06);
@@ -214,32 +96,8 @@ $vf-radius-xl:     24px;
             border-radius: 999px !important;
             font-weight: 700 !important;
             letter-spacing: -.01em;
-            padding-left: 12px !important;
-            padding-right: 12px !important;
-            max-width: min(190px, 46vw) !important;
-            min-width: 0 !important;
-            white-space: nowrap !important;
-            overflow: hidden !important;
-            text-overflow: ellipsis !important;
-        }
-
-        .o_statusbar_buttons {
-            display: flex !important;
-            align-items: center !important;
-            flex-wrap: wrap !important;
-            gap: 6px !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            overflow: visible !important;
-        }
-
-        .o_statusbar_status {
-            flex: 1 1 320px !important;
-            min-width: 0 !important;
-            max-width: 100% !important;
-            overflow-x: auto !important;
-            overflow-y: hidden !important;
-            justify-content: flex-start !important;
+            padding-left: 14px !important;
+            padding-right: 14px !important;
         }
     }
 }
@@ -254,17 +112,13 @@ $vf-radius-xl:     24px;
     background: linear-gradient(135deg, $vf-black 0%, $vf-charcoal 52%, $vf-graphite 100%);
     border-bottom: none;
     flex-wrap: wrap;
-    min-width: 0;
-    max-width: 100%;
-    box-sizing: border-box;
 
     &__left {
         display: flex;
         align-items: center;
         gap: 16px;
-        flex: 1 1 360px;
-        min-width: 0;
-        max-width: 100%;
+        flex: 1;
+        min-width: 240px;
     }
 
     &__icon {
@@ -272,15 +126,12 @@ $vf-radius-xl:     24px;
         line-height: 1;
         filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35));
         animation: vf-float 3s ease-in-out infinite;
-        flex-shrink: 0;
     }
 
     &__identity {
         display: flex;
         flex-direction: column;
         gap: 4px;
-        min-width: 0;
-        max-width: 100%;
     }
 
     &__ref {
@@ -289,12 +140,8 @@ $vf-radius-xl:     24px;
         color: #fff;
         letter-spacing: -.5px;
         line-height: 1;
-        max-width: 100%;
-        word-break: break-word;
 
         .o_field_widget {
-            max-width: 100%;
-
             .o_input,
             span {
                 color: #fff !important;
@@ -302,9 +149,6 @@ $vf-radius-xl:     24px;
                 font-size: 22px !important;
                 background: transparent !important;
                 border: none !important;
-                max-width: 100%;
-                white-space: normal !important;
-                word-break: break-word;
             }
         }
     }
@@ -316,23 +160,16 @@ $vf-radius-xl:     24px;
         gap: 8px;
         font-size: 13px;
         color: rgba(255, 255, 255, .68);
-        flex-wrap: wrap;
-        min-width: 0;
-        max-width: 100%;
     }
 
     &__vessel-input,
     &__naviera-input {
-        min-width: 0;
-        max-width: 100%;
-
         .o_input {
             color: rgba(255, 255, 255, .88) !important;
             background: rgba(255, 255, 255, .08) !important;
             border: 1px solid rgba(255, 255, 255, .18) !important;
             border-radius: 4px !important;
             font-size: 13px !important;
-            max-width: 100% !important;
 
             &::placeholder {
                 color: rgba(255, 255, 255, .38) !important;
@@ -348,8 +185,6 @@ $vf-radius-xl:     24px;
         span {
             color: rgba(255, 255, 255, .88) !important;
             font-size: 13px !important;
-            white-space: normal !important;
-            word-break: break-word;
         }
     }
 
@@ -359,9 +194,7 @@ $vf-radius-xl:     24px;
     }
 
     &__right {
-        flex: 1 1 420px;
-        min-width: 0;
-        max-width: 100%;
+        flex-shrink: 0;
     }
 }
 
@@ -389,8 +222,6 @@ $vf-radius-xl:     24px;
     box-shadow: $vf-shadow-dark;
     overflow: hidden;
     position: relative;
-    max-width: calc(100% - 36px);
-    box-sizing: border-box;
 
     &::before {
         content: "";
@@ -487,14 +318,11 @@ $vf-radius-xl:     24px;
 // ─── KPI Grid ─────────────────────────────────────────────────────────────────
 .vf-kpi-grid {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(4, auto);
     gap: 2px;
     background: rgba(255, 255, 255, .08);
     border-radius: $vf-radius;
     overflow: hidden;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
 }
 
 .vf-kpi {
@@ -505,7 +333,7 @@ $vf-radius-xl:     24px;
     padding: 10px 16px;
     background: rgba(255, 255, 255, .06);
     transition: background .15s;
-    min-width: 0;
+    min-width: 90px;
 
     &:hover {
         background: rgba(255, 255, 255, .12);
@@ -530,18 +358,12 @@ $vf-radius-xl:     24px;
         text-transform: uppercase;
         letter-spacing: .5px;
         white-space: nowrap;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 
     &__value {
         display: flex;
         align-items: baseline;
-        justify-content: center;
         gap: 2px;
-        min-width: 0;
-        max-width: 100%;
     }
 
     &__number {
@@ -551,10 +373,6 @@ $vf-radius-xl:     24px;
         font-variant-numeric: tabular-nums;
         letter-spacing: -.5px;
         line-height: 1;
-        min-width: 0;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
 
         .o_field_widget span {
             color: inherit !important;
@@ -585,9 +403,9 @@ $vf-radius-xl:     24px;
 }
 
 .o_voyage_form .vf-kpi {
-    min-width: 0 !important;
+    min-width: 122px !important;
     min-height: 82px;
-    padding: 15px 14px !important;
+    padding: 15px 17px !important;
     background: rgba(10, 10, 10, .38) !important;
     border-right: 1px solid rgba(255, 255, 255, .10);
 
@@ -644,13 +462,10 @@ $vf-radius-xl:     24px;
 // ─── PANEL DE DATOS 3 COLUMNAS ────────────────────────────────────────────────
 .vf-data-panel {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(3, 1fr);
     gap: 1px;
     background: $vf-border;
     border-bottom: 1px solid $vf-border;
-    min-width: 0;
-    max-width: 100%;
-    box-sizing: border-box;
 
     @media (max-width: 900px) {
         grid-template-columns: 1fr;
@@ -660,7 +475,6 @@ $vf-radius-xl:     24px;
 .vf-panel-col {
     background: $vf-white;
     padding: 0;
-    min-width: 0;
 
     &__header {
         display: flex;
@@ -674,12 +488,10 @@ $vf-radius-xl:     24px;
         color: $vf-text-sub;
         text-transform: uppercase;
         letter-spacing: .5px;
-        min-width: 0;
 
         i {
             color: $vf-text-sub;
             font-size: 11px;
-            flex-shrink: 0;
         }
     }
 
@@ -688,7 +500,6 @@ $vf-radius-xl:     24px;
         display: flex;
         flex-direction: column;
         gap: 6px;
-        min-width: 0;
     }
 }
 
@@ -697,7 +508,6 @@ $vf-radius-xl:     24px;
     align-items: center;
     gap: 8px;
     min-height: 26px;
-    min-width: 0;
 }
 
 .vf-field-label {
@@ -712,14 +522,12 @@ $vf-radius-xl:     24px;
 .vf-field-val {
     flex: 1;
     min-width: 0;
-    max-width: 100%;
 
     .o_input,
     span,
     a {
         font-size: 12px !important;
         color: $vf-text !important;
-        max-width: 100%;
     }
 }
 
@@ -731,7 +539,6 @@ $vf-radius-xl:     24px;
     border: 1px solid $vf-border !important;
     background: $vf-border !important;
     box-shadow: $vf-shadow-md;
-    max-width: calc(100% - 36px);
 }
 
 .o_voyage_form .vf-panel-col {
@@ -768,7 +575,7 @@ $vf-radius-xl:     24px;
 .o_voyage_form .vf-field-row {
     min-height: 40px !important;
     display: grid !important;
-    grid-template-columns: minmax(92px, 120px) minmax(0, 1fr);
+    grid-template-columns: 120px minmax(0, 1fr);
     gap: 12px;
     align-items: center;
 }
@@ -787,7 +594,6 @@ $vf-radius-xl:     24px;
     border-radius: 12px;
     background: #f7f7f8;
     border: 1px solid $vf-border;
-    overflow: hidden;
 
     .o_field_widget,
     .o_field_widget span,
@@ -800,10 +606,6 @@ $vf-radius-xl:     24px;
         border: none !important;
         box-shadow: none !important;
         padding: 0 !important;
-        min-width: 0 !important;
-        max-width: 100% !important;
-        overflow: hidden;
-        text-overflow: ellipsis;
     }
 
     &:focus-within {
@@ -820,21 +622,15 @@ $vf-radius-xl:     24px;
     border-radius: $vf-radius-sm;
     padding: 8px 12px;
     margin-bottom: 6px;
-    min-width: 0;
-    max-width: 100%;
 }
 
 .vf-containers-value {
-    min-width: 0;
-    max-width: 100%;
-
     .o_field_widget span {
         font-family: 'JetBrains Mono', "SFMono-Regular", Consolas, monospace;
         font-size: 12px !important;
         color: $vf-accent !important;
         font-weight: 700 !important;
-        word-break: break-word;
-        white-space: normal !important;
+        word-break: break-all;
     }
 }
 
@@ -848,7 +644,6 @@ $vf-radius-xl:     24px;
 
     i {
         font-size: 10px;
-        flex-shrink: 0;
     }
 }
 
@@ -865,7 +660,6 @@ $vf-radius-xl:     24px;
         font-weight: 950 !important;
         font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace !important;
         word-break: break-word;
-        white-space: normal !important;
     }
 }
 
@@ -886,8 +680,6 @@ $vf-radius-xl:     24px;
     font-size: 12px !important;
     font-weight: 950 !important;
     letter-spacing: .12em !important;
-    max-width: calc(100% - 36px);
-    box-sizing: border-box;
 }
 
 .o_voyage_form .vf-map-wrapper {
@@ -899,20 +691,15 @@ $vf-radius-xl:     24px;
     background: #111111 !important;
     box-shadow: $vf-shadow-md;
     overflow: hidden;
-    max-width: calc(100% - 36px);
-    box-sizing: border-box;
 
     .o_field_html,
     .o_field_widget,
     iframe,
     > div {
         width: 100% !important;
-        max-width: 100% !important;
         height: 100% !important;
         min-height: 500px !important;
         border: 0 !important;
-        overflow: hidden !important;
-        box-sizing: border-box !important;
     }
 }
 
@@ -927,8 +714,6 @@ $vf-radius-xl:     24px;
         linear-gradient(135deg, #ffffff, #f4f4f5) !important;
     color: $vf-text-muted !important;
     box-shadow: $vf-shadow-md;
-    max-width: calc(100% - 36px);
-    box-sizing: border-box;
 
     i {
         color: $vf-text-sub !important;
@@ -954,19 +739,12 @@ $vf-radius-xl:     24px;
     border-radius: 14px;
     background: rgba(255, 255, 255, .82);
     border: 1px solid $vf-border;
-    max-width: calc(100% - 36px);
-    box-sizing: border-box;
-    flex-wrap: wrap;
-    gap: 8px;
 }
 
 // ─── SECCIÓN DE LOTES ─────────────────────────────────────────────────────────
 .vf-lots-section {
     background: $vf-white;
     border-top: 1px solid $vf-border;
-    min-width: 0;
-    max-width: 100%;
-    box-sizing: border-box;
 
     &__header {
         display: flex;
@@ -977,8 +755,6 @@ $vf-radius-xl:     24px;
         background: $vf-bg;
         flex-wrap: wrap;
         gap: 10px;
-        min-width: 0;
-        max-width: 100%;
     }
 
     &__title {
@@ -988,12 +764,9 @@ $vf-radius-xl:     24px;
         font-size: 13px;
         font-weight: 700;
         color: $vf-text;
-        min-width: 0;
-        flex-wrap: wrap;
 
         i {
             color: $vf-text-sub;
-            flex-shrink: 0;
         }
     }
 
@@ -1008,8 +781,6 @@ $vf-radius-xl:     24px;
         display: flex;
         align-items: center;
         gap: 10px;
-        flex-wrap: wrap;
-        min-width: 0;
     }
 }
 
@@ -1023,8 +794,6 @@ $vf-radius-xl:     24px;
     padding: 4px 12px;
     font-size: 10.5px;
     color: #1d4ed8;
-    max-width: 100%;
-    flex-wrap: wrap;
 
     i {
         color: $vf-blue;
@@ -1036,9 +805,6 @@ $vf-radius-xl:     24px;
 }
 
 .vf-lines-table {
-    max-width: 100%;
-    overflow-x: auto;
-
     .o_list_renderer {
         font-size: 11px !important;
     }
@@ -1084,7 +850,6 @@ $vf-radius-xl:     24px;
     border: 1px solid $vf-border !important;
     box-shadow: $vf-shadow-md;
     overflow: hidden;
-    max-width: calc(100% - 36px);
 }
 
 .o_voyage_form .vf-lots-section__header {
@@ -1123,16 +888,12 @@ $vf-radius-xl:     24px;
     overflow: hidden !important;
     border: 0 !important;
     box-shadow: none !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-toolbar {
     background: linear-gradient(135deg, #ffffff, #f4f4f5) !important;
     border-bottom: 1px solid $vf-border !important;
     color: $vf-text !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-toolbar__stat,
@@ -1144,54 +905,16 @@ $vf-radius-xl:     24px;
     color: $vf-text-strong !important;
 }
 
-.o_voyage_form .vf-lots-section .tvl-table-wrap {
-    width: 100% !important;
-    max-width: 100% !important;
-    overflow-x: auto !important;
-    overflow-y: visible !important;
-    box-sizing: border-box !important;
-}
-
-.o_voyage_form .vf-lots-section .tvl-table {
-    width: max-content !important;
-    min-width: 900px !important;
-    max-width: none !important;
-}
-
 .o_voyage_form .vf-lots-section .tvl-group__header {
     background: #f4f4f5 !important;
     color: $vf-text !important;
     border-top: 1px solid $vf-border !important;
     border-bottom: 1px solid $vf-border !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-}
-
-.o_voyage_form .vf-lots-section .tvl-group__header-left {
-    min-width: 0 !important;
-    flex: 1 1 auto !important;
-}
-
-.o_voyage_form .vf-lots-section .tvl-group__header-right {
-    min-width: 0 !important;
-    flex: 0 1 auto !important;
-    flex-wrap: wrap !important;
-    justify-content: flex-end;
-}
-
-.o_voyage_form .vf-lots-section .tvl-group__name {
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-grand-total {
     background: linear-gradient(135deg, #111111, #2b2b2b) !important;
     color: #ffffff !important;
-    flex-wrap: wrap;
-    min-width: 0 !important;
-    max-width: 100% !important;
 }
 
 // ─── Estados / badges de tabla ────────────────────────────────────────────────
@@ -1235,16 +958,14 @@ $vf-radius-xl:     24px;
     background: $vf-border;
     border-top: 1px solid $vf-border;
     flex-wrap: wrap;
-    min-width: 0;
-    max-width: 100%;
 }
 
 .vf-metric-card {
     display: flex;
     align-items: center;
     gap: 8px;
-    flex: 1 1 180px;
-    min-width: 0;
+    flex: 1;
+    min-width: 180px;
     padding: 12px 20px;
     background: $vf-white;
 
@@ -1273,7 +994,7 @@ $vf-radius-xl:     24px;
     }
 
     &--progress {
-        flex: 2 1 280px;
+        flex: 2;
     }
 
     &__label {
@@ -1286,8 +1007,6 @@ $vf-radius-xl:     24px;
     }
 
     &__value {
-        min-width: 0;
-
         .o_field_widget span {
             font-size: 16px !important;
             font-weight: 800 !important;
@@ -1310,7 +1029,6 @@ $vf-radius-xl:     24px;
     border: 1px solid $vf-border;
     background: $vf-border !important;
     box-shadow: $vf-shadow-md;
-    max-width: calc(100% - 36px);
 }
 
 .o_voyage_form .vf-metric-card {
@@ -1370,7 +1088,6 @@ $vf-radius-xl:     24px;
     box-shadow:
         inset 0 0 0 1px rgba(255, 255, 255, .045),
         0 8px 20px rgba(0, 0, 0, .22);
-    box-sizing: border-box;
 }
 
 .o_transit_progress_percent__value {
@@ -1501,40 +1218,6 @@ $vf-radius-xl:     24px;
     }
 }
 
-// ============================================================================
-// Ajustes extra para evitar scroll horizontal accidental.
-// ============================================================================
-
-.o_voyage_form .o_notebook,
-.o_voyage_form .o_notebook_content,
-.o_voyage_form .tab-content,
-.o_voyage_form .tab-pane,
-.o_voyage_form .o_group,
-.o_voyage_form .o_inner_group {
-    min-width: 0 !important;
-    max-width: 100% !important;
-    box-sizing: border-box !important;
-}
-
-.o_voyage_form .o_field_one2many,
-.o_voyage_form .o_field_x2many,
-.o_voyage_form .o_list_renderer {
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-}
-
-.o_voyage_form .o_list_renderer {
-    overflow-x: auto !important;
-}
-
-.o_voyage_form .o_field_html,
-.o_voyage_form .o_field_html > div {
-    max-width: 100% !important;
-    min-width: 0 !important;
-    box-sizing: border-box !important;
-}
-
 // ─── Responsive ───────────────────────────────────────────────────────────────
 @media (max-width: 1320px) {
     .o_voyage_form .vf-hero {
@@ -1551,38 +1234,6 @@ $vf-radius-xl:     24px;
     }
 }
 
-@media (max-width: 1180px) {
-    .o_form_view .o_form_statusbar {
-        padding: 7px 10px !important;
-        gap: 5px !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_statusbar_buttons {
-        gap: 5px !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_statusbar_buttons > button,
-    .o_form_view .o_form_statusbar .o_statusbar_buttons .btn,
-    .o_form_view .o_form_statusbar button,
-    .o_voyage_form header button {
-        font-size: 11px !important;
-        padding: 5px 9px !important;
-        max-width: min(150px, 42vw) !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_arrow_button,
-    .o_form_view .o_form_statusbar .o_statusbar_status button {
-        font-size: 10.5px !important;
-        padding-left: 8px !important;
-        padding-right: 8px !important;
-        max-width: 135px !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_statusbar_status {
-        flex-basis: 260px !important;
-    }
-}
-
 @media (max-width: 760px) {
     .o_voyage_form .vf-hero,
     .o_voyage_form .vf-data-panel,
@@ -1594,7 +1245,6 @@ $vf-radius-xl:     24px;
     .o_voyage_form .vf-sync-footer {
         margin-left: 10px;
         margin-right: 10px;
-        max-width: calc(100% - 20px);
     }
 
     .o_voyage_form .vf-hero {
@@ -1649,26 +1299,5 @@ $vf-radius-xl:     24px;
     .o_voyage_form .vf-kpi .o_transit_progress_percent__value,
     .o_voyage_form .vf-kpi-grid .o_transit_progress_percent__value {
         font-size: 14px !important;
-    }
-
-    .o_form_view .o_form_statusbar {
-        align-items: stretch !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_statusbar_buttons {
-        width: 100% !important;
-        flex: 1 1 100% !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_statusbar_buttons > button,
-    .o_form_view .o_form_statusbar .o_statusbar_buttons .btn,
-    .o_form_view .o_form_statusbar button,
-    .o_voyage_form header button {
-        max-width: 100% !important;
-    }
-
-    .o_form_view .o_form_statusbar .o_statusbar_status {
-        width: 100% !important;
-        flex: 1 1 100% !important;
     }
 }
