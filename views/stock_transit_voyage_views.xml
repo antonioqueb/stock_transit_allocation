@@ -1,430 +1,451 @@
-<record id="view_stock_transit_voyage_form" model="ir.ui.view">
-    <field name="name">stock.transit.voyage.form</field>
-    <field name="model">stock.transit.voyage</field>
-    <field name="arch" type="xml">
-        <form string="Gestión de Tránsito" class="o_voyage_form o_voyage_form_tech">
-            <header>
-                <button name="action_advance_status"
-                        type="object"
-                        string="Avanzar"
-                        class="btn-primary"
-                        invisible="custom_status in ['delivered', 'cancel']"/>
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ======================================================================
+         VISTAS STOCK.TRANSIT.VOYAGE — Torre de Control
+    ====================================================================== -->
 
-                <button name="action_retreat_status"
-                        type="object"
-                        string="Retroceder"
-                        class="btn-secondary"
-                        invisible="custom_status in ['solicitud', 'delivered', 'cancel']"/>
+    <!-- ────────────────────────────────────────────────────────────────────────
+         LISTA
+    ──────────────────────────────────────────────────────────────────────── -->
+    <record id="view_stock_transit_voyage_list" model="ir.ui.view">
+        <field name="name">stock.transit.voyage.list</field>
+        <field name="model">stock.transit.voyage</field>
+        <field name="arch" type="xml">
+            <list decoration-info="custom_status == 'on_sea'"
+                  decoration-success="custom_status == 'delivered'"
+                  decoration-warning="custom_status in ['solicitud', 'production']">
+                <field name="name"/>
+                <field name="purchase_id" string="OC Origen"/>
+                <field name="custom_status" widget="badge"
+                       decoration-warning="custom_status in ['solicitud', 'production']"
+                       decoration-info="custom_status in ['booking', 'on_sea']"
+                       decoration-primary="custom_status == 'puerto_origen'"
+                       decoration-success="custom_status == 'delivered'"/>
+                <field name="container_number" string="Contenedores"/>
+                <field name="bl_number"/>
+                <field name="shipping_line"/>
+                <field name="eta" widget="remaining_days" optional="show"/>
+                <field name="transit_progress" widget="progressbar" string="Progreso" optional="show"/>
+                <field name="allocation_percent" widget="progressbar" string="% Asig."/>
+            </list>
+        </field>
+    </record>
 
-                <separator/>
+    <!-- ────────────────────────────────────────────────────────────────────────
+         FORMULARIO PRINCIPAL
+    ──────────────────────────────────────────────────────────────────────── -->
+    <record id="view_stock_transit_voyage_form" model="ir.ui.view">
+        <field name="name">stock.transit.voyage.form</field>
+        <field name="model">stock.transit.voyage</field>
+        <field name="arch" type="xml">
+            <form string="Gestión de Tránsito" class="o_voyage_form">
+                <header>
+                    <button name="action_advance_status"
+                            type="object"
+                            class="btn-primary"
+                            invisible="custom_status in ['delivered', 'cancel']"
+                            string="⏩ Avanzar"/>
 
-                <button name="action_load_from_purchase"
-                        string="Cargar OC"
-                        type="object"
-                        class="btn-secondary"
-                        invisible="picking_id != False or custom_status == 'delivered'"/>
+                    <button name="action_retreat_status"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
+                            string="⏪ Retroceder"/>
 
-                <button name="action_load_from_picking"
-                        string="Sincronizar Lotes"
-                        type="object"
-                        class="btn-secondary"
-                        invisible="picking_id == False or custom_status == 'delivered'"/>
+                    <separator/>
 
-                <button name="action_sync_shipsgo"
-                        string="Sincronizar API"
-                        type="object"
-                        class="btn-secondary"
-                        invisible="custom_status in ['delivered', 'cancel']"/>
+                    <button name="action_load_from_purchase"
+                            string="🔄 Cargar OC"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="picking_id != False or custom_status == 'delivered'"/>
 
-                <button name="action_generate_reception"
-                        string="Generar Recepción"
-                        type="object"
-                        class="btn-warning"
-                        invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
+                    <button name="action_load_from_picking"
+                            string="🚢 Sincronizar Lotes"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="picking_id == False or custom_status == 'delivered'"/>
 
-                <button name="action_generate_reception"
-                        string="Abrir Recepción"
-                        type="object"
-                        class="btn-success"
-                        invisible="reception_picking_id == False"/>
+                    <button name="action_sync_shipsgo"
+                            string="📡 Sincronizar API"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="custom_status in ['delivered', 'cancel']"/>
 
-                <button name="action_sync_reception_from_voyage"
-                        string="Recepcionar"
-                        type="object"
-                        class="btn-primary"
-                        invisible="reception_picking_id == False or custom_status == 'delivered'"/>
+                    <button name="action_generate_reception"
+                            string="🏭 Recibir"
+                            type="object"
+                            class="btn-warning"
+                            invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
 
-                <button name="action_arrive"
-                        string="Cerrar Viaje"
-                        type="object"
-                        class="btn-secondary"
-                        invisible="custom_status in ['delivered', 'cancel']"
-                        confirm="¿Está seguro de cerrar este viaje? Se marcará como Entregado."/>
+                    <button name="action_generate_reception"
+                            string="📋 Recepción"
+                            type="object"
+                            class="btn-success"
+                            invisible="reception_picking_id == False"/>
 
-                <button name="action_cancel"
-                        string="Cancelar"
-                        type="object"
-                        invisible="custom_status in ['delivered', 'cancel']"
-                        confirm="¿Está seguro de cancelar este viaje?"/>
+                    <button name="action_sync_reception_from_voyage"
+                            string="📦 Recepcionar"
+                            type="object"
+                            class="btn-primary"
+                            invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
-                <field name="custom_status"
-                       widget="statusbar"
-                       statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
-            </header>
+                    <button name="action_arrive"
+                            string="🏁 Cerrar Viaje"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="custom_status in ['delivered', 'cancel']"
+                            confirm="¿Está seguro de cerrar este viaje? Se marcará como Entregado."/>
 
-            <sheet>
-                <div class="vf-page">
+                    <button name="action_cancel"
+                            string="Cancelar"
+                            type="object"
+                            invisible="custom_status in ['delivered', 'cancel']"
+                            confirm="¿Está seguro de cancelar este viaje?"/>
 
-                    <!-- HERO -->
+                    <field name="custom_status"
+                           widget="statusbar"
+                           statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
+                </header>
+
+                <sheet>
+                    <!-- ════════════════════════════════════════════════
+                         HERO HEADER
+                    ════════════════════════════════════════════════ -->
                     <div class="vf-hero">
-                        <div class="vf-hero__main">
-                            <div class="vf-orb">
-                                <i class="fa fa-ship"/>
-                            </div>
+                        <div class="vf-hero__left">
+                            <div class="vf-hero__icon">🚢</div>
 
                             <div class="vf-hero__identity">
-                                <div class="vf-eyebrow">
-                                    <span class="vf-live-dot"/>
-                                    <span>Control Tower · Voyage Command</span>
+                                <div class="vf-hero__ref">
+                                    <field name="name" class="vf-hero__name" readonly="1"/>
                                 </div>
 
-                                <div class="vf-title">
-                                    <field name="name" readonly="1"/>
-                                </div>
+                                <div class="vf-hero__vessel">
+                                    <field name="vessel_name"
+                                           placeholder="Nombre del buque..."
+                                           class="vf-hero__vessel-input"/>
 
-                                <div class="vf-hero__chips">
-                                    <div class="vf-chip vf-chip--dark">
-                                        <i class="fa fa-shopping-cart"/>
-                                        <span>OC</span>
-                                        <field name="purchase_id" readonly="1"/>
-                                    </div>
+                                    <span class="vf-hero__sep" invisible="not shipping_line">·</span>
 
-                                    <div class="vf-chip">
-                                        <i class="fa fa-barcode"/>
-                                        <span>BL</span>
-                                        <field name="bl_number" placeholder="Sin BL"/>
-                                    </div>
-
-                                    <div class="vf-chip">
-                                        <i class="fa fa-cube"/>
-                                        <span>Contenedores</span>
-                                        <field name="container_number" readonly="1"/>
-                                    </div>
+                                    <field name="shipping_line"
+                                           placeholder="Naviera..."
+                                           class="vf-hero__naviera-input"/>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="vf-hero__side">
-                            <div class="vf-status-panel">
-                                <div class="vf-status-panel__label">Progreso de tránsito</div>
-                                <field name="transit_progress" widget="transit_ship_progress"/>
-                            </div>
-
-                            <div class="vf-mini-grid">
-                                <div class="vf-mini-stat">
-                                    <span>Total</span>
-                                    <div class="vf-mini-stat__value">
-                                        <field name="total_m2" readonly="1"/>
-                                        <span>m²</span>
-                                    </div>
+                        <div class="vf-hero__right">
+                            <div class="vf-kpi-grid">
+                                <div class="vf-kpi">
+                                    <span class="vf-kpi__label">Total m²</span>
+                                    <span class="vf-kpi__value">
+                                        <field name="total_m2" class="vf-kpi__number" readonly="1"/>
+                                    </span>
                                 </div>
 
-                                <div class="vf-mini-stat vf-mini-stat--success">
-                                    <span>Asignado</span>
-                                    <div class="vf-mini-stat__value">
-                                        <field name="allocated_m2" readonly="1"/>
-                                        <span>m²</span>
-                                    </div>
+                                <div class="vf-kpi vf-kpi--green">
+                                    <span class="vf-kpi__label">Asignados m²</span>
+                                    <span class="vf-kpi__value">
+                                        <field name="allocated_m2" class="vf-kpi__number" readonly="1"/>
+                                    </span>
                                 </div>
 
-                                <div class="vf-mini-stat vf-mini-stat--blue">
-                                    <span>Asignación</span>
-                                    <div class="vf-mini-stat__value">
-                                        <field name="allocation_percent" readonly="1"/>
-                                        <span>%</span>
-                                    </div>
+                                <div class="vf-kpi vf-kpi--blue">
+                                    <span class="vf-kpi__label">% Asignado</span>
+                                    <span class="vf-kpi__value">
+                                        <field name="allocation_percent" class="vf-kpi__number" readonly="1"/>
+                                        <span class="vf-kpi__unit">%</span>
+                                    </span>
+                                </div>
+
+                                <div class="vf-kpi">
+                                    <span class="vf-kpi__label">Progreso</span>
+                                    <field name="transit_progress" widget="transit_ship_progress"/>
                                 </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- KPI STRIP -->
-                    <div class="vf-kpi-strip">
-                        <div class="vf-kpi-card">
-                            <div class="vf-kpi-card__icon">
-                                <i class="fa fa-th-large"/>
-                            </div>
-                            <div class="vf-kpi-card__body">
-                                <span>Total embarcado</span>
-                                <div class="vf-kpi-card__value">
-                                    <field name="total_m2" readonly="1"/>
-                                    <span>m²</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="vf-kpi-card vf-kpi-card--green">
-                            <div class="vf-kpi-card__icon">
-                                <i class="fa fa-check-circle"/>
-                            </div>
-                            <div class="vf-kpi-card__body">
-                                <span>Asignado</span>
-                                <div class="vf-kpi-card__value">
-                                    <field name="allocated_m2" readonly="1"/>
-                                    <span>m²</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="vf-kpi-card vf-kpi-card--blue">
-                            <div class="vf-kpi-card__icon">
-                                <i class="fa fa-line-chart"/>
-                            </div>
-                            <div class="vf-kpi-card__body">
-                                <span>Porcentaje asignado</span>
-                                <div class="vf-kpi-card__value">
-                                    <field name="allocation_percent" readonly="1"/>
-                                    <span>%</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="vf-kpi-card vf-kpi-card--amber">
-                            <div class="vf-kpi-card__icon">
-                                <i class="fa fa-clock-o"/>
-                            </div>
-                            <div class="vf-kpi-card__body">
-                                <span>Última sincronización</span>
-                                <div class="vf-kpi-card__date">
-                                    <field name="shipsgo_last_sync" readonly="1"/>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- DATA CARDS -->
-                    <div class="vf-command-grid">
-
-                        <!-- DOCUMENTOS -->
-                        <div class="vf-panel vf-panel--documents">
-                            <div class="vf-panel__header">
-                                <div>
-                                    <span>01</span>
-                                    <div class="vf-panel-heading">Documentos</div>
-                                </div>
-                                <i class="fa fa-file-text-o"/>
+                    <!-- ════════════════════════════════════════════════
+                         PANEL DE DATOS
+                    ════════════════════════════════════════════════ -->
+                    <div class="vf-data-panel">
+                        <div class="vf-panel-col">
+                            <div class="vf-panel-col__header">
+                                <i class="fa fa-file-text-o"/> Documentos
                             </div>
 
-                            <div class="vf-field-list">
+                            <div class="vf-panel-col__body">
                                 <div class="vf-field-row">
                                     <span class="vf-field-label">OC Sistema</span>
-                                    <div class="vf-field-value">
-                                        <field name="purchase_id" readonly="1"/>
-                                    </div>
+                                    <field name="purchase_id" readonly="1" class="vf-field-val"/>
                                 </div>
 
                                 <div class="vf-field-row">
                                     <span class="vf-field-label">Folio / BL</span>
-                                    <div class="vf-field-value">
-                                        <field name="bl_number" placeholder="Número de BL..."/>
-                                    </div>
+                                    <field name="bl_number" placeholder="Nro. BL..." class="vf-field-val"/>
                                 </div>
 
                                 <div class="vf-field-row">
                                     <span class="vf-field-label">No. Viaje</span>
-                                    <div class="vf-field-value">
-                                        <field name="voyage_number" placeholder="Ej. 0302W..."/>
-                                    </div>
+                                    <field name="voyage_number" placeholder="Ej. 0302W..." class="vf-field-val"/>
                                 </div>
 
                                 <div class="vf-field-row" invisible="not picking_id">
                                     <span class="vf-field-label">Recepción ADM</span>
-                                    <div class="vf-field-value">
-                                        <field name="picking_id" readonly="1"/>
-                                    </div>
+                                    <field name="picking_id" readonly="1" class="vf-field-val"/>
                                 </div>
 
                                 <div class="vf-field-row" invisible="not reception_picking_id">
                                     <span class="vf-field-label">Recepción Física</span>
-                                    <div class="vf-field-value">
-                                        <field name="reception_picking_id" readonly="1"/>
-                                    </div>
+                                    <field name="reception_picking_id" readonly="1" class="vf-field-val"/>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- RUTA -->
-                        <div class="vf-panel vf-panel--route">
-                            <div class="vf-panel__header">
-                                <div>
-                                    <span>02</span>
-                                    <div class="vf-panel-heading">Ruta e itinerario</div>
-                                </div>
-                                <i class="fa fa-calendar"/>
+                        <div class="vf-panel-col">
+                            <div class="vf-panel-col__header">
+                                <i class="fa fa-calendar"/> Itinerario
                             </div>
 
-                            <div class="vf-route-strip">
-                                <div class="vf-route-node">
-                                    <span>ETD</span>
-                                    <div>
-                                        <field name="etd"/>
-                                    </div>
-                                </div>
-
-                                <div class="vf-route-line"/>
-
-                                <div class="vf-route-node vf-route-node--active">
-                                    <span>ETA</span>
-                                    <div>
-                                        <field name="eta"/>
-                                    </div>
-                                </div>
-
-                                <div class="vf-route-line"/>
-
-                                <div class="vf-route-node">
-                                    <span>Llegada</span>
-                                    <div>
-                                        <field name="arrival_date" readonly="1"/>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="vf-field-list">
+                            <div class="vf-panel-col__body">
                                 <div class="vf-field-row">
-                                    <span class="vf-field-label">Días tránsito</span>
-                                    <div class="vf-field-value">
-                                        <field name="transit_days_expected"/>
-                                    </div>
+                                    <span class="vf-field-label">ETD</span>
+                                    <field name="etd" class="vf-field-val"/>
                                 </div>
 
                                 <div class="vf-field-row">
-                                    <span class="vf-field-label">En bodega</span>
-                                    <div class="vf-field-value">
-                                        <field name="arrival_date_bodega" readonly="1"/>
-                                    </div>
+                                    <span class="vf-field-label">ETA</span>
+                                    <field name="eta" class="vf-field-val"/>
+                                </div>
+
+                                <div class="vf-field-row" invisible="not arrival_date">
+                                    <span class="vf-field-label">Llegada Real</span>
+                                    <field name="arrival_date" readonly="1" class="vf-field-val"/>
+                                </div>
+
+                                <div class="vf-field-row">
+                                    <span class="vf-field-label">En Bodega</span>
+                                    <field name="arrival_date_bodega" readonly="1" class="vf-field-val"/>
+                                </div>
+
+                                <div class="vf-field-row">
+                                    <span class="vf-field-label">Días Tránsito</span>
+                                    <field name="transit_days_expected" class="vf-field-val"/>
                                 </div>
                             </div>
                         </div>
 
-                        <!-- BUQUE -->
-                        <div class="vf-panel vf-panel--vessel">
-                            <div class="vf-panel__header">
-                                <div>
-                                    <span>03</span>
-                                    <div class="vf-panel-heading">Buque y contenedores</div>
-                                </div>
-                                <i class="fa fa-cubes"/>
+                        <div class="vf-panel-col">
+                            <div class="vf-panel-col__header">
+                                <i class="fa fa-cube"/> Contenedores
                             </div>
 
-                            <div class="vf-vessel-card">
-                                <div class="vf-vessel-card__icon">
-                                    <i class="fa fa-ship"/>
+                            <div class="vf-panel-col__body">
+                                <div class="vf-containers-display">
+                                    <field name="container_number" readonly="1" class="vf-containers-value"/>
                                 </div>
 
-                                <div class="vf-vessel-card__info">
-                                    <span class="vf-vessel-label">Buque / Barco</span>
-                                    <field name="vessel_name" placeholder="Nombre del buque..."/>
-
-                                    <span class="vf-vessel-label">Naviera</span>
-                                    <field name="shipping_line" placeholder="Naviera..."/>
+                                <div class="vf-hint">
+                                    <i class="fa fa-info-circle"/>
+                                    Se actualizan automáticamente desde las líneas del viaje.
                                 </div>
-                            </div>
-
-                            <div class="vf-container-display">
-                                <span>Contenedores detectados</span>
-                                <div>
-                                    <field name="container_number" readonly="1"/>
-                                </div>
-                            </div>
-
-                            <div class="vf-hint">
-                                <i class="fa fa-info-circle"/>
-                                <span>Se actualizan automáticamente desde las líneas del viaje.</span>
                             </div>
                         </div>
                     </div>
 
-                    <!-- MAPA -->
-                    <div class="vf-map-panel">
-                        <div class="vf-section-title">
-                            <div>
-                                <span class="vf-section-kicker">Tracking</span>
-                                <div class="vf-section-heading">Seguimiento en tiempo real</div>
-                            </div>
-
-                            <div class="vf-sync-meta">
-                                <i class="fa fa-map-marker"/>
-                                <span>ShipsGo / SOM Group</span>
-                            </div>
-                        </div>
-
-                        <div invisible="shipsgo_map_html" class="vf-map-empty">
-                            <div class="vf-map-empty__icon">
-                                <i class="fa fa-map-o"/>
-                            </div>
-                            <div class="vf-map-empty__title">Sin datos de rastreo</div>
-                            <p>Captura un contenedor válido y usa “Sincronizar API” para cargar la ubicación.</p>
-                        </div>
-
-                        <div invisible="not shipsgo_map_html" class="vf-map-canvas">
-                            <field name="shipsgo_map_html"
-                                   widget="html"
-                                   readonly="1"
-                                   class="o_field_html"
-                                   nolabel="1"
-                                   options="{'style-inline': True}"/>
-                        </div>
-
-                        <field name="shipsgo_payload" invisible="1"/>
+                    <!-- ════════════════════════════════════════════════
+                         MAPA
+                    ════════════════════════════════════════════════ -->
+                    <div class="o_horizontal_separator mt-3 mb-2 text-uppercase fw-bold text-muted small">
+                        Seguimiento en Tiempo Real
                     </div>
 
-                    <!-- LOTES -->
-                    <div class="vf-lots-section vf-lots-section--tech">
-                        <div class="vf-section-title vf-section-title--compact">
-                            <div>
-                                <span class="vf-section-kicker">Cargo Manifest</span>
-                                <div class="vf-section-heading">Contenido del embarque</div>
-                                <p>Agrupado por producto · asignación directa por cliente y orden.</p>
+                    <div invisible="shipsgo_map_html"
+                         class="text-center text-muted py-4 vf-map-placeholder"
+                         style="background:#f1f5f9;border:1px solid #e5e7eb;border-radius:8px;min-height:200px;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+                        <i class="fa fa-map-o fa-3x mb-2" title="Mapa de seguimiento"/>
+                        <p>Sin datos de rastreo.</p>
+                        <small>Presione “Sincronizar API” para cargar ubicación.</small>
+                    </div>
+
+                    <div invisible="not shipsgo_map_html"
+                         class="vf-map-wrapper"
+                         style="width:100%;height:420px;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;margin-bottom:8px;">
+                        <field name="shipsgo_map_html"
+                               widget="html"
+                               readonly="1"
+                               class="o_field_html"
+                               nolabel="1"
+                               options="{'style-inline': True}"/>
+                    </div>
+
+                    <field name="shipsgo_payload" invisible="1"/>
+
+                    <div class="d-flex justify-content-between text-muted small px-2 mb-3 vf-sync-footer">
+                        <span>
+                            <i class="fa fa-clock-o me-1"/>
+                            Última act:
+                            <field name="shipsgo_last_sync" readonly="1" class="d-inline"/>
+                        </span>
+                        <span>Powered by SOM Group</span>
+                    </div>
+
+                    <!-- ════════════════════════════════════════════════
+                         LOTES
+                    ════════════════════════════════════════════════ -->
+                    <div class="vf-lots-section">
+                        <div class="vf-lots-section__header">
+                            <div class="vf-lots-section__title">
+                                <i class="fa fa-th-list"/> Contenido del Embarque
+                                <span class="vf-lots-section__subtitle">
+                                    Agrupado por producto · Click para expandir/colapsar
+                                </span>
                             </div>
 
-                            <div class="vf-info-pill">
-                                <i class="fa fa-angle-double-down"/>
-                                <span>Propagación disponible por línea</span>
+                            <div class="vf-lots-section__actions">
+                                <div class="vf-info-tip">
+                                    <i class="fa fa-lightbulb-o"/>
+                                    <span>Click en <strong>↓↓</strong> para propagar cliente/orden.</span>
+                                </div>
                             </div>
                         </div>
 
                         <field name="line_ids" widget="transit_voyage_lines"/>
                     </div>
 
-                    <!-- FOOTER -->
-                    <div class="vf-footer-metrics">
-                        <div class="vf-footer-metric">
-                            <span>Total embarcado</span>
-                            <div class="vf-footer-metric__value">
-                                <field name="total_m2" readonly="1"/>
-                                <span>m²</span>
-                            </div>
+                    <!-- ════════════════════════════════════════════════
+                         MÉTRICAS FINALES
+                    ════════════════════════════════════════════════ -->
+                    <div class="vf-metrics-row">
+                        <div class="vf-metric-card">
+                            <span class="vf-metric-card__label">Total Embarcado</span>
+                            <field name="total_m2" class="vf-metric-card__value" readonly="1"/>
+                            <span class="vf-metric-card__unit">m²</span>
                         </div>
 
-                        <div class="vf-footer-metric vf-footer-metric--green">
-                            <span>Asignado</span>
-                            <div class="vf-footer-metric__value">
-                                <field name="allocated_m2" readonly="1"/>
-                                <span>m²</span>
-                            </div>
+                        <div class="vf-metric-card vf-metric-card--green">
+                            <span class="vf-metric-card__label">Asignado</span>
+                            <field name="allocated_m2" class="vf-metric-card__value" readonly="1"/>
+                            <span class="vf-metric-card__unit">m²</span>
                         </div>
 
-                        <div class="vf-footer-progress">
-                            <span>Asignación general</span>
+                        <div class="vf-metric-card vf-metric-card--progress">
+                            <span class="vf-metric-card__label">Asignación</span>
                             <field name="allocation_percent" widget="progressbar" readonly="1"/>
                         </div>
                     </div>
+                </sheet>
 
-                </div>
-            </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
 
-            <chatter/>
-        </form>
-    </field>
-</record>
+    <!-- ────────────────────────────────────────────────────────────────────────
+         KANBAN NATIVO — fallback
+    ──────────────────────────────────────────────────────────────────────── -->
+    <record id="view_stock_transit_voyage_kanban" model="ir.ui.view">
+        <field name="name">stock.transit.voyage.kanban</field>
+        <field name="model">stock.transit.voyage</field>
+        <field name="arch" type="xml">
+            <kanban default_group_by="custom_status" class="o_kanban_small_column" sample="1">
+                <field name="custom_status"/>
+                <field name="name"/>
+                <field name="purchase_id"/>
+                <field name="eta"/>
+                <field name="allocation_percent"/>
+
+                <templates>
+                    <t t-name="card">
+                        <strong><field name="name"/></strong>
+                        <div><field name="purchase_id"/></div>
+                        <div><field name="eta" widget="remaining_days"/></div>
+                        <div><field name="allocation_percent" widget="progressbar"/></div>
+                    </t>
+                </templates>
+            </kanban>
+        </field>
+    </record>
+
+    <!-- ────────────────────────────────────────────────────────────────────────
+         SÁBANA NATIVA — fallback
+    ──────────────────────────────────────────────────────────────────────── -->
+    <record id="view_transit_sheet_list" model="ir.ui.view">
+        <field name="name">stock.transit.sheet.list</field>
+        <field name="model">stock.transit.sheet</field>
+        <field name="arch" type="xml">
+            <list string="Cronograma" create="0" delete="0" edit="0">
+                <field name="purchase_id" string="OC Sistema"/>
+                <field name="date_order" string="Fecha OC" widget="date"/>
+                <field name="voyage_status" widget="badge"/>
+                <field name="salesperson_id" widget="many2one_avatar_user"/>
+                <field name="order_id" string="Sales Order"/>
+                <field name="partner_id" string="Cliente / Proyecto"/>
+                <field name="proforma_ref" string="Proforma"/>
+                <field name="vendor_id" string="Proveedor"/>
+                <field name="product_id" string="Descripción"/>
+                <field name="product_uom_qty" string="M2 Embarcados" sum="Total"/>
+                <field name="container_number"/>
+                <field name="bl_number" optional="show"/>
+                <field name="etd" widget="date"/>
+                <field name="eta" widget="date"/>
+                <field name="arrival_date" widget="date" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ────────────────────────────────────────────────────────────────────────
+         ACCIONES
+    ──────────────────────────────────────────────────────────────────────── -->
+    <record id="action_stock_transit_voyage_main" model="ir.actions.act_window">
+        <field name="name">Viajes (Lista)</field>
+        <field name="res_model">stock.transit.voyage</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <record id="action_transit_tracking_sheet" model="ir.actions.act_window">
+        <field name="name">Sábana (Nativa)</field>
+        <field name="res_model">stock.transit.sheet</field>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="view_transit_sheet_list"/>
+    </record>
+
+    <record id="action_transit_sheet_custom_client" model="ir.actions.client">
+        <field name="name">Cronograma</field>
+        <field name="tag">action_transit_sheet_custom</field>
+    </record>
+
+    <record id="action_transit_kanban_custom_client" model="ir.actions.client">
+        <field name="name">Viajes y Contenedores</field>
+        <field name="tag">action_transit_kanban_custom</field>
+    </record>
+
+    <!-- ────────────────────────────────────────────────────────────────────────
+         MENÚS
+    ──────────────────────────────────────────────────────────────────────── -->
+    <menuitem id="menu_transit_root"
+              name="Torre de Control"
+              web_icon="stock_transit_allocation,static/description/icon.png"
+              sequence="10"
+              groups="purchase.group_purchase_user"/>
+
+    <menuitem id="menu_transit_sheet"
+              name="Cronograma"
+              parent="menu_transit_root"
+              action="action_transit_sheet_custom_client"
+              sequence="1"/>
+
+    <menuitem id="menu_transit_voyage_dashboard"
+              name="Viajes y Contenedores"
+              parent="menu_transit_root"
+              action="action_transit_kanban_custom_client"
+              sequence="2"/>
+
+    <menuitem id="menu_transit_voyage_list"
+              name="Lista de Viajes"
+              parent="menu_transit_root"
+              action="action_stock_transit_voyage_main"
+              sequence="3"/>
+</odoo>

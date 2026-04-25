@@ -1,48 +1,510 @@
 // ============================================================
 // transit_voyage_form_odoo.scss
-// Control Tower — Formulario tecnológico para stock.transit.voyage
+// Estilos del formulario Odoo del Viaje en Tránsito
+// Hero header + panel de datos 3 columnas + tabla de lotes
+// Capa final: Control Tower Tech Skin estable para Odoo 19
 // ============================================================
 
-$vf-font:             "Inter", "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-$vf-page:             #07111f;
-$vf-page-soft:        #0f172a;
-$vf-card:             #ffffff;
-$vf-card-soft:        #f8fafc;
-$vf-border:           #dbe4ef;
-$vf-border-dark:      rgba(148, 163, 184, .22);
-$vf-text:             #0f172a;
-$vf-muted:            #64748b;
-$vf-soft:             #94a3b8;
-$vf-navy:             #0f172a;
-$vf-blue:             #2563eb;
-$vf-cyan:             #06b6d4;
-$vf-teal:             #14b8a6;
-$vf-green:            #16a34a;
-$vf-amber:            #f59e0b;
-$vf-red:              #ef4444;
-$vf-purple:           #8b5cf6;
-$vf-radius-sm:        8px;
-$vf-radius:           14px;
-$vf-radius-lg:        22px;
-$vf-shadow-card:      0 18px 45px rgba(15, 23, 42, .10);
-$vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
+$vf-font:         'DM Sans', system-ui, sans-serif;
+$vf-bg:           #f8f9fb;
+$vf-white:        #ffffff;
+$vf-border:       #e5e7eb;
+$vf-border-strong:#d1d5db;
+$vf-text:         #1f2937;
+$vf-text-muted:   #9ca3af;
+$vf-text-sub:     #6b7280;
+$vf-accent:       #1e293b;
+$vf-blue:         #2563eb;
+$vf-green:        #16a34a;
+$vf-green-light:  #dcfce7;
+$vf-blue-light:   #dbeafe;
+$vf-shadow:       0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+$vf-shadow-md:    0 4px 12px rgba(0,0,0,.1);
+$vf-radius:       8px;
+$vf-radius-sm:    5px;
+$vf-radius-lg:    12px;
 
-// ============================================================
-// Shell Odoo
-// ============================================================
+// ─── Wrapper del formulario ───────────────────────────────────────────────────
+.o_voyage_form {
+    .o_form_sheet_bg {
+        background: $vf-bg;
+    }
 
-.o_voyage_form_tech {
-    background: #eef3f8;
+    .o_form_sheet {
+        padding:    0 !important;
+        max-width:  100% !important;
+        background: $vf-bg;
+    }
+}
+
+// ─── HERO HEADER ─────────────────────────────────────────────────────────────
+.vf-hero {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    gap:             24px;
+    padding:         24px 28px 20px;
+    background:      linear-gradient(135deg, $vf-accent 0%, #334155 100%);
+    border-bottom:   none;
+    flex-wrap:       wrap;
+
+    &__left {
+        display:     flex;
+        align-items: center;
+        gap:         16px;
+        flex:        1;
+        min-width:   240px;
+    }
+
+    &__icon {
+        font-size:      32px;
+        line-height:    1;
+        filter:         drop-shadow(0 2px 4px rgba(0,0,0,.3));
+        animation:      vf-float 3s ease-in-out infinite;
+    }
+
+    &__identity {
+        display:        flex;
+        flex-direction: column;
+        gap:            4px;
+    }
+
+    &__ref {
+        font-size:   22px;
+        font-weight: 800;
+        color:       #fff;
+        letter-spacing: -.5px;
+        line-height: 1;
+
+        .o_field_widget {
+            .o_input,
+            span {
+                color:       #fff !important;
+                font-weight: 800 !important;
+                font-size:   22px !important;
+                background:  transparent !important;
+                border:      none !important;
+            }
+        }
+    }
+
+    &__vessel,
+    &__naviera {
+        display:     flex;
+        align-items: center;
+        gap:         8px;
+        font-size:   13px;
+        color:       rgba(255,255,255,.7);
+    }
+
+    &__vessel-input,
+    &__naviera-input {
+        .o_input {
+            color:       rgba(255,255,255,.85) !important;
+            background:  rgba(255,255,255,.1) !important;
+            border:      1px solid rgba(255,255,255,.2) !important;
+            border-radius: 4px !important;
+            font-size:   13px !important;
+
+            &::placeholder {
+                color: rgba(255,255,255,.4) !important;
+            }
+
+            &:focus {
+                background: rgba(255,255,255,.18) !important;
+                border-color: rgba(255,255,255,.4) !important;
+                box-shadow: none !important;
+            }
+        }
+
+        span {
+            color: rgba(255,255,255,.85) !important;
+            font-size: 13px !important;
+        }
+    }
+
+    &__sep {
+        color:     rgba(255,255,255,.4);
+        font-size: 16px;
+    }
+
+    &__right {
+        flex-shrink: 0;
+    }
+}
+
+@keyframes vf-float {
+    0%, 100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-4px);
+    }
+}
+
+// ─── KPI Grid ─────────────────────────────────────────────────────────────────
+.vf-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap:     2px;
+    background: rgba(255,255,255,.08);
+    border-radius: $vf-radius;
+    overflow: hidden;
+}
+
+.vf-kpi {
+    display:        flex;
+    flex-direction: column;
+    align-items:    center;
+    gap:            2px;
+    padding:        10px 16px;
+    background:     rgba(255,255,255,.06);
+    transition:     background .15s;
+    min-width:      90px;
+
+    &:hover {
+        background: rgba(255,255,255,.12);
+    }
+
+    &--green {
+        .vf-kpi__number {
+            color: #6ee7b7 !important;
+        }
+    }
+
+    &--blue {
+        .vf-kpi__number {
+            color: #93c5fd !important;
+        }
+    }
+
+    &__label {
+        font-size:  9.5px;
+        font-weight:600;
+        color:      rgba(255,255,255,.5);
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        white-space: nowrap;
+    }
+
+    &__value {
+        display:     flex;
+        align-items: baseline;
+        gap:         2px;
+    }
+
+    &__number {
+        font-size:   18px;
+        font-weight: 800;
+        color:       #fff !important;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -.5px;
+        line-height: 1;
+
+        .o_field_widget span {
+            color:       inherit !important;
+            font-size:   18px !important;
+            font-weight: 800 !important;
+        }
+    }
+
+    &__unit {
+        font-size:  11px;
+        color:      rgba(255,255,255,.5);
+        font-weight:500;
+    }
+
+    .o_transit_progress_container {
+        width:  80px;
+        height: 20px;
+    }
+}
+
+// ─── PANEL DE DATOS 3 COLUMNAS ────────────────────────────────────────────────
+.vf-data-panel {
+    display:               grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap:                   1px;
+    background:            $vf-border;
+    border-bottom:         1px solid $vf-border;
+
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vf-panel-col {
+    background: $vf-white;
+    padding:    0;
+
+    &__header {
+        display:       flex;
+        align-items:   center;
+        gap:           7px;
+        padding:       10px 16px 8px;
+        background:    $vf-bg;
+        border-bottom: 1px solid $vf-border;
+        font-size:     10.5px;
+        font-weight:   700;
+        color:         $vf-text-sub;
+        text-transform:uppercase;
+        letter-spacing:.5px;
+
+        i {
+            color: $vf-blue;
+            font-size: 11px;
+        }
+    }
+
+    &__body {
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap:     6px;
+    }
+}
+
+.vf-field-row {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    min-height:  26px;
+}
+
+.vf-field-label {
+    font-size:   10.5px;
+    font-weight: 600;
+    color:       $vf-text-muted;
+    white-space: nowrap;
+    min-width:   100px;
+    flex-shrink: 0;
+}
+
+.vf-field-val {
+    flex: 1;
+    min-width: 0;
+
+    .o_input,
+    span,
+    a {
+        font-size: 12px !important;
+        color:     $vf-text !important;
+    }
+}
+
+// Display especial para contenedores
+.vf-containers-display {
+    background:    $vf-bg;
+    border:        1px solid $vf-border;
+    border-radius: $vf-radius-sm;
+    padding:       8px 12px;
+    margin-bottom: 6px;
+}
+
+.vf-containers-value {
+    .o_field_widget span {
+        font-family:   'JetBrains Mono', monospace;
+        font-size:     12px !important;
+        color:         $vf-accent !important;
+        font-weight:   600 !important;
+        word-break:    break-all;
+    }
+}
+
+.vf-hint {
+    display:    flex;
+    align-items:center;
+    gap:        5px;
+    font-size:  10px;
+    color:      $vf-text-muted;
+    font-style: italic;
+
+    i {
+        font-size: 10px;
+    }
+}
+
+// ─── SECCIÓN DE LOTES ─────────────────────────────────────────────────────────
+.vf-lots-section {
+    background: $vf-white;
+    border-top: 1px solid $vf-border;
+
+    &__header {
+        display:       flex;
+        align-items:   center;
+        justify-content: space-between;
+        padding:       14px 20px 12px;
+        border-bottom: 1px solid $vf-border;
+        background:    $vf-bg;
+        flex-wrap:     wrap;
+        gap:           10px;
+    }
+
+    &__title {
+        display:     flex;
+        align-items: baseline;
+        gap:         10px;
+        font-size:   13px;
+        font-weight: 700;
+        color:       $vf-text;
+
+        i {
+            color: $vf-blue;
+        }
+    }
+
+    &__subtitle {
+        font-size:   11px;
+        font-weight: 400;
+        color:       $vf-text-muted;
+        font-style:  italic;
+    }
+
+    &__actions {
+        display:     flex;
+        align-items: center;
+        gap:         10px;
+    }
+}
+
+.vf-info-tip {
+    display:       flex;
+    align-items:   center;
+    gap:           6px;
+    background:    $vf-blue-light;
+    border:        1px solid #bfdbfe;
+    border-radius: 20px;
+    padding:       4px 12px;
+    font-size:     10.5px;
+    color:         #1e40af;
+
+    i {
+        color: $vf-blue;
+    }
+
+    strong {
+        font-weight: 700;
+    }
+}
+
+.vf-lines-table {
+    .o_list_renderer {
+        font-size: 11px !important;
+    }
+
+    .o_list_renderer thead th {
+        background:     #f1f5f9 !important;
+        font-size:      9.5px !important;
+        font-weight:    700 !important;
+        color:          $vf-text-sub !important;
+        text-transform: uppercase !important;
+        letter-spacing: .4px !important;
+        padding:        6px 10px !important;
+        border-bottom:  2px solid $vf-border-strong !important;
+    }
+
+    .o_data_row {
+        transition: background .1s;
+
+        &:hover td {
+            background: $vf-bg !important;
+        }
+    }
+
+    .o_data_row.text-success td:first-child {
+        border-left: 3px solid $vf-green !important;
+    }
+}
+
+// ─── FILA DE MÉTRICAS FINALES ─────────────────────────────────────────────────
+.vf-metrics-row {
+    display:    flex;
+    gap:        1px;
+    background: $vf-border;
+    border-top: 1px solid $vf-border;
+    flex-wrap:  wrap;
+}
+
+.vf-metric-card {
+    display:        flex;
+    align-items:    center;
+    gap:            8px;
+    flex:           1;
+    min-width:      180px;
+    padding:        12px 20px;
+    background:     $vf-white;
+
+    &--green {
+        .vf-metric-card__value .o_field_widget span {
+            color: $vf-green !important;
+        }
+    }
+
+    &--progress {
+        flex: 2;
+    }
+
+    &__label {
+        font-size:  10px;
+        font-weight:700;
+        color:      $vf-text-muted;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        white-space:nowrap;
+    }
+
+    &__value {
+        .o_field_widget span {
+            font-size:   16px !important;
+            font-weight: 800 !important;
+            color:       $vf-accent !important;
+            font-variant-numeric: tabular-nums;
+        }
+    }
+
+    &__unit {
+        font-size:   11px;
+        color:       $vf-text-muted;
+    }
+}
+
+// ============================================================================
+// CONTROL TOWER TECH SKIN — capa final segura
+// No modifica XML. Solo mejora apariencia usando clases existentes.
+// ============================================================================
+
+.o_voyage_form {
+    --ct-bg: #eef3f8;
+    --ct-card: #ffffff;
+    --ct-navy: #07111f;
+    --ct-navy-2: #0f172a;
+    --ct-border: #dbe4ef;
+    --ct-border-2: #cbd5e1;
+    --ct-text: #0f172a;
+    --ct-muted: #64748b;
+    --ct-soft: #94a3b8;
+    --ct-blue: #2563eb;
+    --ct-cyan: #06b6d4;
+    --ct-green: #16a34a;
+    --ct-teal: #14b8a6;
+    --ct-amber: #f59e0b;
+    --ct-radius: 18px;
+    --ct-shadow: 0 20px 55px rgba(15, 23, 42, .12);
+    --ct-shadow-dark: 0 28px 80px rgba(2, 6, 23, .32);
+
+    background: var(--ct-bg);
 
     .o_form_sheet_bg {
         background:
-            radial-gradient(circle at 15% 0%, rgba(20, 184, 166, .12), transparent 32%),
-            radial-gradient(circle at 82% 8%, rgba(37, 99, 235, .14), transparent 34%),
-            #eef3f8 !important;
+            radial-gradient(circle at 12% 0%, rgba(6, 182, 212, .18), transparent 32%),
+            radial-gradient(circle at 88% 4%, rgba(37, 99, 235, .16), transparent 34%),
+            var(--ct-bg) !important;
         padding: 0 !important;
     }
 
     .o_form_sheet {
+        width: 100% !important;
         max-width: 100% !important;
         margin: 0 !important;
         padding: 0 !important;
@@ -51,21 +513,18 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
         box-shadow: none !important;
     }
 
-    .o_form_statusbar {
-        border-bottom: 1px solid rgba(148, 163, 184, .25) !important;
-        background: rgba(255, 255, 255, .92) !important;
-    }
-
     header {
         background: rgba(255, 255, 255, .96) !important;
         border-bottom: 1px solid rgba(148, 163, 184, .28) !important;
-        box-shadow: 0 10px 28px rgba(15, 23, 42, .08);
-        z-index: 15;
+        box-shadow: 0 12px 35px rgba(15, 23, 42, .08);
+        z-index: 20;
 
         button {
             border-radius: 999px !important;
             font-weight: 700 !important;
             letter-spacing: -.01em;
+            padding-left: 14px !important;
+            padding-right: 14px !important;
         }
     }
 
@@ -73,58 +532,64 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
     .o_input,
     span,
     a {
-        font-family: $vf-font;
+        font-family: "Inter", "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     }
 }
 
-.vf-page {
-    width: 100%;
-    min-height: 100%;
-    padding: 18px;
+// ─── Hero Tech ────────────────────────────────────────────────────────────────
+.o_voyage_form .vf-hero {
+    margin: 18px 18px 0;
+    min-height: 255px;
+    padding: 28px 30px !important;
+    border-radius: 26px !important;
+    border: 1px solid rgba(148, 163, 184, .24);
     background:
-        linear-gradient(135deg, rgba(15, 23, 42, .05), rgba(15, 23, 42, 0)),
-        #eef3f8;
-    font-family: $vf-font;
-    color: $vf-text;
-}
-
-// ============================================================
-// Hero
-// ============================================================
-
-.vf-hero {
-    display: grid;
-    grid-template-columns: minmax(0, 1.45fr) minmax(360px, .55fr);
-    gap: 18px;
-    min-height: 245px;
-    padding: 24px;
-    border-radius: $vf-radius-lg;
-    background:
-        radial-gradient(circle at 9% 18%, rgba(20, 184, 166, .34), transparent 26%),
-        radial-gradient(circle at 76% 2%, rgba(37, 99, 235, .34), transparent 34%),
-        linear-gradient(135deg, #07111f 0%, #0f172a 48%, #111827 100%);
-    box-shadow: $vf-shadow-strong;
+        radial-gradient(circle at 9% 16%, rgba(20, 184, 166, .38), transparent 30%),
+        radial-gradient(circle at 78% 0%, rgba(37, 99, 235, .36), transparent 38%),
+        linear-gradient(135deg, #07111f 0%, #0f172a 48%, #111827 100%) !important;
+    box-shadow: var(--ct-shadow-dark);
     overflow: hidden;
     position: relative;
-    border: 1px solid rgba(148, 163, 184, .22);
+
+    &::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+            linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+        background-size: 42px 42px;
+        opacity: .7;
+        pointer-events: none;
+    }
+
+    &::after {
+        content: "";
+        position: absolute;
+        width: 360px;
+        height: 360px;
+        right: -130px;
+        top: -130px;
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(6, 182, 212, .28), transparent 66%);
+        pointer-events: none;
+    }
 }
 
-.vf-hero__main {
-    display: flex;
-    align-items: center;
-    gap: 22px;
-    min-width: 0;
+.o_voyage_form .vf-hero__left,
+.o_voyage_form .vf-hero__right {
     position: relative;
     z-index: 1;
 }
 
-.vf-orb {
+.o_voyage_form .vf-hero__icon {
     width: 92px;
     height: 92px;
     border-radius: 28px;
-    display: flex;
+    display: flex !important;
     align-items: center;
     justify-content: center;
+    font-size: 42px !important;
     background:
         linear-gradient(145deg, rgba(34, 211, 238, .24), rgba(37, 99, 235, .18)),
         rgba(255, 255, 255, .07);
@@ -132,406 +597,169 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
     box-shadow:
         0 0 0 8px rgba(6, 182, 212, .06),
         0 24px 45px rgba(0, 0, 0, .32);
-
-    i {
-        color: #e0faff;
-        font-size: 40px;
-        text-shadow: 0 0 22px rgba(34, 211, 238, .85);
-    }
 }
 
-.vf-hero__identity {
-    min-width: 0;
-}
-
-.vf-eyebrow {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    color: #67e8f9;
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: .16em;
-    text-transform: uppercase;
-    margin-bottom: 10px;
-}
-
-.vf-live-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #22c55e;
-    box-shadow: 0 0 0 6px rgba(34, 197, 94, .14), 0 0 18px rgba(34, 197, 94, .9);
-}
-
-.vf-title {
-    margin: 0 0 18px 0;
-    color: #ffffff;
-    font-size: 34px;
-    font-weight: 900;
+.o_voyage_form .vf-hero__ref {
+    color: #ffffff !important;
+    font-size: 34px !important;
+    font-weight: 950 !important;
     letter-spacing: -.045em;
     line-height: 1.05;
+    margin-bottom: 12px;
 
-    .o_field_widget,
-    span,
-    input {
-        color: #ffffff !important;
-        font-size: 34px !important;
-        font-weight: 900 !important;
-        letter-spacing: -.045em !important;
-        line-height: 1.05 !important;
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-}
-
-.vf-hero__chips {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-}
-
-.vf-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 7px;
-    min-height: 34px;
-    padding: 7px 11px;
-    border-radius: 999px;
-    background: rgba(255, 255, 255, .10);
-    border: 1px solid rgba(226, 232, 240, .18);
-    color: #dbeafe;
-    box-shadow: 0 8px 18px rgba(0, 0, 0, .16);
-    max-width: 100%;
-
-    i {
-        color: #67e8f9;
-        font-size: 12px;
-    }
-
-    > span {
-        color: rgba(226, 232, 240, .72);
-        font-size: 9.5px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-    }
-
-    .o_field_widget,
     .o_field_widget span,
     .o_input {
-        color: #f8fafc !important;
-        font-size: 12px !important;
-        font-weight: 800 !important;
+        color: #ffffff !important;
+        font-size: 34px !important;
+        font-weight: 950 !important;
+        letter-spacing: -.045em !important;
         background: transparent !important;
-        border: none !important;
+        border: 0 !important;
         padding: 0 !important;
-        min-width: 0 !important;
+    }
+}
+
+.o_voyage_form .vf-hero__vessel {
+    flex-wrap: wrap;
+
+    .o_field_widget span,
+    .o_input {
+        color: #e0f2fe !important;
+        background: rgba(255, 255, 255, .10) !important;
+        border: 1px solid rgba(226, 232, 240, .20) !important;
+        border-radius: 999px !important;
+        padding: 7px 12px !important;
+        font-size: 12px !important;
+        font-weight: 700 !important;
+        min-height: 32px;
+        box-shadow: none !important;
     }
 
     .o_input::placeholder {
         color: rgba(226, 232, 240, .45) !important;
     }
-
-    &--dark {
-        background: rgba(15, 23, 42, .50);
-        border-color: rgba(103, 232, 249, .22);
-    }
 }
 
-.vf-hero__side {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    min-width: 0;
-}
-
-.vf-status-panel {
-    padding: 16px;
-    border-radius: 18px;
-    background: rgba(255, 255, 255, .10);
+// ─── KPIs Tech ────────────────────────────────────────────────────────────────
+.o_voyage_form .vf-kpi-grid {
+    border-radius: 20px !important;
+    background: rgba(255, 255, 255, .09) !important;
     border: 1px solid rgba(226, 232, 240, .16);
     box-shadow: 0 18px 45px rgba(0, 0, 0, .24);
+    overflow: hidden;
+}
+
+.o_voyage_form .vf-kpi {
+    min-width: 122px !important;
+    min-height: 82px;
+    padding: 15px 17px !important;
+    background: rgba(15, 23, 42, .32) !important;
+    border-right: 1px solid rgba(226, 232, 240, .10);
+
+    &:last-child {
+        border-right: 0;
+    }
 
     &__label {
-        color: rgba(226, 232, 240, .70);
-        font-size: 10px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .12em;
-        margin-bottom: 10px;
-    }
-
-    .o_transit_progress_container {
-        width: 100% !important;
-        min-height: 46px;
-    }
-}
-
-.vf-mini-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 10px;
-}
-
-.vf-mini-stat {
-    min-height: 86px;
-    padding: 12px;
-    border-radius: 16px;
-    background: rgba(15, 23, 42, .42);
-    border: 1px solid rgba(148, 163, 184, .22);
-
-    span {
-        display: block;
-        color: rgba(226, 232, 240, .66);
-        font-size: 9px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .10em;
-        margin-bottom: 7px;
-    }
-
-    strong,
-    .o_field_widget span {
-        color: #ffffff !important;
-        font-size: 19px !important;
+        color: rgba(226, 232, 240, .68) !important;
+        font-size: 9px !important;
         font-weight: 900 !important;
+        letter-spacing: .12em !important;
+    }
+
+    &__number,
+    &__number .o_field_widget span {
+        color: #ffffff !important;
+        font-size: 21px !important;
+        font-weight: 950 !important;
         letter-spacing: -.04em;
     }
 
-    em {
-        color: rgba(226, 232, 240, .58);
-        font-size: 10px;
-        font-style: normal;
-        margin-left: 2px;
+    &__unit {
+        color: rgba(226, 232, 240, .58) !important;
+        font-weight: 800;
     }
 
-    &--success strong,
-    &--success .o_field_widget span {
+    &--green .vf-kpi__number,
+    &--green .vf-kpi__number .o_field_widget span {
         color: #86efac !important;
     }
 
-    &--blue strong,
-    &--blue .o_field_widget span {
+    &--blue .vf-kpi__number,
+    &--blue .vf-kpi__number .o_field_widget span {
         color: #93c5fd !important;
     }
+
+    .o_transit_progress_container {
+        width: 100px !important;
+        height: 30px !important;
+        filter: drop-shadow(0 0 16px rgba(6, 182, 212, .35));
+    }
 }
 
-// ============================================================
-// KPI strip
-// ============================================================
-
-.vf-kpi-strip {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 14px;
-    margin-top: 16px;
+// ─── Data Panel Tech ──────────────────────────────────────────────────────────
+.o_voyage_form .vf-data-panel {
+    margin: 16px 18px 0;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid var(--ct-border) !important;
+    background: var(--ct-border) !important;
+    box-shadow: var(--ct-shadow);
 }
 
-.vf-kpi-card {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    min-height: 96px;
-    padding: 16px;
-    border-radius: $vf-radius;
-    background: $vf-card;
-    border: 1px solid $vf-border;
-    box-shadow: $vf-shadow-card;
+.o_voyage_form .vf-panel-col {
+    background:
+        linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.98)) !important;
+}
 
-    &__icon {
-        width: 46px;
-        height: 46px;
-        border-radius: 15px;
-        display: flex;
+.o_voyage_form .vf-panel-col__header {
+    min-height: 54px;
+    background:
+        linear-gradient(135deg, #ffffff, #f8fafc) !important;
+    border-bottom: 1px solid #e2e8f0 !important;
+    color: var(--ct-text) !important;
+    font-size: 11px !important;
+    font-weight: 950 !important;
+    letter-spacing: .09em !important;
+
+    i {
+        width: 32px;
+        height: 32px;
+        border-radius: 12px;
+        display: inline-flex;
         align-items: center;
         justify-content: center;
+        color: var(--ct-blue) !important;
         background: #eff6ff;
-        color: $vf-blue;
-        font-size: 18px;
-        flex-shrink: 0;
-    }
-
-    &__body {
-        min-width: 0;
-
-        span {
-            display: block;
-            color: $vf-muted;
-            font-size: 10px;
-            font-weight: 800;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            margin-bottom: 5px;
-        }
-
-        strong,
-        .o_field_widget span {
-            color: $vf-navy !important;
-            font-size: 22px !important;
-            font-weight: 900 !important;
-            letter-spacing: -.04em;
-        }
-
-        em {
-            color: $vf-muted;
-            font-size: 12px;
-            font-style: normal;
-            font-weight: 700;
-            margin-left: 2px;
-        }
-    }
-
-    &__date {
-        display: block;
-        line-height: 1.25;
-
-        .o_field_widget span {
-            font-size: 12px !important;
-            letter-spacing: 0 !important;
-            color: $vf-text !important;
-        }
-    }
-
-    &--green {
-        .vf-kpi-card__icon {
-            background: #ecfdf5;
-            color: $vf-green;
-        }
-
-        .vf-kpi-card__body strong,
-        .vf-kpi-card__body .o_field_widget span {
-            color: $vf-green !important;
-        }
-    }
-
-    &--blue {
-        .vf-kpi-card__icon {
-            background: #eff6ff;
-            color: $vf-blue;
-        }
-
-        .vf-kpi-card__body strong,
-        .vf-kpi-card__body .o_field_widget span {
-            color: $vf-blue !important;
-        }
-    }
-
-    &--amber {
-        .vf-kpi-card__icon {
-            background: #fffbeb;
-            color: $vf-amber;
-        }
+        margin-right: 4px;
     }
 }
 
-// ============================================================
-// Panels
-// ============================================================
-
-.vf-command-grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 14px;
-    margin-top: 16px;
+.o_voyage_form .vf-panel-col__body {
+    padding: 16px !important;
+    gap: 10px !important;
 }
 
-.vf-panel {
-    min-height: 300px;
-    padding: 18px;
-    border-radius: $vf-radius;
-    background:
-        linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(248, 250, 252, .96));
-    border: 1px solid $vf-border;
-    box-shadow: $vf-shadow-card;
-
-    &__header {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-        padding-bottom: 14px;
-        margin-bottom: 14px;
-        border-bottom: 1px solid #e2e8f0;
-
-        span {
-            display: inline-flex;
-            color: $vf-cyan;
-            font-size: 10px;
-            font-weight: 900;
-            letter-spacing: .14em;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-        }
-
-        h3 {
-            margin: 0;
-            color: $vf-text;
-            font-size: 16px;
-            font-weight: 900;
-            letter-spacing: -.03em;
-        }
-
-        > i {
-            width: 38px;
-            height: 38px;
-            border-radius: 13px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #eff6ff;
-            color: $vf-blue;
-            font-size: 16px;
-        }
-    }
-
-    &--documents .vf-panel__header > i {
-        background: #eef2ff;
-        color: $vf-purple;
-    }
-
-    &--route .vf-panel__header > i {
-        background: #ecfeff;
-        color: $vf-cyan;
-    }
-
-    &--vessel .vf-panel__header > i {
-        background: #ecfdf5;
-        color: $vf-teal;
-    }
-}
-
-.vf-field-list {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-}
-
-.vf-field-row {
-    display: grid;
-    grid-template-columns: 128px minmax(0, 1fr);
+.o_voyage_form .vf-field-row {
+    min-height: 40px !important;
+    display: grid !important;
+    grid-template-columns: 120px minmax(0, 1fr);
     gap: 12px;
     align-items: center;
-    min-height: 38px;
-
-    label {
-        color: $vf-muted;
-        font-size: 10px;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: .08em;
-        margin: 0;
-    }
 }
 
-.vf-field-value {
+.o_voyage_form .vf-field-label {
+    color: var(--ct-muted) !important;
+    font-size: 10px !important;
+    font-weight: 900 !important;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+}
+
+.o_voyage_form .vf-field-val {
     min-width: 0;
     padding: 8px 10px;
-    border-radius: 10px;
+    border-radius: 12px;
     background: #f8fafc;
     border: 1px solid #e2e8f0;
 
@@ -539,315 +767,66 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
     .o_field_widget span,
     .o_input,
     a {
-        color: $vf-text !important;
+        color: var(--ct-text) !important;
         font-size: 12px !important;
         font-weight: 750 !important;
         background: transparent !important;
         border: none !important;
-        padding: 0 !important;
         box-shadow: none !important;
-        min-width: 0 !important;
-    }
-
-    .o_input::placeholder {
-        color: #94a3b8 !important;
+        padding: 0 !important;
     }
 
     &:focus-within {
+        background: #ffffff;
         border-color: rgba(37, 99, 235, .45);
         box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
-        background: #ffffff;
     }
 }
 
-// ============================================================
-// Route strip
-// ============================================================
+// ─── Contenedores Tech ────────────────────────────────────────────────────────
+.o_voyage_form .vf-containers-display {
+    padding: 14px !important;
+    border-radius: 18px !important;
+    background: #0f172a !important;
+    border: 1px solid rgba(148, 163, 184, .26) !important;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
 
-.vf-route-strip {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) 28px minmax(0, 1fr) 28px minmax(0, 1fr);
-    align-items: center;
-    gap: 5px;
-    margin-bottom: 18px;
-    padding: 12px;
-    border-radius: 16px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-}
-
-.vf-route-node {
-    min-height: 74px;
-    padding: 10px;
-    border-radius: 14px;
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-
-    span {
-        display: block;
-        color: $vf-muted;
-        font-size: 9px;
-        font-weight: 900;
-        letter-spacing: .10em;
-        text-transform: uppercase;
-        margin-bottom: 8px;
-    }
-
-    strong,
-    .o_field_widget span,
-    .o_input {
-        color: $vf-text !important;
-        font-size: 12px !important;
-        font-weight: 850 !important;
-        background: transparent !important;
-        border: none !important;
-        padding: 0 !important;
-    }
-
-    &--active {
-        border-color: rgba(6, 182, 212, .45);
-        box-shadow: 0 0 0 3px rgba(6, 182, 212, .08);
-
-        span {
-            color: $vf-cyan;
-        }
-    }
-}
-
-.vf-route-line {
-    height: 2px;
-    background: linear-gradient(90deg, rgba(6, 182, 212, .2), rgba(37, 99, 235, .65));
-    border-radius: 99px;
-}
-
-// ============================================================
-// Vessel card / containers
-// ============================================================
-
-.vf-vessel-card {
-    display: flex;
-    gap: 14px;
-    padding: 14px;
-    border-radius: 16px;
-    background:
-        radial-gradient(circle at 20% 15%, rgba(20, 184, 166, .14), transparent 44%),
-        #f8fafc;
-    border: 1px solid #e2e8f0;
-    margin-bottom: 12px;
-
-    &__icon {
-        width: 48px;
-        height: 48px;
-        border-radius: 16px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        color: $vf-teal;
-        background: #ecfdf5;
-        font-size: 20px;
-        flex-shrink: 0;
-    }
-
-    &__info {
-        flex: 1;
-        min-width: 0;
-
-        label {
-            display: block;
-            color: $vf-muted;
-            font-size: 9px;
-            font-weight: 900;
-            text-transform: uppercase;
-            letter-spacing: .08em;
-            margin: 0 0 4px;
-        }
-
-        .o_field_widget,
-        .o_field_widget span,
-        .o_input {
-            width: 100%;
-            color: $vf-text !important;
-            font-size: 13px !important;
-            font-weight: 850 !important;
-            background: transparent !important;
-            border: none !important;
-            padding: 0 0 8px 0 !important;
-            margin-bottom: 6px;
-            box-shadow: none !important;
-        }
-
-        .o_input::placeholder {
-            color: #94a3b8 !important;
-            font-weight: 600 !important;
-        }
-    }
-}
-
-.vf-container-display {
-    padding: 12px;
-    border-radius: 16px;
-    background: #0f172a;
-    border: 1px solid rgba(148, 163, 184, .25);
-    margin-bottom: 10px;
-
-    span {
-        display: block;
-        color: rgba(226, 232, 240, .60);
-        font-size: 9px;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: .10em;
-        margin-bottom: 7px;
-    }
-
-    strong,
     .o_field_widget span {
         color: #67e8f9 !important;
         font-size: 13px !important;
-        font-weight: 900 !important;
+        font-weight: 950 !important;
         font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace !important;
         word-break: break-word;
     }
 }
 
-.vf-hint {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    color: $vf-muted;
-    font-size: 11px;
-    line-height: 1.45;
+.o_voyage_form .vf-hint {
+    color: var(--ct-muted) !important;
+    font-size: 11px !important;
 
     i {
-        color: $vf-cyan;
+        color: var(--ct-cyan) !important;
     }
 }
 
-// ============================================================
-// Section titles
-// ============================================================
-
-.vf-section-title {
-    display: flex;
-    align-items: flex-end;
-    justify-content: space-between;
-    gap: 16px;
-    margin-bottom: 14px;
-
-    h2 {
-        margin: 0;
-        color: $vf-text;
-        font-size: 19px;
-        font-weight: 950;
-        letter-spacing: -.04em;
-    }
-
-    p {
-        margin: 4px 0 0;
-        color: $vf-muted;
-        font-size: 12px;
-    }
-
-    &--compact {
-        align-items: center;
-    }
+// ─── Separadores / Mapa Tech ──────────────────────────────────────────────────
+.o_voyage_form .o_horizontal_separator {
+    margin: 18px 18px 12px !important;
+    padding: 0 !important;
+    color: var(--ct-text) !important;
+    font-size: 12px !important;
+    font-weight: 950 !important;
+    letter-spacing: .12em !important;
 }
 
-.vf-section-kicker {
-    display: block;
-    color: $vf-cyan;
-    font-size: 10px;
-    font-weight: 950;
-    text-transform: uppercase;
-    letter-spacing: .14em;
-    margin-bottom: 4px;
-}
-
-.vf-sync-meta,
-.vf-info-pill {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-    padding: 8px 11px;
-    border-radius: 999px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    color: $vf-muted;
-    font-size: 11px;
-    font-weight: 800;
-
-    i {
-        color: $vf-cyan;
-    }
-}
-
-// ============================================================
-// Map
-// ============================================================
-
-.vf-map-panel {
-    margin-top: 16px;
-    padding: 18px;
-    border-radius: $vf-radius;
-    background: $vf-card;
-    border: 1px solid $vf-border;
-    box-shadow: $vf-shadow-card;
-}
-
-.vf-map-empty {
-    min-height: 260px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border-radius: 18px;
-    border: 1px dashed rgba(37, 99, 235, .35);
-    background:
-        radial-gradient(circle at 50% 20%, rgba(6, 182, 212, .14), transparent 35%),
-        linear-gradient(135deg, #f8fafc, #eff6ff);
-    color: $vf-muted;
-    text-align: center;
-
-    &__icon {
-        width: 64px;
-        height: 64px;
-        border-radius: 20px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background: #ffffff;
-        border: 1px solid #dbeafe;
-        box-shadow: 0 12px 26px rgba(37, 99, 235, .10);
-
-        i {
-            color: $vf-blue;
-            font-size: 26px;
-        }
-    }
-
-    h3 {
-        margin: 6px 0 0;
-        color: $vf-text;
-        font-size: 16px;
-        font-weight: 900;
-    }
-
-    p {
-        max-width: 420px;
-        margin: 0;
-        font-size: 12px;
-        line-height: 1.55;
-    }
-}
-
-.vf-map-canvas {
-    height: 500px;
-    border-radius: 18px;
-    overflow: hidden;
-    border: 1px solid #dbeafe;
-    background: #0f172a;
-    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .08);
+.o_voyage_form .vf-map-wrapper {
+    height: 500px !important;
+    margin-left: 18px;
+    margin-right: 18px;
+    border-radius: 22px !important;
+    border: 1px solid #dbeafe !important;
+    background: #0f172a !important;
+    box-shadow: var(--ct-shadow);
 
     .o_field_html,
     .o_field_widget,
@@ -860,180 +839,203 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
     }
 }
 
-// ============================================================
-// Lots section / embedded OWL widget override
-// ============================================================
+.o_voyage_form .vf-map-placeholder {
+    margin-left: 18px;
+    margin-right: 18px;
+    min-height: 280px !important;
+    border-radius: 22px !important;
+    border: 1px dashed rgba(37, 99, 235, .35) !important;
+    background:
+        radial-gradient(circle at 50% 20%, rgba(6, 182, 212, .14), transparent 35%),
+        linear-gradient(135deg, #f8fafc, #eff6ff) !important;
+    color: var(--ct-muted) !important;
+    box-shadow: var(--ct-shadow);
 
-.vf-lots-section--tech {
-    margin-top: 16px;
-    padding: 18px;
-    border-radius: $vf-radius;
-    background: $vf-card;
-    border: 1px solid $vf-border;
-    box-shadow: $vf-shadow-card;
-
-    .o_field_widget {
-        width: 100%;
+    i {
+        color: var(--ct-blue) !important;
     }
 
-    .tvl-root {
-        border-radius: 18px !important;
-        overflow: hidden !important;
-        border: 1px solid #dbe4ef !important;
-        box-shadow: 0 18px 42px rgba(15, 23, 42, .08) !important;
-    }
-
-    .tvl-toolbar {
-        background:
-            linear-gradient(135deg, #0f172a, #111827) !important;
-        border-bottom: 1px solid rgba(148, 163, 184, .22) !important;
-        color: #e2e8f0 !important;
-
-        .tvl-toolbar__stat,
-        .tvl-toolbar__pct {
-            color: rgba(226, 232, 240, .78) !important;
-        }
-
-        strong {
-            color: #ffffff !important;
-        }
-    }
-
-    .tvl-group__header {
-        background: #f8fafc !important;
-    }
-
-    .tvl-grand-total {
-        background: linear-gradient(135deg, #0f172a, #064e3b) !important;
-    }
-}
-
-// ============================================================
-// Footer metrics
-// ============================================================
-
-.vf-footer-metrics {
-    display: grid;
-    grid-template-columns: minmax(200px, .8fr) minmax(200px, .8fr) minmax(280px, 1.4fr);
-    gap: 12px;
-    margin-top: 16px;
-}
-
-.vf-footer-metric,
-.vf-footer-progress {
-    padding: 16px;
-    border-radius: $vf-radius;
-    background: $vf-card;
-    border: 1px solid $vf-border;
-    box-shadow: $vf-shadow-card;
-
-    span {
-        display: block;
-        color: $vf-muted;
-        font-size: 10px;
+    p {
+        color: var(--ct-text) !important;
         font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: .09em;
-        margin-bottom: 7px;
+        font-size: 16px;
+        margin-bottom: 4px;
     }
 
-    strong,
-    .o_field_widget span {
-        color: $vf-text !important;
+    small {
+        color: var(--ct-muted) !important;
+        font-size: 12px;
+    }
+}
+
+.o_voyage_form .vf-sync-footer {
+    margin-left: 18px;
+    margin-right: 18px;
+    padding: 10px 14px !important;
+    border-radius: 14px;
+    background: rgba(255,255,255,.75);
+    border: 1px solid #e2e8f0;
+}
+
+// ─── Lotes Tech ───────────────────────────────────────────────────────────────
+.o_voyage_form .vf-lots-section {
+    margin: 16px 18px 0;
+    padding: 0;
+    border-radius: 22px !important;
+    background: #ffffff !important;
+    border: 1px solid var(--ct-border) !important;
+    box-shadow: var(--ct-shadow);
+    overflow: hidden;
+}
+
+.o_voyage_form .vf-lots-section__header {
+    padding: 18px 20px !important;
+    background:
+        linear-gradient(135deg, #0f172a, #111827) !important;
+    border-bottom: 1px solid rgba(148, 163, 184, .22) !important;
+}
+
+.o_voyage_form .vf-lots-section__title {
+    color: #ffffff !important;
+    font-size: 17px !important;
+    font-weight: 950 !important;
+    letter-spacing: -.03em;
+
+    i {
+        color: #67e8f9 !important;
+    }
+}
+
+.o_voyage_form .vf-lots-section__subtitle {
+    color: rgba(226, 232, 240, .62) !important;
+}
+
+.o_voyage_form .vf-info-tip {
+    background: rgba(6, 182, 212, .12) !important;
+    border-color: rgba(103, 232, 249, .28) !important;
+    color: #cffafe !important;
+}
+
+.o_voyage_form .vf-lots-section .tvl-root {
+    border-radius: 0 !important;
+    overflow: hidden !important;
+    border: 0 !important;
+    box-shadow: none !important;
+}
+
+.o_voyage_form .vf-lots-section .tvl-toolbar {
+    background:
+        linear-gradient(135deg, #0f172a, #111827) !important;
+    border-bottom: 1px solid rgba(148, 163, 184, .22) !important;
+    color: #e2e8f0 !important;
+}
+
+.o_voyage_form .vf-lots-section .tvl-toolbar__stat,
+.o_voyage_form .vf-lots-section .tvl-toolbar__pct {
+    color: rgba(226, 232, 240, .78) !important;
+}
+
+.o_voyage_form .vf-lots-section .tvl-toolbar strong {
+    color: #ffffff !important;
+}
+
+.o_voyage_form .vf-lots-section .tvl-group__header {
+    background: #f8fafc !important;
+}
+
+.o_voyage_form .vf-lots-section .tvl-grand-total {
+    background:
+        linear-gradient(135deg, #0f172a, #064e3b) !important;
+}
+
+// ─── Métricas inferiores Tech ─────────────────────────────────────────────────
+.o_voyage_form .vf-metrics-row {
+    margin: 16px 18px 18px;
+    border-radius: 22px;
+    overflow: hidden;
+    border: 1px solid var(--ct-border);
+    background: var(--ct-border) !important;
+    box-shadow: var(--ct-shadow);
+}
+
+.o_voyage_form .vf-metric-card {
+    min-height: 86px !important;
+    background: #ffffff !important;
+
+    &__label {
+        color: var(--ct-muted) !important;
+        font-weight: 950 !important;
+        letter-spacing: .09em !important;
+    }
+
+    &__value .o_field_widget span {
+        color: var(--ct-text) !important;
         font-size: 20px !important;
         font-weight: 950 !important;
         letter-spacing: -.04em;
     }
 
-    em {
-        color: $vf-muted;
-        font-style: normal;
-        font-size: 12px;
-        font-weight: 800;
+    &--green .vf-metric-card__value .o_field_widget span {
+        color: var(--ct-green) !important;
     }
 }
 
-.vf-footer-metric--green {
-    strong,
-    .o_field_widget span {
-        color: $vf-green !important;
-    }
-}
-
-.vf-footer-progress {
-    .o_field_widget {
-        margin-top: 10px;
-    }
-}
-
-// ============================================================
-// Responsive
-// ============================================================
-
+// ─── Responsive ───────────────────────────────────────────────────────────────
 @media (max-width: 1320px) {
-    .vf-hero {
-        grid-template-columns: 1fr;
+    .o_voyage_form .vf-hero {
+        flex-direction: column;
+        align-items: stretch;
     }
 
-    .vf-command-grid,
-    .vf-kpi-strip {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+    .o_voyage_form .vf-kpi-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
     }
 
-    .vf-footer-metrics {
-        grid-template-columns: 1fr;
+    .o_voyage_form .vf-data-panel {
+        grid-template-columns: 1fr !important;
     }
 }
 
 @media (max-width: 760px) {
-    .vf-page {
-        padding: 10px;
+    .o_voyage_form .vf-hero,
+    .o_voyage_form .vf-data-panel,
+    .o_voyage_form .vf-lots-section,
+    .o_voyage_form .vf-metrics-row,
+    .o_voyage_form .o_horizontal_separator,
+    .o_voyage_form .vf-map-wrapper,
+    .o_voyage_form .vf-map-placeholder,
+    .o_voyage_form .vf-sync-footer {
+        margin-left: 10px;
+        margin-right: 10px;
     }
 
-    .vf-hero {
-        padding: 18px;
-        border-radius: 18px;
+    .o_voyage_form .vf-hero {
+        padding: 18px !important;
+        border-radius: 20px !important;
     }
 
-    .vf-hero__main {
+    .o_voyage_form .vf-hero__left {
         flex-direction: column;
         align-items: flex-start;
     }
 
-    .vf-title,
-    .vf-title .o_field_widget span,
-    .vf-title .o_input {
+    .o_voyage_form .vf-hero__ref,
+    .o_voyage_form .vf-hero__ref .o_field_widget span,
+    .o_voyage_form .vf-hero__ref .o_input {
         font-size: 25px !important;
     }
 
-    .vf-mini-grid,
-    .vf-command-grid,
-    .vf-kpi-strip {
-        grid-template-columns: 1fr;
+    .o_voyage_form .vf-kpi-grid {
+        grid-template-columns: 1fr !important;
     }
 
-    .vf-field-row {
-        grid-template-columns: 1fr;
+    .o_voyage_form .vf-field-row {
+        grid-template-columns: 1fr !important;
         gap: 5px;
     }
 
-    .vf-route-strip {
-        grid-template-columns: 1fr;
-    }
-
-    .vf-route-line {
-        height: 18px;
-        width: 2px;
-        justify-self: center;
-    }
-
-    .vf-section-title {
-        align-items: flex-start;
-        flex-direction: column;
-    }
-
-    .vf-map-canvas {
-        height: 360px;
+    .o_voyage_form .vf-map-wrapper {
+        height: 360px !important;
 
         .o_field_html,
         .o_field_widget,
@@ -1041,65 +1043,5 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
         > div {
             min-height: 360px !important;
         }
-    }
-}
-
-
-
-/* ============================================================
-   Compatibilidad XML segura: títulos sin h1/h2/h3/label/section
-   ============================================================ */
-
-.o_voyage_form_tech {
-    .vf-panel-heading {
-        margin: 0;
-        color: #0f172a;
-        font-size: 16px;
-        font-weight: 900;
-        letter-spacing: -0.03em;
-        line-height: 1.15;
-    }
-
-    .vf-section-heading {
-        margin: 0;
-        color: #0f172a;
-        font-size: 19px;
-        font-weight: 950;
-        letter-spacing: -0.04em;
-        line-height: 1.15;
-    }
-
-    .vf-field-label,
-    .vf-vessel-label {
-        color: #64748b;
-        font-size: 10px;
-        font-weight: 900;
-        text-transform: uppercase;
-        letter-spacing: 0.08em;
-    }
-
-    .vf-mini-stat__value,
-    .vf-kpi-card__value,
-    .vf-footer-metric__value {
-        display: flex;
-        align-items: baseline;
-        gap: 4px;
-    }
-
-    .vf-mini-stat__value .o_field_widget span,
-    .vf-mini-stat__value .o_input,
-    .vf-kpi-card__value .o_field_widget span,
-    .vf-kpi-card__value .o_input,
-    .vf-footer-metric__value .o_field_widget span,
-    .vf-footer-metric__value .o_input {
-        font-weight: 950 !important;
-        letter-spacing: -0.04em;
-    }
-
-    .vf-map-empty__title {
-        margin-top: 6px;
-        color: #0f172a;
-        font-size: 16px;
-        font-weight: 900;
     }
 }
