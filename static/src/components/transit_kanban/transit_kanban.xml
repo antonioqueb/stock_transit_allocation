@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+<t t-name="stock_transit_allocation.TransitKanbanView" owl="1">
+<div class="tk-root">
+
+    <!-- ══════════════════════════════════════════════════════
+         TOOLBAR
+    ══════════════════════════════════════════════════════ -->
+    <div class="tk-toolbar">
+        <div class="tk-toolbar__left">
+            <i class="fa fa-ship tk-toolbar__icon"/>
+            <span class="tk-toolbar__title">Viajes y Contenedores</span>
+            <span class="tk-badge-count" t-esc="totalVoyages"/>
+        </div>
+
+        <div class="tk-search-wrap">
+            <i class="fa fa-search tk-search-icon"/>
+            <input class="tk-search-input"
+                   type="text"
+                   placeholder="Buscar viaje, OC, BL, buque, contenedor..."
+                   t-att-value="state.searchText"
+                   t-on-input="onSearch"/>
+            <button class="tk-search-clear" t-if="state.searchText" t-on-click="clearSearch">
+                <i class="fa fa-times"/>
+            </button>
+        </div>
+
+        <div class="tk-toolbar__right">
+            <button class="tk-btn-refresh" t-on-click="refresh" title="Actualizar">
+                <i t-attf-class="fa fa-refresh #{state.loading ? 'fa-spin' : ''}"/>
+            </button>
+            <button class="tk-btn-new" t-on-click="createVoyage">
+                <i class="fa fa-plus"/> Nuevo Viaje
+            </button>
+        </div>
+    </div>
+
+    <!-- LOADING -->
+    <div class="tk-loading" t-if="state.loading">
+        <i class="fa fa-spinner fa-spin fa-2x"/>
+        <span>Cargando viajes...</span>
+    </div>
+
+    <!-- ══════════════════════════════════════════════════════
+         BOARD
+    ══════════════════════════════════════════════════════ -->
+    <div class="tk-board" t-elif="!state.loading">
+        <t t-foreach="STAGES" t-as="stage" t-key="stage.key">
+            <t t-set="cards"    t-value="colCards(stage.key)"/>
+            <t t-set="total"    t-value="colTotal(stage.key)"/>
+            <t t-set="collapsed" t-value="isCollapsed(stage.key)"/>
+
+            <div t-attf-class="tk-column #{isDropTarget(stage.key) ? 'tk-column--drop-target' : ''}"
+                 t-attf-style="--col-color: #{stage.color}; --col-bg: #{stage.bg}; --col-border: #{stage.border};"
+                 t-on-dragenter="(ev) => this.onColumnDragEnter(stage.key, ev)"
+                 t-on-dragover="(ev) => this.onColumnDragOver(stage.key, ev)"
+                 t-on-dragleave="(ev) => this.onColumnDragLeave(stage.key, ev)"
+                 t-on-drop="(ev) => this.onColumnDrop(stage.key, ev)">
+
+                <!-- Cabecera de columna -->
+                <div class="tk-col-header" t-on-click="() => this.toggleCollapse(stage.key)">
+                    <div class="tk-col-header__top">
+                        <div class="tk-col-indicator"/>
+                        <i t-attf-class="fa #{stage.icon} tk-col-icon"/>
+                        <span class="tk-col-title" t-esc="stage.label"/>
+                        <span class="tk-col-count" t-esc="total.count"/>
+                        <i t-attf-class="fa #{collapsed ? 'fa-chevron-down' : 'fa-chevron-up'} tk-col-chevron"/>
+                    </div>
+                    <div class="tk-col-header__sub">
+                        <span class="tk-col-sublabel" t-esc="stage.sublabel"/>
+                        <span t-if="total.m2 > 0" class="tk-col-m2">
+                            <t t-esc="fmtNum(total.m2)"/> m²
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Cards -->
+                <div t-if="!collapsed" class="tk-cards">
+
+                    <!-- Empty state -->
+                    <div t-if="cards.length === 0" class="tk-empty-col">
+                        <i class="fa fa-inbox tk-empty-col__icon"/>
+                        <span>Sin viajes</span>
+                    </div>
+
+                    <t t-foreach="cards" t-as="card" t-key="card.id">
+                        <div t-attf-class="tk-card #{isDragging(card.id) ? 'tk-card--dragging' : ''} #{isUpdating(card.id) ? 'tk-card--updating' : ''}"
+                             draggable="true"
+                             t-att-aria-grabbed="isDragging(card.id) ? 'true' : 'false'"
+                             title="Arrastrar para cambiar de estado"
+                             t-on-dragstart="(ev) => this.onCardDragStart(card, ev)"
+                             t-on-dragend="onCardDragEnd"
+                             t-on-click="(ev) => this.openVoyage(card.id, ev)">
+
+                            <!-- Header de card -->
+                            <div class="tk-card__header">
+                                <span class="tk-card__name" t-esc="card.name"/>
+                                <span t-attf-class="tk-eta #{etaClass(card)}" t-esc="etaLabel(card)"/>
+                            </div>
+
+                            <!-- OC Origen -->
+                            <div t-if="card.purchase_id" class="tk-card__row tk-card__row--po">
+                                <i class="fa fa-shopping-cart tk-card__row-icon"/>
+                                <span t-esc="strOf(card.purchase_id)"/>
+                            </div>
+
+                            <!-- Buque -->
+                            <div t-if="card.vessel_name" class="tk-card__row">
+                                <i class="fa fa-ship tk-card__row-icon"/>
+                                <span t-esc="card.vessel_name"/>
+                                <span t-if="card.shipping_line" class="tk-card__muted">
+                                    · <t t-esc="card.shipping_line"/>
+                                </span>
+                            </div>
+
+                            <!-- Contenedor -->
+                            <div t-if="hasContainer(card.container_number)" class="tk-card__row">
+                                <i class="fa fa-cube tk-card__row-icon"/>
+                                <span class="tk-card__container" t-esc="card.container_number"/>
+                            </div>
+
+                            <!-- BL -->
+                            <div t-if="card.bl_number" class="tk-card__row">
+                                <i class="fa fa-file-text-o tk-card__row-icon"/>
+                                <span class="tk-card__muted" t-esc="card.bl_number"/>
+                            </div>
+
+                            <!-- Fechas ETD / ETA -->
+                            <div class="tk-card__dates">
+                                <div t-if="card.etd" class="tk-card__date">
+                                    <span class="tk-card__date-label">ETD</span>
+                                    <span t-esc="fmtDate(card.etd)"/>
+                                </div>
+                                <div t-if="card.eta" class="tk-card__date">
+                                    <span class="tk-card__date-label">ETA</span>
+                                    <span t-esc="fmtDate(card.eta)"/>
+                                </div>
+                            </div>
+
+                            <!-- Barra de asignación -->
+                            <div class="tk-card__footer">
+                                <div class="tk-alloc-bar-wrap">
+                                    <div class="tk-alloc-bar">
+                                        <div class="tk-alloc-bar__fill"
+                                             t-att-style="'width:' + progressWidth(card.allocation_percent)"/>
+                                    </div>
+                                    <span class="tk-alloc-pct">
+                                        <t t-esc="card.allocation_percent ? card.allocation_percent.toFixed(0) : '0'"/>%
+                                    </span>
+                                </div>
+                                <div t-if="card.total_m2 > 0" class="tk-card__m2">
+                                    <t t-esc="fmtNum(card.total_m2)"/> m²
+                                </div>
+                            </div>
+
+                        </div>
+                    </t>
+
+                </div><!-- /tk-cards -->
+
+            </div><!-- /tk-column -->
+        </t>
+    </div><!-- /tk-board -->
+
+</div>
+</t>
+</templates>

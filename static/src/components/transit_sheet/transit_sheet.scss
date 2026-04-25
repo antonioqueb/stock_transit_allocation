@@ -1,0 +1,601 @@
+// ============================================================
+// transit_sheet.scss
+// Cronograma — Torre de Control
+// Paleta neutra: blanco, grises, acentos sutiles
+// ============================================================
+
+// ─── Variables ────────────────────────────────────────────────────────────────
+$ts-font:           'DM Sans', system-ui, sans-serif;
+$ts-bg:             #ffffff;
+$ts-bg-subtle:      #f8f9fa;
+$ts-bg-hover:       #f3f4f6;
+$ts-border:         #e5e7eb;
+$ts-border-strong:  #d1d5db;
+$ts-text:           #1f2937;
+$ts-text-muted:     #9ca3af;
+$ts-text-secondary: #6b7280;
+$ts-link:           #2563eb;
+$ts-link-hover:     #1d4ed8;
+$ts-accent:         #374151;
+$ts-shadow-sm:      0 1px 2px rgba(0,0,0,.05);
+$ts-shadow:         0 2px 8px rgba(0,0,0,.08);
+$ts-radius:         6px;
+$ts-radius-sm:      4px;
+$ts-radius-pill:    20px;
+
+// ─── Reset & Base ─────────────────────────────────────────────────────────────
+.ts-root {
+    font-family:    $ts-font;
+    font-size:      12px;
+    color:          $ts-text;
+    background:     $ts-bg;
+    height:         100%;
+    display:        flex;
+    flex-direction: column;
+    overflow:       hidden;
+    padding:        0;
+    position:       relative;
+}
+
+// ─── Toolbar ──────────────────────────────────────────────────────────────────
+.ts-toolbar {
+    display:         flex;
+    align-items:     center;
+    gap:             12px;
+    padding:         10px 16px;
+    background:      $ts-bg;
+    border-bottom:   1px solid $ts-border;
+    flex-shrink:     0;
+    flex-wrap:       wrap;
+
+    &__title {
+        display:     flex;
+        align-items: center;
+        gap:         6px;
+        flex-shrink: 0;
+    }
+
+    &__icon {
+        color:       $ts-text-secondary;
+        font-size:   14px;
+    }
+
+    &__label {
+        font-weight: 600;
+        font-size:   13px;
+        color:       $ts-text;
+        white-space: nowrap;
+    }
+
+    &__actions {
+        display:     flex;
+        align-items: center;
+        gap:         6px;
+        margin-left: auto;
+        flex-shrink: 0;
+    }
+}
+
+.ts-count {
+    background:    $ts-accent;
+    color:         #fff;
+    font-size:     10px;
+    font-weight:   700;
+    padding:       1px 6px;
+    border-radius: $ts-radius-pill;
+    line-height:   1.6;
+}
+
+.ts-count-label {
+    color:      $ts-text-muted;
+    font-size:  11px;
+}
+
+// ─── Búsqueda ─────────────────────────────────────────────────────────────────
+.ts-search-wrap {
+    position:    relative;
+    display:     flex;
+    align-items: center;
+    flex:        1;
+    min-width:   200px;
+    max-width:   380px;
+}
+
+.ts-search-icon {
+    position:    absolute;
+    left:        9px;
+    color:       $ts-text-muted;
+    font-size:   11px;
+    pointer-events: none;
+}
+
+.ts-search-input {
+    width:         100%;
+    padding:       5px 28px 5px 28px;
+    border:        1px solid $ts-border-strong;
+    border-radius: $ts-radius;
+    font-size:     11px;
+    font-family:   $ts-font;
+    color:         $ts-text;
+    background:    $ts-bg;
+    outline:       none;
+    transition:    border-color .15s;
+
+    &::placeholder { color: $ts-text-muted; }
+    &:focus { border-color: #93c5fd; box-shadow: 0 0 0 2px rgba(37,99,235,.08); }
+}
+
+.ts-search-clear {
+    position:    absolute;
+    right:       6px;
+    background:  none;
+    border:      none;
+    cursor:      pointer;
+    color:       $ts-text-muted;
+    font-size:   11px;
+    padding:     2px 4px;
+    line-height: 1;
+    &:hover { color: $ts-text; }
+}
+
+// ─── Botones de agrupación ────────────────────────────────────────────────────
+.ts-btn-group {
+    display:     flex;
+    align-items: center;
+    gap:         4px;
+    flex-shrink: 0;
+
+    &__label {
+        color:      $ts-text-secondary;
+        font-size:  11px;
+        font-weight:500;
+        white-space:nowrap;
+    }
+}
+
+.ts-pill {
+    padding:       4px 10px;
+    border:        1px solid $ts-border-strong;
+    border-radius: $ts-radius-pill;
+    background:    $ts-bg;
+    font-size:     11px;
+    font-family:   $ts-font;
+    color:         $ts-text-secondary;
+    cursor:        pointer;
+    transition:    all .15s;
+    white-space:   nowrap;
+
+    &:hover { background: $ts-bg-hover; color: $ts-text; }
+    &--active {
+        background:   $ts-accent;
+        color:        #fff;
+        border-color: $ts-accent;
+    }
+}
+
+// ─── Botón icónico ────────────────────────────────────────────────────────────
+.ts-btn-icon {
+    width:         30px;
+    height:        30px;
+    border:        1px solid $ts-border-strong;
+    border-radius: $ts-radius;
+    background:    $ts-bg;
+    cursor:        pointer;
+    display:       flex;
+    align-items:   center;
+    justify-content: center;
+    color:         $ts-text-secondary;
+    font-size:     12px;
+    transition:    all .15s;
+    &:hover { background: $ts-bg-hover; color: $ts-text; }
+}
+
+.ts-btn-outline {
+    padding:       6px 16px;
+    border:        1px solid $ts-border-strong;
+    border-radius: $ts-radius;
+    background:    $ts-bg;
+    cursor:        pointer;
+    font-family:   $ts-font;
+    font-size:     12px;
+    color:         $ts-text-secondary;
+    &:hover { background: $ts-bg-hover; }
+}
+
+// ─── Menú de columnas ─────────────────────────────────────────────────────────
+.ts-col-menu-wrap { position: relative; }
+
+.ts-col-menu {
+    position:      absolute;
+    right:         0;
+    top:           34px;
+    z-index:       200;
+    background:    $ts-bg;
+    border:        1px solid $ts-border;
+    border-radius: $ts-radius;
+    box-shadow:    $ts-shadow;
+    min-width:     180px;
+    padding:       8px 0;
+
+    &__title {
+        padding:     4px 12px 6px;
+        font-size:   10px;
+        font-weight: 600;
+        color:       $ts-text-muted;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        border-bottom: 1px solid $ts-border;
+        margin-bottom: 4px;
+    }
+
+    &__item {
+        display:       flex;
+        align-items:   center;
+        gap:           8px;
+        padding:       5px 12px;
+        cursor:        pointer;
+        font-size:     11px;
+        color:         $ts-text;
+        &:hover { background: $ts-bg-hover; }
+        input { cursor: pointer; margin: 0; }
+    }
+}
+
+// ─── Chips de estado ──────────────────────────────────────────────────────────
+.ts-status-bar {
+    display:       flex;
+    align-items:   center;
+    gap:           5px;
+    padding:       7px 16px;
+    background:    $ts-bg-subtle;
+    border-bottom: 1px solid $ts-border;
+    flex-shrink:   0;
+    flex-wrap:     wrap;
+    overflow-x:    auto;
+}
+
+.ts-status-chip {
+    display:       inline-flex;
+    align-items:   center;
+    gap:           5px;
+    padding:       3px 9px;
+    border:        1px solid $ts-border;
+    border-radius: $ts-radius-pill;
+    background:    $ts-bg;
+    font-size:     10px;
+    font-family:   $ts-font;
+    color:         $ts-text-secondary;
+    cursor:        pointer;
+    transition:    all .15s;
+    white-space:   nowrap;
+
+    &:hover { border-color: $ts-border-strong; color: $ts-text; }
+
+    &__count {
+        background:    $ts-border;
+        border-radius: 10px;
+        padding:       0 5px;
+        font-size:     9px;
+        font-weight:   700;
+        color:         $ts-text-secondary;
+        line-height:   1.6;
+    }
+
+    &--all {
+        border-color: $ts-accent;
+        color:        $ts-accent;
+        font-weight:  600;
+    }
+
+    &--selected {
+        background:   $ts-accent !important;
+        border-color: $ts-accent !important;
+        color:        #fff !important;
+        .ts-status-chip__count { background: rgba(255,255,255,.25); color: #fff; }
+    }
+}
+
+// ─── Loading & Empty ──────────────────────────────────────────────────────────
+.ts-loading {
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    justify-content: center;
+    gap:             12px;
+    flex:            1;
+    color:           $ts-text-muted;
+
+    &__icon { color: #93c5fd; }
+    &__text { font-size: 13px; }
+}
+
+.ts-empty {
+    display:         flex;
+    flex-direction:  column;
+    align-items:     center;
+    justify-content: center;
+    gap:             10px;
+    flex:            1;
+    color:           $ts-text-muted;
+
+    &__icon { opacity: .3; }
+    &__text { font-size: 13px; }
+}
+
+// ─── Tabla ────────────────────────────────────────────────────────────────────
+.ts-table-scroll-wrapper {
+    flex:       1;
+    overflow:   auto;
+    min-height: 0;
+
+    // Scrollbar suave
+    &::-webkit-scrollbar { width: 6px; height: 6px; }
+    &::-webkit-scrollbar-track { background: transparent; }
+    &::-webkit-scrollbar-thumb { background: $ts-border-strong; border-radius: 3px; }
+}
+
+.ts-table {
+    width:           100%;
+    border-collapse: collapse;
+    table-layout:    fixed;
+    font-size:       11px;
+}
+
+// Cabecera
+.ts-thead { position: sticky; top: 0; z-index: 10; }
+
+.ts-th {
+    padding:        7px 10px;
+    background:     $ts-bg-subtle;
+    border-bottom:  2px solid $ts-border-strong;
+    border-right:   1px solid $ts-border;
+    font-weight:    600;
+    font-size:      10px;
+    color:          $ts-text-secondary;
+    text-transform: uppercase;
+    letter-spacing: .4px;
+    white-space:    nowrap;
+    cursor:         pointer;
+    user-select:    none;
+    overflow:       hidden;
+    text-overflow:  ellipsis;
+    text-align:     left;
+    transition:     background .1s;
+
+    &:hover { background: #eef0f3; color: $ts-text; }
+    &:last-child { border-right: none; }
+    &--right { text-align: right; }
+}
+
+.ts-sort-icon {
+    margin-left: 4px;
+    opacity:     .4;
+    font-size:   9px;
+}
+
+// Filas
+.ts-tr {
+    transition: background .1s;
+    &:hover { background: $ts-bg-hover; }
+
+    // Stripe sutil
+    &:nth-child(even) { background: #fafafa; }
+    &:nth-child(even):hover { background: $ts-bg-hover; }
+
+    // Tintes por estado (muy sutiles, solo borde izquierdo)
+    &--delivered     td:first-child { border-left: 3px solid #22c55e; }
+    &--on_sea        td:first-child { border-left: 3px solid #3b82f6; }
+    &--solicitud     td:first-child { border-left: 3px solid #f59e0b; }
+    &--production    td:first-child { border-left: 3px solid #f59e0b; }
+    &--booking       td:first-child { border-left: 3px solid #6366f1; }
+    &--arrived_port  td:first-child { border-left: 3px solid #ec4899; }
+    &--reception_pending td:first-child { border-left: 3px solid #f97316; }
+    &--cancel        td:first-child { border-left: 3px solid #ef4444; }
+    &--puerto_origen td:first-child { border-left: 3px solid #14b8a6; }
+    &--puerto_destino td:first-child { border-left: 3px solid #8b5cf6; }
+}
+
+.ts-td {
+    padding:        5px 10px;
+    border-bottom:  1px solid $ts-border;
+    border-right:   1px solid $ts-border;
+    color:          $ts-text;
+    white-space:    nowrap;
+    overflow:       hidden;
+    text-overflow:  ellipsis;
+    vertical-align: middle;
+    line-height:    1.4;
+
+    &:last-child { border-right: none; }
+
+    &--link {
+        color:   $ts-link;
+        cursor:  pointer;
+        font-weight: 500;
+        &:hover { color: $ts-link-hover; text-decoration: underline; }
+    }
+
+    &--date {
+        color:    $ts-text-secondary;
+        font-size: 10.5px;
+    }
+
+    &--num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+        font-weight: 500;
+    }
+
+    &--center { text-align: center; }
+}
+
+// Fila totales
+.ts-tr-total {
+    background:    #f1f5f9;
+    font-weight:   700;
+    position:      sticky;
+    bottom:        0;
+    z-index:       5;
+}
+
+.ts-td-total {
+    padding:       6px 10px;
+    border-top:    2px solid $ts-border-strong;
+    font-size:     11px;
+    color:         $ts-accent;
+    width:         40px;
+
+    &--label { color: $ts-text-secondary; font-size: 10px; text-transform: uppercase; letter-spacing: .4px; }
+    &--num   { text-align: right; font-variant-numeric: tabular-nums; }
+}
+
+// Fila subtotales de grupo
+.ts-tr-subtotal {
+    background: #f9fafb;
+}
+
+.ts-td-subtotal {
+    padding:     4px 10px;
+    font-size:   10px;
+    color:       $ts-text-secondary;
+    font-style:  italic;
+    border-top:  1px dashed $ts-border-strong;
+
+    &--label { text-align: left; }
+    &--num   { text-align: right; font-variant-numeric: tabular-nums; }
+}
+
+// ─── Cabeceras de grupo ───────────────────────────────────────────────────────
+.ts-group-header {
+    background:    #f1f5f9;
+    cursor:        pointer;
+    &:hover { background: #e8edf3; }
+
+    td {
+        padding:     6px 12px;
+        border-bottom: 1px solid $ts-border-strong;
+    }
+
+    &__inner {
+        display:     flex;
+        align-items: center;
+        gap:         10px;
+    }
+}
+
+.ts-group-chevron {
+    color:    $ts-text-secondary;
+    font-size: 10px;
+    width:    12px;
+}
+
+.ts-group-label {
+    font-weight: 600;
+    font-size:   11.5px;
+    color:       $ts-text;
+}
+
+.ts-group-badge {
+    background:    $ts-bg;
+    border:        1px solid $ts-border;
+    border-radius: $ts-radius-pill;
+    padding:       1px 7px;
+    font-size:     9.5px;
+    color:         $ts-text-secondary;
+}
+
+.ts-group-m2 {
+    margin-left: auto;
+    font-weight: 600;
+    font-size:   11px;
+    color:       $ts-accent;
+    font-variant-numeric: tabular-nums;
+}
+
+// ─── Badges de estado ─────────────────────────────────────────────────────────
+.ts-badge {
+    display:       inline-block;
+    padding:       2px 7px;
+    border-radius: $ts-radius-pill;
+    font-size:     9.5px;
+    font-weight:   600;
+    white-space:   nowrap;
+    line-height:   1.6;
+
+    &--solicitud,
+    &--production  { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+    &--booking     { background: #ede9fe; color: #5b21b6; border: 1px solid #ddd6fe; }
+    &--puerto      { background: #e0f2fe; color: #075985; border: 1px solid #bae6fd; }
+    &--sea         { background: #dbeafe; color: #1e40af; border: 1px solid #bfdbfe; }
+    &--arrived     { background: #fce7f3; color: #9d174d; border: 1px solid #fbcfe8; }
+    &--reception   { background: #ffedd5; color: #9a3412; border: 1px solid #fed7aa; }
+    &--delivered   { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; }
+    &--cancel      { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+}
+
+// ─── Chips inline ─────────────────────────────────────────────────────────────
+.ts-chip-container {
+    background:    #f1f5f9;
+    border:        1px solid $ts-border;
+    border-radius: $ts-radius-sm;
+    padding:       1px 6px;
+    font-size:     10px;
+    font-weight:   500;
+    color:         $ts-text-secondary;
+    font-family:   'JetBrains Mono', 'Courier New', monospace;
+}
+
+.ts-text-muted { color: $ts-text-muted; }
+
+.ts-eta {
+    font-weight:  600;
+    color:        #0f766e;
+}
+
+
+// ============================================================================
+// Ajuste Control Tower: columnas fluidas por contenido
+// - La tabla deja de comprimir columnas.
+// - Cada columna respeta un ancho mínimo, pero crece según su contenido real.
+// - El overflow queda en el contenedor de scroll horizontal, no dentro de celdas.
+// ============================================================================
+.ts-table-scroll-wrapper {
+    width:     100%;
+    max-width: 100%;
+    overflow:  auto;
+}
+
+.ts-table {
+    width:        max-content !important;
+    min-width:    100% !important;
+    table-layout: auto !important;
+}
+
+.ts-th,
+.ts-td,
+.ts-td-total,
+.ts-td-subtotal {
+    width:         auto !important;
+    max-width:     none !important;
+    overflow:      visible !important;
+    text-overflow: clip !important;
+    white-space:   nowrap !important;
+}
+
+.ts-th {
+    position: relative;
+}
+
+.ts-stock-chip {
+    display:        inline-flex;
+    align-items:    center;
+    padding:        1px 7px;
+    border-radius:  $ts-radius-pill;
+    border:         1px solid $ts-border;
+    background:     #f1f5f9;
+    color:          $ts-text-secondary;
+    font-size:      10px;
+    font-weight:    700;
+    text-transform: uppercase;
+    letter-spacing: .35px;
+}
