@@ -9,12 +9,11 @@
 // - Color únicamente para indicadores, estados, progreso, riesgo,
 //   alertas, KPI críticos y pequeñas secciones informativas.
 //
-// FIX:
+// FIX ACTUAL:
 // - Evita overflow horizontal del formulario.
 // - Evita que el header sticky/statusbar desborde y oculte botones.
 // - Permite que los botones del header se envuelvan y se compacten.
 // - Mantiene scroll horizontal solo dentro de tablas, no en todo el formulario.
-// - Compatible con Sass/Odoo: NO usa min(px, vw), max(px, vw) ni clamp().
 // ============================================================
 
 $vf-font:          'DM Sans', system-ui, sans-serif;
@@ -144,7 +143,7 @@ $vf-radius-xl:     24px;
 .o_form_view .o_form_statusbar button {
     flex: 0 1 auto !important;
     min-width: 0 !important;
-    max-width: 190px !important;
+    max-width: min(190px, 46vw) !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
@@ -217,7 +216,7 @@ $vf-radius-xl:     24px;
             letter-spacing: -.01em;
             padding-left: 12px !important;
             padding-right: 12px !important;
-            max-width: 190px !important;
+            max-width: min(190px, 46vw) !important;
             min-width: 0 !important;
             white-space: nowrap !important;
             overflow: hidden !important;
@@ -1568,7 +1567,7 @@ $vf-radius-xl:     24px;
     .o_voyage_form header button {
         font-size: 11px !important;
         padding: 5px 9px !important;
-        max-width: 150px !important;
+        max-width: min(150px, 42vw) !important;
     }
 
     .o_form_view .o_form_statusbar .o_arrow_button,
