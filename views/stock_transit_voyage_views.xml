@@ -103,9 +103,41 @@
                             invisible="custom_status in ['delivered', 'cancel']"
                             confirm="¿Está seguro de cancelar este viaje?"/>
 
+                    <!-- ======================================================
+                         STATUSBAR COMPACTO POR TRAMO
+                         Evita mostrar todos los estados al mismo tiempo.
+                         Cada bloque muestra el estado actual y pocos estados cercanos.
+                    ====================================================== -->
+
+                    <!-- Tramo inicial: solicitud / producción -->
                     <field name="custom_status"
                            widget="statusbar"
-                           statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
+                           statusbar_visible="solicitud,production,booking,on_sea"
+                           invisible="custom_status not in ['solicitud', 'production']"/>
+
+                    <!-- Tramo logístico: booking / puerto origen / altamar -->
+                    <field name="custom_status"
+                           widget="statusbar"
+                           statusbar_visible="booking,puerto_origen,on_sea,puerto_destino"
+                           invisible="custom_status not in ['booking', 'puerto_origen', 'on_sea']"/>
+
+                    <!-- Tramo llegada / recepción -->
+                    <field name="custom_status"
+                           widget="statusbar"
+                           statusbar_visible="on_sea,puerto_destino,arrived_port,reception_pending,delivered"
+                           invisible="custom_status not in ['puerto_destino', 'arrived_port', 'reception_pending']"/>
+
+                    <!-- Tramo final -->
+                    <field name="custom_status"
+                           widget="statusbar"
+                           statusbar_visible="puerto_destino,reception_pending,delivered"
+                           invisible="custom_status != 'delivered'"/>
+
+                    <!-- Cancelado -->
+                    <field name="custom_status"
+                           widget="statusbar"
+                           statusbar_visible="cancel"
+                           invisible="custom_status != 'cancel'"/>
                 </header>
 
                 <sheet>
