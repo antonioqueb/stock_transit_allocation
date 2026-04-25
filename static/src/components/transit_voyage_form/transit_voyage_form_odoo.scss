@@ -41,7 +41,7 @@ $vf-graphite:      #27272a;
 $vf-accent:        #111111;
 
 // Indicator colors only
-$vf-blue:          #7cdcff;
+$vf-blue:          #2563eb;
 $vf-blue-soft:     #eff6ff;
 $vf-blue-border:   #bfdbfe;
 
@@ -579,7 +579,7 @@ $vf-radius-xl:     24px;
 
     &--blue .vf-kpi__number,
     &--blue .vf-kpi__number .o_field_widget span {
-        color: $vf-blue !important;
+        color: #7dd3fc !important;
     }
 
     &--amber .vf-kpi__number,
