@@ -1,19 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="stock_transit_allocation.TransitShipProgress" owl="1">
-        <div t-attf-class="o_transit_progress_container #{isComplete ? 'o_transit_progress_container--done' : ''}"
+        <div t-attf-class="o_transit_progress_percent #{isComplete ? 'o_transit_progress_percent--done' : ''}"
              t-att-title="progressTitle">
-
-            <div class="o_transit_water"/>
-            <div class="o_transit_bar" t-att-style="barStyle"/>
-
-            <div class="o_transit_ship_icon" t-att-style="shipStyle">
-                🚢
-            </div>
-
-            <div class="o_transit_label">
+            <span class="o_transit_progress_percent__value">
                 <t t-esc="progressLabel"/>
-            </div>
+            </span>
         </div>
     </t>
 </templates>

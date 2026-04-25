@@ -28,20 +28,7 @@ export class TransitShipProgress extends Component {
     }
 
     get progressTitle() {
-        return `Progreso estimado: ${this.progress}%`;
-    }
-
-    get barStyle() {
-        return `width: ${this.progress}%;`;
-    }
-
-    get shipStyle() {
-        /*
-         * Se limita entre 8% y 92% para que el barco no se salga visualmente
-         * del contenedor cuando el progreso es 0% o 100%.
-         */
-        const left = Math.max(8, Math.min(92, this.progress));
-        return `left: ${left}%;`;
+        return `Progreso ShipsGo: ${this.progress}%`;
     }
 
     get isComplete() {
