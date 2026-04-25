@@ -216,8 +216,8 @@ $vf-radius-lg:    12px;
     }
 
     .o_transit_progress_container {
-        width:  80px;
-        height: 20px;
+        width:  112px;
+        height: 32px;
     }
 }
 
@@ -691,8 +691,9 @@ $vf-radius-lg:    12px;
     }
 
     .o_transit_progress_container {
-        width: 100px !important;
-        height: 30px !important;
+        width: 112px !important;
+        height: 32px !important;
+        min-width: 112px !important;
         filter: drop-shadow(0 0 16px rgba(6, 182, 212, .35));
     }
 }
@@ -980,6 +981,124 @@ $vf-radius-lg:    12px;
     }
 }
 
+// ============================================================================
+// FIX: Widget de progreso ShipsGo en cabecera del Viaje
+// - Corrige barra invisible / valor vacío cuando ShipsGo reporta 100%.
+// - Mantiene el barco dentro del contenedor visual.
+// - Refuerza contraste sobre el hero oscuro.
+// ============================================================================
+
+.o_transit_progress_container {
+    position: relative;
+    width: 112px;
+    height: 32px;
+    min-width: 112px;
+    max-width: 112px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: rgba(15, 23, 42, .72);
+    border: 1px solid rgba(148, 163, 184, .35);
+    box-shadow:
+        inset 0 0 0 1px rgba(255, 255, 255, .05),
+        0 8px 20px rgba(2, 6, 23, .20);
+}
+
+.o_transit_water {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background:
+        linear-gradient(
+            135deg,
+            rgba(37, 99, 235, .22),
+            rgba(6, 182, 212, .18)
+        );
+    opacity: .95;
+}
+
+.o_transit_bar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 1;
+    width: 0%;
+    border-radius: 999px;
+    background:
+        linear-gradient(
+            90deg,
+            rgba(14, 165, 233, .95),
+            rgba(34, 211, 238, .95),
+            rgba(134, 239, 172, .95)
+        );
+    transition: width .35s ease;
+}
+
+.o_transit_ship_icon {
+    position: absolute;
+    top: 50%;
+    z-index: 3;
+    transform: translate(-50%, -50%);
+    font-size: 15px;
+    line-height: 1;
+    filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .45));
+    transition: left .35s ease;
+    pointer-events: none;
+}
+
+.o_transit_label {
+    position: absolute;
+    inset: 0;
+    z-index: 4;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    padding-right: 10px;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 900;
+    letter-spacing: -.02em;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, .55);
+    pointer-events: none;
+}
+
+.o_transit_progress_container--done {
+    border-color: rgba(134, 239, 172, .55);
+    box-shadow:
+        inset 0 0 0 1px rgba(134, 239, 172, .18),
+        0 0 22px rgba(34, 197, 94, .22);
+}
+
+.o_transit_progress_container--done .o_transit_bar {
+    background:
+        linear-gradient(
+            90deg,
+            rgba(34, 197, 94, .95),
+            rgba(74, 222, 128, .95),
+            rgba(134, 239, 172, .95)
+        );
+}
+
+.o_voyage_form .vf-kpi .o_transit_progress_container,
+.o_voyage_form .vf-kpi-grid .o_transit_progress_container {
+    width: 112px !important;
+    height: 32px !important;
+    min-width: 112px !important;
+    max-width: 112px !important;
+}
+
+.o_voyage_form .vf-kpi .o_transit_label,
+.o_voyage_form .vf-kpi-grid .o_transit_label {
+    color: #ffffff !important;
+    font-size: 11px !important;
+    font-weight: 900 !important;
+}
+
+.o_voyage_form .vf-kpi .o_transit_ship_icon,
+.o_voyage_form .vf-kpi-grid .o_transit_ship_icon {
+    font-size: 15px !important;
+}
+
 // ─── Responsive ───────────────────────────────────────────────────────────────
 @media (max-width: 1320px) {
     .o_voyage_form .vf-hero {
@@ -1043,5 +1162,12 @@ $vf-radius-lg:    12px;
         > div {
             min-height: 360px !important;
         }
+    }
+
+    .o_voyage_form .vf-kpi .o_transit_progress_container,
+    .o_voyage_form .vf-kpi-grid .o_transit_progress_container {
+        width: 104px !important;
+        min-width: 104px !important;
+        max-width: 104px !important;
     }
 }

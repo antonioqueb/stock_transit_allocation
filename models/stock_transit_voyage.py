@@ -1038,35 +1038,93 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
-        today = fields_module.Date.today()
-        for rec in self:
-            if rec.shipsgo_payload:
-                continue
+        """
+        Calcula el progreso visible del embarque.
 
-            if rec.custom_status == 'delivered':
-                rec.transit_progress = 100
-                continue
+        Prioridad:
+        1) Estados terminales o post-arribo:
+           - arrived_port
+           - reception_pending
+           - delivered
+           Siempre deben mostrarse al 100%.
+
+        2) Payload de ShipsGo:
+           Si existe shipsgo_payload y contiene transit_pct, se respeta ese valor.
+
+        3) Estimación local:
+           Si no hay payload válido, se estima con ETD/ETA y se aplica un piso
+           mínimo por estado para que la interfaz no se vea en cero cuando el
+           flujo ya avanzó manualmente.
+        """
+        today = fields_module.Date.today()
+
+        status_floor = {
+            'solicitud': 5,
+            'production': 15,
+            'booking': 25,
+            'puerto_origen': 40,
+            'on_sea': 60,
+            'puerto_destino': 85,
+            'arrived_port': 100,
+            'reception_pending': 100,
+            'delivered': 100,
+            'cancel': 0,
+        }
+
+        for rec in self:
+            # Cancelado siempre debe quedar en 0.
             if rec.custom_status == 'cancel':
                 rec.transit_progress = 0
                 continue
 
+            # Si ShipsGo ya reportó llegada, o si ya está en recepción/cerrado,
+            # la cabecera debe mostrar 100% aunque ya no haya coordenadas.
+            if rec.custom_status in ('arrived_port', 'reception_pending', 'delivered'):
+                rec.transit_progress = 100
+                continue
+
+            # Intentar leer el progreso real guardado desde ShipsGo.
+            payload_progress = None
+            if rec.shipsgo_payload:
+                try:
+                    payload = json.loads(rec.shipsgo_payload)
+                    if isinstance(payload, dict) and payload.get('transit_pct') is not None:
+                        payload_progress = int(float(payload.get('transit_pct') or 0))
+                except Exception:
+                    payload_progress = None
+
+            if payload_progress is not None:
+                rec.transit_progress = max(0, min(100, payload_progress))
+                continue
+
+            # Fallback: estimación por fechas.
             start_date = rec.etd or (rec.create_date.date() if rec.create_date else False)
+
             if not start_date or not rec.eta:
-                rec.transit_progress = 0
+                rec.transit_progress = status_floor.get(rec.custom_status, 0)
                 continue
 
             if today < start_date:
-                rec.transit_progress = 0
+                date_progress = 0
             elif today > rec.eta:
-                rec.transit_progress = 95
+                # No lo subimos a 100 solo por ETA vencido; 100 queda reservado
+                # para arrived_port/reception_pending/delivered o payload real.
+                date_progress = 95
             else:
                 total_days = (rec.eta - start_date).days
                 elapsed = (today - start_date).days
+
                 if total_days > 0:
-                    progress = int((elapsed / total_days) * 100)
-                    rec.transit_progress = max(0, min(95, progress))
+                    date_progress = int((elapsed / total_days) * 100)
+                    date_progress = max(0, min(95, date_progress))
                 else:
-                    rec.transit_progress = 0
+                    date_progress = status_floor.get(rec.custom_status, 0)
+
+            rec.transit_progress = max(
+                status_floor.get(rec.custom_status, 0),
+                date_progress,
+            )
+
 
     # =========================================================================
     # NOTIFICACIONES (NUEVA LÓGICA)
