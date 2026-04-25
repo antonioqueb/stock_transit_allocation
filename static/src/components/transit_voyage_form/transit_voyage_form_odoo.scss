@@ -2,129 +2,194 @@
 // transit_voyage_form_odoo.scss
 // Estilos del formulario Odoo del Viaje en Tránsito
 // Hero header + panel de datos 3 columnas + tabla de lotes
-// Capa final: Control Tower Tech Skin estable para Odoo 19
+// Capa final: Control Tower Grayscale Skin estable para Odoo 19
+//
+// Regla visual:
+// - Fondos, tarjetas, tablas, bordes y textos en escala de grises.
+// - Color únicamente para indicadores, estados, progreso, riesgo,
+//   alertas, KPI críticos y pequeñas secciones informativas.
 // ============================================================
 
-$vf-font:         'DM Sans', system-ui, sans-serif;
-$vf-bg:           #f8f9fb;
-$vf-white:        #ffffff;
-$vf-border:       #e5e7eb;
-$vf-border-strong:#d1d5db;
-$vf-text:         #1f2937;
-$vf-text-muted:   #9ca3af;
-$vf-text-sub:     #6b7280;
-$vf-accent:       #1e293b;
-$vf-blue:         #2563eb;
-$vf-green:        #16a34a;
-$vf-green-light:  #dcfce7;
-$vf-blue-light:   #dbeafe;
-$vf-shadow:       0 1px 3px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
-$vf-shadow-md:    0 4px 12px rgba(0,0,0,.1);
-$vf-radius:       8px;
-$vf-radius-sm:    5px;
-$vf-radius-lg:    12px;
+$vf-font:          'DM Sans', system-ui, sans-serif;
+
+// Base grayscale
+$vf-bg:            #f4f4f5;
+$vf-bg-soft:       #fafafa;
+$vf-white:         #ffffff;
+$vf-surface:       #f8f8f8;
+$vf-surface-2:     #eeeeef;
+$vf-border:        #e4e4e7;
+$vf-border-strong: #d4d4d8;
+
+$vf-text:          #18181b;
+$vf-text-strong:   #09090b;
+$vf-text-sub:      #52525b;
+$vf-text-muted:    #8a8a92;
+$vf-text-faint:    #a1a1aa;
+
+$vf-black:         #09090b;
+$vf-charcoal:      #18181b;
+$vf-graphite:      #27272a;
+$vf-accent:        #111111;
+
+// Indicator colors only
+$vf-blue:          #2563eb;
+$vf-blue-soft:     #eff6ff;
+$vf-blue-border:   #bfdbfe;
+
+$vf-green:         #16a34a;
+$vf-green-soft:    #ecfdf3;
+$vf-green-border:  #bbf7d0;
+
+$vf-amber:         #d97706;
+$vf-amber-soft:    #fffbeb;
+$vf-amber-border:  #fde68a;
+
+$vf-red:           #dc2626;
+$vf-red-soft:      #fef2f2;
+$vf-red-border:    #fecaca;
+
+$vf-shadow:        0 1px 3px rgba(0, 0, 0, .08), 0 1px 2px rgba(0, 0, 0, .05);
+$vf-shadow-md:     0 10px 32px rgba(0, 0, 0, .10);
+$vf-shadow-lg:     0 22px 60px rgba(0, 0, 0, .14);
+$vf-shadow-dark:   0 28px 80px rgba(0, 0, 0, .36);
+
+$vf-radius:        8px;
+$vf-radius-sm:     5px;
+$vf-radius-md:     12px;
+$vf-radius-lg:     18px;
+$vf-radius-xl:     24px;
 
 // ─── Wrapper del formulario ───────────────────────────────────────────────────
 .o_voyage_form {
+    background: $vf-bg;
+
     .o_form_sheet_bg {
-        background: $vf-bg;
+        background: $vf-bg !important;
+        padding: 0 !important;
     }
 
     .o_form_sheet {
-        padding:    0 !important;
-        max-width:  100% !important;
-        background: $vf-bg;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+    }
+
+    .o_field_widget,
+    .o_input,
+    span,
+    a {
+        font-family: "Inter", $vf-font, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+        background: rgba(255, 255, 255, .96) !important;
+        border-bottom: 1px solid $vf-border !important;
+        box-shadow: 0 10px 26px rgba(0, 0, 0, .06);
+        z-index: 20;
+
+        button {
+            border-radius: 999px !important;
+            font-weight: 700 !important;
+            letter-spacing: -.01em;
+            padding-left: 14px !important;
+            padding-right: 14px !important;
+        }
     }
 }
 
 // ─── HERO HEADER ─────────────────────────────────────────────────────────────
 .vf-hero {
-    display:         flex;
-    align-items:     center;
+    display: flex;
+    align-items: center;
     justify-content: space-between;
-    gap:             24px;
-    padding:         24px 28px 20px;
-    background:      linear-gradient(135deg, $vf-accent 0%, #334155 100%);
-    border-bottom:   none;
-    flex-wrap:       wrap;
+    gap: 24px;
+    padding: 24px 28px 20px;
+    background: linear-gradient(135deg, $vf-black 0%, $vf-charcoal 52%, $vf-graphite 100%);
+    border-bottom: none;
+    flex-wrap: wrap;
 
     &__left {
-        display:     flex;
+        display: flex;
         align-items: center;
-        gap:         16px;
-        flex:        1;
-        min-width:   240px;
+        gap: 16px;
+        flex: 1;
+        min-width: 240px;
     }
 
     &__icon {
-        font-size:      32px;
-        line-height:    1;
-        filter:         drop-shadow(0 2px 4px rgba(0,0,0,.3));
-        animation:      vf-float 3s ease-in-out infinite;
+        font-size: 32px;
+        line-height: 1;
+        filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .35));
+        animation: vf-float 3s ease-in-out infinite;
     }
 
     &__identity {
-        display:        flex;
+        display: flex;
         flex-direction: column;
-        gap:            4px;
+        gap: 4px;
     }
 
     &__ref {
-        font-size:   22px;
+        font-size: 22px;
         font-weight: 800;
-        color:       #fff;
+        color: #fff;
         letter-spacing: -.5px;
         line-height: 1;
 
         .o_field_widget {
             .o_input,
             span {
-                color:       #fff !important;
+                color: #fff !important;
                 font-weight: 800 !important;
-                font-size:   22px !important;
-                background:  transparent !important;
-                border:      none !important;
+                font-size: 22px !important;
+                background: transparent !important;
+                border: none !important;
             }
         }
     }
 
     &__vessel,
     &__naviera {
-        display:     flex;
+        display: flex;
         align-items: center;
-        gap:         8px;
-        font-size:   13px;
-        color:       rgba(255,255,255,.7);
+        gap: 8px;
+        font-size: 13px;
+        color: rgba(255, 255, 255, .68);
     }
 
     &__vessel-input,
     &__naviera-input {
         .o_input {
-            color:       rgba(255,255,255,.85) !important;
-            background:  rgba(255,255,255,.1) !important;
-            border:      1px solid rgba(255,255,255,.2) !important;
+            color: rgba(255, 255, 255, .88) !important;
+            background: rgba(255, 255, 255, .08) !important;
+            border: 1px solid rgba(255, 255, 255, .18) !important;
             border-radius: 4px !important;
-            font-size:   13px !important;
+            font-size: 13px !important;
 
             &::placeholder {
-                color: rgba(255,255,255,.4) !important;
+                color: rgba(255, 255, 255, .38) !important;
             }
 
             &:focus {
-                background: rgba(255,255,255,.18) !important;
-                border-color: rgba(255,255,255,.4) !important;
+                background: rgba(255, 255, 255, .14) !important;
+                border-color: rgba(255, 255, 255, .36) !important;
                 box-shadow: none !important;
             }
         }
 
         span {
-            color: rgba(255,255,255,.85) !important;
+            color: rgba(255, 255, 255, .88) !important;
             font-size: 13px !important;
         }
     }
 
     &__sep {
-        color:     rgba(255,255,255,.4);
+        color: rgba(255, 255, 255, .36);
         font-size: 16px;
     }
 
@@ -143,411 +208,18 @@ $vf-radius-lg:    12px;
     }
 }
 
-// ─── KPI Grid ─────────────────────────────────────────────────────────────────
-.vf-kpi-grid {
-    display: grid;
-    grid-template-columns: repeat(4, auto);
-    gap:     2px;
-    background: rgba(255,255,255,.08);
-    border-radius: $vf-radius;
-    overflow: hidden;
-}
-
-.vf-kpi {
-    display:        flex;
-    flex-direction: column;
-    align-items:    center;
-    gap:            2px;
-    padding:        10px 16px;
-    background:     rgba(255,255,255,.06);
-    transition:     background .15s;
-    min-width:      90px;
-
-    &:hover {
-        background: rgba(255,255,255,.12);
-    }
-
-    &--green {
-        .vf-kpi__number {
-            color: #6ee7b7 !important;
-        }
-    }
-
-    &--blue {
-        .vf-kpi__number {
-            color: #93c5fd !important;
-        }
-    }
-
-    &__label {
-        font-size:  9.5px;
-        font-weight:600;
-        color:      rgba(255,255,255,.5);
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        white-space: nowrap;
-    }
-
-    &__value {
-        display:     flex;
-        align-items: baseline;
-        gap:         2px;
-    }
-
-    &__number {
-        font-size:   18px;
-        font-weight: 800;
-        color:       #fff !important;
-        font-variant-numeric: tabular-nums;
-        letter-spacing: -.5px;
-        line-height: 1;
-
-        .o_field_widget span {
-            color:       inherit !important;
-            font-size:   18px !important;
-            font-weight: 800 !important;
-        }
-    }
-
-    &__unit {
-        font-size:  11px;
-        color:      rgba(255,255,255,.5);
-        font-weight:500;
-    }
-
-    .o_transit_progress_percent {
-        min-width: 64px;
-        height: 32px;
-    }
-}
-
-// ─── PANEL DE DATOS 3 COLUMNAS ────────────────────────────────────────────────
-.vf-data-panel {
-    display:               grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap:                   1px;
-    background:            $vf-border;
-    border-bottom:         1px solid $vf-border;
-
-    @media (max-width: 900px) {
-        grid-template-columns: 1fr;
-    }
-}
-
-.vf-panel-col {
-    background: $vf-white;
-    padding:    0;
-
-    &__header {
-        display:       flex;
-        align-items:   center;
-        gap:           7px;
-        padding:       10px 16px 8px;
-        background:    $vf-bg;
-        border-bottom: 1px solid $vf-border;
-        font-size:     10.5px;
-        font-weight:   700;
-        color:         $vf-text-sub;
-        text-transform:uppercase;
-        letter-spacing:.5px;
-
-        i {
-            color: $vf-blue;
-            font-size: 11px;
-        }
-    }
-
-    &__body {
-        padding: 12px 16px;
-        display: flex;
-        flex-direction: column;
-        gap:     6px;
-    }
-}
-
-.vf-field-row {
-    display:     flex;
-    align-items: center;
-    gap:         8px;
-    min-height:  26px;
-}
-
-.vf-field-label {
-    font-size:   10.5px;
-    font-weight: 600;
-    color:       $vf-text-muted;
-    white-space: nowrap;
-    min-width:   100px;
-    flex-shrink: 0;
-}
-
-.vf-field-val {
-    flex: 1;
-    min-width: 0;
-
-    .o_input,
-    span,
-    a {
-        font-size: 12px !important;
-        color:     $vf-text !important;
-    }
-}
-
-// Display especial para contenedores
-.vf-containers-display {
-    background:    $vf-bg;
-    border:        1px solid $vf-border;
-    border-radius: $vf-radius-sm;
-    padding:       8px 12px;
-    margin-bottom: 6px;
-}
-
-.vf-containers-value {
-    .o_field_widget span {
-        font-family:   'JetBrains Mono', monospace;
-        font-size:     12px !important;
-        color:         $vf-accent !important;
-        font-weight:   600 !important;
-        word-break:    break-all;
-    }
-}
-
-.vf-hint {
-    display:    flex;
-    align-items:center;
-    gap:        5px;
-    font-size:  10px;
-    color:      $vf-text-muted;
-    font-style: italic;
-
-    i {
-        font-size: 10px;
-    }
-}
-
-// ─── SECCIÓN DE LOTES ─────────────────────────────────────────────────────────
-.vf-lots-section {
-    background: $vf-white;
-    border-top: 1px solid $vf-border;
-
-    &__header {
-        display:       flex;
-        align-items:   center;
-        justify-content: space-between;
-        padding:       14px 20px 12px;
-        border-bottom: 1px solid $vf-border;
-        background:    $vf-bg;
-        flex-wrap:     wrap;
-        gap:           10px;
-    }
-
-    &__title {
-        display:     flex;
-        align-items: baseline;
-        gap:         10px;
-        font-size:   13px;
-        font-weight: 700;
-        color:       $vf-text;
-
-        i {
-            color: $vf-blue;
-        }
-    }
-
-    &__subtitle {
-        font-size:   11px;
-        font-weight: 400;
-        color:       $vf-text-muted;
-        font-style:  italic;
-    }
-
-    &__actions {
-        display:     flex;
-        align-items: center;
-        gap:         10px;
-    }
-}
-
-.vf-info-tip {
-    display:       flex;
-    align-items:   center;
-    gap:           6px;
-    background:    $vf-blue-light;
-    border:        1px solid #bfdbfe;
-    border-radius: 20px;
-    padding:       4px 12px;
-    font-size:     10.5px;
-    color:         #1e40af;
-
-    i {
-        color: $vf-blue;
-    }
-
-    strong {
-        font-weight: 700;
-    }
-}
-
-.vf-lines-table {
-    .o_list_renderer {
-        font-size: 11px !important;
-    }
-
-    .o_list_renderer thead th {
-        background:     #f1f5f9 !important;
-        font-size:      9.5px !important;
-        font-weight:    700 !important;
-        color:          $vf-text-sub !important;
-        text-transform: uppercase !important;
-        letter-spacing: .4px !important;
-        padding:        6px 10px !important;
-        border-bottom:  2px solid $vf-border-strong !important;
-    }
-
-    .o_data_row {
-        transition: background .1s;
-
-        &:hover td {
-            background: $vf-bg !important;
-        }
-    }
-
-    .o_data_row.text-success td:first-child {
-        border-left: 3px solid $vf-green !important;
-    }
-}
-
-// ─── FILA DE MÉTRICAS FINALES ─────────────────────────────────────────────────
-.vf-metrics-row {
-    display:    flex;
-    gap:        1px;
-    background: $vf-border;
-    border-top: 1px solid $vf-border;
-    flex-wrap:  wrap;
-}
-
-.vf-metric-card {
-    display:        flex;
-    align-items:    center;
-    gap:            8px;
-    flex:           1;
-    min-width:      180px;
-    padding:        12px 20px;
-    background:     $vf-white;
-
-    &--green {
-        .vf-metric-card__value .o_field_widget span {
-            color: $vf-green !important;
-        }
-    }
-
-    &--progress {
-        flex: 2;
-    }
-
-    &__label {
-        font-size:  10px;
-        font-weight:700;
-        color:      $vf-text-muted;
-        text-transform: uppercase;
-        letter-spacing: .5px;
-        white-space:nowrap;
-    }
-
-    &__value {
-        .o_field_widget span {
-            font-size:   16px !important;
-            font-weight: 800 !important;
-            color:       $vf-accent !important;
-            font-variant-numeric: tabular-nums;
-        }
-    }
-
-    &__unit {
-        font-size:   11px;
-        color:       $vf-text-muted;
-    }
-}
-
-// ============================================================================
-// CONTROL TOWER TECH SKIN — capa final segura
-// No modifica XML. Solo mejora apariencia usando clases existentes.
-// ============================================================================
-
-.o_voyage_form {
-    --ct-bg: #eef3f8;
-    --ct-card: #ffffff;
-    --ct-navy: #07111f;
-    --ct-navy-2: #0f172a;
-    --ct-border: #dbe4ef;
-    --ct-border-2: #cbd5e1;
-    --ct-text: #0f172a;
-    --ct-muted: #64748b;
-    --ct-soft: #94a3b8;
-    --ct-blue: #2563eb;
-    --ct-cyan: #06b6d4;
-    --ct-green: #16a34a;
-    --ct-teal: #14b8a6;
-    --ct-amber: #f59e0b;
-    --ct-radius: 18px;
-    --ct-shadow: 0 20px 55px rgba(15, 23, 42, .12);
-    --ct-shadow-dark: 0 28px 80px rgba(2, 6, 23, .32);
-
-    background: var(--ct-bg);
-
-    .o_form_sheet_bg {
-        background:
-            radial-gradient(circle at 12% 0%, rgba(6, 182, 212, .18), transparent 32%),
-            radial-gradient(circle at 88% 4%, rgba(37, 99, 235, .16), transparent 34%),
-            var(--ct-bg) !important;
-        padding: 0 !important;
-    }
-
-    .o_form_sheet {
-        width: 100% !important;
-        max-width: 100% !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        background: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-    }
-
-    header {
-        background: rgba(255, 255, 255, .96) !important;
-        border-bottom: 1px solid rgba(148, 163, 184, .28) !important;
-        box-shadow: 0 12px 35px rgba(15, 23, 42, .08);
-        z-index: 20;
-
-        button {
-            border-radius: 999px !important;
-            font-weight: 700 !important;
-            letter-spacing: -.01em;
-            padding-left: 14px !important;
-            padding-right: 14px !important;
-        }
-    }
-
-    .o_field_widget,
-    .o_input,
-    span,
-    a {
-        font-family: "Inter", "DM Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    }
-}
-
-// ─── Hero Tech ────────────────────────────────────────────────────────────────
+// ─── HERO: capa premium grayscale ─────────────────────────────────────────────
 .o_voyage_form .vf-hero {
     margin: 18px 18px 0;
     min-height: 255px;
     padding: 28px 30px !important;
     border-radius: 26px !important;
-    border: 1px solid rgba(148, 163, 184, .24);
+    border: 1px solid rgba(255, 255, 255, .10);
     background:
-        radial-gradient(circle at 9% 16%, rgba(20, 184, 166, .38), transparent 30%),
-        radial-gradient(circle at 78% 0%, rgba(37, 99, 235, .36), transparent 38%),
-        linear-gradient(135deg, #07111f 0%, #0f172a 48%, #111827 100%) !important;
-    box-shadow: var(--ct-shadow-dark);
+        radial-gradient(circle at 10% 10%, rgba(255, 255, 255, .10), transparent 30%),
+        radial-gradient(circle at 88% 0%, rgba(255, 255, 255, .075), transparent 34%),
+        linear-gradient(135deg, #050505 0%, #111111 46%, #252525 100%) !important;
+    box-shadow: $vf-shadow-dark;
     overflow: hidden;
     position: relative;
 
@@ -556,22 +228,22 @@ $vf-radius-lg:    12px;
         position: absolute;
         inset: 0;
         background:
-            linear-gradient(rgba(255,255,255,.035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,.035) 1px, transparent 1px);
+            linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px);
         background-size: 42px 42px;
-        opacity: .7;
+        opacity: .64;
         pointer-events: none;
     }
 
     &::after {
         content: "";
         position: absolute;
-        width: 360px;
-        height: 360px;
-        right: -130px;
-        top: -130px;
+        width: 380px;
+        height: 380px;
+        right: -140px;
+        top: -140px;
         border-radius: 50%;
-        background: radial-gradient(circle, rgba(6, 182, 212, .28), transparent 66%);
+        background: radial-gradient(circle, rgba(255, 255, 255, .11), transparent 68%);
         pointer-events: none;
     }
 }
@@ -590,13 +262,14 @@ $vf-radius-lg:    12px;
     align-items: center;
     justify-content: center;
     font-size: 42px !important;
+    color: #ffffff !important;
     background:
-        linear-gradient(145deg, rgba(34, 211, 238, .24), rgba(37, 99, 235, .18)),
-        rgba(255, 255, 255, .07);
-    border: 1px solid rgba(125, 211, 252, .32);
+        linear-gradient(145deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .045)),
+        rgba(255, 255, 255, .05);
+    border: 1px solid rgba(255, 255, 255, .18);
     box-shadow:
-        0 0 0 8px rgba(6, 182, 212, .06),
-        0 24px 45px rgba(0, 0, 0, .32);
+        0 0 0 8px rgba(255, 255, 255, .035),
+        0 24px 45px rgba(0, 0, 0, .34);
 }
 
 .o_voyage_form .vf-hero__ref {
@@ -619,14 +292,16 @@ $vf-radius-lg:    12px;
     }
 }
 
-.o_voyage_form .vf-hero__vessel {
+.o_voyage_form .vf-hero__vessel,
+.o_voyage_form .vf-hero__naviera {
     flex-wrap: wrap;
+    color: rgba(255, 255, 255, .66) !important;
 
     .o_field_widget span,
     .o_input {
-        color: #e0f2fe !important;
-        background: rgba(255, 255, 255, .10) !important;
-        border: 1px solid rgba(226, 232, 240, .20) !important;
+        color: #f5f5f5 !important;
+        background: rgba(255, 255, 255, .08) !important;
+        border: 1px solid rgba(255, 255, 255, .16) !important;
         border-radius: 999px !important;
         padding: 7px 12px !important;
         font-size: 12px !important;
@@ -636,16 +311,94 @@ $vf-radius-lg:    12px;
     }
 
     .o_input::placeholder {
-        color: rgba(226, 232, 240, .45) !important;
+        color: rgba(255, 255, 255, .42) !important;
     }
 }
 
-// ─── KPIs Tech ────────────────────────────────────────────────────────────────
+// ─── KPI Grid ─────────────────────────────────────────────────────────────────
+.vf-kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, auto);
+    gap: 2px;
+    background: rgba(255, 255, 255, .08);
+    border-radius: $vf-radius;
+    overflow: hidden;
+}
+
+.vf-kpi {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 10px 16px;
+    background: rgba(255, 255, 255, .06);
+    transition: background .15s;
+    min-width: 90px;
+
+    &:hover {
+        background: rgba(255, 255, 255, .12);
+    }
+
+    &--green {
+        .vf-kpi__number {
+            color: $vf-green !important;
+        }
+    }
+
+    &--blue {
+        .vf-kpi__number {
+            color: $vf-blue !important;
+        }
+    }
+
+    &__label {
+        font-size: 9.5px;
+        font-weight: 600;
+        color: rgba(255, 255, 255, .54);
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        white-space: nowrap;
+    }
+
+    &__value {
+        display: flex;
+        align-items: baseline;
+        gap: 2px;
+    }
+
+    &__number {
+        font-size: 18px;
+        font-weight: 800;
+        color: #fff !important;
+        font-variant-numeric: tabular-nums;
+        letter-spacing: -.5px;
+        line-height: 1;
+
+        .o_field_widget span {
+            color: inherit !important;
+            font-size: 18px !important;
+            font-weight: 800 !important;
+        }
+    }
+
+    &__unit {
+        font-size: 11px;
+        color: rgba(255, 255, 255, .52);
+        font-weight: 500;
+    }
+
+    .o_transit_progress_percent {
+        min-width: 64px;
+        height: 32px;
+    }
+}
+
+// ─── KPIs: capa premium grayscale ─────────────────────────────────────────────
 .o_voyage_form .vf-kpi-grid {
     border-radius: 20px !important;
-    background: rgba(255, 255, 255, .09) !important;
-    border: 1px solid rgba(226, 232, 240, .16);
-    box-shadow: 0 18px 45px rgba(0, 0, 0, .24);
+    background: rgba(255, 255, 255, .08) !important;
+    border: 1px solid rgba(255, 255, 255, .14);
+    box-shadow: 0 18px 45px rgba(0, 0, 0, .28);
     overflow: hidden;
 }
 
@@ -653,15 +406,15 @@ $vf-radius-lg:    12px;
     min-width: 122px !important;
     min-height: 82px;
     padding: 15px 17px !important;
-    background: rgba(15, 23, 42, .32) !important;
-    border-right: 1px solid rgba(226, 232, 240, .10);
+    background: rgba(10, 10, 10, .38) !important;
+    border-right: 1px solid rgba(255, 255, 255, .10);
 
     &:last-child {
         border-right: 0;
     }
 
     &__label {
-        color: rgba(226, 232, 240, .68) !important;
+        color: rgba(245, 245, 245, .66) !important;
         font-size: 9px !important;
         font-weight: 900 !important;
         letter-spacing: .12em !important;
@@ -676,48 +429,127 @@ $vf-radius-lg:    12px;
     }
 
     &__unit {
-        color: rgba(226, 232, 240, .58) !important;
+        color: rgba(245, 245, 245, .56) !important;
         font-weight: 800;
     }
 
     &--green .vf-kpi__number,
     &--green .vf-kpi__number .o_field_widget span {
-        color: #86efac !important;
+        color: $vf-green !important;
     }
 
     &--blue .vf-kpi__number,
     &--blue .vf-kpi__number .o_field_widget span {
-        color: #93c5fd !important;
+        color: $vf-blue !important;
+    }
+
+    &--amber .vf-kpi__number,
+    &--amber .vf-kpi__number .o_field_widget span {
+        color: $vf-amber !important;
+    }
+
+    &--red .vf-kpi__number,
+    &--red .vf-kpi__number .o_field_widget span {
+        color: $vf-red !important;
     }
 
     .o_transit_progress_percent {
         min-width: 64px !important;
         height: 32px !important;
-        filter: drop-shadow(0 0 16px rgba(6, 182, 212, .25));
     }
 }
 
-// ─── Data Panel Tech ──────────────────────────────────────────────────────────
+// ─── PANEL DE DATOS 3 COLUMNAS ────────────────────────────────────────────────
+.vf-data-panel {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: $vf-border;
+    border-bottom: 1px solid $vf-border;
+
+    @media (max-width: 900px) {
+        grid-template-columns: 1fr;
+    }
+}
+
+.vf-panel-col {
+    background: $vf-white;
+    padding: 0;
+
+    &__header {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 10px 16px 8px;
+        background: $vf-bg;
+        border-bottom: 1px solid $vf-border;
+        font-size: 10.5px;
+        font-weight: 700;
+        color: $vf-text-sub;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+
+        i {
+            color: $vf-text-sub;
+            font-size: 11px;
+        }
+    }
+
+    &__body {
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+}
+
+.vf-field-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+}
+
+.vf-field-label {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: $vf-text-muted;
+    white-space: nowrap;
+    min-width: 100px;
+    flex-shrink: 0;
+}
+
+.vf-field-val {
+    flex: 1;
+    min-width: 0;
+
+    .o_input,
+    span,
+    a {
+        font-size: 12px !important;
+        color: $vf-text !important;
+    }
+}
+
+// ─── Data Panel: capa premium grayscale ───────────────────────────────────────
 .o_voyage_form .vf-data-panel {
     margin: 16px 18px 0;
     border-radius: 22px;
     overflow: hidden;
-    border: 1px solid var(--ct-border) !important;
-    background: var(--ct-border) !important;
-    box-shadow: var(--ct-shadow);
+    border: 1px solid $vf-border !important;
+    background: $vf-border !important;
+    box-shadow: $vf-shadow-md;
 }
 
 .o_voyage_form .vf-panel-col {
-    background:
-        linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,250,252,.98)) !important;
+    background: linear-gradient(180deg, #ffffff, #fbfbfb) !important;
 }
 
 .o_voyage_form .vf-panel-col__header {
     min-height: 54px;
-    background:
-        linear-gradient(135deg, #ffffff, #f8fafc) !important;
-    border-bottom: 1px solid #e2e8f0 !important;
-    color: var(--ct-text) !important;
+    background: linear-gradient(135deg, #ffffff, #f4f4f5) !important;
+    border-bottom: 1px solid $vf-border !important;
+    color: $vf-text-strong !important;
     font-size: 11px !important;
     font-weight: 950 !important;
     letter-spacing: .09em !important;
@@ -729,8 +561,8 @@ $vf-radius-lg:    12px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        color: var(--ct-blue) !important;
-        background: #eff6ff;
+        color: $vf-text-sub !important;
+        background: #eeeeef;
         margin-right: 4px;
     }
 }
@@ -749,7 +581,7 @@ $vf-radius-lg:    12px;
 }
 
 .o_voyage_form .vf-field-label {
-    color: var(--ct-muted) !important;
+    color: $vf-text-muted !important;
     font-size: 10px !important;
     font-weight: 900 !important;
     letter-spacing: .08em;
@@ -760,14 +592,14 @@ $vf-radius-lg:    12px;
     min-width: 0;
     padding: 8px 10px;
     border-radius: 12px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
+    background: #f7f7f8;
+    border: 1px solid $vf-border;
 
     .o_field_widget,
     .o_field_widget span,
     .o_input,
     a {
-        color: var(--ct-text) !important;
+        color: $vf-text !important;
         font-size: 12px !important;
         font-weight: 750 !important;
         background: transparent !important;
@@ -778,21 +610,52 @@ $vf-radius-lg:    12px;
 
     &:focus-within {
         background: #ffffff;
-        border-color: rgba(37, 99, 235, .45);
-        box-shadow: 0 0 0 3px rgba(37, 99, 235, .08);
+        border-color: #a1a1aa;
+        box-shadow: 0 0 0 3px rgba(0, 0, 0, .05);
     }
 }
 
-// ─── Contenedores Tech ────────────────────────────────────────────────────────
+// ─── Display especial para contenedores ───────────────────────────────────────
+.vf-containers-display {
+    background: $vf-bg-soft;
+    border: 1px solid $vf-border;
+    border-radius: $vf-radius-sm;
+    padding: 8px 12px;
+    margin-bottom: 6px;
+}
+
+.vf-containers-value {
+    .o_field_widget span {
+        font-family: 'JetBrains Mono', "SFMono-Regular", Consolas, monospace;
+        font-size: 12px !important;
+        color: $vf-accent !important;
+        font-weight: 700 !important;
+        word-break: break-all;
+    }
+}
+
+.vf-hint {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: $vf-text-muted;
+    font-style: italic;
+
+    i {
+        font-size: 10px;
+    }
+}
+
 .o_voyage_form .vf-containers-display {
     padding: 14px !important;
     border-radius: 18px !important;
-    background: #0f172a !important;
-    border: 1px solid rgba(148, 163, 184, .26) !important;
-    box-shadow: inset 0 0 0 1px rgba(255,255,255,.04);
+    background: #111111 !important;
+    border: 1px solid rgba(255, 255, 255, .12) !important;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04);
 
     .o_field_widget span {
-        color: #67e8f9 !important;
+        color: #ffffff !important;
         font-size: 13px !important;
         font-weight: 950 !important;
         font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace !important;
@@ -801,19 +664,19 @@ $vf-radius-lg:    12px;
 }
 
 .o_voyage_form .vf-hint {
-    color: var(--ct-muted) !important;
+    color: $vf-text-muted !important;
     font-size: 11px !important;
 
     i {
-        color: var(--ct-cyan) !important;
+        color: $vf-text-muted !important;
     }
 }
 
-// ─── Separadores / Mapa Tech ──────────────────────────────────────────────────
+// ─── Separadores / Mapa ───────────────────────────────────────────────────────
 .o_voyage_form .o_horizontal_separator {
     margin: 18px 18px 12px !important;
     padding: 0 !important;
-    color: var(--ct-text) !important;
+    color: $vf-text-strong !important;
     font-size: 12px !important;
     font-weight: 950 !important;
     letter-spacing: .12em !important;
@@ -824,9 +687,10 @@ $vf-radius-lg:    12px;
     margin-left: 18px;
     margin-right: 18px;
     border-radius: 22px !important;
-    border: 1px solid #dbeafe !important;
-    background: #0f172a !important;
-    box-shadow: var(--ct-shadow);
+    border: 1px solid $vf-border-strong !important;
+    background: #111111 !important;
+    box-shadow: $vf-shadow-md;
+    overflow: hidden;
 
     .o_field_html,
     .o_field_widget,
@@ -844,26 +708,26 @@ $vf-radius-lg:    12px;
     margin-right: 18px;
     min-height: 280px !important;
     border-radius: 22px !important;
-    border: 1px dashed rgba(37, 99, 235, .35) !important;
+    border: 1px dashed $vf-border-strong !important;
     background:
-        radial-gradient(circle at 50% 20%, rgba(6, 182, 212, .14), transparent 35%),
-        linear-gradient(135deg, #f8fafc, #eff6ff) !important;
-    color: var(--ct-muted) !important;
-    box-shadow: var(--ct-shadow);
+        radial-gradient(circle at 50% 20%, rgba(0, 0, 0, .045), transparent 35%),
+        linear-gradient(135deg, #ffffff, #f4f4f5) !important;
+    color: $vf-text-muted !important;
+    box-shadow: $vf-shadow-md;
 
     i {
-        color: var(--ct-blue) !important;
+        color: $vf-text-sub !important;
     }
 
     p {
-        color: var(--ct-text) !important;
+        color: $vf-text !important;
         font-weight: 900;
         font-size: 16px;
         margin-bottom: 4px;
     }
 
     small {
-        color: var(--ct-muted) !important;
+        color: $vf-text-muted !important;
         font-size: 12px;
     }
 }
@@ -873,47 +737,150 @@ $vf-radius-lg:    12px;
     margin-right: 18px;
     padding: 10px 14px !important;
     border-radius: 14px;
-    background: rgba(255,255,255,.75);
-    border: 1px solid #e2e8f0;
+    background: rgba(255, 255, 255, .82);
+    border: 1px solid $vf-border;
 }
 
-// ─── Lotes Tech ───────────────────────────────────────────────────────────────
+// ─── SECCIÓN DE LOTES ─────────────────────────────────────────────────────────
+.vf-lots-section {
+    background: $vf-white;
+    border-top: 1px solid $vf-border;
+
+    &__header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 14px 20px 12px;
+        border-bottom: 1px solid $vf-border;
+        background: $vf-bg;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    &__title {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        font-size: 13px;
+        font-weight: 700;
+        color: $vf-text;
+
+        i {
+            color: $vf-text-sub;
+        }
+    }
+
+    &__subtitle {
+        font-size: 11px;
+        font-weight: 400;
+        color: $vf-text-muted;
+        font-style: italic;
+    }
+
+    &__actions {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+}
+
+.vf-info-tip {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: $vf-blue-soft;
+    border: 1px solid $vf-blue-border;
+    border-radius: 20px;
+    padding: 4px 12px;
+    font-size: 10.5px;
+    color: #1d4ed8;
+
+    i {
+        color: $vf-blue;
+    }
+
+    strong {
+        font-weight: 700;
+    }
+}
+
+.vf-lines-table {
+    .o_list_renderer {
+        font-size: 11px !important;
+    }
+
+    .o_list_renderer thead th {
+        background: #eeeeef !important;
+        font-size: 9.5px !important;
+        font-weight: 700 !important;
+        color: $vf-text-sub !important;
+        text-transform: uppercase !important;
+        letter-spacing: .4px !important;
+        padding: 6px 10px !important;
+        border-bottom: 2px solid $vf-border-strong !important;
+    }
+
+    .o_data_row {
+        transition: background .1s;
+
+        &:hover td {
+            background: $vf-bg-soft !important;
+        }
+    }
+
+    .o_data_row.text-success td:first-child {
+        border-left: 3px solid $vf-green !important;
+    }
+
+    .o_data_row.text-warning td:first-child {
+        border-left: 3px solid $vf-amber !important;
+    }
+
+    .o_data_row.text-danger td:first-child {
+        border-left: 3px solid $vf-red !important;
+    }
+}
+
+// ─── Lotes: capa premium grayscale ────────────────────────────────────────────
 .o_voyage_form .vf-lots-section {
     margin: 16px 18px 0;
     padding: 0;
     border-radius: 22px !important;
     background: #ffffff !important;
-    border: 1px solid var(--ct-border) !important;
-    box-shadow: var(--ct-shadow);
+    border: 1px solid $vf-border !important;
+    box-shadow: $vf-shadow-md;
     overflow: hidden;
 }
 
 .o_voyage_form .vf-lots-section__header {
     padding: 18px 20px !important;
-    background:
-        linear-gradient(135deg, #0f172a, #111827) !important;
-    border-bottom: 1px solid rgba(148, 163, 184, .22) !important;
+    background: linear-gradient(135deg, #ffffff, #f4f4f5) !important;
+    border-bottom: 1px solid $vf-border !important;
 }
 
 .o_voyage_form .vf-lots-section__title {
-    color: #ffffff !important;
+    color: $vf-text-strong !important;
     font-size: 17px !important;
     font-weight: 950 !important;
     letter-spacing: -.03em;
 
     i {
-        color: #67e8f9 !important;
+        color: $vf-text-sub !important;
     }
 }
 
 .o_voyage_form .vf-lots-section__subtitle {
-    color: rgba(226, 232, 240, .62) !important;
+    color: $vf-text-muted !important;
 }
 
 .o_voyage_form .vf-info-tip {
-    background: rgba(6, 182, 212, .12) !important;
-    border-color: rgba(103, 232, 249, .28) !important;
-    color: #cffafe !important;
+    background: $vf-blue-soft !important;
+    border-color: $vf-blue-border !important;
+    color: #1d4ed8 !important;
+
+    i {
+        color: $vf-blue !important;
+    }
 }
 
 .o_voyage_form .vf-lots-section .tvl-root {
@@ -924,38 +891,144 @@ $vf-radius-lg:    12px;
 }
 
 .o_voyage_form .vf-lots-section .tvl-toolbar {
-    background:
-        linear-gradient(135deg, #0f172a, #111827) !important;
-    border-bottom: 1px solid rgba(148, 163, 184, .22) !important;
-    color: #e2e8f0 !important;
+    background: linear-gradient(135deg, #ffffff, #f4f4f5) !important;
+    border-bottom: 1px solid $vf-border !important;
+    color: $vf-text !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-toolbar__stat,
 .o_voyage_form .vf-lots-section .tvl-toolbar__pct {
-    color: rgba(226, 232, 240, .78) !important;
+    color: $vf-text-sub !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-toolbar strong {
-    color: #ffffff !important;
+    color: $vf-text-strong !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-group__header {
-    background: #f8fafc !important;
+    background: #f4f4f5 !important;
+    color: $vf-text !important;
+    border-top: 1px solid $vf-border !important;
+    border-bottom: 1px solid $vf-border !important;
 }
 
 .o_voyage_form .vf-lots-section .tvl-grand-total {
-    background:
-        linear-gradient(135deg, #0f172a, #064e3b) !important;
+    background: linear-gradient(135deg, #111111, #2b2b2b) !important;
+    color: #ffffff !important;
 }
 
-// ─── Métricas inferiores Tech ─────────────────────────────────────────────────
+// ─── Estados / badges de tabla ────────────────────────────────────────────────
+.o_voyage_form {
+    .badge,
+    .o_badge {
+        border-radius: 999px !important;
+        font-weight: 800 !important;
+        letter-spacing: -.01em;
+    }
+
+    .text-success,
+    .o_badge.text-success,
+    .badge.text-success {
+        color: $vf-green !important;
+    }
+
+    .text-warning,
+    .o_badge.text-warning,
+    .badge.text-warning {
+        color: $vf-amber !important;
+    }
+
+    .text-danger,
+    .o_badge.text-danger,
+    .badge.text-danger {
+        color: $vf-red !important;
+    }
+
+    .text-info,
+    .o_badge.text-info,
+    .badge.text-info {
+        color: $vf-blue !important;
+    }
+}
+
+// ─── FILA DE MÉTRICAS FINALES ─────────────────────────────────────────────────
+.vf-metrics-row {
+    display: flex;
+    gap: 1px;
+    background: $vf-border;
+    border-top: 1px solid $vf-border;
+    flex-wrap: wrap;
+}
+
+.vf-metric-card {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    min-width: 180px;
+    padding: 12px 20px;
+    background: $vf-white;
+
+    &--green {
+        .vf-metric-card__value .o_field_widget span {
+            color: $vf-green !important;
+        }
+    }
+
+    &--blue {
+        .vf-metric-card__value .o_field_widget span {
+            color: $vf-blue !important;
+        }
+    }
+
+    &--amber {
+        .vf-metric-card__value .o_field_widget span {
+            color: $vf-amber !important;
+        }
+    }
+
+    &--red {
+        .vf-metric-card__value .o_field_widget span {
+            color: $vf-red !important;
+        }
+    }
+
+    &--progress {
+        flex: 2;
+    }
+
+    &__label {
+        font-size: 10px;
+        font-weight: 700;
+        color: $vf-text-muted;
+        text-transform: uppercase;
+        letter-spacing: .5px;
+        white-space: nowrap;
+    }
+
+    &__value {
+        .o_field_widget span {
+            font-size: 16px !important;
+            font-weight: 800 !important;
+            color: $vf-accent !important;
+            font-variant-numeric: tabular-nums;
+        }
+    }
+
+    &__unit {
+        font-size: 11px;
+        color: $vf-text-muted;
+    }
+}
+
+// ─── Métricas inferiores: capa premium grayscale ──────────────────────────────
 .o_voyage_form .vf-metrics-row {
     margin: 16px 18px 18px;
     border-radius: 22px;
     overflow: hidden;
-    border: 1px solid var(--ct-border);
-    background: var(--ct-border) !important;
-    box-shadow: var(--ct-shadow);
+    border: 1px solid $vf-border;
+    background: $vf-border !important;
+    box-shadow: $vf-shadow-md;
 }
 
 .o_voyage_form .vf-metric-card {
@@ -963,20 +1036,32 @@ $vf-radius-lg:    12px;
     background: #ffffff !important;
 
     &__label {
-        color: var(--ct-muted) !important;
+        color: $vf-text-muted !important;
         font-weight: 950 !important;
         letter-spacing: .09em !important;
     }
 
     &__value .o_field_widget span {
-        color: var(--ct-text) !important;
+        color: $vf-text-strong !important;
         font-size: 20px !important;
         font-weight: 950 !important;
         letter-spacing: -.04em;
     }
 
     &--green .vf-metric-card__value .o_field_widget span {
-        color: var(--ct-green) !important;
+        color: $vf-green !important;
+    }
+
+    &--blue .vf-metric-card__value .o_field_widget span {
+        color: $vf-blue !important;
+    }
+
+    &--amber .vf-metric-card__value .o_field_widget span {
+        color: $vf-amber !important;
+    }
+
+    &--red .vf-metric-card__value .o_field_widget span {
+        color: $vf-red !important;
     }
 }
 
@@ -986,6 +1071,8 @@ $vf-radius-lg:    12px;
 // - Sin barco.
 // - Sin agua.
 // - Sin animación.
+// - Base en grayscale.
+// - Verde solo cuando está completado.
 // ============================================================================
 
 .o_transit_progress_percent {
@@ -996,11 +1083,11 @@ $vf-radius-lg:    12px;
     height: 32px;
     padding: 0 12px;
     border-radius: 999px;
-    background: rgba(15, 23, 42, .72);
-    border: 1px solid rgba(148, 163, 184, .35);
+    background: rgba(17, 17, 17, .82);
+    border: 1px solid rgba(255, 255, 255, .18);
     box-shadow:
-        inset 0 0 0 1px rgba(255, 255, 255, .05),
-        0 8px 20px rgba(2, 6, 23, .20);
+        inset 0 0 0 1px rgba(255, 255, 255, .045),
+        0 8px 20px rgba(0, 0, 0, .22);
 }
 
 .o_transit_progress_percent__value {
@@ -1014,15 +1101,33 @@ $vf-radius-lg:    12px;
 }
 
 .o_transit_progress_percent--done {
-    border-color: rgba(134, 239, 172, .55);
-    background: rgba(6, 78, 59, .72);
+    border-color: rgba(22, 163, 74, .55);
+    background: rgba(5, 46, 22, .78);
     box-shadow:
-        inset 0 0 0 1px rgba(134, 239, 172, .18),
-        0 0 22px rgba(34, 197, 94, .22);
+        inset 0 0 0 1px rgba(22, 163, 74, .18),
+        0 0 22px rgba(22, 163, 74, .20);
 }
 
 .o_transit_progress_percent--done .o_transit_progress_percent__value {
     color: #86efac !important;
+}
+
+.o_transit_progress_percent--warning {
+    border-color: rgba(217, 119, 6, .55);
+    background: rgba(69, 39, 7, .78);
+}
+
+.o_transit_progress_percent--warning .o_transit_progress_percent__value {
+    color: #fbbf24 !important;
+}
+
+.o_transit_progress_percent--danger {
+    border-color: rgba(220, 38, 38, .55);
+    background: rgba(69, 10, 10, .78);
+}
+
+.o_transit_progress_percent--danger .o_transit_progress_percent__value {
+    color: #fca5a5 !important;
 }
 
 .o_voyage_form .vf-kpi .o_transit_progress_percent,
@@ -1041,6 +1146,76 @@ $vf-radius-lg:    12px;
 .o_voyage_form .vf-kpi .o_transit_progress_percent--done .o_transit_progress_percent__value,
 .o_voyage_form .vf-kpi-grid .o_transit_progress_percent--done .o_transit_progress_percent__value {
     color: #86efac !important;
+}
+
+.o_voyage_form .vf-kpi .o_transit_progress_percent--warning .o_transit_progress_percent__value,
+.o_voyage_form .vf-kpi-grid .o_transit_progress_percent--warning .o_transit_progress_percent__value {
+    color: #fbbf24 !important;
+}
+
+.o_voyage_form .vf-kpi .o_transit_progress_percent--danger .o_transit_progress_percent__value,
+.o_voyage_form .vf-kpi-grid .o_transit_progress_percent--danger .o_transit_progress_percent__value {
+    color: #fca5a5 !important;
+}
+
+// ============================================================================
+// Indicadores semánticos extra
+// Útiles si tus templates usan clases de estado.
+// ============================================================================
+
+.o_voyage_form {
+    .vf-indicator {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 999px;
+        padding: 4px 10px;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: -.01em;
+        border: 1px solid $vf-border;
+        background: #f4f4f5;
+        color: $vf-text-sub;
+
+        &::before {
+            content: "";
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        &--success,
+        &--green,
+        &--on-track {
+            background: $vf-green-soft;
+            border-color: $vf-green-border;
+            color: $vf-green;
+        }
+
+        &--info,
+        &--blue,
+        &--progress {
+            background: $vf-blue-soft;
+            border-color: $vf-blue-border;
+            color: $vf-blue;
+        }
+
+        &--warning,
+        &--risk {
+            background: $vf-amber-soft;
+            border-color: $vf-amber-border;
+            color: $vf-amber;
+        }
+
+        &--danger,
+        &--late,
+        &--delayed {
+            background: $vf-red-soft;
+            border-color: $vf-red-border;
+            color: $vf-red;
+        }
+    }
 }
 
 // ─── Responsive ───────────────────────────────────────────────────────────────
@@ -1080,6 +1255,13 @@ $vf-radius-lg:    12px;
     .o_voyage_form .vf-hero__left {
         flex-direction: column;
         align-items: flex-start;
+    }
+
+    .o_voyage_form .vf-hero__icon {
+        width: 76px;
+        height: 76px;
+        border-radius: 22px;
+        font-size: 34px !important;
     }
 
     .o_voyage_form .vf-hero__ref,
