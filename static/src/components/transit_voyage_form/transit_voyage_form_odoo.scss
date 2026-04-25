@@ -1043,3 +1043,63 @@ $vf-shadow-strong:    0 26px 70px rgba(2, 6, 23, .28);
         }
     }
 }
+
+
+
+/* ============================================================
+   Compatibilidad XML segura: títulos sin h1/h2/h3/label/section
+   ============================================================ */
+
+.o_voyage_form_tech {
+    .vf-panel-heading {
+        margin: 0;
+        color: #0f172a;
+        font-size: 16px;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1.15;
+    }
+
+    .vf-section-heading {
+        margin: 0;
+        color: #0f172a;
+        font-size: 19px;
+        font-weight: 950;
+        letter-spacing: -0.04em;
+        line-height: 1.15;
+    }
+
+    .vf-field-label,
+    .vf-vessel-label {
+        color: #64748b;
+        font-size: 10px;
+        font-weight: 900;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+    }
+
+    .vf-mini-stat__value,
+    .vf-kpi-card__value,
+    .vf-footer-metric__value {
+        display: flex;
+        align-items: baseline;
+        gap: 4px;
+    }
+
+    .vf-mini-stat__value .o_field_widget span,
+    .vf-mini-stat__value .o_input,
+    .vf-kpi-card__value .o_field_widget span,
+    .vf-kpi-card__value .o_input,
+    .vf-footer-metric__value .o_field_widget span,
+    .vf-footer-metric__value .o_input {
+        font-weight: 950 !important;
+        letter-spacing: -0.04em;
+    }
+
+    .vf-map-empty__title {
+        margin-top: 6px;
+        color: #0f172a;
+        font-size: 16px;
+        font-weight: 900;
+    }
+}

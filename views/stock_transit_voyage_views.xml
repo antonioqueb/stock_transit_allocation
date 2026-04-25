@@ -75,8 +75,8 @@
             <sheet>
                 <div class="vf-page">
 
-                    <!-- HERO / COMMAND CENTER -->
-                    <section class="vf-hero">
+                    <!-- HERO -->
+                    <div class="vf-hero">
                         <div class="vf-hero__main">
                             <div class="vf-orb">
                                 <i class="fa fa-ship"/>
@@ -85,12 +85,12 @@
                             <div class="vf-hero__identity">
                                 <div class="vf-eyebrow">
                                     <span class="vf-live-dot"/>
-                                    Control Tower · Voyage Command
+                                    <span>Control Tower · Voyage Command</span>
                                 </div>
 
-                                <h1 class="vf-title">
+                                <div class="vf-title">
                                     <field name="name" readonly="1"/>
-                                </h1>
+                                </div>
 
                                 <div class="vf-hero__chips">
                                     <div class="vf-chip vf-chip--dark">
@@ -123,37 +123,43 @@
                             <div class="vf-mini-grid">
                                 <div class="vf-mini-stat">
                                     <span>Total</span>
-                                    <strong><field name="total_m2" readonly="1"/></strong>
-                                    <em>m²</em>
+                                    <div class="vf-mini-stat__value">
+                                        <field name="total_m2" readonly="1"/>
+                                        <span>m²</span>
+                                    </div>
                                 </div>
 
                                 <div class="vf-mini-stat vf-mini-stat--success">
                                     <span>Asignado</span>
-                                    <strong><field name="allocated_m2" readonly="1"/></strong>
-                                    <em>m²</em>
+                                    <div class="vf-mini-stat__value">
+                                        <field name="allocated_m2" readonly="1"/>
+                                        <span>m²</span>
+                                    </div>
                                 </div>
 
                                 <div class="vf-mini-stat vf-mini-stat--blue">
                                     <span>Asignación</span>
-                                    <strong><field name="allocation_percent" readonly="1"/></strong>
-                                    <em>%</em>
+                                    <div class="vf-mini-stat__value">
+                                        <field name="allocation_percent" readonly="1"/>
+                                        <span>%</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </section>
+                    </div>
 
                     <!-- KPI STRIP -->
-                    <section class="vf-kpi-strip">
+                    <div class="vf-kpi-strip">
                         <div class="vf-kpi-card">
                             <div class="vf-kpi-card__icon">
                                 <i class="fa fa-th-large"/>
                             </div>
                             <div class="vf-kpi-card__body">
                                 <span>Total embarcado</span>
-                                <strong>
+                                <div class="vf-kpi-card__value">
                                     <field name="total_m2" readonly="1"/>
-                                    <em>m²</em>
-                                </strong>
+                                    <span>m²</span>
+                                </div>
                             </div>
                         </div>
 
@@ -163,10 +169,10 @@
                             </div>
                             <div class="vf-kpi-card__body">
                                 <span>Asignado</span>
-                                <strong>
+                                <div class="vf-kpi-card__value">
                                     <field name="allocated_m2" readonly="1"/>
-                                    <em>m²</em>
-                                </strong>
+                                    <span>m²</span>
+                                </div>
                             </div>
                         </div>
 
@@ -176,10 +182,10 @@
                             </div>
                             <div class="vf-kpi-card__body">
                                 <span>Porcentaje asignado</span>
-                                <strong>
+                                <div class="vf-kpi-card__value">
                                     <field name="allocation_percent" readonly="1"/>
-                                    <em>%</em>
-                                </strong>
+                                    <span>%</span>
+                                </div>
                             </div>
                         </div>
 
@@ -189,55 +195,57 @@
                             </div>
                             <div class="vf-kpi-card__body">
                                 <span>Última sincronización</span>
-                                <strong class="vf-kpi-card__date">
+                                <div class="vf-kpi-card__date">
                                     <field name="shipsgo_last_sync" readonly="1"/>
-                                </strong>
+                                </div>
                             </div>
                         </div>
-                    </section>
+                    </div>
 
                     <!-- DATA CARDS -->
-                    <section class="vf-command-grid">
+                    <div class="vf-command-grid">
+
+                        <!-- DOCUMENTOS -->
                         <div class="vf-panel vf-panel--documents">
                             <div class="vf-panel__header">
                                 <div>
                                     <span>01</span>
-                                    <h3>Documentos</h3>
+                                    <div class="vf-panel-heading">Documentos</div>
                                 </div>
                                 <i class="fa fa-file-text-o"/>
                             </div>
 
                             <div class="vf-field-list">
                                 <div class="vf-field-row">
-                                    <label>OC Sistema</label>
+                                    <span class="vf-field-label">OC Sistema</span>
                                     <div class="vf-field-value">
-                                        <field name="purchase_id" readonly="1" no_open="0"/>
+                                        <field name="purchase_id" readonly="1"/>
                                     </div>
                                 </div>
 
                                 <div class="vf-field-row">
-                                    <label>Folio / BL</label>
+                                    <span class="vf-field-label">Folio / BL</span>
                                     <div class="vf-field-value">
                                         <field name="bl_number" placeholder="Número de BL..."/>
                                     </div>
                                 </div>
 
                                 <div class="vf-field-row">
-                                    <label>No. Viaje</label>
+                                    <span class="vf-field-label">No. Viaje</span>
                                     <div class="vf-field-value">
                                         <field name="voyage_number" placeholder="Ej. 0302W..."/>
                                     </div>
                                 </div>
 
                                 <div class="vf-field-row" invisible="not picking_id">
-                                    <label>Recepción ADM</label>
+                                    <span class="vf-field-label">Recepción ADM</span>
                                     <div class="vf-field-value">
                                         <field name="picking_id" readonly="1"/>
                                     </div>
                                 </div>
 
                                 <div class="vf-field-row" invisible="not reception_picking_id">
-                                    <label>Recepción Física</label>
+                                    <span class="vf-field-label">Recepción Física</span>
                                     <div class="vf-field-value">
                                         <field name="reception_picking_id" readonly="1"/>
                                     </div>
@@ -245,11 +253,12 @@
                             </div>
                         </div>
 
+                        <!-- RUTA -->
                         <div class="vf-panel vf-panel--route">
                             <div class="vf-panel__header">
                                 <div>
                                     <span>02</span>
-                                    <h3>Ruta e itinerario</h3>
+                                    <div class="vf-panel-heading">Ruta e itinerario</div>
                                 </div>
                                 <i class="fa fa-calendar"/>
                             </div>
@@ -257,30 +266,40 @@
                             <div class="vf-route-strip">
                                 <div class="vf-route-node">
                                     <span>ETD</span>
-                                    <strong><field name="etd"/></strong>
+                                    <div>
+                                        <field name="etd"/>
+                                    </div>
                                 </div>
+
                                 <div class="vf-route-line"/>
+
                                 <div class="vf-route-node vf-route-node--active">
                                     <span>ETA</span>
-                                    <strong><field name="eta"/></strong>
+                                    <div>
+                                        <field name="eta"/>
+                                    </div>
                                 </div>
+
                                 <div class="vf-route-line"/>
+
                                 <div class="vf-route-node">
                                     <span>Llegada</span>
-                                    <strong><field name="arrival_date" readonly="1"/></strong>
+                                    <div>
+                                        <field name="arrival_date" readonly="1"/>
+                                    </div>
                                 </div>
                             </div>
 
                             <div class="vf-field-list">
                                 <div class="vf-field-row">
-                                    <label>Días tránsito</label>
+                                    <span class="vf-field-label">Días tránsito</span>
                                     <div class="vf-field-value">
                                         <field name="transit_days_expected"/>
                                     </div>
                                 </div>
 
                                 <div class="vf-field-row">
-                                    <label>Entregado en bodega</label>
+                                    <span class="vf-field-label">En bodega</span>
                                     <div class="vf-field-value">
                                         <field name="arrival_date_bodega" readonly="1"/>
                                     </div>
@@ -288,11 +307,12 @@
                             </div>
                         </div>
 
+                        <!-- BUQUE -->
                         <div class="vf-panel vf-panel--vessel">
                             <div class="vf-panel__header">
                                 <div>
                                     <span>03</span>
-                                    <h3>Buque y contenedores</h3>
+                                    <div class="vf-panel-heading">Buque y contenedores</div>
                                 </div>
                                 <i class="fa fa-cubes"/>
                             </div>
@@ -301,35 +321,40 @@
                                 <div class="vf-vessel-card__icon">
                                     <i class="fa fa-ship"/>
                                 </div>
+
                                 <div class="vf-vessel-card__info">
-                                    <label>Buque / Barco</label>
+                                    <span class="vf-vessel-label">Buque / Barco</span>
                                     <field name="vessel_name" placeholder="Nombre del buque..."/>
-                                    <label>Naviera</label>
+
+                                    <span class="vf-vessel-label">Naviera</span>
                                     <field name="shipping_line" placeholder="Naviera..."/>
                                 </div>
                             </div>
 
                             <div class="vf-container-display">
                                 <span>Contenedores detectados</span>
-                                <strong><field name="container_number" readonly="1"/></strong>
+                                <div>
+                                    <field name="container_number" readonly="1"/>
+                                </div>
                             </div>
 
                             <div class="vf-hint">
                                 <i class="fa fa-info-circle"/>
-                                Se actualizan automáticamente desde las líneas del viaje.
+                                <span>Se actualizan automáticamente desde las líneas del viaje.</span>
                             </div>
                         </div>
-                    </section>
+                    </div>
 
-                    <!-- TRACKING MAP -->
-                    <section class="vf-map-panel">
+                    <!-- MAPA -->
+                    <div class="vf-map-panel">
                         <div class="vf-section-title">
                             <div>
                                 <span class="vf-section-kicker">Tracking</span>
-                                <h2>Seguimiento en tiempo real</h2>
+                                <div class="vf-section-heading">Seguimiento en tiempo real</div>
                             </div>
+
                             <div class="vf-sync-meta">
-                                <i class="fa fa-satellite-dish"/>
+                                <i class="fa fa-map-marker"/>
                                 <span>ShipsGo / SOM Group</span>
                             </div>
                         </div>
@@ -338,7 +363,7 @@
                             <div class="vf-map-empty__icon">
                                 <i class="fa fa-map-o"/>
                             </div>
-                            <h3>Sin datos de rastreo</h3>
+                            <div class="vf-map-empty__title">Sin datos de rastreo</div>
                             <p>Captura un contenedor válido y usa “Sincronizar API” para cargar la ubicación.</p>
                         </div>
 
@@ -352,16 +377,17 @@
                         </div>
 
                         <field name="shipsgo_payload" invisible="1"/>
-                    </section>
+                    </div>
 
-                    <!-- LOTS -->
-                    <section class="vf-lots-section vf-lots-section--tech">
+                    <!-- LOTES -->
+                    <div class="vf-lots-section vf-lots-section--tech">
                         <div class="vf-section-title vf-section-title--compact">
                             <div>
                                 <span class="vf-section-kicker">Cargo Manifest</span>
-                                <h2>Contenido del embarque</h2>
+                                <div class="vf-section-heading">Contenido del embarque</div>
                                 <p>Agrupado por producto · asignación directa por cliente y orden.</p>
                             </div>
+
                             <div class="vf-info-pill">
                                 <i class="fa fa-angle-double-down"/>
                                 <span>Propagación disponible por línea</span>
@@ -369,25 +395,31 @@
                         </div>
 
                         <field name="line_ids" widget="transit_voyage_lines"/>
-                    </section>
+                    </div>
 
-                    <!-- FOOTER METRICS -->
-                    <section class="vf-footer-metrics">
+                    <!-- FOOTER -->
+                    <div class="vf-footer-metrics">
                         <div class="vf-footer-metric">
                             <span>Total embarcado</span>
-                            <strong><field name="total_m2" readonly="1"/> <em>m²</em></strong>
+                            <div class="vf-footer-metric__value">
+                                <field name="total_m2" readonly="1"/>
+                                <span>m²</span>
+                            </div>
                         </div>
 
                         <div class="vf-footer-metric vf-footer-metric--green">
                             <span>Asignado</span>
-                            <strong><field name="allocated_m2" readonly="1"/> <em>m²</em></strong>
+                            <div class="vf-footer-metric__value">
+                                <field name="allocated_m2" readonly="1"/>
+                                <span>m²</span>
+                            </div>
                         </div>
 
                         <div class="vf-footer-progress">
                             <span>Asignación general</span>
                             <field name="allocation_percent" widget="progressbar" readonly="1"/>
                         </div>
-                    </section>
+                    </div>
 
                 </div>
             </sheet>
