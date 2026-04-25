@@ -24,27 +24,27 @@ const ETA_ALERT_MAP = {
 };
 
 const COLUMNS = [
-    { key: "purchase_id",         label: "OC Sistema",          width: "110px" },
-    { key: "date_order",          label: "Fecha OC",            width: "90px"  },
-    { key: "voyage_status",       label: "Estado",              width: "120px" },
-    { key: "eta_alert_level",     label: "Alerta",              width: "100px" },
-    { key: "salesperson_id",      label: "Vendedor",            width: "160px" },
-    { key: "order_id",            label: "Sales Order",         width: "110px" },
-    { key: "partner_id",          label: "Cliente / Proyecto",  width: "260px" },
-    { key: "proforma_ref",        label: "Proforma",            width: "110px" },
-    { key: "invoice_number",      label: "No. Invoice",         width: "130px" },
-    { key: "vendor_id",           label: "Proveedor",           width: "200px" },
-    { key: "product_id",          label: "Descripción",         width: "290px" },
-    { key: "product_categ_id",    label: "Categoría",           width: "130px" },
-    { key: "product_uom_qty",     label: "m² Embarcados",       width: "100px", align: "right", isNum: true },
-    { key: "container_number",    label: "Contenedor",          width: "110px" },
-    { key: "bl_number",           label: "BL / Folio",          width: "120px" },
-    { key: "etd",                 label: "ETD",                 width: "85px"  },
-    { key: "eta",                 label: "ETA",                 width: "85px"  },
-    { key: "eta_original",        label: "ETA Original",        width: "90px"  },
-    { key: "delay_days",          label: "Días Retraso",        width: "90px", align: "right", isNum: true },
-    { key: "arrival_date",        label: "Llegada Real",        width: "90px"  },
-    { key: "arrival_date_bodega", label: "En Bodega",           width: "90px"  },
+    { key: "purchase_id",         label: "OC Sistema",          minWidth: "120px" },
+    { key: "date_order",          label: "Fecha OC",            minWidth: "95px"  },
+    { key: "voyage_status",       label: "Estado",              minWidth: "135px" },
+    { key: "eta_alert_level",     label: "Alerta",              minWidth: "135px" },
+    { key: "salesperson_id",      label: "Vendedor",            minWidth: "170px" },
+    { key: "order_id",            label: "Sales Order",         minWidth: "120px" },
+    { key: "partner_id",          label: "Cliente / Proyecto",  minWidth: "280px" },
+    { key: "proforma_ref",        label: "Proforma",            minWidth: "130px" },
+    { key: "invoice_number",      label: "No. Invoice",         minWidth: "140px" },
+    { key: "vendor_id",           label: "Proveedor",           minWidth: "220px" },
+    { key: "product_id",          label: "Descripción",         minWidth: "340px" },
+    { key: "product_categ_id",    label: "Categoría",           minWidth: "150px" },
+    { key: "product_uom_qty",     label: "m² Embarcados",       minWidth: "115px", align: "right", isNum: true },
+    { key: "container_number",    label: "Contenedor",          minWidth: "130px" },
+    { key: "bl_number",           label: "BL / Folio",          minWidth: "150px" },
+    { key: "etd",                 label: "ETD",                 minWidth: "95px"  },
+    { key: "eta",                 label: "ETA",                 minWidth: "95px"  },
+    { key: "eta_original",        label: "ETA Original",        minWidth: "110px" },
+    { key: "delay_days",          label: "Días Retraso",        minWidth: "115px", align: "right", isNum: true },
+    { key: "arrival_date",        label: "Llegada Real",        minWidth: "110px" },
+    { key: "arrival_date_bodega", label: "En Bodega",           minWidth: "110px" },
 ];
 
 export class TransitSheetView extends Component {
@@ -114,18 +114,24 @@ export class TransitSheetView extends Component {
 
         const q = this.state.searchText.trim().toLowerCase();
         if (q) {
-            data = data.filter(r =>
-                this._str(r.purchase_id).toLowerCase().includes(q) ||
-                this._str(r.order_id).toLowerCase().includes(q) ||
-                this._str(r.partner_id).toLowerCase().includes(q) ||
-                this._str(r.product_id).toLowerCase().includes(q) ||
-                this._str(r.vendor_id).toLowerCase().includes(q) ||
-                this._str(r.product_categ_id).toLowerCase().includes(q) ||
-                (r.bl_number || "").toLowerCase().includes(q) ||
-                (r.container_number || "").toLowerCase().includes(q) ||
-                (r.proforma_ref || "").toLowerCase().includes(q) ||
-                (r.invoice_number || "").toLowerCase().includes(q)
-            );
+            data = data.filter(r => {
+                const stockToken = (!this._id(r.order_id) || !this._id(r.partner_id)) ? "Stock" : "";
+                const haystack = [
+                    this._str(r.purchase_id),
+                    this._stockStr(r.order_id),
+                    this._stockStr(r.partner_id),
+                    this._str(r.salesperson_id),
+                    this._str(r.product_id),
+                    this._str(r.vendor_id),
+                    this._str(r.product_categ_id),
+                    r.bl_number || "",
+                    r.container_number || "",
+                    r.proforma_ref || "",
+                    r.invoice_number || "",
+                    stockToken,
+                ].join(" ").toLowerCase();
+                return haystack.includes(q);
+            });
         }
 
         if (this.state.statusFilter) {
@@ -152,6 +158,7 @@ export class TransitSheetView extends Component {
 
     _sortVal(r, key) {
         const v = r[key];
+        if ((key === "order_id" || key === "partner_id") && !this._id(v)) return "Stock";
         if (!v) return "";
         if (Array.isArray(v)) return v[1] || "";
         return v;
@@ -170,7 +177,7 @@ export class TransitSheetView extends Component {
                 label  = r.voyage_id ? r.voyage_id[1] : "Sin viaje";
             } else if (this.state.groupBy === "partner") {
                 grpKey = r.partner_id ? r.partner_id[0] : 0;
-                label  = r.partner_id ? r.partner_id[1] : "Sin cliente";
+                label  = r.partner_id ? r.partner_id[1] : "Stock";
             } else if (this.state.groupBy === "status") {
                 grpKey = r.voyage_status || "none";
                 label  = STATUS_MAP[grpKey] ? STATUS_MAP[grpKey].label : grpKey;
@@ -278,10 +285,14 @@ export class TransitSheetView extends Component {
         return false;
     }
 
-    _str(val) {
-        if (!val) return "—";
-        if (Array.isArray(val)) return val[1] || "—";
+    _str(val, fallback = "—") {
+        if (!val) return fallback;
+        if (Array.isArray(val)) return val[1] || fallback;
         return String(val);
+    }
+
+    _stockStr(val) {
+        return this._id(val) ? this._str(val) : "Stock";
     }
 
     _fmtDate(val) {
@@ -344,6 +355,7 @@ export class TransitSheetView extends Component {
     }
 
     strOf(val)          { return this._str(val); }
+    stockStrOf(val)     { return this._stockStr(val); }
     fmtDate(val)        { return this._fmtDate(val); }
     fmtDateOrder(row)   { return this._fmtDate(row.date_order); }
     fmtNum(val)         { return this._fmtNum(val); }
@@ -358,6 +370,7 @@ export class TransitSheetView extends Component {
     isAlertFiltered(l)  { return this.state.alertFilter === l; }
     grpCollapsed(k)     { return !!this.state.collapsedGroups[k]; }
     hasLink(val)        { return !!this._id(val); }
+    isStock(val)        { return !this._id(val); }
     isContainer(val)    { return val && val !== "PENDIENTE"; }
 }
 

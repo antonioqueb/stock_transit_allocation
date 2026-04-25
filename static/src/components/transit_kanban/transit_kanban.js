@@ -100,8 +100,11 @@ export class TransitKanbanView extends Component {
             loading:      true,
             searchText:   "",
             columns:      {},   // { stageKey: [records] }
-            totals:       {},   // { stageKey: { count, m2 } }
-            collapsed:    {},   // { stageKey: bool }
+            totals:          {},   // { stageKey: { count, m2 } }
+            collapsed:       {},   // { stageKey: bool }
+            draggingId:      false,
+            dragOverStage:   false,
+            updatingStageId: false,
         });
 
         onWillStart(async () => {
@@ -215,6 +218,97 @@ export class TransitKanbanView extends Component {
         });
     }
 
+    // ─── Drag & Drop ──────────────────────────────────────────────────────────
+
+    onCardDragStart(card, ev) {
+        if (!card || !card.id) return;
+        ev.stopPropagation();
+        this.state.draggingId = card.id;
+        this.state.dragOverStage = false;
+
+        if (ev.dataTransfer) {
+            ev.dataTransfer.effectAllowed = "move";
+            ev.dataTransfer.setData("text/plain", String(card.id));
+        }
+    }
+
+    onCardDragEnd() {
+        this.state.draggingId = false;
+        this.state.dragOverStage = false;
+    }
+
+    onColumnDragEnter(stageKey, ev) {
+        if (!this.state.draggingId) return;
+        ev.preventDefault();
+        this.state.dragOverStage = stageKey;
+    }
+
+    onColumnDragOver(stageKey, ev) {
+        if (!this.state.draggingId) return;
+        ev.preventDefault();
+        if (ev.dataTransfer) {
+            ev.dataTransfer.dropEffect = "move";
+        }
+        this.state.dragOverStage = stageKey;
+    }
+
+    onColumnDragLeave(stageKey, ev) {
+        const related = ev.relatedTarget;
+        if (related && ev.currentTarget && ev.currentTarget.contains(related)) {
+            return;
+        }
+        if (this.state.dragOverStage === stageKey) {
+            this.state.dragOverStage = false;
+        }
+    }
+
+    async onColumnDrop(stageKey, ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+
+        const rawId = ev.dataTransfer?.getData("text/plain") || this.state.draggingId;
+        const recordId = parseInt(rawId, 10);
+        this.state.dragOverStage = false;
+
+        if (!recordId || !stageKey) {
+            this.state.draggingId = false;
+            return;
+        }
+
+        const record = this.state.records.find(r => r.id === recordId);
+        if (!record) {
+            this.state.draggingId = false;
+            return;
+        }
+
+        if (record.custom_status === stageKey) {
+            this.state.draggingId = false;
+            return;
+        }
+
+        this.state.updatingStageId = recordId;
+        try {
+            await this.orm.write("stock.transit.voyage", [recordId], {
+                custom_status: stageKey,
+            });
+
+            record.custom_status = stageKey;
+            this._buildColumns(this.state.records);
+            this.notification.add(
+                `Viaje movido a ${this.stageLabel(stageKey)}`,
+                { type: "success", sticky: false }
+            );
+        } catch (e) {
+            console.error("[TransitKanban] Error actualizando estado:", e);
+            this.notification.add("No se pudo cambiar el estado del viaje: " + (e.message || e), { type: "danger" });
+            await this.loadData();
+        } finally {
+            this.state.draggingId = false;
+            this.state.dragOverStage = false;
+            this.state.updatingStageId = false;
+        }
+    }
+
     // ─── Helpers ──────────────────────────────────────────────────────────────
 
     _str(val) {
@@ -280,6 +374,13 @@ export class TransitKanbanView extends Component {
     isCollapsed(key)        { return !!this.state.collapsed[key]; }
     progressWidth(pct)      { return (pct || 0) + "%"; }
     hasContainer(val)       { return val && val !== "PENDIENTE"; }
+    isDragging(id)          { return this.state.draggingId === id; }
+    isDropTarget(key)       { return this.state.dragOverStage === key; }
+    isUpdating(id)          { return this.state.updatingStageId === id; }
+    stageLabel(key)         {
+        const stage = STAGES.find(s => s.key === key || (s.extraKeys || []).includes(key));
+        return stage ? stage.label : key;
+    }
 
     get totalVoyages() {
         return Object.values(this.state.totals).reduce((s, t) => s + t.count, 0);

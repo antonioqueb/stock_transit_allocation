@@ -461,3 +461,85 @@ $tk-radius-pill:   20px;
     color:       $tk-text-secondary;
     white-space: nowrap;
 }
+
+
+// ============================================================================
+// Ajuste Control Tower: Kanban fluido + Drag & Drop
+// - Las columnas se distribuyen en todo el ancho disponible.
+// - En pantallas reducidas se mantiene scroll horizontal controlado.
+// - Las tarjetas se pueden arrastrar entre estados.
+// ============================================================================
+.tk-root {
+    min-width: 0;
+}
+
+.tk-board {
+    display:               grid !important;
+    grid-template-columns: repeat(7, minmax(200px, 1fr));
+    align-items:           stretch;
+    width:                 100%;
+    min-width:             0;
+    overflow-x:            auto;
+    overflow-y:            hidden;
+}
+
+.tk-column {
+    flex:      unset !important;
+    width:     auto !important;
+    min-width: 0;
+}
+
+@media (max-width: 1200px) {
+    .tk-board {
+        grid-template-columns: repeat(7, minmax(220px, 1fr));
+    }
+}
+
+.tk-column--drop-target {
+    background: #eef6ff !important;
+    outline:    2px dashed var(--col-color, #3b82f6);
+    outline-offset: -4px;
+
+    .tk-cards {
+        background: rgba(59, 130, 246, .06);
+    }
+}
+
+.tk-card {
+    cursor: grab;
+
+    &:active {
+        cursor: grabbing;
+    }
+
+    &--dragging {
+        opacity: .48;
+        transform: scale(.985);
+        box-shadow: none;
+    }
+
+    &--updating {
+        opacity: .65;
+        pointer-events: none;
+    }
+}
+
+.tk-card__name,
+.tk-card__row,
+.tk-card__muted,
+.tk-card__container {
+    max-width:     100%;
+    white-space:   normal !important;
+    overflow:      visible !important;
+    text-overflow: clip !important;
+    word-break:    break-word;
+}
+
+.tk-card__row {
+    align-items: flex-start;
+}
+
+.tk-card__dates,
+.tk-card__footer {
+    flex-wrap: wrap;
+}

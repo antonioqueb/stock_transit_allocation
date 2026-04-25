@@ -551,3 +551,51 @@ $ts-radius-pill:    20px;
     font-weight:  600;
     color:        #0f766e;
 }
+
+
+// ============================================================================
+// Ajuste Control Tower: columnas fluidas por contenido
+// - La tabla deja de comprimir columnas.
+// - Cada columna respeta un ancho mínimo, pero crece según su contenido real.
+// - El overflow queda en el contenedor de scroll horizontal, no dentro de celdas.
+// ============================================================================
+.ts-table-scroll-wrapper {
+    width:     100%;
+    max-width: 100%;
+    overflow:  auto;
+}
+
+.ts-table {
+    width:        max-content !important;
+    min-width:    100% !important;
+    table-layout: auto !important;
+}
+
+.ts-th,
+.ts-td,
+.ts-td-total,
+.ts-td-subtotal {
+    width:         auto !important;
+    max-width:     none !important;
+    overflow:      visible !important;
+    text-overflow: clip !important;
+    white-space:   nowrap !important;
+}
+
+.ts-th {
+    position: relative;
+}
+
+.ts-stock-chip {
+    display:        inline-flex;
+    align-items:    center;
+    padding:        1px 7px;
+    border-radius:  $ts-radius-pill;
+    border:         1px solid $ts-border;
+    background:     #f1f5f9;
+    color:          $ts-text-secondary;
+    font-size:      10px;
+    font-weight:    700;
+    text-transform: uppercase;
+    letter-spacing: .35px;
+}

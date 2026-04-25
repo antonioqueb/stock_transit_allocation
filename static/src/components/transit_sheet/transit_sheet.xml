@@ -129,7 +129,7 @@
                     <tr>
                         <t t-foreach="visibleCols" t-as="col" t-key="col.key">
                             <th t-attf-class="ts-th #{col.align === 'right' ? 'ts-th--right' : ''}"
-                                t-att-style="'min-width:' + col.width + '; width:' + col.width"
+                                t-att-style="'min-width:' + col.minWidth"
                                 t-on-click="() => this.onSort(col.key)">
                                 <span t-esc="col.label"/>
                                 <i t-attf-class="fa #{sortIcon(col.key)} ts-sort-icon"/>
@@ -154,7 +154,8 @@
                                 <td t-elif="col.key === 'order_id'"
                                     t-attf-class="ts-td #{hasLink(row.order_id) ? 'ts-td--link' : ''}"
                                     t-on-click="(ev) => this.openSaleOrder(row, ev)">
-                                    <span t-esc="strOf(row.order_id)"/>
+                                    <span t-if="hasLink(row.order_id)" t-esc="strOf(row.order_id)"/>
+                                    <span t-else="" class="ts-stock-chip">Stock</span>
                                 </td>
 
                                 <td t-elif="col.key === 'voyage_status'" class="ts-td ts-td--center">
@@ -171,6 +172,11 @@
                                         </span>
                                     </t>
                                     <span t-else="" class="ts-text-muted">—</span>
+                                </td>
+
+                                <td t-elif="col.key === 'partner_id'" class="ts-td">
+                                    <span t-if="hasLink(row.partner_id)" t-esc="strOf(row.partner_id)"/>
+                                    <span t-else="" class="ts-stock-chip">Stock</span>
                                 </td>
 
                                 <!-- Cambio #7: categoría del producto -->
@@ -279,7 +285,8 @@
                                         <td t-elif="col.key === 'order_id'"
                                             t-attf-class="ts-td #{hasLink(row.order_id) ? 'ts-td--link' : ''}"
                                             t-on-click="(ev) => this.openSaleOrder(row, ev)">
-                                            <span t-esc="strOf(row.order_id)"/>
+                                            <span t-if="hasLink(row.order_id)" t-esc="strOf(row.order_id)"/>
+                                            <span t-else="" class="ts-stock-chip">Stock</span>
                                         </td>
 
                                         <td t-elif="col.key === 'voyage_status'" class="ts-td ts-td--center">
@@ -295,6 +302,11 @@
                                                 </span>
                                             </t>
                                             <span t-else="" class="ts-text-muted">—</span>
+                                        </td>
+
+                                        <td t-elif="col.key === 'partner_id'" class="ts-td">
+                                            <span t-if="hasLink(row.partner_id)" t-esc="strOf(row.partner_id)"/>
+                                            <span t-else="" class="ts-stock-chip">Stock</span>
                                         </td>
 
                                         <td t-elif="col.key === 'product_categ_id'" class="ts-td">

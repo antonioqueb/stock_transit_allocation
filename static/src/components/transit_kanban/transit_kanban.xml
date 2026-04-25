@@ -50,7 +50,12 @@
             <t t-set="total"    t-value="colTotal(stage.key)"/>
             <t t-set="collapsed" t-value="isCollapsed(stage.key)"/>
 
-            <div class="tk-column" t-attf-style="--col-color: #{stage.color}; --col-bg: #{stage.bg}; --col-border: #{stage.border};">
+            <div t-attf-class="tk-column #{isDropTarget(stage.key) ? 'tk-column--drop-target' : ''}"
+                 t-attf-style="--col-color: #{stage.color}; --col-bg: #{stage.bg}; --col-border: #{stage.border};"
+                 t-on-dragenter="(ev) => this.onColumnDragEnter(stage.key, ev)"
+                 t-on-dragover="(ev) => this.onColumnDragOver(stage.key, ev)"
+                 t-on-dragleave="(ev) => this.onColumnDragLeave(stage.key, ev)"
+                 t-on-drop="(ev) => this.onColumnDrop(stage.key, ev)">
 
                 <!-- Cabecera de columna -->
                 <div class="tk-col-header" t-on-click="() => this.toggleCollapse(stage.key)">
@@ -79,7 +84,13 @@
                     </div>
 
                     <t t-foreach="cards" t-as="card" t-key="card.id">
-                        <div class="tk-card" t-on-click="(ev) => this.openVoyage(card.id, ev)">
+                        <div t-attf-class="tk-card #{isDragging(card.id) ? 'tk-card--dragging' : ''} #{isUpdating(card.id) ? 'tk-card--updating' : ''}"
+                             draggable="true"
+                             t-att-aria-grabbed="isDragging(card.id) ? 'true' : 'false'"
+                             title="Arrastrar para cambiar de estado"
+                             t-on-dragstart="(ev) => this.onCardDragStart(card, ev)"
+                             t-on-dragend="onCardDragEnd"
+                             t-on-click="(ev) => this.openVoyage(card.id, ev)">
 
                             <!-- Header de card -->
                             <div class="tk-card__header">
