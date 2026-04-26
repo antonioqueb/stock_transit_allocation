@@ -6,15 +6,70 @@
         <field name="inherit_id" ref="stock.view_picking_form"/>
         <field name="arch" type="xml">
 
-            <!-- BOTÓN DE SINCRONIZACIÓN EN EL HEADER -->
+            <field name="partner_id" position="after">
+                <field name="tc_is_physical_reception" invisible="1"/>
+            </field>
+
+            <!-- BOTONES TORRE DE CONTROL / RECEPCIÓN FÍSICA -->
             <xpath expr="//header" position="inside">
-                <button name="action_sync_from_voyage" 
-                        string="📲 Sincronizar con Embarque" 
-                        type="object" 
+
+                <button name="action_sync_from_voyage"
+                        string="📲 Sincronizar con Embarque"
+                        type="object"
                         class="btn-primary"
-                        groups="stock.group_stock_user"/>
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel')"/>
+
+                <button name="action_open_packing_list_spreadsheet"
+                        string="Abrir PL físico"
+                        type="object"
+                        class="btn-primary"
+                        icon="fa-table"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel', 'draft') or packing_list_imported or worksheet_imported"/>
+
+                <button name="action_import_packing_list"
+                        string="Procesar PL físico"
+                        type="object"
+                        class="btn-secondary"
+                        icon="fa-cogs"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel', 'draft') or not spreadsheet_id or packing_list_imported or worksheet_imported"/>
+
+                <button name="action_open_packing_list_spreadsheet"
+                        string="Corregir PL físico"
+                        type="object"
+                        class="btn-warning"
+                        icon="fa-edit"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported"/>
+
+                <button name="action_import_packing_list"
+                        string="Reprocesar PL físico"
+                        type="object"
+                        class="btn-warning"
+                        icon="fa-refresh"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported"/>
+
+                <button name="action_open_worksheet_spreadsheet"
+                        string="Abrir WS físico"
+                        type="object"
+                        class="btn-primary"
+                        icon="fa-table"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported"/>
+
+                <button name="action_import_worksheet"
+                        string="Procesar WS físico"
+                        type="object"
+                        class="btn-success"
+                        icon="fa-check"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_is_physical_reception or state in ('done', 'cancel', 'draft') or not packing_list_imported or not ws_spreadsheet_id or worksheet_imported"/>
+
             </xpath>
-            
+
             <!-- Botón inteligente -->
             <div name="button_box" position="inside">
                 <button name="action_view_transit_voyage"
@@ -28,8 +83,8 @@
 
             <!-- Solo dejamos los pedidos consolidados para recepciones -->
             <xpath expr="//field[@name='origin']" position="after">
-                <field name="transit_sale_order_ids" 
-                       widget="many2many_tags" 
+                <field name="transit_sale_order_ids"
+                       widget="many2many_tags"
                        invisible="picking_type_code != 'incoming'"
                        string="Pedidos (Consolidado)"/>
             </xpath>

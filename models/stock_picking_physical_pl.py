@@ -2,7 +2,7 @@
 import json
 import logging
 
-from odoo import models, _
+from odoo import models, fields, api, _
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -10,6 +10,31 @@ _logger = logging.getLogger(__name__)
 
 class StockPickingPhysicalPackingList(models.Model):
     _inherit = "stock.picking"
+
+    tc_is_physical_reception = fields.Boolean(
+        string="Recepción física TC",
+        compute="_compute_tc_is_physical_reception",
+        store=False,
+    )
+
+    @api.depends("picking_type_code", "origin")
+    def _compute_tc_is_physical_reception(self):
+        for picking in self:
+            voyage = self.env["stock.transit.voyage"].search([
+                ("reception_picking_id", "=", picking.id)
+            ], limit=1)
+
+            if not voyage and picking.origin:
+                origin_ref = picking.origin.split(" ")[0]
+                voyage = self.env["stock.transit.voyage"].search([
+                    ("name", "ilike", origin_ref),
+                    ("reception_picking_id", "!=", False),
+                ], limit=1)
+
+            picking.tc_is_physical_reception = bool(
+                picking.picking_type_code == "internal"
+                and voyage
+            )
 
     # -------------------------------------------------------------------------
     #  RECEPCIÓN FÍSICA DESDE TORRE DE CONTROL
@@ -52,6 +77,73 @@ class StockPickingPhysicalPackingList(models.Model):
             return ", ".join(lot.x_grupo.mapped("name"))
         return ""
 
+    def _tc_collect_physical_pl_lines(self, product):
+        """
+        Fuente de datos para el PL físico.
+
+        Prioridad:
+        1. move_line_ids, cuando la recepción ya fue confirmada.
+        2. voyage.line_ids, como fallback si aún no hay operaciones detalladas.
+        """
+        self.ensure_one()
+
+        result = []
+
+        product_move_lines = self.move_line_ids.filtered(
+            lambda ml: ml.product_id.id == product.id and ml.lot_id
+        ).sorted(lambda ml: ml.lot_id.name or "")
+
+        for ml in product_move_lines:
+            lot = ml.lot_id
+            result.append({
+                "lot": lot,
+                "qty": self._tc_move_line_qty(ml),
+                "grosor": self._tc_lot_value(lot, "x_grosor"),
+                "alto": self._tc_lot_value(lot, "x_alto", 0.0),
+                "ancho": self._tc_lot_value(lot, "x_ancho", 0.0),
+                "color": self._tc_lot_value(lot, "x_color"),
+                "bloque": self._tc_lot_value(lot, "x_bloque"),
+                "numero_placa": self._tc_lot_value(lot, "x_numero_placa"),
+                "atado": self._tc_lot_value(lot, "x_atado"),
+                "grupo": self._tc_lot_groups_value(lot),
+                "pedimento": self._tc_lot_value(lot, "x_pedimento"),
+                "contenedor": self._tc_lot_value(lot, "x_contenedor"),
+                "ref_proveedor": self._tc_lot_value(lot, "x_referencia_proveedor"),
+                "ref_interna": lot.name or "",
+            })
+
+        if result:
+            return result
+
+        voyage = self._tc_get_physical_reception_voyage()
+        if not voyage:
+            return result
+
+        transit_lines = voyage.line_ids.filtered(
+            lambda line: line.product_id.id == product.id and line.lot_id
+        ).sorted(lambda line: line.lot_id.name or "")
+
+        for line in transit_lines:
+            lot = line.lot_id
+            result.append({
+                "lot": lot,
+                "qty": line.product_uom_qty or 0.0,
+                "grosor": self._tc_lot_value(lot, "x_grosor"),
+                "alto": self._tc_lot_value(lot, "x_alto", 0.0),
+                "ancho": self._tc_lot_value(lot, "x_ancho", 0.0),
+                "color": self._tc_lot_value(lot, "x_color"),
+                "bloque": self._tc_lot_value(lot, "x_bloque"),
+                "numero_placa": self._tc_lot_value(lot, "x_numero_placa"),
+                "atado": self._tc_lot_value(lot, "x_atado"),
+                "grupo": self._tc_lot_groups_value(lot),
+                "pedimento": self._tc_lot_value(lot, "x_pedimento"),
+                "contenedor": line.container_number or self._tc_lot_value(lot, "x_contenedor"),
+                "ref_proveedor": self._tc_lot_value(lot, "x_referencia_proveedor"),
+                "ref_interna": lot.name or "",
+            })
+
+        return result
+
     # -------------------------------------------------------------------------
     #  PL FÍSICO PREFILL
     # -------------------------------------------------------------------------
@@ -59,18 +151,15 @@ class StockPickingPhysicalPackingList(models.Model):
     def action_open_packing_list_spreadsheet(self):
         """
         En recepción física:
-        - Si no existe Spreadsheet PL, lo crea desde las move lines actuales.
-        - Permite que el usuario agregue placas omitidas o quite/corrija placas.
-        - Después el wizard de PL físico reconcilia el picking y permite generar WS.
+        - Si no existe Spreadsheet PL, lo crea desde move_line_ids o voyage.line_ids.
+        - NO marca packing_list_imported=True al abrir.
+        - El flag packing_list_imported se marca únicamente al procesar/reprocesar PL.
         """
         self.ensure_one()
 
         if self._tc_is_physical_reception():
             if self.state in ("done", "cancel"):
                 raise UserError(_("La recepción física ya está cerrada o cancelada."))
-
-            if not self.packing_list_imported:
-                self.write({"packing_list_imported": True})
 
             if not self.spreadsheet_id:
                 self._tc_create_physical_packing_list_spreadsheet()
@@ -82,7 +171,13 @@ class StockPickingPhysicalPackingList(models.Model):
     def _tc_create_physical_packing_list_spreadsheet(self):
         self.ensure_one()
 
-        products = (self.move_line_ids.mapped("product_id") | self.move_ids.mapped("product_id"))
+        voyage = self._tc_get_physical_reception_voyage()
+
+        products = self.move_line_ids.mapped("product_id") | self.move_ids.mapped("product_id")
+
+        if voyage:
+            products |= voyage.line_ids.mapped("product_id")
+
         products = products.sorted(lambda p: (p.default_code or p.name or "").lower())
 
         if not products:
@@ -121,47 +216,45 @@ class StockPickingPhysicalPackingList(models.Model):
                 cells[f"{self._get_col_letter(i)}3"] = self._make_cell(header, style=1)
 
             row_idx = 4
-            product_move_lines = self.move_line_ids.filtered(
-                lambda ml: ml.product_id.id == product.id and ml.lot_id
-            ).sorted(lambda ml: ml.lot_id.name or "")
+            physical_lines = self._tc_collect_physical_pl_lines(product)
 
-            for ml in product_move_lines:
-                lot = ml.lot_id
-                qty = self._tc_move_line_qty(ml)
+            for item in physical_lines:
+                lot = item["lot"]
 
                 if unit_type == "Placa":
-                    cells[f"A{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_grosor"))
-                    cells[f"B{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_alto", 0.0))
-                    cells[f"C{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_ancho", 0.0))
+                    cells[f"A{row_idx}"] = self._make_cell(item.get("grosor"))
+                    cells[f"B{row_idx}"] = self._make_cell(item.get("alto", 0.0))
+                    cells[f"C{row_idx}"] = self._make_cell(item.get("ancho", 0.0))
                     cells[f"D{row_idx}"] = self._make_cell("")
-                    cells[f"E{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_color"))
-                    cells[f"F{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_bloque"))
-                    cells[f"G{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_numero_placa"))
-                    cells[f"H{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_atado"))
-                    cells[f"I{row_idx}"] = self._make_cell(self._tc_lot_groups_value(lot))
-                    cells[f"J{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_pedimento"))
-                    cells[f"K{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_contenedor"))
-                    cells[f"L{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_referencia_proveedor"))
-                    cells[f"M{row_idx}"] = self._make_cell(lot.name)
+                    cells[f"E{row_idx}"] = self._make_cell(item.get("color"))
+                    cells[f"F{row_idx}"] = self._make_cell(item.get("bloque"))
+                    cells[f"G{row_idx}"] = self._make_cell(item.get("numero_placa"))
+                    cells[f"H{row_idx}"] = self._make_cell(item.get("atado"))
+                    cells[f"I{row_idx}"] = self._make_cell(item.get("grupo"))
+                    cells[f"J{row_idx}"] = self._make_cell(item.get("pedimento"))
+                    cells[f"K{row_idx}"] = self._make_cell(item.get("contenedor"))
+                    cells[f"L{row_idx}"] = self._make_cell(item.get("ref_proveedor"))
+                    cells[f"M{row_idx}"] = self._make_cell(item.get("ref_interna") or lot.name)
                 else:
-                    cells[f"A{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_grosor"))
-                    cells[f"B{row_idx}"] = self._make_cell(qty)
+                    cells[f"A{row_idx}"] = self._make_cell(item.get("grosor"))
+                    cells[f"B{row_idx}"] = self._make_cell(item.get("qty", 0.0))
                     cells[f"C{row_idx}"] = self._make_cell("")
-                    cells[f"D{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_color"))
-                    cells[f"E{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_bloque"))
-                    cells[f"F{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_numero_placa"))
-                    cells[f"G{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_atado"))
-                    cells[f"H{row_idx}"] = self._make_cell(self._tc_lot_groups_value(lot))
-                    cells[f"I{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_pedimento"))
-                    cells[f"J{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_contenedor"))
-                    cells[f"K{row_idx}"] = self._make_cell(self._tc_lot_value(lot, "x_referencia_proveedor"))
-                    cells[f"L{row_idx}"] = self._make_cell(lot.name)
+                    cells[f"D{row_idx}"] = self._make_cell(item.get("color"))
+                    cells[f"E{row_idx}"] = self._make_cell(item.get("bloque"))
+                    cells[f"F{row_idx}"] = self._make_cell(item.get("numero_placa"))
+                    cells[f"G{row_idx}"] = self._make_cell(item.get("atado"))
+                    cells[f"H{row_idx}"] = self._make_cell(item.get("grupo"))
+                    cells[f"I{row_idx}"] = self._make_cell(item.get("pedimento"))
+                    cells[f"J{row_idx}"] = self._make_cell(item.get("contenedor"))
+                    cells[f"K{row_idx}"] = self._make_cell(item.get("ref_proveedor"))
+                    cells[f"L{row_idx}"] = self._make_cell(item.get("ref_interna") or lot.name)
 
                 row_idx += 1
 
             sheet_name = (product.default_code or product.name or f"P{product.id}")[:31]
             base_name = sheet_name
             count = 1
+
             while any(s["name"] == sheet_name for s in sheets):
                 sheet_name = f"{base_name[:28]}_{count}"
                 count += 1
@@ -200,6 +293,7 @@ class StockPickingPhysicalPackingList(models.Model):
             "res_model": "stock.picking",
             "res_id": self.id,
         }
+
         if folder:
             vals["folder_id"] = folder.id
 
@@ -207,8 +301,8 @@ class StockPickingPhysicalPackingList(models.Model):
 
         self.message_post(
             body=_(
-                "📋 Packing List físico preparado desde los lotes actuales de la recepción. "
-                "Puede corregir/agregar placas y después usar Reprocesar PL."
+                "📋 Packing List físico preparado. "
+                "Puede corregir/agregar placas y después usar Procesar PL físico."
             )
         )
 
