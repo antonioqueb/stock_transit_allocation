@@ -15,7 +15,7 @@
 // - Las tablas sí conservan su scroll horizontal interno.
 // - Las tablas ocupan todo el ancho disponible y solo crecen dentro de su wrapper.
 // - El header/statusbar se compacta sin desbordar el documento.
-// - El header separa acciones y statusbar para evitar que los botones se mezclen.
+// - El header separa SIEMPRE statusbar y botones en dos filas.
 // - Compatible con Sass/Odoo: no usa min(px, vw), max(px, vw), ni clamp().
 // ============================================================
 
@@ -71,10 +71,6 @@ $vf-radius-xl:     24px;
 
 // ============================================================================
 // BASE DE ANCHO / CONTENCIÓN
-// Importante:
-// - El formulario puede ocultar overflow horizontal global.
-// - Las tablas tienen su propio wrapper con overflow-x:auto.
-// - Los bloques visuales con margen lateral usan width:auto, no width:100%.
 // ============================================================================
 
 .o_voyage_form {
@@ -133,11 +129,10 @@ $vf-radius-xl:     24px;
 
 // ============================================================================
 // HEADER / STATUSBAR
-// Ajuste visual:
-// - Botones operativos a la izquierda.
-// - Statusbar compacto a la derecha.
-// - En pantallas medianas se divide en dos filas.
-// - No altera lógica, acciones ni visibilidad de botones.
+// Estructura visual definitiva:
+// - Fila 1: statusbar.
+// - Fila 2: botones operativos.
+// Esto evita que Odoo mezcle botones y estados en una sola línea.
 // ============================================================================
 
 .o_voyage_form header,
@@ -146,35 +141,25 @@ $vf-radius-xl:     24px;
     max-width: 100% !important;
     min-width: 0 !important;
     box-sizing: border-box !important;
+
     display: grid !important;
-    grid-template-columns: minmax(0, 1fr) auto !important;
-    grid-template-areas: "actions status" !important;
-    align-items: center !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    grid-template-areas:
+        "status"
+        "actions" !important;
+
+    align-items: stretch !important;
     justify-content: stretch !important;
-    column-gap: 14px !important;
-    row-gap: 8px !important;
-    padding: 9px 14px !important;
+    gap: 8px !important;
+    padding: 8px 12px 10px !important;
+
     overflow-x: hidden !important;
     overflow-y: visible !important;
+
     background: rgba(255, 255, 255, .98) !important;
     border-bottom: 1px solid $vf-border !important;
     box-shadow: 0 10px 26px rgba(0, 0, 0, .06);
     z-index: 20;
-}
-
-.o_voyage_form header .o_statusbar_buttons,
-.o_voyage_form .o_form_statusbar .o_statusbar_buttons {
-    grid-area: actions;
-    justify-self: start;
-    align-self: center;
-    display: flex !important;
-    align-items: center !important;
-    justify-content: flex-start !important;
-    flex-wrap: wrap !important;
-    gap: 6px !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    overflow: visible !important;
 }
 
 .o_voyage_form header .o_statusbar_status,
@@ -182,15 +167,21 @@ $vf-radius-xl:     24px;
 .o_voyage_form header > .o_field_statusbar,
 .o_voyage_form .o_form_statusbar > .o_field_statusbar {
     grid-area: status;
-    justify-self: end;
-    align-self: center;
+    justify-self: stretch !important;
+    align-self: center !important;
+
     display: flex !important;
     align-items: center !important;
-    justify-content: flex-end !important;
-    flex: 0 1 auto !important;
-    width: auto !important;
+    justify-content: flex-start !important;
+
+    width: 100% !important;
     min-width: 0 !important;
     max-width: 100% !important;
+
+    margin-left: 0 !important;
+    padding: 0 0 7px !important;
+    border-bottom: 1px solid $vf-border !important;
+
     overflow-x: hidden !important;
     overflow-y: visible !important;
     white-space: nowrap !important;
@@ -200,8 +191,33 @@ $vf-radius-xl:     24px;
 .o_voyage_form .o_form_statusbar .o_statusbar_status .o_field_widget,
 .o_voyage_form header > .o_field_statusbar,
 .o_voyage_form .o_form_statusbar > .o_field_statusbar {
-    max-width: 100% !important;
     min-width: 0 !important;
+    max-width: 100% !important;
+}
+
+.o_voyage_form header .o_statusbar_buttons,
+.o_voyage_form .o_form_statusbar .o_statusbar_buttons {
+    grid-area: actions;
+    justify-self: stretch !important;
+    align-self: center !important;
+
+    display: flex !important;
+    align-items: center !important;
+    justify-content: flex-start !important;
+    flex-wrap: wrap !important;
+    gap: 7px !important;
+
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+
+    padding: 7px !important;
+    border: 1px solid $vf-border !important;
+    border-radius: 16px !important;
+    background: #f7f7f8 !important;
+
+    overflow: visible !important;
+    box-sizing: border-box !important;
 }
 
 .o_voyage_form header button,
@@ -209,11 +225,11 @@ $vf-radius-xl:     24px;
 .o_voyage_form .o_form_statusbar button,
 .o_voyage_form .o_form_statusbar .btn {
     border-radius: 999px !important;
-    font-weight: 800 !important;
+    font-weight: 850 !important;
     letter-spacing: -.02em;
     min-height: 30px !important;
     padding: 5px 13px !important;
-    max-width: 170px !important;
+    max-width: 180px !important;
     min-width: 0 !important;
     flex: 0 1 auto !important;
     white-space: nowrap !important;
@@ -221,12 +237,6 @@ $vf-radius-xl:     24px;
     text-overflow: ellipsis !important;
     box-sizing: border-box !important;
     line-height: 1.25 !important;
-}
-
-.o_voyage_form header .o_statusbar_buttons button,
-.o_voyage_form header .o_statusbar_buttons .btn,
-.o_voyage_form .o_form_statusbar .o_statusbar_buttons button,
-.o_voyage_form .o_form_statusbar .o_statusbar_buttons .btn {
     box-shadow: none !important;
 }
 
@@ -234,7 +244,7 @@ $vf-radius-xl:     24px;
 .o_voyage_form .o_form_statusbar .o_arrow_button,
 .o_voyage_form header .o_statusbar_status button,
 .o_voyage_form .o_form_statusbar .o_statusbar_status button {
-    max-width: 138px !important;
+    max-width: 148px !important;
     min-width: 0 !important;
     min-height: 28px !important;
     padding-left: 10px !important;
@@ -252,7 +262,9 @@ $vf-radius-xl:     24px;
 }
 
 .o_voyage_form header .o_statusbar_buttons .o_separator,
-.o_voyage_form .o_form_statusbar .o_statusbar_buttons .o_separator {
+.o_voyage_form .o_form_statusbar .o_statusbar_buttons .o_separator,
+.o_voyage_form header .o_statusbar_buttons separator,
+.o_voyage_form .o_form_statusbar .o_statusbar_buttons separator {
     width: 1px !important;
     height: 22px !important;
     margin: 0 4px !important;
@@ -1186,7 +1198,6 @@ $vf-radius-xl:     24px;
 
 // ============================================================================
 // TABLAS DE LOTES
-// Único lugar autorizado para scroll horizontal.
 // ============================================================================
 
 .o_voyage_form .vf-lots-section .tvl-table-wrap,
@@ -1619,31 +1630,8 @@ $vf-radius-xl:     24px;
 @media (max-width: 1180px) {
     .o_voyage_form header,
     .o_voyage_form .o_form_statusbar {
-        grid-template-columns: 1fr !important;
-        grid-template-areas:
-            "status"
-            "actions" !important;
-        align-items: stretch !important;
-        gap: 7px !important;
         padding: 8px 10px !important;
-    }
-
-    .o_voyage_form header .o_statusbar_status,
-    .o_voyage_form .o_form_statusbar .o_statusbar_status,
-    .o_voyage_form header > .o_field_statusbar,
-    .o_voyage_form .o_form_statusbar > .o_field_statusbar {
-        width: 100% !important;
-        justify-self: stretch !important;
-        justify-content: flex-start !important;
-        overflow-x: hidden !important;
-        padding-bottom: 1px !important;
-    }
-
-    .o_voyage_form header .o_statusbar_buttons,
-    .o_voyage_form .o_form_statusbar .o_statusbar_buttons {
-        width: 100% !important;
-        justify-self: stretch !important;
-        justify-content: flex-start !important;
+        gap: 7px !important;
     }
 
     .o_voyage_form header button,
@@ -1736,10 +1724,6 @@ $vf-radius-xl:     24px;
 
     .o_voyage_form header,
     .o_voyage_form .o_form_statusbar {
-        grid-template-columns: 1fr !important;
-        grid-template-areas:
-            "status"
-            "actions" !important;
         padding: 8px !important;
     }
 
