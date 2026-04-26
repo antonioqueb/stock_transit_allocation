@@ -1881,12 +1881,9 @@ class StockTransitVoyage(models.Model):
 
         vals = {}
 
-        # Odoo 19 en tu instancia NO tiene stock.move.name.
-        # En versiones donde exista, se usa; si no, se omite.
         if 'name' in move_fields:
             vals['name'] = product.display_name
 
-        # Campo descriptivo alternativo si existe.
         if 'description_picking' in move_fields:
             vals['description_picking'] = product.display_name
 
@@ -1913,7 +1910,6 @@ class StockTransitVoyage(models.Model):
         if 'procure_method' in move_fields:
             vals['procure_method'] = 'make_to_stock'
 
-        # Defensa final: elimina cualquier campo que no exista en stock.move.
         vals = {
             field_name: field_value
             for field_name, field_value in vals.items()
@@ -1923,6 +1919,10 @@ class StockTransitVoyage(models.Model):
         return vals
 
     def _tc_prepare_reception_move_line_vals(self, picking, move, line, quant, qty_to_receive):
+        """
+        Helper conservado para el flujo posterior de confirmación / procesamiento físico.
+        No se usa durante action_generate_reception.
+        """
         self.ensure_one()
 
         MoveLine = self.env['stock.move.line']
@@ -1950,17 +1950,24 @@ class StockTransitVoyage(models.Model):
         if 'picked' in MoveLine._fields:
             vals['picked'] = False
 
+        vals = {
+            field_name: field_value
+            for field_name, field_value in vals.items()
+            if field_name in MoveLine._fields
+        }
+
         return vals
 
     def _sync_reception_picking_lines(self, picking, resolved_lines=None):
         """
-        Sincroniza la recepción física con los lotes del viaje.
+        Prepara la recepción física desde el viaje.
 
-        Corrección:
-        - No confirma movimientos.
-        - No valida la recepción.
-        - No marca packing_list_imported=True.
-        - Precarga líneas esperadas, pero fuerza picked=False para evitar cierre automático.
+        Regla funcional:
+        - El botón Recibir automáticamente deja el picking en BORRADOR real.
+        - Solo crea demanda stock.move.
+        - NO crea stock.move.line.
+        - Las líneas operativas/lotes deben aparecer después, al confirmar o procesar
+          el flujo físico correspondiente.
         """
         self.ensure_one()
         picking.ensure_one()
@@ -2016,36 +2023,30 @@ class StockTransitVoyage(models.Model):
             product_totals.setdefault(line.product_id.id, 0.0)
             product_totals[line.product_id.id] += qty_to_receive
 
-        move_map = {}
+        # CRÍTICO: en preparación inicial no deben existir move lines.
+        # Si ya existían por intentos anteriores, se eliminan para devolver el picking
+        # a un borrador real.
+        if picking.move_line_ids:
+            picking.move_line_ids.with_context(ctx).unlink()
+
         existing_moves = picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel'))
 
         for move in existing_moves:
-            total_qty = product_totals.get(move.product_id.id, 0.0)
+            try:
+                if move.state in ('assigned', 'partially_available') and hasattr(move, '_do_unreserve'):
+                    move._do_unreserve()
+            except Exception as e:
+                _logger.warning(
+                    "[TC_RECEPTION_WARNING] No se pudo desreservar move %s antes de limpiar recepción física: %s",
+                    move.id,
+                    e,
+                )
 
-            if total_qty <= 0:
-                move.with_context(ctx).unlink()
-                continue
+            move.with_context(ctx).unlink()
 
-            move_vals = {}
-
-            if self._qty_differs(move.product_id, move.product_uom_qty, total_qty):
-                move_vals['product_uom_qty'] = total_qty
-
-            if move.location_id.id != picking.location_id.id:
-                move_vals['location_id'] = picking.location_id.id
-
-            if move.location_dest_id.id != picking.location_dest_id.id:
-                move_vals['location_dest_id'] = picking.location_dest_id.id
-
-            if move_vals:
-                move.with_context(ctx).write(move_vals)
-
-            move_map[move.product_id.id] = move
+        moves_created = 0
 
         for product_id, total_qty in product_totals.items():
-            if product_id in move_map:
-                continue
-
             product = self.env['product.product'].browse(product_id)
 
             move_vals = self._tc_prepare_reception_move_vals(
@@ -2055,7 +2056,7 @@ class StockTransitVoyage(models.Model):
             )
 
             try:
-                move = self.env['stock.move'].with_context(ctx).create(move_vals)
+                self.env['stock.move'].with_context(ctx).create(move_vals)
             except Exception as e:
                 _logger.exception(
                     "[TC_RECEPTION_ERROR][MOVE_CREATE] "
@@ -2083,89 +2084,33 @@ class StockTransitVoyage(models.Model):
                     'error': str(e),
                 })
 
-            move_map[product_id] = move
-
-        if picking.move_line_ids:
-            picking.move_line_ids.with_context(ctx).unlink()
-
-        lines_created = 0
-
-        for item in resolved_lines:
-            line = item['line']
-            quant = item['quant']
-            move = move_map.get(line.product_id.id)
-
-            if not move:
-                raise UserError(_(
-                    "No se encontró movimiento para el producto %s."
-                ) % line.product_id.display_name)
-
-            qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
-
-            ml_vals = self._tc_prepare_reception_move_line_vals(
-                picking=picking,
-                move=move,
-                line=line,
-                quant=quant,
-                qty_to_receive=qty_to_receive,
-            )
-
-            try:
-                move_line = self.env['stock.move.line'].with_context(ctx).create(ml_vals)
-
-                if 'picked' in move_line._fields and move_line.picked:
-                    move_line.with_context(ctx).write({'picked': False})
-
-            except Exception as e:
-                _logger.exception(
-                    "[TC_RECEPTION_ERROR][MOVE_LINE_CREATE] "
-                    "No se pudo crear stock.move.line | voyage=%s | picking=%s | "
-                    "move=%s | product=%s | lot=%s | qty=%s | vals=%s | error=%s",
-                    self.name,
-                    picking.name,
-                    move.id,
-                    line.product_id.display_name,
-                    line.lot_id.name if line.lot_id else False,
-                    qty_to_receive,
-                    ml_vals,
-                    str(e),
-                )
-                raise UserError(_(
-                    "No se pudo crear la línea de lote para la recepción física.\n\n"
-                    "Producto: %(product)s\n"
-                    "Lote: %(lot)s\n"
-                    "Cantidad: %(qty)s\n\n"
-                    "Error técnico: %(error)s"
-                ) % {
-                    'product': line.product_id.display_name,
-                    'lot': line.lot_id.name if line.lot_id else '',
-                    'qty': qty_to_receive,
-                    'error': str(e),
-                })
-
-            lines_created += 1
-
-        expected_lines = len(resolved_lines)
-
-        if lines_created != expected_lines:
-            raise UserError(_(
-                "Se intentaron sincronizar %s lotes pero solo se crearon %s move lines."
-            ) % (expected_lines, lines_created))
+            moves_created += 1
 
         total_qty = sum(product_totals.values())
 
         picking.message_post(
             body=_(
-                "🔄 %s lotes sincronizados desde Viaje %s. Total esperado: %.3f<br/>"
-                "La recepción queda pendiente para revisión de Packing List físico y Worksheet."
-            ) % (lines_created, self.name, total_qty)
+                "📦 Recepción física preparada desde Viaje %s.<br/>"
+                "<b>Productos:</b> %s<br/>"
+                "<b>Total esperado:</b> %.3f<br/><br/>"
+                "La recepción queda en <b>borrador</b>. "
+                "Las líneas operativas se crearán posteriormente al confirmar/procesar el flujo físico."
+            ) % (self.name, moves_created, total_qty)
         )
 
-        if picking.state == 'done':
+        if picking.move_line_ids:
             raise UserError(_(
-                "La recepción se cerró automáticamente durante la sincronización. "
-                "Esto no debería ocurrir. Revise los campos quantity/picked en stock.move.line."
+                "La recepción no quedó en borrador real porque se generaron líneas operativas "
+                "stock.move.line durante la preparación. Este paso no debe crear move lines."
             ))
+
+        if picking.state != 'draft':
+            raise UserError(_(
+                "La recepción fue preparada, pero Odoo no la dejó en borrador.\n\n"
+                "Estado actual: %s\n\n"
+                "Esto indica que otro módulo o automatismo está confirmando/reservando "
+                "el picking al crear la demanda."
+            ) % picking.state)
 
         return picking
 
