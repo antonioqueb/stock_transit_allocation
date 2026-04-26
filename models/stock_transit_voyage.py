@@ -1265,15 +1265,12 @@ class StockTransitVoyage(models.Model):
         self.ensure_one()
         if self.custom_status in ('delivered', 'cancel'):
             return
+
+        self._do_advance_status(notes=False)
+
         return {
-            'type': 'ir.actions.act_window',
-            'res_model': 'transit.status.change.wizard',
-            'view_mode': 'form',
-            'target': 'new',
-            'context': {
-                'default_voyage_id': self.id,
-                'default_direction': 'advance',
-            },
+            'type': 'ir.actions.client',
+            'tag': 'reload',
         }
 
     def action_retreat_status(self):

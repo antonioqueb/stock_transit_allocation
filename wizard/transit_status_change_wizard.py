@@ -1,12 +1,18 @@
 # -*- coding: utf-8 -*-
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 
 class TransitStatusChangeWizard(models.TransientModel):
     _name = 'transit.status.change.wizard'
-    _description = 'Cambio de Estado con Nota - Torre de Control'
+    _description = 'Cambio de Estado con Motivo - Torre de Control'
 
-    voyage_id = fields.Many2one('stock.transit.voyage', string='Viaje', required=True)
+    voyage_id = fields.Many2one(
+        'stock.transit.voyage',
+        string='Viaje',
+        required=True,
+    )
+
     direction = fields.Selection([
         ('advance', 'Avanzar'),
         ('retreat', 'Retroceder'),
@@ -23,7 +29,10 @@ class TransitStatusChangeWizard(models.TransientModel):
         compute='_compute_next_status_label',
     )
 
-    notes = fields.Text(string='Comentario / Motivo')
+    notes = fields.Text(
+        string='Motivo de retroceso',
+        help='Motivo obligatorio cuando se retrocede el estado del viaje.',
+    )
 
     @api.depends('voyage_id', 'direction')
     def _compute_next_status_label(self):
@@ -38,38 +47,65 @@ class TransitStatusChangeWizard(models.TransientModel):
             'reception_pending': 'En Recepción',
             'delivered': 'Entregado en Almacén',
         }
+
         STATUS_SEQUENCE = [
-            'solicitud', 'production', 'booking', 'puerto_origen',
-            'on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'delivered',
+            'solicitud',
+            'production',
+            'booking',
+            'puerto_origen',
+            'on_sea',
+            'puerto_destino',
+            'arrived_port',
+            'reception_pending',
+            'delivered',
         ]
+
         for rec in self:
+            rec.next_status_label = ''
+
             if not rec.voyage_id or not rec.direction:
-                rec.next_status_label = ''
                 continue
+
             current = rec.voyage_id.custom_status
+
             try:
                 idx = STATUS_SEQUENCE.index(current)
             except ValueError:
-                rec.next_status_label = ''
                 continue
+
             if rec.direction == 'advance':
                 next_idx = idx + 1
-                if next_idx >= len(STATUS_SEQUENCE):
-                    rec.next_status_label = ''
-                else:
-                    rec.next_status_label = STATUS_LABELS.get(STATUS_SEQUENCE[next_idx], '')
+                if next_idx < len(STATUS_SEQUENCE):
+                    rec.next_status_label = STATUS_LABELS.get(
+                        STATUS_SEQUENCE[next_idx],
+                        '',
+                    )
             else:
                 prev_idx = idx - 1
-                if prev_idx < 0:
-                    rec.next_status_label = ''
-                else:
-                    rec.next_status_label = STATUS_LABELS.get(STATUS_SEQUENCE[prev_idx], '')
+                if prev_idx >= 0:
+                    rec.next_status_label = STATUS_LABELS.get(
+                        STATUS_SEQUENCE[prev_idx],
+                        '',
+                    )
 
     def action_confirm(self):
         self.ensure_one()
+
         voyage = self.voyage_id
+
         if self.direction == 'advance':
-            voyage._do_advance_status(notes=self.notes)
-        else:
-            voyage._do_retreat_status(notes=self.notes)
+            # Compatibilidad defensiva: ya no debería usarse para avanzar,
+            # porque action_advance_status ahora avanza directo.
+            voyage._do_advance_status(notes=False)
+            return {'type': 'ir.actions.act_window_close'}
+
+        if self.direction == 'retreat':
+            if not (self.notes or '').strip():
+                raise UserError(_(
+                    'Debe capturar el motivo para retroceder el estado del viaje.'
+                ))
+
+            voyage._do_retreat_status(notes=self.notes.strip())
+            return {'type': 'ir.actions.act_window_close'}
+
         return {'type': 'ir.actions.act_window_close'}
