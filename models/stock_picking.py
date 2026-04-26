@@ -158,6 +158,7 @@ class StockPicking(models.Model):
                         'location_id': self.location_id.id,
                         'location_dest_id': self.location_dest_id.id,
                         'company_id': self.company_id.id,
+                        'name': line.product_id.display_name,
                     })
                     target_move._action_confirm()
                 except Exception as e:
@@ -572,7 +573,6 @@ class StockPicking(models.Model):
                 continue
 
             # 1) Sincronizar selección oficial en la línea de venta.
-            # Esto hace que inventario visual/reportes reconozcan el material como comprometido.
             self._tc_sync_sale_line_lots_after_reception(sale_line, transit_lines)
 
             # 2) Obtener/crear movimiento de entrega vinculado a la sale_line.
@@ -584,7 +584,6 @@ class StockPicking(models.Model):
             )
 
             # 3) Desreservar y limpiar SOLO el move del mismo producto/línea.
-            # No se tocan otros productos del pedido.
             if target_move.state in ('assigned', 'partially_available'):
                 try:
                     target_move._do_unreserve()

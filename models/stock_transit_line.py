@@ -1,11 +1,10 @@
 # -*- coding: utf-8 -*-
-import json
-import logging
-
 from markupsafe import Markup
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+
+import logging
 
 _logger = logging.getLogger(__name__)
 
@@ -313,7 +312,11 @@ class StockTransitLine(models.Model):
                 'order_partner': order.partner_id.display_name,
             })
 
-        sale_line = self._tc_get_sale_line_for_assignment(order=order, product=self.product_id)
+        sale_line = self._tc_get_sale_line_for_assignment(
+            order=order,
+            product=self.product_id,
+        )
+
         if not sale_line:
             raise UserError(_(
                 "El pedido %(order)s está confirmado, pero no contiene una línea para el producto:\n\n"
@@ -330,8 +333,7 @@ class StockTransitLine(models.Model):
         """
         Devuelve las líneas reservadas de ESTE viaje para un pedido/producto.
 
-        Se usa para saber qué lotes reemplazan la selección del pedido
-        cuando el material ya fue recibido físicamente.
+        Se usa para saber qué lotes deben quedar preseleccionados en la venta.
         """
         self.ensure_one()
 
@@ -346,54 +348,15 @@ class StockTransitLine(models.Model):
             ('lot_id', '!=', False),
         ], order='id asc')
 
-    def _tc_build_lot_breakdown_from_transit_lines(self, transit_lines):
+    def _tc_sync_sale_line_lots_from_transit_assignment(self, order=False, product=False):
         """
-        Construye el desglose para formatos/piezas.
+        Preselección comercial.
 
-        Para placas, sale_stone_selection suele usar el quant/lote completo.
-        Para formatos/piezas, sí conviene guardar la cantidad por lote.
-        """
-        breakdown = {}
+        Esto vincula los lotes del embarque con la línea de venta,
+        pero NO sincroniza la entrega todavía y NO crea reserva física.
 
-        for transit_line in transit_lines:
-            lot = transit_line.lot_id
-            if not lot:
-                continue
-
-            lot_type = ''
-            if 'x_tipo' in lot._fields and lot.x_tipo:
-                lot_type = str(lot.x_tipo).lower()
-
-            if lot_type in ('formato', 'pieza'):
-                breakdown[str(lot.id)] = transit_line.product_uom_qty or 0.0
-
-        return breakdown
-
-    def _tc_prepare_breakdown_value_for_sale_line(self, sale_line, breakdown):
-        """
-        Compatibilidad:
-        - Si x_lot_breakdown_json es Json, se escribe dict.
-        - Si fuera Text/Char legacy, se escribe JSON string.
-        """
-        if not breakdown:
-            return False
-
-        field = sale_line._fields.get('x_lot_breakdown_json')
-        if field and field.type in ('char', 'text'):
-            return json.dumps(breakdown)
-
-        return breakdown
-
-    def _tc_sync_sale_line_lots_after_reception(self, order=False, product=False):
-        """
-        Sincroniza la selección oficial de lotes en sale.order.line.
-
-        Importante:
-        - Este método está pensado para ejecutarse después de recibir físicamente
-          el material, no mientras el quant sigue en ubicación de tránsito.
-        - Reemplaza únicamente los lotes del mismo producto/material.
-        - Desmarca auto_transit_assign para no violar la regla que impide
-          tener "Mandar Pedir" y placas asignadas al mismo tiempo.
+        La reserva física/move lines de entrega se crean hasta validar
+        la recepción física.
         """
         self.ensure_one()
 
@@ -404,6 +367,7 @@ class StockTransitLine(models.Model):
             return False
 
         sale_line = self._tc_get_sale_line_for_assignment(order=order, product=product)
+
         if not sale_line or 'lot_ids' not in sale_line._fields:
             return False
 
@@ -414,25 +378,24 @@ class StockTransitLine(models.Model):
             'lot_ids': [(6, 0, lot_ids)],
         }
 
-        if 'auto_transit_assign' in sale_line._fields:
+        # Evita la restricción: Mandar Pedir + placas asignadas.
+        # En este punto ya no es "mandar pedir", ya existe lote concreto en tránsito.
+        if lot_ids and 'auto_transit_assign' in sale_line._fields:
             vals['auto_transit_assign'] = False
 
         if 'x_lot_breakdown_json' in sale_line._fields:
-            breakdown = self._tc_build_lot_breakdown_from_transit_lines(transit_lines)
-            vals['x_lot_breakdown_json'] = self._tc_prepare_breakdown_value_for_sale_line(
-                sale_line,
-                breakdown,
-            )
+            vals['x_lot_breakdown_json'] = False
 
         sale_line.with_context(
             skip_stone_sync_picking=True,
             skip_stone_sync_so=True,
             skip_hold_validation=True,
             skip_picking_clean=True,
+            skip_transit_sale_sync=True,
         ).write(vals)
 
         _logger.info(
-            "[TC_ASSIGN] SO %s | Producto %s | lot_ids sincronizados desde viaje %s: %s",
+            "[TC_ASSIGN_PRE] SO %s | Producto %s | lot_ids preseleccionados desde viaje %s: %s",
             order.name,
             product.display_name,
             self.voyage_id.name if self.voyage_id else 'N/A',
@@ -455,11 +418,9 @@ class StockTransitLine(models.Model):
         old_assignments = {}
 
         if assignment_changed:
-            # Si se limpia cliente, se limpia también pedido.
             if vals.get('partner_id') is False and 'order_id' not in vals:
                 vals['order_id'] = False
 
-            # Si alguien escribe solo order_id por RPC, derivamos el cliente del pedido.
             if vals.get('order_id') and 'partner_id' not in vals:
                 order = self.env['sale.order'].browse(vals['order_id'])
                 if order.exists():
@@ -476,27 +437,37 @@ class StockTransitLine(models.Model):
                 new_order = line.order_id
 
                 if 'partner_id' in vals:
-                    new_partner = self.env['res.partner'].browse(vals['partner_id']) if vals.get('partner_id') else False
+                    new_partner = (
+                        self.env['res.partner'].browse(vals['partner_id'])
+                        if vals.get('partner_id') else False
+                    )
 
                 if 'order_id' in vals:
-                    new_order = self.env['sale.order'].browse(vals['order_id']) if vals.get('order_id') else False
+                    new_order = (
+                        self.env['sale.order'].browse(vals['order_id'])
+                        if vals.get('order_id') else False
+                    )
 
-                # Se permite cliente sin pedido como edición intermedia de UI.
-                # Cuando ya hay pedido, el pedido debe cumplir las reglas.
                 if new_order:
                     line._tc_validate_assignment_target(new_partner, new_order)
 
         res = super(StockTransitLine, self).write(vals)
 
         if assignment_changed:
+            sync_targets = set()
+
             for line in self:
                 old = old_assignments.get(line.id, {})
+                old_partner_id = old.get('partner_id')
+                old_order_id = old.get('order_id')
+                old_product_id = old.get('product_id')
+
                 new_partner = line.partner_id
                 new_order = line.order_id
 
                 changed = (
-                    old.get('partner_id') != (new_partner.id if new_partner else False)
-                    or old.get('order_id') != (new_order.id if new_order else False)
+                    old_partner_id != (new_partner.id if new_partner else False)
+                    or old_order_id != (new_order.id if new_order else False)
                 )
 
                 if not changed:
@@ -513,8 +484,11 @@ class StockTransitLine(models.Model):
                     # En ubicación de tránsito, stock_transit_publication intercepta
                     # esta llamada y evita crear hold físico.
                     line._execute_reservation_logic(new_partner, new_order)
+                    sync_targets.add((line.id, new_order.id, line.product_id.id))
                 else:
                     line._execute_release_logic()
+                    if old_order_id and old_product_id:
+                        sync_targets.add((line.id, old_order_id, old_product_id))
 
                 if line.voyage_id:
                     if new_partner and new_order:
@@ -535,6 +509,17 @@ class StockTransitLine(models.Model):
 
                     line.voyage_id.message_post(body=msg)
 
+            for line_id, order_id, product_id in sync_targets:
+                line = self.browse(line_id)
+                order = self.env['sale.order'].browse(order_id)
+                product = self.env['product.product'].browse(product_id)
+
+                if line.exists() and order.exists() and product.exists():
+                    line._tc_sync_sale_line_lots_from_transit_assignment(
+                        order=order,
+                        product=product,
+                    )
+
         return res
 
     # -------------------------------------------------------------------------
@@ -545,7 +530,10 @@ class StockTransitLine(models.Model):
         self.ensure_one()
 
         if not self.lot_id or not self.quant_id:
-            _logger.info("TransitLine %s: Sin lote físico, solo asignación visual", self.id)
+            _logger.info(
+                "TransitLine %s: Sin lote físico, solo asignación visual",
+                self.id,
+            )
             return True
 
         existing_hold = self.env['stock.lot.hold'].search([
@@ -556,6 +544,7 @@ class StockTransitLine(models.Model):
         if existing_hold:
             _logger.info("TransitLine %s: Ya existe hold activo, verificando...", self.id)
             hold_partner = existing_hold.partner_id if hasattr(existing_hold, 'partner_id') else False
+
             if hold_partner and hold_partner == partner:
                 return True
 

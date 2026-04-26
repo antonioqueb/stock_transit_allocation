@@ -1,20 +1,21 @@
 # -*- coding: utf-8 -*-
-import logging
-import requests
 import json
+import logging
 import re
+
+import requests
+
 from markupsafe import Markup
+
 from odoo import models, api, _
-from odoo import fields as fields_module   # alias para evitar colisión con param 'fields' en read()
+from odoo import fields as fields_module
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_round, float_compare, float_is_zero
 
-# Re-exportar fields para que el resto del código del módulo funcione igual
 fields = fields_module
 
 _logger = logging.getLogger(__name__)
 
-# Intentar importar folium; si no está, se genera HTML básico
 try:
     import folium
     HAS_FOLIUM = True
@@ -23,12 +24,9 @@ except ImportError:
     _logger.warning("Folium no está instalado. pip install folium --break-system-packages")
 
 
-# =============================================================================
-# CONSTANTES DE NEGOCIO PARA NOTIFICACIONES
-# =============================================================================
-ETA_DRAMATIC_CHANGE_DAYS = 5      # Diferencia mínima en días para notificar cambio de ETA por API
-ETA_WARNING_DAYS_BEFORE = 1       # Días antes del ETA para alertar "próximo a vencer"
-ETA_OVERDUE_DAYS_AFTER = 1        # Días después del ETA para alertar "vencido" (una sola vez)
+ETA_DRAMATIC_CHANGE_DAYS = 5
+ETA_WARNING_DAYS_BEFORE = 1
+ETA_OVERDUE_DAYS_AFTER = 1
 
 
 class StockTransitVoyage(models.Model):
@@ -37,135 +35,211 @@ class StockTransitVoyage(models.Model):
     _inherit = ['mail.thread', 'mail.activity.mixin']
     _order = 'eta asc'
 
-    name = fields_module.Char(string='Referencia Viaje', required=True, copy=False, readonly=True, default=lambda self: _('Nuevo'))
+    name = fields_module.Char(
+        string='Referencia Viaje',
+        required=True,
+        copy=False,
+        readonly=True,
+        default=lambda self: _('Nuevo'),
+    )
 
-    custom_status = fields_module.Selection([
-        ('solicitud', 'Solicitud Enviada'),
-        ('production', 'Producción'),
-        ('booking', 'Booking'),
-        ('puerto_origen', 'Puerto Origen'),
-        ('on_sea', 'En Altamar / Mar'),
-        ('puerto_destino', 'Puerto Destino'),
-        ('arrived_port', 'Arribo a Puerto (Trámite)'),
-        ('reception_pending', 'En Recepción Física'),
-        ('delivered', 'Entregado en Almacén'),
-        ('cancel', 'Cancelado'),
-    ], string='Estado', default='solicitud', tracking=True)
+    custom_status = fields_module.Selection(
+        [
+            ('solicitud', 'Solicitud Enviada'),
+            ('production', 'Producción'),
+            ('booking', 'Booking'),
+            ('puerto_origen', 'Puerto Origen'),
+            ('on_sea', 'En Altamar / Mar'),
+            ('puerto_destino', 'Puerto Destino'),
+            ('arrived_port', 'Arribo a Puerto (Trámite)'),
+            ('reception_pending', 'En Recepción Física'),
+            ('delivered', 'Entregado en Almacén'),
+            ('cancel', 'Cancelado'),
+        ],
+        string='Estado',
+        default='solicitud',
+        tracking=True,
+    )
 
-    shipping_line = fields_module.Char(string='Naviera', tracking=True)
-    transit_days_expected = fields_module.Integer(string='Tiempo Tránsito (Días)')
-    vessel_name = fields_module.Char(string='Buque / Barco', tracking=True)
-    voyage_number = fields_module.Char(string='No. Viaje', tracking=True)
+    shipping_line = fields_module.Char(
+        string='Naviera',
+        tracking=True,
+    )
+    transit_days_expected = fields_module.Integer(
+        string='Tiempo Tránsito (Días)',
+    )
+    vessel_name = fields_module.Char(
+        string='Buque / Barco',
+        tracking=True,
+    )
+    voyage_number = fields_module.Char(
+        string='No. Viaje',
+        tracking=True,
+    )
 
     container_number = fields_module.Char(
         string='Contenedores',
         compute='_compute_container_number',
         store=True,
         tracking=True,
-        help="Resumen automático de contenedores presentes en las líneas del viaje"
+        help="Resumen automático de contenedores presentes en las líneas del viaje",
     )
 
-    bl_number = fields_module.Char(string='Folio Compra / BL', tracking=True)
+    bl_number = fields_module.Char(
+        string='Folio Compra / BL',
+        tracking=True,
+    )
 
-    etd = fields_module.Date(string='ETD (Salida Estimada)')
-    eta = fields_module.Date(string='ETA (Llegada Estimada)', required=False, tracking=True)
-    eta_original = fields_module.Date(string='ETA Original', readonly=True, copy=False, tracking=True)
+    etd = fields_module.Date(
+        string='ETD (Salida Estimada)',
+    )
+    eta = fields_module.Date(
+        string='ETA (Llegada Estimada)',
+        required=False,
+        tracking=True,
+    )
+    eta_original = fields_module.Date(
+        string='ETA Original',
+        readonly=True,
+        copy=False,
+        tracking=True,
+    )
 
     delay_days = fields_module.Integer(
         string='Días de Retraso',
         compute='_compute_delay_days',
-        store=True
+        store=True,
     )
 
-    eta_alert_level = fields_module.Selection([
-        ('ok', 'En Tiempo'),
-        ('warning', 'Próximo a Vencer'),
-        ('danger', 'Vencido'),
-        ('done', 'Entregado'),
-    ], string='Alerta ETA', compute='_compute_eta_alert', store=True)
+    eta_alert_level = fields_module.Selection(
+        [
+            ('ok', 'En Tiempo'),
+            ('warning', 'Próximo a Vencer'),
+            ('danger', 'Vencido'),
+            ('done', 'Entregado'),
+        ],
+        string='Alerta ETA',
+        compute='_compute_eta_alert',
+        store=True,
+    )
 
-    # =========================================================================
-    # FLAGS DE NOTIFICACIÓN (evitan envíos repetidos)
-    # =========================================================================
     eta_warning_notified = fields_module.Boolean(
         string='Notificación "Próximo a Vencer" enviada',
         default=False,
         copy=False,
-        help='Marca si ya se envió la notificación de próximo a vencer (1 día antes del ETA).'
     )
     eta_overdue_notified = fields_module.Boolean(
         string='Notificación "Vencido" enviada',
         default=False,
         copy=False,
-        help='Marca si ya se envió la notificación de vencido (1 día después del ETA). Solo se envía una vez.'
     )
 
-    arrival_date = fields_module.Date(string='Llegada Real', tracking=True)
-    arrival_date_bodega = fields_module.Date(string='Entregado en Bodega', tracking=True)
+    arrival_date = fields_module.Date(
+        string='Llegada Real',
+        tracking=True,
+    )
+    arrival_date_bodega = fields_module.Date(
+        string='Entregado en Bodega',
+        tracking=True,
+    )
 
     picking_id = fields_module.Many2one(
         'stock.picking',
         string='Recepción (Tránsito)',
-        domain=[('picking_type_code', '=', 'incoming')]
+        domain=[('picking_type_code', '=', 'incoming')],
     )
 
     reception_picking_id = fields_module.Many2one(
         'stock.picking',
         string='Recepción Física (Bodega)',
         domain=[('picking_type_code', '=', 'internal')],
-        readonly=True
+        readonly=True,
     )
 
-    purchase_id = fields_module.Many2one('purchase.order', string='Orden de Compra Origen', readonly=True)
+    purchase_id = fields_module.Many2one(
+        'purchase.order',
+        string='Orden de Compra Origen',
+        readonly=True,
+    )
 
-    company_id = fields_module.Many2one('res.company', string='Compañía', default=lambda self: self.env.company)
-    line_ids = fields_module.One2many('stock.transit.line', 'voyage_id', string='Contenido (Lotes)')
+    company_id = fields_module.Many2one(
+        'res.company',
+        string='Compañía',
+        default=lambda self: self.env.company,
+    )
+    line_ids = fields_module.One2many(
+        'stock.transit.line',
+        'voyage_id',
+        string='Contenido (Lotes)',
+    )
 
-    total_m2 = fields_module.Float(string='Total m²', compute='_compute_totals', store=True, compute_sudo=True)
-    allocated_m2 = fields_module.Float(string='Asignado m²', compute='_compute_totals', store=True, compute_sudo=True)
-    allocation_percent = fields_module.Float(string='% Asignación', compute='_compute_allocation_percent', store=False, compute_sudo=False)
+    total_m2 = fields_module.Float(
+        string='Total m²',
+        compute='_compute_totals',
+        store=True,
+        compute_sudo=True,
+    )
+    allocated_m2 = fields_module.Float(
+        string='Asignado m²',
+        compute='_compute_totals',
+        store=True,
+        compute_sudo=True,
+    )
+    allocation_percent = fields_module.Float(
+        string='% Asignación',
+        compute='_compute_allocation_percent',
+        store=False,
+        compute_sudo=False,
+    )
 
-    # =========================================================================
-    # SHIPSGO & TRACKING FIELDS
-    # =========================================================================
-    shipsgo_last_sync = fields_module.Datetime(string="Última Sincronización API", readonly=True)
-    shipsgo_payload = fields_module.Text(string="Datos Geoespaciales (JSON)", readonly=True)
+    shipsgo_last_sync = fields_module.Datetime(
+        string="Última Sincronización API",
+        readonly=True,
+    )
+    shipsgo_payload = fields_module.Text(
+        string="Datos Geoespaciales (JSON)",
+        readonly=True,
+    )
 
     shipsgo_map_html = fields_module.Html(
         string="Mapa de Seguimiento",
         sanitize=False,
         readonly=True,
-        help="Mapa interactivo generado por Folium con la ruta del contenedor."
     )
 
     transit_progress = fields_module.Integer(
         string='Progreso Viaje',
         compute='_compute_transit_progress',
         store=True,
-        readonly=False
+        readonly=False,
     )
 
     # =========================================================================
-    # HELPERS SHIPSGO
+    # SHIPSGO
     # =========================================================================
 
     def _shipsgo_get_config(self):
         Config = self.env['ir.config_parameter'].sudo()
         api_url = Config.get_param('stock_transit.shipsgo_api_url', 'https://api.shipsgo.com/v2')
         api_token = Config.get_param('stock_transit.shipsgo_api_token', '')
+
         if not api_token:
             raise UserError(_("No se ha configurado el Token de ShipsGo en Parámetros del Sistema."))
+
         return api_url, api_token
 
     def _shipsgo_headers(self, json_body=False):
         api_url, api_token = self._shipsgo_get_config()
+
         headers = {
             "Accept": "application/json",
             "User-Agent": "OdooControlTower/1.0",
             "X-Shipsgo-User-Token": api_token,
         }
+
         if json_body:
             headers["Content-Type"] = "application/json"
+
         return api_url, headers
 
     def _normalize_container_number(self, value):
@@ -180,14 +254,18 @@ class StockTransitVoyage(models.Model):
     def _extract_shipment_from_response(self, payload):
         if not isinstance(payload, dict):
             return {}
+
         if isinstance(payload.get('shipment'), dict):
             return payload['shipment']
+
         if isinstance(payload.get('data'), dict):
             return payload['data']
+
         return payload
 
     def _make_shipsgo_reference(self, container_ref, shipment_container=False):
         self.ensure_one()
+
         parts = []
 
         if shipment_container and shipment_container.shipment_id:
@@ -202,6 +280,7 @@ class StockTransitVoyage(models.Model):
         parts.append(container_ref)
 
         reference = " | ".join([p for p in parts if p]).strip()
+
         if len(reference) < 5:
             reference = f"{self.name or 'VOYAGE'}-{container_ref}"
 
@@ -209,6 +288,7 @@ class StockTransitVoyage(models.Model):
 
     def _find_shipsgo_shipment_by_container(self, container_ref):
         self.ensure_one()
+
         api_url, headers = self._shipsgo_headers()
 
         try:
@@ -243,11 +323,12 @@ class StockTransitVoyage(models.Model):
             }
 
         existing = self._find_shipsgo_shipment_by_container(container_ref)
+
         if existing:
             shipment_id = existing.get('id')
             reference = existing.get('reference') or self._make_shipsgo_reference(
                 container_ref,
-                shipment_container=shipment_container
+                shipment_container=shipment_container,
             )
 
             if shipment_container and shipment_id:
@@ -266,10 +347,14 @@ class StockTransitVoyage(models.Model):
                 container=container_ref,
                 shipment_id=shipment_id or 'N/A',
             ))
+
             return existing
 
         api_url, headers = self._shipsgo_headers(json_body=True)
-        reference = self._make_shipsgo_reference(container_ref, shipment_container=shipment_container)
+        reference = self._make_shipsgo_reference(
+            container_ref,
+            shipment_container=shipment_container,
+        )
 
         payload = {
             "reference": reference,
@@ -277,6 +362,7 @@ class StockTransitVoyage(models.Model):
         }
 
         carrier_candidate = False
+
         if shipment_container and shipment_container.shipment_id and shipment_container.shipment_id.shipping_line:
             carrier_candidate = shipment_container.shipment_id.shipping_line.strip().upper()
         elif self.shipping_line:
@@ -292,10 +378,12 @@ class StockTransitVoyage(models.Model):
                 json=payload,
                 timeout=20,
             )
+
             try:
                 response_payload = r.json() if r.content else {}
             except Exception:
                 response_payload = {}
+
         except Exception as e:
             raise UserError(_("Error creando shipment en ShipsGo: %s") % str(e))
 
@@ -311,7 +399,10 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("ShipsGo rechazó la creación por demasiadas solicitudes concurrentes. Intente de nuevo."))
         else:
             message = response_payload.get('message') if isinstance(response_payload, dict) else False
-            raise UserError(_("ShipsGo devolvió un error al crear el tracking (%s): %s") % (r.status_code, message or r.text))
+            raise UserError(
+                _("ShipsGo devolvió un error al crear el tracking (%s): %s")
+                % (r.status_code, message or r.text)
+            )
 
         shipment_id = shipment.get('id')
         resolved_reference = shipment.get('reference') or reference
@@ -337,24 +428,22 @@ class StockTransitVoyage(models.Model):
 
         return shipment
 
-    # =========================================================================
-    # HELPER: Limpieza de Coordenadas
-    # =========================================================================
     def _clean_coord(self, lat, lng):
         try:
             if lat is None or lng is None:
                 return None
+
             f_lat = float(lat)
             f_lng = float(lng)
+
             if f_lat == 0.0 and f_lng == 0.0:
                 return None
+
             return [f_lat, f_lng]
+
         except (ValueError, TypeError):
             return None
 
-    # =========================================================================
-    # GENERADOR DE MAPA CON FOLIUM
-    # =========================================================================
     def _generate_folium_map(self, map_data):
         if not HAS_FOLIUM:
             return self._generate_fallback_map_html(map_data)
@@ -364,6 +453,7 @@ class StockTransitVoyage(models.Model):
         current_loc = map_data.get('current_loc')
 
         all_points = []
+
         if origin_loc and len(origin_loc) == 2:
             all_points.append(origin_loc)
         if dest_loc and len(dest_loc) == 2:
@@ -396,6 +486,7 @@ class StockTransitVoyage(models.Model):
             origin_name = map_data.get('origin', {}).get('name', 'Puerto Origen')
             origin_country = map_data.get('origin', {}).get('country', '')
             origin_date = map_data.get('origin', {}).get('date', '')
+
             popup_html = (
                 f"<div style='min-width:150px'>"
                 f"<b>⚓ Origen</b><br/>"
@@ -404,6 +495,7 @@ class StockTransitVoyage(models.Model):
                 f"{'<br/>Salida: ' + origin_date if origin_date else ''}"
                 f"</div>"
             )
+
             folium.Marker(
                 location=origin_loc,
                 popup=folium.Popup(popup_html, max_width=250),
@@ -415,6 +507,7 @@ class StockTransitVoyage(models.Model):
             dest_name = map_data.get('destination', {}).get('name', 'Puerto Destino')
             dest_country = map_data.get('destination', {}).get('country', '')
             dest_date = map_data.get('destination', {}).get('date', '')
+
             popup_html = (
                 f"<div style='min-width:150px'>"
                 f"<b>🏁 Destino</b><br/>"
@@ -423,6 +516,7 @@ class StockTransitVoyage(models.Model):
                 f"{'<br/>Llegada est.: ' + dest_date if dest_date else ''}"
                 f"</div>"
             )
+
             folium.Marker(
                 location=dest_loc,
                 popup=folium.Popup(popup_html, max_width=250),
@@ -435,6 +529,7 @@ class StockTransitVoyage(models.Model):
             vessel = map_data.get('vessel', 'N/A')
             status = map_data.get('status', 'En tránsito')
             pct = map_data.get('transit_pct', 0)
+
             popup_html = (
                 f"<div style='min-width:180px;text-align:center'>"
                 f"<b>🚢 {container}</b><br/>"
@@ -444,12 +539,14 @@ class StockTransitVoyage(models.Model):
                 f"<small>Progreso: {pct}%</small>"
                 f"</div>"
             )
+
             ship_icon = folium.DivIcon(
                 html='<div style="font-size:28px;text-align:center;'
-                    'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
+                     'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
                 icon_size=(32, 32),
                 icon_anchor=(16, 16),
             )
+
             folium.Marker(
                 location=current_loc,
                 popup=folium.Popup(popup_html, max_width=250),
@@ -459,8 +556,7 @@ class StockTransitVoyage(models.Model):
 
         route = map_data.get('route', {})
 
-        past_lines = route.get('past', [])
-        for line_coords in past_lines:
+        for line_coords in route.get('past', []):
             if len(line_coords) >= 2:
                 folium.PolyLine(
                     locations=line_coords,
@@ -488,8 +584,7 @@ class StockTransitVoyage(models.Model):
                 dash_array='8 10',
             ).add_to(m)
 
-        future_lines = route.get('future', [])
-        for line_coords in future_lines:
+        for line_coords in route.get('future', []):
             if len(line_coords) >= 2:
                 folium.PolyLine(
                     locations=line_coords,
@@ -499,36 +594,13 @@ class StockTransitVoyage(models.Model):
                     dash_array='8 10',
                 ).add_to(m)
 
-        if not past_lines and not current_past and not current_future and not future_lines:
-            if origin_loc and current_loc:
-                folium.PolyLine(
-                    locations=[origin_loc, current_loc],
-                    color='#2563eb',
-                    weight=4,
-                    opacity=0.85,
-                ).add_to(m)
-            if current_loc and dest_loc:
-                folium.PolyLine(
-                    locations=[current_loc, dest_loc],
-                    color='#6b7280',
-                    weight=3,
-                    dash_array='8 10',
-                    opacity=0.65,
-                ).add_to(m)
-            elif origin_loc and dest_loc and not current_loc:
-                folium.PolyLine(
-                    locations=[origin_loc, dest_loc],
-                    color='#9ca3af',
-                    weight=3,
-                    dash_array='8 10',
-                ).add_to(m)
-
         return m._repr_html_()
 
     def _generate_fallback_map_html(self, map_data):
         origin_loc = map_data.get('origin', {}).get('loc')
         dest_loc = map_data.get('destination', {}).get('loc')
         current_loc = map_data.get('current_loc')
+
         container = map_data.get('container', 'N/A')
         vessel = map_data.get('vessel', 'N/A')
         status = map_data.get('status', 'En tránsito')
@@ -546,6 +618,7 @@ class StockTransitVoyage(models.Model):
             }}).addTo(map).bindPopup('<b>Origen:</b> {origin_name}');
             bounds.push([{origin_loc[0]}, {origin_loc[1]}]);
             """
+
         if dest_loc:
             markers_js += f"""
             L.marker([{dest_loc[0]}, {dest_loc[1]}], {{
@@ -553,6 +626,7 @@ class StockTransitVoyage(models.Model):
             }}).addTo(map).bindPopup('<b>Destino:</b> {dest_name}');
             bounds.push([{dest_loc[0]}, {dest_loc[1]}]);
             """
+
         if current_loc:
             markers_js += f"""
             L.marker([{current_loc[0]}, {current_loc[1]}], {{
@@ -561,23 +635,12 @@ class StockTransitVoyage(models.Model):
             bounds.push([{current_loc[0]}, {current_loc[1]}]);
             """
 
-        if origin_loc and current_loc:
-            markers_js += f"""
-            L.polyline([[{origin_loc[0]},{origin_loc[1]}],[{current_loc[0]},{current_loc[1]}]],
-                {{color:'#2563eb',weight:4,opacity:0.85}}).add_to(map);
-            """
-        if current_loc and dest_loc:
-            markers_js += f"""
-            L.polyline([[{current_loc[0]},{current_loc[1]}],[{dest_loc[0]},{dest_loc[1]}]],
-                {{color:'#6b7280',weight:3,dashArray:'8,10',opacity:0.65}}).addTo(map);
-            """
-
         bounds_js += """
         if(bounds.length > 1) map.fitBounds(bounds, {padding:[50,50], maxZoom:8});
         else if(bounds.length === 1) map.setView(bounds[0], 5);
         """
 
-        html = f"""
+        return f"""
         <div style="width:100%;height:1200px;position:relative;">
             <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
             <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -594,17 +657,8 @@ class StockTransitVoyage(models.Model):
             </script>
         </div>
         """
-        return html
-
-    # =========================================================================
-    # ACCIÓN: SINCRONIZAR SHIPSGO API
-    # =========================================================================
 
     def action_sync_shipsgo(self):
-        """
-        Sincroniza datos de ShipsGo para este viaje.
-        Llamado por: cron jobs, web_read (auto-sync al abrir formulario).
-        """
         self.ensure_one()
 
         api_url, headers = self._shipsgo_headers()
@@ -619,9 +673,6 @@ class StockTransitVoyage(models.Model):
 
         Container = self.env['supplier.shipment.container']
 
-        # ============================================================
-        # 1) Resolver contenedor principal del mapa
-        # ============================================================
         linked_container = Container.search([
             ('shipment_id.voyage_id', '=', self.id),
             ('container_number', '!=', False),
@@ -650,20 +701,20 @@ class StockTransitVoyage(models.Model):
                     break
 
             if not container_ref and self.container_number and 'PENDIENTE' not in (self.container_number or ''):
-                container_ref = self._normalize_container_number(str(self.container_number).split(',')[0].strip())
+                container_ref = self._normalize_container_number(
+                    str(self.container_number).split(',')[0].strip()
+                )
 
             if not container_ref:
                 raise UserError(_("No se encontró un número de contenedor válido en las líneas o en el embarque vinculado."))
 
             shipment_data = self._find_shipsgo_shipment_by_container(container_ref) or {}
             shipment_id = shipment_data.get('id')
+
             if not shipment_id:
                 shipment_data = self._create_or_link_shipsgo_tracking_for_container(container_ref)
                 shipment_id = shipment_data.get('id')
 
-        # ============================================================
-        # 2) Obtener detalle del shipment por ID
-        # ============================================================
         if shipment_id:
             try:
                 sr = requests.get(
@@ -672,11 +723,14 @@ class StockTransitVoyage(models.Model):
                     timeout=20,
                 )
                 sr.raise_for_status()
+
                 try:
                     shipment_detail_payload = sr.json()
                 except Exception:
                     shipment_detail_payload = {}
+
                 shipment_data = self._extract_shipment_from_response(shipment_detail_payload)
+
             except Exception as e:
                 _logger.warning("[ShipsGo] No se pudo obtener detalle de shipment %s: %s", shipment_id, e)
 
@@ -686,18 +740,10 @@ class StockTransitVoyage(models.Model):
         if not shipment_data:
             self.message_post(body=_("⚠️ ShipsGo no devolvió datos para %s.") % container_ref)
             self.write({'shipsgo_last_sync': fields_module.Datetime.now()})
-            if linked_container:
-                linked_container.write({
-                    'shipsgo_last_sync': fields_module.Datetime.now(),
-                    'shipsgo_last_error': False,
-                })
             return
 
         shipment_id = shipment_data.get('id') or shipment_id
 
-        # ============================================================
-        # 3) GeoJSON del shipment
-        # ============================================================
         geojson_data = {}
         current_location = None
         vessel_name = ''
@@ -718,16 +764,15 @@ class StockTransitVoyage(models.Model):
                     timeout=20,
                 )
                 gr.raise_for_status()
+
                 try:
                     geojson_data = gr.json()
                 except Exception:
                     geojson_data = {}
+
             except Exception as e:
                 _logger.warning("[ShipsGo] No se pudo obtener GeoJSON para %s: %s", shipment_id, e)
 
-        # ============================================================
-        # 4) Datos base del shipment
-        # ============================================================
         route_info = safe_get(shipment_data, ['route'], {})
         transit_pct = route_info.get('transit_percentage', 0) or 0
         status_text = shipment_data.get('status', 'N/A')
@@ -741,9 +786,6 @@ class StockTransitVoyage(models.Model):
         pol_country = safe_get(route_info, ['port_of_loading', 'location', 'country', 'code'], '')
         pod_country = safe_get(route_info, ['port_of_discharge', 'location', 'country', 'code'], '')
 
-        # ============================================================
-        # 5) Parsear GeoJSON
-        # ============================================================
         features = safe_get(geojson_data, ['geojson', 'features'], [])
 
         for feature in features:
@@ -762,6 +804,7 @@ class StockTransitVoyage(models.Model):
             if geom_type == 'Point':
                 loc_name = safe_get(props, ['location', 'name'], '')
                 lat_lon = (coords_raw[1], coords_raw[0])
+
                 if status == 'PAST':
                     all_pol_candidates.append({'coords': lat_lon, 'name': loc_name})
                 elif status == 'FUTURE':
@@ -769,6 +812,7 @@ class StockTransitVoyage(models.Model):
 
             elif geom_type == 'LineString':
                 line_coords = [(c[1], c[0]) for c in coords_raw]
+
                 if status == 'PAST':
                     past_lines.append(line_coords)
                 elif status == 'CURRENT':
@@ -788,6 +832,7 @@ class StockTransitVoyage(models.Model):
 
         current_past_coords = []
         current_future_coords = []
+
         for seg in current_lines:
             cur_prop = seg['props'].get('current')
             if cur_prop:
@@ -837,11 +882,9 @@ class StockTransitVoyage(models.Model):
             _logger.error("[ShipsGo] Error generando mapa Folium: %s", e)
             map_html = False
 
-        # =====================================================================
-        # NUEVA LÓGICA: Detectar cambio dramático de ETA por API
-        # =====================================================================
         old_eta = self.eta
         new_eta_from_api = False
+
         if date_discharge:
             try:
                 new_eta_from_api = fields_module.Date.from_string(date_discharge[:10])
@@ -850,6 +893,7 @@ class StockTransitVoyage(models.Model):
 
         eta_changed_dramatically = False
         days_diff = 0
+
         if old_eta and new_eta_from_api and old_eta != new_eta_from_api:
             days_diff = abs((new_eta_from_api - old_eta).days)
             if days_diff >= ETA_DRAMATIC_CHANGE_DAYS:
@@ -861,6 +905,7 @@ class StockTransitVoyage(models.Model):
             'shipsgo_map_html': map_html,
             'transit_progress': int(transit_pct),
         }
+
         if vessel_name:
             vals['vessel_name'] = vessel_name
         if carrier_name:
@@ -868,14 +913,13 @@ class StockTransitVoyage(models.Model):
         if date_discharge:
             vals['eta'] = date_discharge
 
-        # =====================================================================
-        # NUEVA LÓGICA: Si la API reporta 100% o sin coordenadas, marcar como
-        # arrived_port y dejar de sincronizar.
-        # =====================================================================
         no_more_coordinates = current_location is None
         is_completed = int(transit_pct) >= 100
 
-        if (is_completed or no_more_coordinates) and self.custom_status not in ('arrived_port', 'reception_pending', 'delivered', 'cancel'):
+        if (
+            (is_completed or no_more_coordinates)
+            and self.custom_status not in ('arrived_port', 'reception_pending', 'delivered', 'cancel')
+        ):
             vals['custom_status'] = 'arrived_port'
             self.message_post(body=Markup(
                 "🏁 <b>Cambio automático de estado:</b> El tracking de ShipsGo "
@@ -886,8 +930,11 @@ class StockTransitVoyage(models.Model):
                 coords='Sí' if current_location else 'No',
             ))
 
-        # Marca de origen para que write() sepa que viene de la API
-        self.with_context(shipsgo_api_update=True, eta_dramatic_change=eta_changed_dramatically, eta_dramatic_diff=days_diff).write(vals)
+        self.with_context(
+            shipsgo_api_update=True,
+            eta_dramatic_change=eta_changed_dramatically,
+            eta_dramatic_diff=days_diff,
+        ).write(vals)
 
         if linked_container:
             linked_container.write({
@@ -920,9 +967,11 @@ class StockTransitVoyage(models.Model):
     def _compute_container_number(self):
         for rec in self:
             containers = set()
+
             for line in rec.line_ids:
                 if line.container_number and line.container_number not in ('', 'PENDIENTE', 'SN', 'False'):
                     containers.add(line.container_number)
+
             rec.container_number = ', '.join(sorted(containers)) if containers else 'PENDIENTE'
 
     @api.depends('eta', 'eta_original', 'arrival_date_bodega')
@@ -931,7 +980,9 @@ class StockTransitVoyage(models.Model):
             if not rec.eta_original:
                 rec.delay_days = 0
                 continue
+
             reference_end = rec.arrival_date_bodega or rec.eta
+
             if reference_end:
                 rec.delay_days = (reference_end - rec.eta_original).days
             else:
@@ -939,12 +990,8 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('eta', 'custom_status')
     def _compute_eta_alert(self):
-        """
-        REGLAS NUEVAS:
-        - 'warning' solo si falta exactamente 1 día (o menos) para el ETA.
-        - 'danger' si la fecha actual ya pasó el ETA.
-        """
         today = fields_module.Date.today()
+
         for rec in self:
             if rec.custom_status == 'delivered':
                 rec.eta_alert_level = 'done'
@@ -962,22 +1009,24 @@ class StockTransitVoyage(models.Model):
         for vals in vals_list:
             if vals.get('name', _('Nuevo')) == _('Nuevo'):
                 vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
+
             vals.pop('container_number', None)
+
             if vals.get('eta') and not vals.get('eta_original'):
                 vals['eta_original'] = vals['eta']
+
         return super(StockTransitVoyage, self).create(vals_list)
 
     def write(self, vals):
-        # Establecer eta_original la primera vez
         if 'eta' in vals:
             for rec in self:
                 if not rec.eta_original and vals.get('eta'):
-                    super(StockTransitVoyage, rec).write({'eta_original': vals['eta']})
+                    super(StockTransitVoyage, rec).write({
+                        'eta_original': vals['eta'],
+                    })
 
-        # Si cambia el ETA y NO viene del cron de la API, resetea los flags
-        # para que un cambio manual pueda volver a disparar alertas legítimas
-        # cuando se acerque la nueva fecha.
         is_api_update = self.env.context.get('shipsgo_api_update', False)
+
         if 'eta' in vals and not is_api_update:
             for rec in self:
                 if rec.eta != vals.get('eta'):
@@ -988,10 +1037,10 @@ class StockTransitVoyage(models.Model):
 
         res = super().write(vals)
 
-        # Actualizar info de transit en sale.order.line cuando cambien estado/eta
         if 'custom_status' in vals or 'eta' in vals:
             transit_lines = self.mapped('line_ids')
             order_ids = transit_lines.mapped('order_id')
+
             if order_ids:
                 sol = self.env['sale.order.line'].search([
                     ('order_id', 'in', order_ids.ids),
@@ -999,20 +1048,12 @@ class StockTransitVoyage(models.Model):
                 ])
                 sol._compute_transit_info()
 
-        # =====================================================================
-        # NUEVA LÓGICA DE NOTIFICACIONES
-        # Solo se notifica si:
-        # 1) El cambio viene de la API (shipsgo_api_update=True), y
-        # 2) Es un cambio dramático de ETA (eta_dramatic_change=True), o
-        # 3) Es la primera vez que se cruza el umbral de "warning" (1 día), o
-        # 4) Es la primera vez que se cruza el umbral de "vencido" (1 día después)
-        # =====================================================================
         if is_api_update and self.env.context.get('eta_dramatic_change'):
             for rec in self:
-                rec._notify_dramatic_eta_change(self.env.context.get('eta_dramatic_diff', 0))
+                rec._notify_dramatic_eta_change(
+                    self.env.context.get('eta_dramatic_diff', 0)
+                )
 
-        # Revisión de umbrales de warning/overdue (se llama siempre que cambien
-        # eta o estado, pero los flags evitan notificaciones repetidas)
         if 'eta' in vals or 'custom_status' in vals:
             self._check_eta_alerts()
 
@@ -1023,8 +1064,11 @@ class StockTransitVoyage(models.Model):
         for rec in self:
             total = sum(rec.line_ids.mapped('product_uom_qty'))
             allocated = sum(
-                rec.line_ids.filtered(lambda l: l.allocation_status == 'reserved').mapped('product_uom_qty')
+                rec.line_ids.filtered(
+                    lambda l: l.allocation_status == 'reserved'
+                ).mapped('product_uom_qty')
             )
+
             rec.total_m2 = total
             rec.allocated_m2 = allocated
 
@@ -1038,24 +1082,6 @@ class StockTransitVoyage(models.Model):
 
     @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
-        """
-        Calcula el progreso visible del embarque.
-
-        Prioridad:
-        1) Estados terminales o post-arribo:
-           - arrived_port
-           - reception_pending
-           - delivered
-           Siempre deben mostrarse al 100%.
-
-        2) Payload de ShipsGo:
-           Si existe shipsgo_payload y contiene transit_pct, se respeta ese valor.
-
-        3) Estimación local:
-           Si no hay payload válido, se estima con ETD/ETA y se aplica un piso
-           mínimo por estado para que la interfaz no se vea en cero cuando el
-           flujo ya avanzó manualmente.
-        """
         today = fields_module.Date.today()
 
         status_floor = {
@@ -1072,19 +1098,16 @@ class StockTransitVoyage(models.Model):
         }
 
         for rec in self:
-            # Cancelado siempre debe quedar en 0.
             if rec.custom_status == 'cancel':
                 rec.transit_progress = 0
                 continue
 
-            # Si ShipsGo ya reportó llegada, o si ya está en recepción/cerrado,
-            # la cabecera debe mostrar 100% aunque ya no haya coordenadas.
             if rec.custom_status in ('arrived_port', 'reception_pending', 'delivered'):
                 rec.transit_progress = 100
                 continue
 
-            # Intentar leer el progreso real guardado desde ShipsGo.
             payload_progress = None
+
             if rec.shipsgo_payload:
                 try:
                     payload = json.loads(rec.shipsgo_payload)
@@ -1097,7 +1120,6 @@ class StockTransitVoyage(models.Model):
                 rec.transit_progress = max(0, min(100, payload_progress))
                 continue
 
-            # Fallback: estimación por fechas.
             start_date = rec.etd or (rec.create_date.date() if rec.create_date else False)
 
             if not start_date or not rec.eta:
@@ -1107,8 +1129,6 @@ class StockTransitVoyage(models.Model):
             if today < start_date:
                 date_progress = 0
             elif today > rec.eta:
-                # No lo subimos a 100 solo por ETA vencido; 100 queda reservado
-                # para arrived_port/reception_pending/delivered o payload real.
                 date_progress = 95
             else:
                 total_days = (rec.eta - start_date).days
@@ -1125,29 +1145,23 @@ class StockTransitVoyage(models.Model):
                 date_progress,
             )
 
-
     # =========================================================================
-    # NOTIFICACIONES (NUEVA LÓGICA)
+    # NOTIFICACIONES
     # =========================================================================
 
     def _get_notification_recipient(self):
-        """
-        Devuelve el responsable a notificar.
-        REGLA NUEVA: Solo el responsable de la OC. Si no hay, no se notifica.
-        """
         self.ensure_one()
+
         if self.purchase_id and self.purchase_id.user_id:
             return self.purchase_id.user_id
+
         return False
 
     def _notify_dramatic_eta_change(self, days_diff):
-        """
-        Notifica cuando la API actualiza el ETA con una diferencia >= 5 días
-        respecto al ETA anterior.
-        """
         self.ensure_one()
 
         responsible = self._get_notification_recipient()
+
         if not responsible:
             return
 
@@ -1155,6 +1169,7 @@ class StockTransitVoyage(models.Model):
             return
 
         eta_str = self.eta.strftime('%d/%m/%Y') if self.eta else '—'
+
         body = Markup(
             "📅 <b>Cambio importante de ETA detectado</b><br/>"
             "El embarque <b>%s</b> tuvo un ajuste de <b>%s días</b> en su fecha de llegada según ShipsGo.<br/>"
@@ -1165,16 +1180,10 @@ class StockTransitVoyage(models.Model):
             body=body,
             partner_ids=responsible.partner_id.ids,
             message_type='comment',
-            subtype_xmlid='mail.mt_comment'
+            subtype_xmlid='mail.mt_comment',
         )
 
     def _check_eta_alerts(self):
-        """
-        REGLAS NUEVAS:
-        - Notificar "Próximo a vencer" SOLO 1 día antes y SOLO 1 vez (flag).
-        - Notificar "Vencido" SOLO 1 día después del ETA y SOLO 1 vez (flag).
-        - Solo al responsable de la OC. Si no hay responsable, no se notifica.
-        """
         today = fields_module.Date.today()
 
         for rec in self:
@@ -1185,54 +1194,61 @@ class StockTransitVoyage(models.Model):
                 continue
 
             responsible = rec._get_notification_recipient()
+
             if not responsible:
                 continue
 
             days_to_eta = (rec.eta - today).days
 
-            # ─── PRÓXIMO A VENCER: 1 día antes ───
             if days_to_eta == ETA_WARNING_DAYS_BEFORE and not rec.eta_warning_notified:
                 eta_str = rec.eta.strftime('%d/%m/%Y')
                 body = Markup(
                     "⚠️ <b>Embarque próximo a llegar</b><br/>"
                     "El embarque <b>%s</b> tiene ETA <b>mañana (%s)</b> y está en estado <b>%s</b>."
-                ) % (rec.name, eta_str, dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status))
+                ) % (
+                    rec.name,
+                    eta_str,
+                    dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status),
+                )
 
                 rec.message_post(
                     body=body,
                     partner_ids=responsible.partner_id.ids,
                     message_type='comment',
-                    subtype_xmlid='mail.mt_comment'
+                    subtype_xmlid='mail.mt_comment',
                 )
-                # Marcar como notificado para no volver a alertar
-                super(StockTransitVoyage, rec).write({'eta_warning_notified': True})
 
-            # ─── VENCIDO: 1 día después del ETA, una sola vez ───
+                super(StockTransitVoyage, rec).write({
+                    'eta_warning_notified': True,
+                })
+
             days_overdue = (today - rec.eta).days
+
             if days_overdue == ETA_OVERDUE_DAYS_AFTER and not rec.eta_overdue_notified:
                 eta_str = rec.eta.strftime('%d/%m/%Y')
                 body = Markup(
                     "🚨 <b>Embarque vencido</b><br/>"
                     "El embarque <b>%s</b> tenía ETA <b>%s</b> y aún no ha llegado. "
                     "Estado actual: <b>%s</b>."
-                ) % (rec.name, eta_str, dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status))
+                ) % (
+                    rec.name,
+                    eta_str,
+                    dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status),
+                )
 
                 rec.message_post(
                     body=body,
                     partner_ids=responsible.partner_id.ids,
                     message_type='comment',
-                    subtype_xmlid='mail.mt_comment'
+                    subtype_xmlid='mail.mt_comment',
                 )
-                super(StockTransitVoyage, rec).write({'eta_overdue_notified': True})
+
+                super(StockTransitVoyage, rec).write({
+                    'eta_overdue_notified': True,
+                })
 
     @api.model
     def _cron_check_eta_alerts(self):
-        """
-        Cron diario que revisa todos los viajes activos y dispara
-        las notificaciones de "próximo a vencer" y "vencido" cuando corresponda.
-        Esto es necesario porque _check_eta_alerts solo se dispara en write(),
-        y necesitamos que el paso del tiempo también lo dispare.
-        """
         voyages = self.search([
             ('custom_status', 'not in', ['delivered', 'cancel']),
             ('eta', '!=', False),
@@ -1240,12 +1256,19 @@ class StockTransitVoyage(models.Model):
         voyages._check_eta_alerts()
 
     # =========================================================================
-    # MÉTODOS DE ESTADO (WIZARD)
+    # ESTADOS
     # =========================================================================
 
     STATUS_SEQUENCE = [
-        'solicitud', 'production', 'booking', 'puerto_origen',
-        'on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'delivered',
+        'solicitud',
+        'production',
+        'booking',
+        'puerto_origen',
+        'on_sea',
+        'puerto_destino',
+        'arrived_port',
+        'reception_pending',
+        'delivered',
     ]
 
     STATUS_LABELS = {
@@ -1263,6 +1286,7 @@ class StockTransitVoyage(models.Model):
 
     def action_advance_status(self):
         self.ensure_one()
+
         if self.custom_status in ('delivered', 'cancel'):
             return
 
@@ -1275,8 +1299,10 @@ class StockTransitVoyage(models.Model):
 
     def action_retreat_status(self):
         self.ensure_one()
+
         if self.custom_status in ('solicitud', 'delivered', 'cancel'):
             return
+
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'transit.status.change.wizard',
@@ -1290,7 +1316,9 @@ class StockTransitVoyage(models.Model):
 
     def _do_advance_status(self, notes=None):
         self.ensure_one()
+
         current = self.custom_status
+
         if current in ('cancel', 'delivered'):
             return
 
@@ -1300,6 +1328,7 @@ class StockTransitVoyage(models.Model):
             return
 
         next_idx = idx + 1
+
         if next_idx >= len(self.STATUS_SEQUENCE):
             return
 
@@ -1308,6 +1337,7 @@ class StockTransitVoyage(models.Model):
         if next_status == 'delivered':
             if self.reception_picking_id and self.reception_picking_id.state != 'done':
                 raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
+
             if self.reception_picking_id:
                 self._auto_finalize_after_reception()
             else:
@@ -1315,9 +1345,12 @@ class StockTransitVoyage(models.Model):
                     'arrival_date': fields_module.Date.today(),
                     'custom_status': 'delivered',
                 }
+
                 if not self.arrival_date_bodega:
                     write_vals['arrival_date_bodega'] = fields_module.Date.today()
+
                 self.write(write_vals)
+
                 for line in self.line_ids:
                     if line.allocation_id and line.allocation_id.state != 'done':
                         line.allocation_id.action_mark_received(line.product_uom_qty)
@@ -1326,21 +1359,29 @@ class StockTransitVoyage(models.Model):
                 if self.picking_id and self.picking_id.purchase_id:
                     allocations = self.env['purchase.order.line.allocation'].search([
                         ('purchase_order_id', '=', self.picking_id.purchase_id.id),
-                        ('state', '=', 'pending')
+                        ('state', '=', 'pending'),
                     ])
                     allocations.action_mark_in_transit()
+
             self.write({'custom_status': next_status})
 
         old_label = self.STATUS_LABELS.get(current, current)
         new_label = self.STATUS_LABELS.get(self.custom_status, self.custom_status)
-        msg_parts = [Markup("⏩ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)]
+
+        msg_parts = [
+            Markup("⏩ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)
+        ]
+
         if notes:
             msg_parts.append(Markup("<br/>📝 <b>Nota:</b> %s") % notes)
+
         self.message_post(body=Markup('').join(msg_parts))
 
     def _do_retreat_status(self, notes=None):
         self.ensure_one()
+
         current = self.custom_status
+
         if current == 'cancel':
             return
 
@@ -1353,28 +1394,33 @@ class StockTransitVoyage(models.Model):
             return
 
         prev_status = self.STATUS_SEQUENCE[idx - 1]
+
         old_label = self.STATUS_LABELS.get(current, current)
         new_label = self.STATUS_LABELS.get(prev_status, prev_status)
+
         self.write({'custom_status': prev_status})
 
-        msg_parts = [Markup("⏪ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)]
+        msg_parts = [
+            Markup("⏪ <b>Cambio de Estado:</b> %s → %s") % (old_label, new_label)
+        ]
+
         if notes:
             msg_parts.append(Markup("<br/>📝 <b>Nota:</b> %s") % notes)
+
         self.message_post(body=Markup('').join(msg_parts))
 
     # =========================================================================
-    # ACCIONES DE CARGA Y RECEPCIÓN
-    # =========================================================================
-
-    # =========================================================================
-    # HELPERS DE CANTIDAD / PRECISIÓN
+    # CARGA Y RECEPCIÓN
     # =========================================================================
 
     def _get_qty_rounding(self, product):
         self.ensure_one()
+
         rounding = 0.0001
+
         if product and getattr(product, 'uom_id', False) and product.uom_id.rounding:
             rounding = product.uom_id.rounding
+
         return rounding
 
     def _normalize_product_qty(self, product, qty):
@@ -1383,10 +1429,15 @@ class StockTransitVoyage(models.Model):
 
     def _qty_differs(self, product, qty_a, qty_b):
         rounding = self._get_qty_rounding(product)
-        return float_compare(qty_a or 0.0, qty_b or 0.0, precision_rounding=rounding) != 0
+        return float_compare(
+            qty_a or 0.0,
+            qty_b or 0.0,
+            precision_rounding=rounding,
+        ) != 0
 
     def action_load_from_purchase(self):
         self.ensure_one()
+
         if not self.purchase_id:
             return
 
@@ -1394,10 +1445,11 @@ class StockTransitVoyage(models.Model):
 
         allocations = self.env['purchase.order.line.allocation'].search([
             ('purchase_order_id', '=', self.purchase_id.id),
-            ('id', 'not in', existing_alloc_ids)
+            ('id', 'not in', existing_alloc_ids),
         ])
 
         transit_lines = []
+
         for alloc in allocations:
             transit_lines.append({
                 'voyage_id': self.id,
@@ -1410,8 +1462,12 @@ class StockTransitVoyage(models.Model):
                 'container_number': 'PENDIENTE',
             })
 
-        existing_stock_lines = self.line_ids.filtered(lambda l: not l.allocation_id and not l.partner_id and not l.order_id)
-        existing_stock_by_product = {l.product_id.id: l for l in existing_stock_lines}
+        existing_stock_lines = self.line_ids.filtered(
+            lambda l: not l.allocation_id and not l.partner_id and not l.order_id
+        )
+        existing_stock_by_product = {
+            l.product_id.id: l for l in existing_stock_lines
+        }
 
         for po_line in self.purchase_id.order_line:
             total_po_qty = po_line.product_qty
@@ -1421,11 +1477,15 @@ class StockTransitVoyage(models.Model):
 
             if product_id in existing_stock_by_product:
                 existing_line = existing_stock_by_product[product_id]
+
                 if extra_for_stock > 0:
                     if existing_line.product_uom_qty != extra_for_stock:
-                        existing_line.write({'product_uom_qty': extra_for_stock})
+                        existing_line.write({
+                            'product_uom_qty': extra_for_stock,
+                        })
                 else:
                     existing_line.unlink()
+
             elif extra_for_stock > 0:
                 transit_lines.append({
                     'voyage_id': self.id,
@@ -1444,16 +1504,23 @@ class StockTransitVoyage(models.Model):
 
     def action_load_from_picking(self):
         self.ensure_one()
+
         if not self.picking_id:
             return
 
         placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
+
         if placeholder_lines:
             placeholder_lines.unlink()
 
-        existing_by_lot = {line.lot_id.id: line for line in self.line_ids if line.lot_id}
+        existing_by_lot = {
+            line.lot_id.id: line
+            for line in self.line_ids
+            if line.lot_id
+        }
 
         from .utils.transit_manager import TransitManager
+
         purchase = self.picking_id.purchase_id
         allocations_map = {}
         allocation_consumed = {}
@@ -1461,12 +1528,11 @@ class StockTransitVoyage(models.Model):
         if purchase:
             allocations = self.env['purchase.order.line.allocation'].search([
                 ('purchase_order_id', '=', purchase.id),
-                ('state', 'not in', ['done', 'cancelled'])
+                ('state', 'not in', ['done', 'cancelled']),
             ], order='id asc')
+
             for alloc in allocations:
-                if alloc.product_id.id not in allocations_map:
-                    allocations_map[alloc.product_id.id] = []
-                allocations_map[alloc.product_id.id].append(alloc)
+                allocations_map.setdefault(alloc.product_id.id, []).append(alloc)
                 allocation_consumed[alloc.id] = 0.0
 
         lines_to_create = []
@@ -1483,13 +1549,13 @@ class StockTransitVoyage(models.Model):
                 ('lot_id', '=', move_line.lot_id.id),
                 ('product_id', '=', move_line.product_id.id),
                 ('quantity', '>', 0),
-                ('location_id', '=', move_line.location_dest_id.id)
+                ('location_id', '=', move_line.location_dest_id.id),
             ], limit=1)
 
             raw_qty_done = move_line.quantity
             qty_done = self._normalize_product_qty(
                 move_line.product_id,
-                found_quant.quantity if found_quant else raw_qty_done
+                found_quant.quantity if found_quant else raw_qty_done,
             )
 
             partner_to_assign = False
@@ -1506,17 +1572,21 @@ class StockTransitVoyage(models.Model):
                         allocation_to_use = alloc
                         partner_to_assign = alloc.partner_id
                         order_to_assign = alloc.sale_order_id
+
                         if alloc.sale_line_id:
                             auto_assign = getattr(alloc.sale_line_id, 'auto_transit_assign', True)
+
                             if not auto_assign:
                                 partner_to_assign = False
                                 order_to_assign = False
                                 allocation_to_use = False
                                 continue
+
                         allocation_consumed[alloc.id] = consumed_this_load + qty_done
                         break
 
             lot_container = ''
+
             if hasattr(move_line.lot_id, 'x_contenedor') and move_line.lot_id.x_contenedor:
                 lot_container = move_line.lot_id.x_contenedor
             elif move_line.lot_id.ref:
@@ -1525,21 +1595,27 @@ class StockTransitVoyage(models.Model):
             if lot_id in existing_by_lot:
                 existing_line = existing_by_lot[lot_id]
                 update_vals = {}
+
                 if self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done):
                     update_vals['product_uom_qty'] = qty_done
+
                 if found_quant and existing_line.quant_id.id != found_quant.id:
                     update_vals['quant_id'] = found_quant.id
+
                 if lot_container and existing_line.container_number != lot_container:
                     update_vals['container_number'] = lot_container
+
                 if allocation_to_use and not existing_line.allocation_id:
                     update_vals['allocation_id'] = allocation_to_use.id
+
                 if not existing_line.partner_id and partner_to_assign:
                     update_vals['partner_id'] = partner_to_assign.id
                     update_vals['order_id'] = order_to_assign.id if order_to_assign else False
                     update_vals['allocation_status'] = 'reserved'
 
                 if update_vals:
-                    self.env['stock.transit.line'].browse(existing_line.id).with_context(skip_reservation_logic=True).write(update_vals)
+                    existing_line.with_context(skip_reservation_logic=True).write(update_vals)
+
                 continue
 
             line_vals = {
@@ -1554,19 +1630,21 @@ class StockTransitVoyage(models.Model):
                 'container_number': lot_container,
                 'allocation_id': allocation_to_use.id if allocation_to_use else False,
             }
+
             lines_to_create.append(line_vals)
 
             if partner_to_assign and order_to_assign:
                 key = (partner_to_assign.id, order_to_assign.id)
-                if key not in hold_orders_map:
-                    hold_orders_map[key] = {
-                        'partner': partner_to_assign,
-                        'order': order_to_assign,
-                        'line_vals_indices': []
-                    }
+
+                hold_orders_map.setdefault(key, {
+                    'partner': partner_to_assign,
+                    'order': order_to_assign,
+                    'line_vals_indices': [],
+                })
                 hold_orders_map[key]['line_vals_indices'].append(len(lines_to_create) - 1)
 
         created_lines = self.env['stock.transit.line']
+
         if lines_to_create:
             created_lines = self.env['stock.transit.line'].create(lines_to_create)
 
@@ -1574,13 +1652,21 @@ class StockTransitVoyage(models.Model):
             if qty_consumed > 0:
                 alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
                 new_received = alloc.qty_received + qty_consumed
-                alloc.write({'qty_received': min(new_received, alloc.quantity), 'state': 'in_transit'})
+                alloc.write({
+                    'qty_received': min(new_received, alloc.quantity),
+                    'state': 'in_transit',
+                })
 
         for key, data in hold_orders_map.items():
             partner = data['partner']
             order = data['order']
             indices = data['line_vals_indices']
-            relevant_lines = [created_lines[i] for i in indices if i < len(created_lines)]
+            relevant_lines = [
+                created_lines[i]
+                for i in indices
+                if i < len(created_lines)
+            ]
+
             if not relevant_lines:
                 continue
 
@@ -1593,16 +1679,22 @@ class StockTransitVoyage(models.Model):
             })
 
             for line in relevant_lines:
-                TransitManager.reassign_lot(self.env, line, partner, order, notes=False, hold_order_obj=hold_order)
+                TransitManager.reassign_lot(
+                    self.env,
+                    line,
+                    partner,
+                    order,
+                    notes=False,
+                    hold_order_obj=hold_order,
+                )
 
             if hold_order.hold_line_ids:
                 hold_order.action_confirm()
             else:
                 hold_order.unlink()
 
-
     # =========================================================================
-    # HELPERS RECEPCIÓN FÍSICA
+    # RECEPCIÓN FÍSICA
     # =========================================================================
 
     def _get_reception_candidate_lines(self):
@@ -1611,6 +1703,7 @@ class StockTransitVoyage(models.Model):
         candidate_lines = self.line_ids.filtered(
             lambda l: l.lot_id and l.product_id and l.product_uom_qty > 0
         )
+
         if not candidate_lines:
             raise UserError(_("No hay líneas con lote y cantidad positiva para recibir."))
 
@@ -1653,7 +1746,11 @@ class StockTransitVoyage(models.Model):
                 continue
 
             qty_to_receive = self._normalize_product_qty(line.product_id, quant.quantity)
-            if float_is_zero(qty_to_receive, precision_rounding=self._get_qty_rounding(line.product_id)):
+
+            if float_is_zero(
+                qty_to_receive,
+                precision_rounding=self._get_qty_rounding(line.product_id),
+            ):
                 missing_lots.append(
                     "%s (quant cero efectivo)" % (line.lot_id.display_name,)
                 )
@@ -1665,6 +1762,7 @@ class StockTransitVoyage(models.Model):
                 })
 
             source_location_ids.add(quant.location_id.id)
+
             resolved_lines.append({
                 'line': line,
                 'quant': quant,
@@ -1680,6 +1778,7 @@ class StockTransitVoyage(models.Model):
             locations = self.env['stock.location'].browse(
                 list(source_location_ids)
             ).mapped('complete_name')
+
             raise UserError(_(
                 "Las líneas del viaje apuntan a múltiples ubicaciones de tránsito. "
                 "La recepción física debe salir de una sola ubicación origen.\n%s"
@@ -1688,6 +1787,7 @@ class StockTransitVoyage(models.Model):
         source_location = self.env['stock.location'].browse(
             next(iter(source_location_ids))
         )
+
         return resolved_lines, source_location
 
     def _get_reception_operation_defaults(self, source_location):
@@ -1702,6 +1802,7 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("No se encontró un tipo de operación de traslado interno."))
 
         picking_type = False
+
         for pt in picking_types:
             if (
                 pt.default_location_dest_id
@@ -1735,6 +1836,7 @@ class StockTransitVoyage(models.Model):
             warehouse = self.env['stock.warehouse'].search([
                 ('company_id', '=', self.company_id.id),
             ], order='id', limit=1)
+
             if (
                 warehouse
                 and warehouse.lot_stock_id
@@ -1757,11 +1859,21 @@ class StockTransitVoyage(models.Model):
         return picking_type, dest_location
 
     def _sync_reception_picking_lines(self, picking, resolved_lines=None):
+        """
+        Sincroniza la recepción física con los lotes del viaje.
+
+        CRÍTICO:
+        - No confirma movimientos.
+        - No valida la recepción.
+        - La recepción debe quedar en borrador para permitir revisar PL físico
+          y Worksheet antes de validar manualmente.
+        """
         self.ensure_one()
         picking.ensure_one()
 
         if picking.state == 'done':
             raise UserError(_("La recepción ya fue validada."))
+
         if picking.state == 'cancel':
             raise UserError(_("La recepción está cancelada. Debe generar una nueva."))
 
@@ -1770,24 +1882,31 @@ class StockTransitVoyage(models.Model):
         else:
             if not resolved_lines:
                 raise UserError(_("No hay líneas válidas para sincronizar."))
+
             source_location = resolved_lines[0]['quant'].location_id
 
         picking_type, dest_location = self._get_reception_operation_defaults(source_location)
 
         picking_vals = {}
+
         if picking.picking_type_id.id != picking_type.id:
             picking_vals['picking_type_id'] = picking_type.id
+
         if picking.location_id.id != source_location.id:
             picking_vals['location_id'] = source_location.id
+
         if picking.location_dest_id.id != dest_location.id:
             picking_vals['location_dest_id'] = dest_location.id
+
         if picking_vals:
-            picking.write(picking_vals)
+            picking.with_context(skip_procurement=True).write(picking_vals)
 
         product_totals = {}
+
         for item in resolved_lines:
             line = item['line']
             qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
+
             product_totals.setdefault(line.product_id.id, 0.0)
             product_totals[line.product_id.id] += qty_to_receive
 
@@ -1802,14 +1921,18 @@ class StockTransitVoyage(models.Model):
                 continue
 
             move_vals = {}
+
             if self._qty_differs(move.product_id, move.product_uom_qty, total_qty):
                 move_vals['product_uom_qty'] = total_qty
+
             if move.location_id.id != picking.location_id.id:
                 move_vals['location_id'] = picking.location_id.id
+
             if move.location_dest_id.id != picking.location_dest_id.id:
                 move_vals['location_dest_id'] = picking.location_dest_id.id
+
             if move_vals:
-                move.write(move_vals)
+                move.with_context(skip_procurement=True).write(move_vals)
 
             move_map[move.product_id.id] = move
 
@@ -1818,7 +1941,9 @@ class StockTransitVoyage(models.Model):
                 continue
 
             product = self.env['product.product'].browse(product_id)
-            move = self.env['stock.move'].create({
+
+            move = self.env['stock.move'].with_context(skip_procurement=True).create({
+                'name': product.display_name,
                 'picking_id': picking.id,
                 'product_id': product.id,
                 'product_uom': product.uom_id.id,
@@ -1827,15 +1952,16 @@ class StockTransitVoyage(models.Model):
                 'location_dest_id': picking.location_dest_id.id,
                 'company_id': self.company_id.id,
             })
+
             move_map[product_id] = move
 
-        draft_moves = picking.move_ids.filtered(lambda m: m.state == 'draft')
-        if draft_moves:
-            draft_moves._action_confirm()
+        # No llamar _action_confirm aquí.
+        # La recepción física debe quedar en borrador.
 
         picking.move_line_ids.unlink()
 
         lines_created = 0
+
         for item in resolved_lines:
             line = item['line']
             quant = item['quant']
@@ -1847,7 +1973,8 @@ class StockTransitVoyage(models.Model):
                 ) % line.product_id.display_name)
 
             qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
-            self.env['stock.move.line'].create({
+
+            self.env['stock.move.line'].with_context(skip_procurement=True).create({
                 'picking_id': picking.id,
                 'move_id': move.id,
                 'company_id': self.company_id.id,
@@ -1858,18 +1985,23 @@ class StockTransitVoyage(models.Model):
                 'location_dest_id': picking.location_dest_id.id,
                 'quantity': qty_to_receive,
             })
+
             lines_created += 1
 
         expected_lines = len(resolved_lines)
+
         if lines_created != expected_lines:
             raise UserError(_(
                 "Se intentaron sincronizar %s lotes pero solo se crearon %s move lines."
             ) % (expected_lines, lines_created))
 
         total_qty = sum(product_totals.values())
+
         picking.message_post(
-            body=_("🔄 %s lotes sincronizados desde Viaje %s. Total: %.3f")
-            % (lines_created, self.name, total_qty)
+            body=_(
+                "🔄 %s lotes sincronizados desde Viaje %s. Total: %.3f<br/>"
+                "La recepción queda en borrador para revisión de PL físico y Worksheet."
+            ) % (lines_created, self.name, total_qty)
         )
 
         if hasattr(picking, 'packing_list_imported') and not picking.packing_list_imported:
@@ -1893,28 +2025,40 @@ class StockTransitVoyage(models.Model):
         picking_type, dest_location = self._get_reception_operation_defaults(source_location)
 
         picking = self.reception_picking_id
+
         if picking and picking.state == 'cancel':
             picking = False
 
         if not picking:
-            picking = self.env['stock.picking'].create({
+            vals = {
                 'picking_type_id': picking_type.id,
                 'location_id': source_location.id,
                 'location_dest_id': dest_location.id,
                 'origin': f"{self.name} (Recepción Física)",
                 'company_id': self.company_id.id,
                 'move_type': 'direct',
-                'supplier_bl_number': self.bl_number if hasattr(self.env['stock.picking'], 'supplier_bl_number') else False,
-                'supplier_container_no': self.container_number if hasattr(self.env['stock.picking'], 'supplier_container_no') else False,
-                'supplier_origin': 'TRÁNSITO' if hasattr(self.env['stock.picking'], 'supplier_origin') else False,
-            })
+            }
+
+            if 'supplier_bl_number' in self.env['stock.picking']._fields:
+                vals['supplier_bl_number'] = self.bl_number
+
+            if 'supplier_container_no' in self.env['stock.picking']._fields:
+                vals['supplier_container_no'] = self.container_number
+
+            if 'supplier_origin' in self.env['stock.picking']._fields:
+                vals['supplier_origin'] = 'TRÁNSITO'
+
+            picking = self.env['stock.picking'].with_context(skip_procurement=True).create(vals)
 
         self.write({
             'reception_picking_id': picking.id,
             'custom_status': 'reception_pending',
         })
 
-        self._sync_reception_picking_lines(picking, resolved_lines=resolved_lines)
+        self._sync_reception_picking_lines(
+            picking,
+            resolved_lines=resolved_lines,
+        )
 
         return {
             'type': 'ir.actions.act_window',
@@ -1953,6 +2097,7 @@ class StockTransitVoyage(models.Model):
                 'arrival_date': fields_module.Date.today(),
                 'custom_status': 'delivered',
             }
+
             if not rec.arrival_date_bodega:
                 write_vals['arrival_date_bodega'] = fields_module.Date.today()
 
@@ -1961,10 +2106,12 @@ class StockTransitVoyage(models.Model):
             for line in rec.line_ids.filtered(lambda l: l.allocation_id):
                 qty_received = rec._normalize_product_qty(
                     line.product_id,
-                    line.quant_id.quantity if line.quant_id and line.quant_id.exists() else line.product_uom_qty
+                    line.quant_id.quantity if line.quant_id and line.quant_id.exists() else line.product_uom_qty,
                 )
+
                 if line.allocation_id.state != 'done' and not float_is_zero(
-                    qty_received, precision_rounding=rec._get_qty_rounding(line.product_id)
+                    qty_received,
+                    precision_rounding=rec._get_qty_rounding(line.product_id),
                 ):
                     line.allocation_id.action_mark_received(qty_received)
 
@@ -1975,6 +2122,7 @@ class StockTransitVoyage(models.Model):
 
     def action_arrive(self):
         self.ensure_one()
+
         if self.reception_picking_id and self.reception_picking_id.state != 'done':
             raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
 
@@ -1984,10 +2132,12 @@ class StockTransitVoyage(models.Model):
 
         write_vals = {
             'arrival_date': fields_module.Date.today(),
-            'custom_status': 'delivered'
+            'custom_status': 'delivered',
         }
+
         if not self.arrival_date_bodega:
             write_vals['arrival_date_bodega'] = fields_module.Date.today()
+
         self.write(write_vals)
 
         for line in self.line_ids:
@@ -1997,91 +2147,60 @@ class StockTransitVoyage(models.Model):
     def action_cancel(self):
         self.write({'custom_status': 'cancel'})
 
-    # =========================================================================
-    # HELPER INTERNO: verificar si el viaje tiene contenedor registrado
-    # =========================================================================
-
     def _has_valid_container(self):
-        """Retorna True si el viaje tiene al menos un contenedor válido registrado."""
         self.ensure_one()
+
         has_container = self.env['supplier.shipment.container'].search_count([
             ('shipment_id.voyage_id', '=', self.id),
             ('container_number', '!=', False),
         ])
+
         if not has_container:
             has_container = any(
-                line.container_number and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
+                line.container_number
+                and line.container_number not in ('PENDIENTE', 'SN', 'False', '')
                 for line in self.line_ids
             )
+
         return bool(has_container)
 
     def _needs_shipsgo_sync(self):
-        """
-        Retorna True si el viaje requiere sincronización con ShipsGo.
-
-        REGLA NUEVA: Si el viaje ya está en 'arrived_port', 'reception_pending',
-        'delivered' o 'cancel', NO se sincroniza más. La API ya cumplió su
-        propósito (avisarnos que llegó al puerto destino).
-        """
         self.ensure_one()
+
         if self.custom_status in ('arrived_port', 'reception_pending', 'delivered', 'cancel'):
             return False
+
         if not self.shipsgo_last_sync:
             return True
-        delta = fields_module.Datetime.now() - self.shipsgo_last_sync
-        return delta.total_seconds() > 7200  # 2 horas
 
-    # =========================================================================
-    # CRON & AUTO-SYNC
-    # =========================================================================
+        delta = fields_module.Datetime.now() - self.shipsgo_last_sync
+        return delta.total_seconds() > 7200
 
     @api.model
     def action_cron_sync_shipsgo(self):
-        """
-        Ejecutado por los cron jobs (cada 1h y diario a las 5am).
-        Sincroniza solo viajes activos en estados anteriores a 'arrived_port'.
-
-        REGLA NUEVA: Una vez que el viaje cambia a 'arrived_port' (ya sea
-        manualmente o automáticamente por la API al detectar 100% / sin
-        coordenadas), se deja de consultar ShipsGo.
-        """
         voyages = self.search([
             ('custom_status', 'not in', ['arrived_port', 'reception_pending', 'delivered', 'cancel']),
         ])
+
         for voyage in voyages:
             if not voyage._has_valid_container():
                 continue
+
             try:
                 voyage.action_sync_shipsgo()
             except Exception as e:
                 _logger.warning(
                     "[ShipsGo CRON] Error sincronizando viaje %s: %s",
-                    voyage.name, str(e)
+                    voyage.name,
+                    str(e),
                 )
 
-    # =========================================================================
-    # AUTO-SYNC AL ABRIR EL FORMULARIO — Odoo 18/19
-    # web_read es el método que realmente llama el cliente OWL al abrir un form.
-    # read() ya no se dispara de forma confiable en v18/v19.
-    # =========================================================================
-
     def web_read(self, specification):
-        """
-        Override de web_read para disparar auto-sync de ShipsGo al abrir el formulario.
-        En Odoo 18/19 el cliente OWL llama web_read, no read().
-        Solo sincroniza si:
-        - Es exactamente 1 registro (apertura de formulario individual)
-        - El viaje no está en estado terminal o post-arribo
-        - Tiene contenedor registrado
-        - No se sincronizó en las últimas 2 horas
-        """
         result = super().web_read(specification)
 
-        # Solo procesar apertura de un formulario individual
         if len(self) != 1:
             return result
 
-        # Evitar recursión
         if self.env.context.get('no_auto_shipsgo_sync'):
             return result
 
@@ -2095,12 +2214,12 @@ class StockTransitVoyage(models.Model):
 
         try:
             voyage.with_context(no_auto_shipsgo_sync=True).action_sync_shipsgo()
-            # Re-leer para que el cliente reciba el mapa y datos frescos
             result = super(StockTransitVoyage, voyage).web_read(specification)
         except Exception as e:
             _logger.warning(
                 "[ShipsGo AUTO] Error en auto-sync al abrir viaje %s: %s",
-                voyage.name, str(e)
+                voyage.name,
+                str(e),
             )
 
         return result
