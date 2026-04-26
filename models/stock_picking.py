@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+import json
+import logging
+
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
-import logging
 
 _logger = logging.getLogger(__name__)
 
@@ -12,10 +14,12 @@ class StockPicking(models.Model):
     transit_voyage_ids = fields.One2many(
         'stock.transit.voyage',
         'picking_id',
-        string='Viajes de Tránsito'
+        string='Viajes de Tránsito',
     )
 
-    transit_count = fields.Integer(compute='_compute_transit_count')
+    transit_count = fields.Integer(
+        compute='_compute_transit_count',
+    )
 
     supplier_shipment_id = fields.Many2one(
         'supplier.shipment',
@@ -43,7 +47,7 @@ class StockPicking(models.Model):
             pick.transit_count = len(pick.transit_voyage_ids)
 
     # -------------------------------------------------------------------------
-    # HELPERS
+    # HELPERS GENERALES
     # -------------------------------------------------------------------------
 
     def _tc_move_line_qty(self, move_line):
@@ -54,19 +58,20 @@ class StockPicking(models.Model):
         """
         if 'quantity' in move_line._fields:
             return move_line.quantity or 0.0
+
         return move_line.qty_done or 0.0
 
     def _get_linked_reception_voyage(self):
         self.ensure_one()
 
         voyage = self.env['stock.transit.voyage'].search([
-            ('reception_picking_id', '=', self.id)
+            ('reception_picking_id', '=', self.id),
         ], limit=1)
 
         if not voyage and self.origin:
             origin_ref = self.origin.split(' ')[0]
             voyage = self.env['stock.transit.voyage'].search([
-                ('name', 'ilike', origin_ref)
+                ('name', 'ilike', origin_ref),
             ], limit=1)
 
         return voyage
@@ -201,7 +206,7 @@ class StockPicking(models.Model):
                     ),
                     'type': 'success',
                     'sticky': False,
-                }
+                },
             }
 
         raise UserError(_(
@@ -216,8 +221,8 @@ class StockPicking(models.Model):
         Si el picking interno está vinculado como recepción física de un viaje,
         NO se puede validar hasta que el Worksheet físico haya sido procesado.
 
-        Esto evita cerrar inventario físico con datos declarados o parcialmente
-        conciliados.
+        Además, cuando la recepción física se valida, se pasan los lotes
+        preasignados desde Torre de Control hacia la entrega del pedido.
         """
         for pick in self:
             voyage = pick._get_linked_reception_voyage()
@@ -278,6 +283,7 @@ class StockPicking(models.Model):
                         str(e),
                         exc_info=True,
                     )
+                    raise
 
                 try:
                     pick._auto_close_linked_transit_voyage()
@@ -288,6 +294,7 @@ class StockPicking(models.Model):
                         str(e),
                         exc_info=True,
                     )
+                    raise
 
         _logger.info(
             "=== [TC_DEBUG] VALIDATION FINISHED - Picking IDs: %s ===",
@@ -295,235 +302,368 @@ class StockPicking(models.Model):
         )
         return res
 
+    # -------------------------------------------------------------------------
+    # HELPERS: PASAR ASIGNACIÓN DE TRÁNSITO A ENTREGA
+    # -------------------------------------------------------------------------
+
+    def _tc_get_sale_line_for_assignment(self, order, product):
+        SaleLine = self.env['sale.order.line']
+
+        if not order or not product:
+            return SaleLine
+
+        lines = order.order_line.filtered(
+            lambda l: not l.display_type and l.product_id.id == product.id
+        )
+
+        if not lines:
+            return SaleLine
+
+        pending_lines = lines.filtered(
+            lambda l: (l.product_uom_qty or 0.0) > (l.qty_delivered or 0.0)
+        )
+
+        return (pending_lines or lines)[:1]
+
+    def _tc_build_lot_breakdown_from_transit_lines(self, transit_lines):
+        breakdown = {}
+
+        for transit_line in transit_lines:
+            lot = transit_line.lot_id
+            if not lot:
+                continue
+
+            lot_type = ''
+            if 'x_tipo' in lot._fields and lot.x_tipo:
+                lot_type = str(lot.x_tipo).lower()
+
+            if lot_type in ('formato', 'pieza'):
+                breakdown[str(lot.id)] = transit_line.product_uom_qty or 0.0
+
+        return breakdown
+
+    def _tc_prepare_breakdown_value_for_sale_line(self, sale_line, breakdown):
+        if not breakdown:
+            return False
+
+        field = sale_line._fields.get('x_lot_breakdown_json')
+        if field and field.type in ('char', 'text'):
+            return json.dumps(breakdown)
+
+        return breakdown
+
+    def _tc_sync_sale_line_lots_after_reception(self, sale_line, transit_lines):
+        """
+        Reemplaza en la SO únicamente los lotes del producto recibido/asignado.
+
+        No toca otros productos/materiales del pedido.
+        """
+        if not sale_line or 'lot_ids' not in sale_line._fields:
+            return False
+
+        lot_ids = transit_lines.mapped('lot_id').ids
+
+        vals = {
+            'lot_ids': [(6, 0, lot_ids)],
+        }
+
+        # El material ya dejó de ser "Mandar Pedir": ahora tiene placas concretas.
+        # Esto evita romper la restricción auto_transit_assign + lot_ids.
+        if 'auto_transit_assign' in sale_line._fields:
+            vals['auto_transit_assign'] = False
+
+        if 'x_lot_breakdown_json' in sale_line._fields:
+            breakdown = self._tc_build_lot_breakdown_from_transit_lines(transit_lines)
+            vals['x_lot_breakdown_json'] = self._tc_prepare_breakdown_value_for_sale_line(
+                sale_line,
+                breakdown,
+            )
+
+        sale_line.with_context(
+            skip_stone_sync_picking=True,
+            skip_stone_sync_so=True,
+            skip_hold_validation=True,
+            skip_picking_clean=True,
+        ).write(vals)
+
+        return True
+
+    def _tc_find_delivery_for_order(self, order, delivery_cache):
+        self.ensure_one()
+
+        if order.id in delivery_cache:
+            return delivery_cache[order.id]
+
+        domain_delivery = [
+            ('picking_type_code', '=', 'outgoing'),
+            ('state', 'in', ['confirmed', 'assigned', 'partially_available', 'waiting']),
+            ('company_id', '=', self.company_id.id),
+        ]
+
+        delivery = self.env['stock.picking'].search(
+            domain_delivery + [('sale_id', '=', order.id)],
+            order='id asc',
+            limit=1,
+        )
+
+        if not delivery:
+            delivery = self.env['stock.picking'].search(
+                domain_delivery + [('origin', '=', order.name)],
+                order='id asc',
+                limit=1,
+            )
+
+        delivery_cache[order.id] = delivery or False
+        return delivery_cache[order.id]
+
+    def _tc_get_or_create_delivery_move(self, delivery, sale_line, product, qty):
+        self.ensure_one()
+
+        move = delivery.move_ids.filtered(
+            lambda m: m.sale_line_id.id == sale_line.id
+            and m.product_id.id == product.id
+            and m.state not in ['done', 'cancel']
+        )[:1]
+
+        if move:
+            if move.product_uom_qty < qty:
+                move.write({'product_uom_qty': qty})
+            return move
+
+        move = self.env['stock.move'].create({
+            'name': sale_line.name or product.display_name,
+            'picking_id': delivery.id,
+            'sale_line_id': sale_line.id,
+            'product_id': product.id,
+            'product_uom': product.uom_id.id,
+            'product_uom_qty': qty,
+            'location_id': delivery.location_id.id,
+            'location_dest_id': delivery.location_dest_id.id,
+            'company_id': delivery.company_id.id,
+        })
+
+        if move.state == 'draft':
+            move._action_confirm()
+
+        return move
+
     def _assign_lots_to_delivery_orders(self):
         """
-        Cuando se valida el picking interno Transit → Stock, asigna los lotes
-        a las entregas pendientes según la pre-asignación del Viaje.
+        Al validar la recepción física Transit → Stock:
 
-        Fuente de verdad:
-        - Solo se asignan lotes con allocation_status = reserved.
-        - Solo se asignan lotes realmente movidos en esta recepción física.
+        1. Lee las preasignaciones del viaje.
+        2. Solo procesa líneas allocation_status = reserved.
+        3. Solo procesa lotes realmente recibidos en este picking.
+        4. Reemplaza en la SO únicamente los lotes del mismo producto.
+        5. Crea/actualiza la entrega con sale_line_id y lotes exactos.
         """
         self.ensure_one()
-        _logger.info("[TC_DEBUG] _assign_lots_to_delivery_orders START for %s", self.name)
+        _logger.info("[TC_ASSIGN] START recepción física %s", self.name)
 
         voyage = self._get_linked_reception_voyage()
 
         if not voyage:
             _logger.info(
-                "[TC_DEBUG] El picking %s NO está vinculado como recepción de ningún Viaje de Tránsito. Saltando.",
+                "[TC_ASSIGN] Picking %s sin viaje vinculado. Se omite asignación a ventas.",
                 self.name,
             )
             return
 
-        _logger.info(
-            "[TC_DEBUG] Voyage vinculado: %s ID %s.",
-            voyage.name,
-            voyage.id,
-        )
+        Quant = self.env['stock.quant'].sudo()
 
-        lot_to_assignment = {}
-
-        for line in voyage.line_ids:
-            if line.lot_id and line.order_id and line.allocation_status == 'reserved':
-                lot_to_assignment[line.lot_id.id] = {
-                    'order': line.order_id,
-                    'product': line.product_id,
-                }
-
-        _logger.info(
-            "[TC_DEBUG] Mapa de Asignación Lote -> SO: %s reglas encontradas en el viaje.",
-            len(lot_to_assignment),
-        )
-
-        delivery_cache = {}
-
-        def _find_delivery(target_so):
-            if target_so.id in delivery_cache:
-                return delivery_cache[target_so.id]
-
-            domain_delivery = [
-                ('picking_type_code', '=', 'outgoing'),
-                ('state', 'in', ['confirmed', 'assigned', 'partially_available']),
-                ('company_id', '=', self.company_id.id),
-            ]
-
-            delivery = self.env['stock.picking'].search(
-                domain_delivery + [('sale_id', '=', target_so.id)],
-                limit=1
-            )
-
-            if not delivery:
-                delivery = self.env['stock.picking'].search(
-                    domain_delivery + [('origin', '=', target_so.name)],
-                    limit=1
-                )
-
-            delivery_cache[target_so.id] = delivery or False
-            return delivery_cache[target_so.id]
-
-        unreserved_moves = set()
-        count_success = 0
+        received_by_lot = {}
 
         for move_line in self.move_line_ids:
             if not move_line.lot_id:
                 continue
 
-            qty_just_moved = self._tc_move_line_qty(move_line)
-
-            if qty_just_moved <= 0:
+            qty = self._tc_move_line_qty(move_line)
+            if qty <= 0:
                 continue
 
-            assignment = lot_to_assignment.get(move_line.lot_id.id)
+            lot_id = move_line.lot_id.id
 
-            if not assignment:
-                _logger.info(
-                    "[TC_DEBUG] Lote %s recibido, pero NO tenía asignación reservada en el Viaje. Queda libre.",
-                    move_line.lot_id.name,
-                )
+            if lot_id not in received_by_lot:
+                received_by_lot[lot_id] = {
+                    'qty': 0.0,
+                    'move_line': move_line,
+                    'location_dest_id': move_line.location_dest_id.id,
+                }
+
+            received_by_lot[lot_id]['qty'] += qty
+
+        if not received_by_lot:
+            _logger.info("[TC_ASSIGN] Picking %s no tiene lotes recibidos.", self.name)
+            return
+
+        assignments_by_key = {}
+
+        reserved_lines = voyage.line_ids.filtered(
+            lambda l: l.lot_id
+            and l.order_id
+            and l.product_id
+            and l.allocation_status == 'reserved'
+            and l.lot_id.id in received_by_lot
+        )
+
+        for line in reserved_lines:
+            key = (line.order_id.id, line.product_id.id)
+            assignments_by_key.setdefault(key, self.env['stock.transit.line'])
+            assignments_by_key[key] |= line
+
+        if not assignments_by_key:
+            _logger.info(
+                "[TC_ASSIGN] Viaje %s no tiene lotes reservados recibidos en %s. Todo queda libre.",
+                voyage.name,
+                self.name,
+            )
+            return
+
+        delivery_cache = {}
+        total_assigned_lots = 0
+
+        ctx = dict(
+            self.env.context,
+            skip_stone_sync_so=True,
+            skip_stone_sync_picking=True,
+            skip_hold_validation=True,
+            skip_picking_clean=True,
+        )
+
+        for (order_id, product_id), transit_lines in assignments_by_key.items():
+            order = self.env['sale.order'].browse(order_id)
+            product = self.env['product.product'].browse(product_id)
+
+            if not order.exists() or not product.exists():
                 continue
 
-            target_so = assignment['order']
-            lot_product = move_line.product_id
+            if order.state not in ('sale', 'done'):
+                raise UserError(_(
+                    "El pedido %s tiene lotes preasignados desde tránsito, pero no está confirmado."
+                ) % order.name)
 
-            _logger.info("--- [TC_DEBUG] Procesando Lote: %s ---", move_line.lot_id.name)
-            _logger.info("    > Destino Comercial: %s", target_so.name)
-            _logger.info("    > Producto del Lote: %s", lot_product.name)
-            _logger.info("    > Ubicación Física Actual: %s", move_line.location_dest_id.display_name)
-            _logger.info("    > Cantidad: %s", qty_just_moved)
+            sale_line = self._tc_get_sale_line_for_assignment(order, product)
 
-            delivery_picking = _find_delivery(target_so)
+            if not sale_line:
+                raise UserError(_(
+                    "El pedido %(order)s no tiene una línea vigente para el producto %(product)s."
+                ) % {
+                    'order': order.name,
+                    'product': product.display_name,
+                })
 
-            if not delivery_picking:
-                _logger.warning(
-                    "    [!] No se encontró Entrega pendiente para %s.",
-                    target_so.name,
-                )
+            delivery = self._tc_find_delivery_for_order(order, delivery_cache)
+
+            if not delivery:
+                raise UserError(_(
+                    "No se encontró una entrega pendiente para el pedido %s.\n\n"
+                    "Confirme que el pedido tenga una entrega de salida activa."
+                ) % order.name)
+
+            total_qty = 0.0
+
+            for transit_line in transit_lines:
+                received_data = received_by_lot.get(transit_line.lot_id.id)
+                if not received_data:
+                    continue
+                total_qty += received_data['qty']
+
+            if total_qty <= 0:
                 continue
 
-            target_move = delivery_picking.move_ids.filtered(
-                lambda m: m.product_id.id == lot_product.id
-                and m.state not in ['done', 'cancel']
+            # 1) Sincronizar selección oficial en la línea de venta.
+            # Esto hace que inventario visual/reportes reconozcan el material como comprometido.
+            self._tc_sync_sale_line_lots_after_reception(sale_line, transit_lines)
+
+            # 2) Obtener/crear movimiento de entrega vinculado a la sale_line.
+            target_move = self._tc_get_or_create_delivery_move(
+                delivery=delivery,
+                sale_line=sale_line,
+                product=product,
+                qty=total_qty,
             )
 
-            if not target_move:
-                _logger.info(
-                    "    [+] Producto %s no está en la entrega %s. Creando move...",
-                    lot_product.name,
-                    delivery_picking.name,
-                )
+            # 3) Desreservar y limpiar SOLO el move del mismo producto/línea.
+            # No se tocan otros productos del pedido.
+            if target_move.state in ('assigned', 'partially_available'):
                 try:
-                    new_move = self.env['stock.move'].create({
-                        'picking_id': delivery_picking.id,
-                        'product_id': lot_product.id,
-                        'product_uom': lot_product.uom_id.id,
-                        'product_uom_qty': qty_just_moved,
-                        'location_id': delivery_picking.location_id.id,
-                        'location_dest_id': delivery_picking.location_dest_id.id,
-                        'company_id': delivery_picking.company_id.id,
-                    })
-
-                    if new_move.state == 'draft':
-                        new_move._action_confirm()
-
-                    target_move = new_move
-
-                    _logger.info(
-                        "    [+] Move creado: ID %s para %s en %s",
-                        new_move.id,
-                        lot_product.name,
-                        delivery_picking.name,
-                    )
+                    target_move._do_unreserve()
                 except Exception as e:
-                    _logger.error(
-                        "    [TC_ERROR] No se pudo crear move para %s en %s: %s",
-                        lot_product.name,
-                        delivery_picking.name,
+                    _logger.warning(
+                        "[TC_ASSIGN] No se pudo desreservar move %s: %s",
+                        target_move.id,
                         e,
-                        exc_info=True,
                     )
+
+            if target_move.move_line_ids:
+                target_move.move_line_ids.with_context(ctx).unlink()
+
+            # 4) Crear move lines exactas desde ubicación interna real.
+            for transit_line in transit_lines:
+                lot = transit_line.lot_id
+                received_data = received_by_lot.get(lot.id)
+
+                if not received_data:
                     continue
-            else:
-                target_move = target_move[0]
 
-                if target_move.product_uom_qty < qty_just_moved:
-                    try:
-                        target_move.write({'product_uom_qty': qty_just_moved})
-                    except Exception as e:
-                        _logger.warning(
-                            "    [!] No se pudo ajustar demanda del move %s: %s",
-                            target_move.id,
-                            e,
-                        )
+                qty_to_assign = received_data['qty']
+                source_location_id = received_data['location_dest_id']
 
-            move_key = (delivery_picking.id, target_move.id)
+                quant = Quant.search([
+                    ('company_id', '=', self.company_id.id),
+                    ('product_id', '=', product.id),
+                    ('lot_id', '=', lot.id),
+                    ('quantity', '>', 0),
+                    ('location_id.usage', '=', 'internal'),
+                ], order='id desc', limit=1)
 
-            if move_key not in unreserved_moves:
-                if target_move.state in ('partially_available', 'assigned'):
-                    try:
-                        target_move._do_unreserve()
-                        _logger.info(
-                            "    [~] Des-reservado move %s en %s",
-                            target_move.id,
-                            delivery_picking.name,
-                        )
-                    except Exception as e:
-                        _logger.warning("    [!] Error al des-reservar: %s", e)
+                if quant:
+                    source_location_id = quant.location_id.id
+                    qty_to_assign = min(qty_to_assign, quant.quantity)
 
-                unreserved_moves.add(move_key)
+                if qty_to_assign <= 0:
+                    continue
 
-            try:
-                existing_reserved = self.env['stock.move.line'].search([
-                    ('move_id', '=', target_move.id),
-                    ('lot_id', '=', move_line.lot_id.id),
-                    ('picking_id', '=', delivery_picking.id),
-                ], limit=1)
+                self.env['stock.move.line'].with_context(ctx).create({
+                    'picking_id': delivery.id,
+                    'move_id': target_move.id,
+                    'company_id': delivery.company_id.id,
+                    'product_id': product.id,
+                    'product_uom_id': product.uom_id.id,
+                    'lot_id': lot.id,
+                    'location_id': source_location_id,
+                    'location_dest_id': target_move.location_dest_id.id,
+                    'quantity': qty_to_assign,
+                })
 
-                if existing_reserved:
-                    existing_qty = self._tc_move_line_qty(existing_reserved)
-                    new_qty = existing_qty + qty_just_moved
+                total_assigned_lots += 1
 
-                    existing_reserved.write({
-                        'quantity': new_qty,
-                        'location_id': move_line.location_dest_id.id,
-                    })
-
-                    _logger.info(
-                        "    [✓] Actualizado move line existente para lote %s: %s",
-                        move_line.lot_id.name,
-                        new_qty,
-                    )
-                else:
-                    self.env['stock.move.line'].create({
-                        'picking_id': delivery_picking.id,
-                        'move_id': target_move.id,
-                        'product_id': lot_product.id,
-                        'lot_id': move_line.lot_id.id,
-                        'product_uom_id': move_line.product_uom_id.id,
-                        'location_id': move_line.location_dest_id.id,
-                        'location_dest_id': target_move.location_dest_id.id,
-                        'quantity': qty_just_moved,
-                    })
-
-                    _logger.info(
-                        "    [✓] Creado move line para lote %s cantidad %s",
-                        move_line.lot_id.name,
-                        qty_just_moved,
-                    )
-
-                count_success += 1
-
-            except Exception as e:
-                _logger.error(
-                    "    [TC_ERROR] Error crítico asignando lote %s: %s",
-                    move_line.lot_id.name,
-                    e,
-                    exc_info=True,
+                _logger.info(
+                    "[TC_ASSIGN] Pedido %s | Entrega %s | Producto %s | Lote %s | Qty %.4f",
+                    order.name,
+                    delivery.name,
+                    product.display_name,
+                    lot.name,
+                    qty_to_assign,
                 )
+
+            delivery.message_post(body=_(
+                "🚚 Material recibido desde tránsito asignado automáticamente.<br/>"
+                "<b>Viaje:</b> %(voyage)s<br/>"
+                "<b>Pedido:</b> %(order)s<br/>"
+                "<b>Producto:</b> %(product)s<br/>"
+                "<b>Lotes:</b> %(lots)s"
+            ) % {
+                'voyage': voyage.name,
+                'order': order.name,
+                'product': product.display_name,
+                'lots': ', '.join(transit_lines.mapped('lot_id.name')),
+            })
 
         _logger.info(
-            "[TC_DEBUG] Proceso finalizado. %s lotes asignados exitosamente.",
-            count_success,
+            "[TC_ASSIGN] FIN recepción %s. Lotes asignados a entregas: %s",
+            self.name,
+            total_assigned_lots,
         )
 
     def _create_automatic_transit_voyage(self):
@@ -579,5 +719,5 @@ class StockPicking(models.Model):
             'res_model': 'stock.transit.voyage',
             'view_mode': 'list,form',
             'domain': [('picking_id', '=', self.id)],
-            'context': {'default_picking_id': self.id}
+            'context': {'default_picking_id': self.id},
         }

@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
-from markupsafe import Markup
-from odoo import models, fields, api, _
+import json
 import logging
+
+from markupsafe import Markup
+
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -11,19 +15,55 @@ class StockTransitLine(models.Model):
     _description = 'Línea de Stock en Tránsito'
     _rec_name = 'lot_id'
 
-    voyage_id = fields.Many2one('stock.transit.voyage', string='Viaje', required=True, ondelete='cascade')
-    company_id = fields.Many2one(related='voyage_id.company_id', store=True)
-    product_id = fields.Many2one('product.product', string='Descripción / Producto', required=True)
+    voyage_id = fields.Many2one(
+        'stock.transit.voyage',
+        string='Viaje',
+        required=True,
+        ondelete='cascade',
+    )
+    company_id = fields.Many2one(
+        related='voyage_id.company_id',
+        store=True,
+    )
+    product_id = fields.Many2one(
+        'product.product',
+        string='Descripción / Producto',
+        required=True,
+    )
 
-    lot_id = fields.Many2one('stock.lot', string='Lote / Placa', required=False)
-    container_number = fields.Char(string='Contenedor')
-    quant_id = fields.Many2one('stock.quant', string='Quant Físico')
+    lot_id = fields.Many2one(
+        'stock.lot',
+        string='Lote / Placa',
+        required=False,
+    )
+    container_number = fields.Char(
+        string='Contenedor',
+    )
+    quant_id = fields.Many2one(
+        'stock.quant',
+        string='Quant Físico',
+    )
 
-    x_grosor = fields.Char(related='lot_id.x_grosor', string='Grosor', readonly=True)
-    x_alto = fields.Float(related='lot_id.x_alto', string='Alto', readonly=True)
-    x_ancho = fields.Float(related='lot_id.x_ancho', string='Ancho', readonly=True)
+    x_grosor = fields.Char(
+        related='lot_id.x_grosor',
+        string='Grosor',
+        readonly=True,
+    )
+    x_alto = fields.Float(
+        related='lot_id.x_alto',
+        string='Alto',
+        readonly=True,
+    )
+    x_ancho = fields.Float(
+        related='lot_id.x_ancho',
+        string='Ancho',
+        readonly=True,
+    )
 
-    product_uom_qty = fields.Float(string='M2 Embarcados', digits='Product Unit of Measure')
+    product_uom_qty = fields.Float(
+        string='M2 Embarcados',
+        digits='Product Unit of Measure',
+    )
 
     eligible_partner_ids = fields.Many2many(
         'res.partner',
@@ -48,35 +88,104 @@ class StockTransitLine(models.Model):
         domain="[('id', 'in', eligible_order_ids)]",
     )
 
-    allocation_id = fields.Many2one('purchase.order.line.allocation', string='Asignación Origen')
+    allocation_id = fields.Many2one(
+        'purchase.order.line.allocation',
+        string='Asignación Origen',
+    )
 
-    allocation_status = fields.Selection([
-        ('available', 'Disponible (Stock)'),
-        ('reserved', 'Reservado / Vendido'),
-    ], string='Estado Asignación', default='available', required=True)
+    allocation_status = fields.Selection(
+        [
+            ('available', 'Disponible (Stock)'),
+            ('reserved', 'Reservado / Vendido'),
+        ],
+        string='Estado Asignación',
+        default='available',
+        required=True,
+    )
 
-    purchase_id = fields.Many2one('purchase.order', compute='_compute_purchase_id', string='OC Sistema', store=True)
+    purchase_id = fields.Many2one(
+        'purchase.order',
+        compute='_compute_purchase_id',
+        string='OC Sistema',
+        store=True,
+    )
 
     @api.depends('voyage_id.purchase_id', 'voyage_id.picking_id.purchase_id')
     def _compute_purchase_id(self):
         for line in self:
             line.purchase_id = line.voyage_id.purchase_id or line.voyage_id.picking_id.purchase_id
 
-    date_order = fields.Datetime(related='purchase_id.date_order', string='Fecha OC', store=True)
-    vendor_id = fields.Many2one('res.partner', related='purchase_id.partner_id', string='Proveedor', store=True)
-    proforma_ref = fields.Char(related='purchase_id.partner_ref', string='Proforma / Ref Prov', store=True)
-    salesperson_id = fields.Many2one('res.users', related='order_id.user_id', string='Vendedor', store=True)
+    date_order = fields.Datetime(
+        related='purchase_id.date_order',
+        string='Fecha OC',
+        store=True,
+    )
+    vendor_id = fields.Many2one(
+        'res.partner',
+        related='purchase_id.partner_id',
+        string='Proveedor',
+        store=True,
+    )
+    proforma_ref = fields.Char(
+        related='purchase_id.partner_ref',
+        string='Proforma / Ref Prov',
+        store=True,
+    )
+    salesperson_id = fields.Many2one(
+        'res.users',
+        related='order_id.user_id',
+        string='Vendedor',
+        store=True,
+    )
 
-    qty_proforma = fields.Float(string='Metraje Proforma', compute='_compute_po_so_qty', store=True)
-    qty_original_demand = fields.Float(string='Metraje Pedido Original', compute='_compute_po_so_qty', store=True)
+    qty_proforma = fields.Float(
+        string='Metraje Proforma',
+        compute='_compute_po_so_qty',
+        store=True,
+    )
+    qty_original_demand = fields.Float(
+        string='Metraje Pedido Original',
+        compute='_compute_po_so_qty',
+        store=True,
+    )
 
-    voyage_status = fields.Selection(related='voyage_id.custom_status', string='Status', store=True)
-    shipping_line = fields.Char(related='voyage_id.shipping_line', string='Naviera', store=True)
-    bl_number = fields.Char(related='voyage_id.bl_number', string='Factura de Carga / BL', store=True)
-    etd = fields.Date(related='voyage_id.etd', string='ETD', store=True)
-    eta = fields.Date(related='voyage_id.eta', string='ETA', store=True)
-    arrival_date = fields.Date(related='voyage_id.arrival_date', string='Llegada Real', store=True)
-    notes = fields.Text(string='Comentarios')
+    voyage_status = fields.Selection(
+        related='voyage_id.custom_status',
+        string='Status',
+        store=True,
+    )
+    shipping_line = fields.Char(
+        related='voyage_id.shipping_line',
+        string='Naviera',
+        store=True,
+    )
+    bl_number = fields.Char(
+        related='voyage_id.bl_number',
+        string='Factura de Carga / BL',
+        store=True,
+    )
+    etd = fields.Date(
+        related='voyage_id.etd',
+        string='ETD',
+        store=True,
+    )
+    eta = fields.Date(
+        related='voyage_id.eta',
+        string='ETA',
+        store=True,
+    )
+    arrival_date = fields.Date(
+        related='voyage_id.arrival_date',
+        string='Llegada Real',
+        store=True,
+    )
+    notes = fields.Text(
+        string='Comentarios',
+    )
+
+    # -------------------------------------------------------------------------
+    # DOMINIOS ELEGIBLES
+    # -------------------------------------------------------------------------
 
     @api.depends('product_id')
     def _compute_eligible_partners(self):
@@ -135,19 +244,247 @@ class StockTransitLine(models.Model):
         elif self.order_id and self.order_id not in eligible_orders:
             self.order_id = False
 
+    # -------------------------------------------------------------------------
+    # HELPERS: ASIGNACIÓN COMERCIAL DESDE EMBARQUE
+    # -------------------------------------------------------------------------
+
+    def _tc_get_sale_line_for_assignment(self, order=False, product=False):
+        """
+        Devuelve la línea de venta objetivo para este producto dentro del pedido.
+
+        Regla:
+        - La asignación desde embarque solo puede apuntar a una SO confirmada.
+        - Se trabaja por producto/material.
+        - No se tocan otros materiales del pedido.
+        """
+        self.ensure_one()
+
+        SaleLine = self.env['sale.order.line']
+        order = order or self.order_id
+        product = product or self.product_id
+
+        if not order or not product:
+            return SaleLine
+
+        lines = order.order_line.filtered(
+            lambda l: not l.display_type and l.product_id.id == product.id
+        )
+
+        if not lines:
+            return SaleLine
+
+        pending_lines = lines.filtered(
+            lambda l: (l.product_uom_qty or 0.0) > (l.qty_delivered or 0.0)
+        )
+
+        return (pending_lines or lines)[:1]
+
+    def _tc_validate_assignment_target(self, partner=False, order=False):
+        """
+        Valida la regla de negocio antes de aceptar la asignación a pedido.
+
+        Reglas:
+        - El pedido debe estar confirmado.
+        - El cliente asignado debe corresponder al cliente del pedido.
+        - El pedido debe tener una línea del producto/material asignado.
+        """
+        self.ensure_one()
+
+        if not order:
+            return True
+
+        if order.state not in ('sale', 'done'):
+            raise UserError(_(
+                "No puede asignar el lote %(lot)s al pedido %(order)s porque el pedido "
+                "no está confirmado.\n\n"
+                "Confirme primero la orden de venta y después asigne el material desde el embarque."
+            ) % {
+                'lot': self.lot_id.display_name if self.lot_id else self.product_id.display_name,
+                'order': order.name,
+            })
+
+        if partner and order.partner_id.id != partner.id:
+            raise UserError(_(
+                "El cliente seleccionado (%(partner)s) no corresponde al cliente del pedido "
+                "%(order)s (%(order_partner)s)."
+            ) % {
+                'partner': partner.display_name,
+                'order': order.name,
+                'order_partner': order.partner_id.display_name,
+            })
+
+        sale_line = self._tc_get_sale_line_for_assignment(order=order, product=self.product_id)
+        if not sale_line:
+            raise UserError(_(
+                "El pedido %(order)s está confirmado, pero no contiene una línea para el producto:\n\n"
+                "%(product)s\n\n"
+                "Agregue el producto al pedido antes de asignar lotes desde el embarque."
+            ) % {
+                'order': order.name,
+                'product': self.product_id.display_name,
+            })
+
+        return True
+
+    def _tc_get_assigned_transit_lines_for_order_product(self, order, product):
+        """
+        Devuelve las líneas reservadas de ESTE viaje para un pedido/producto.
+
+        Se usa para saber qué lotes reemplazan la selección del pedido
+        cuando el material ya fue recibido físicamente.
+        """
+        self.ensure_one()
+
+        if not self.voyage_id or not order or not product:
+            return self.env['stock.transit.line']
+
+        return self.env['stock.transit.line'].search([
+            ('voyage_id', '=', self.voyage_id.id),
+            ('order_id', '=', order.id),
+            ('product_id', '=', product.id),
+            ('allocation_status', '=', 'reserved'),
+            ('lot_id', '!=', False),
+        ], order='id asc')
+
+    def _tc_build_lot_breakdown_from_transit_lines(self, transit_lines):
+        """
+        Construye el desglose para formatos/piezas.
+
+        Para placas, sale_stone_selection suele usar el quant/lote completo.
+        Para formatos/piezas, sí conviene guardar la cantidad por lote.
+        """
+        breakdown = {}
+
+        for transit_line in transit_lines:
+            lot = transit_line.lot_id
+            if not lot:
+                continue
+
+            lot_type = ''
+            if 'x_tipo' in lot._fields and lot.x_tipo:
+                lot_type = str(lot.x_tipo).lower()
+
+            if lot_type in ('formato', 'pieza'):
+                breakdown[str(lot.id)] = transit_line.product_uom_qty or 0.0
+
+        return breakdown
+
+    def _tc_prepare_breakdown_value_for_sale_line(self, sale_line, breakdown):
+        """
+        Compatibilidad:
+        - Si x_lot_breakdown_json es Json, se escribe dict.
+        - Si fuera Text/Char legacy, se escribe JSON string.
+        """
+        if not breakdown:
+            return False
+
+        field = sale_line._fields.get('x_lot_breakdown_json')
+        if field and field.type in ('char', 'text'):
+            return json.dumps(breakdown)
+
+        return breakdown
+
+    def _tc_sync_sale_line_lots_after_reception(self, order=False, product=False):
+        """
+        Sincroniza la selección oficial de lotes en sale.order.line.
+
+        Importante:
+        - Este método está pensado para ejecutarse después de recibir físicamente
+          el material, no mientras el quant sigue en ubicación de tránsito.
+        - Reemplaza únicamente los lotes del mismo producto/material.
+        - Desmarca auto_transit_assign para no violar la regla que impide
+          tener "Mandar Pedir" y placas asignadas al mismo tiempo.
+        """
+        self.ensure_one()
+
+        order = order or self.order_id
+        product = product or self.product_id
+
+        if not order or not product:
+            return False
+
+        sale_line = self._tc_get_sale_line_for_assignment(order=order, product=product)
+        if not sale_line or 'lot_ids' not in sale_line._fields:
+            return False
+
+        transit_lines = self._tc_get_assigned_transit_lines_for_order_product(order, product)
+        lot_ids = transit_lines.mapped('lot_id').ids
+
+        vals = {
+            'lot_ids': [(6, 0, lot_ids)],
+        }
+
+        if 'auto_transit_assign' in sale_line._fields:
+            vals['auto_transit_assign'] = False
+
+        if 'x_lot_breakdown_json' in sale_line._fields:
+            breakdown = self._tc_build_lot_breakdown_from_transit_lines(transit_lines)
+            vals['x_lot_breakdown_json'] = self._tc_prepare_breakdown_value_for_sale_line(
+                sale_line,
+                breakdown,
+            )
+
+        sale_line.with_context(
+            skip_stone_sync_picking=True,
+            skip_stone_sync_so=True,
+            skip_hold_validation=True,
+            skip_picking_clean=True,
+        ).write(vals)
+
+        _logger.info(
+            "[TC_ASSIGN] SO %s | Producto %s | lot_ids sincronizados desde viaje %s: %s",
+            order.name,
+            product.display_name,
+            self.voyage_id.name if self.voyage_id else 'N/A',
+            lot_ids,
+        )
+
+        return True
+
+    # -------------------------------------------------------------------------
+    # WRITE: ASIGNACIÓN VISUAL/COMERCIAL EN EL EMBARQUE
+    # -------------------------------------------------------------------------
+
     def write(self, vals):
         if self.env.context.get('skip_reservation_logic'):
             return super(StockTransitLine, self).write(vals)
 
+        vals = dict(vals or {})
         assignment_changed = 'partner_id' in vals or 'order_id' in vals
 
         old_assignments = {}
+
         if assignment_changed:
+            # Si se limpia cliente, se limpia también pedido.
+            if vals.get('partner_id') is False and 'order_id' not in vals:
+                vals['order_id'] = False
+
+            # Si alguien escribe solo order_id por RPC, derivamos el cliente del pedido.
+            if vals.get('order_id') and 'partner_id' not in vals:
+                order = self.env['sale.order'].browse(vals['order_id'])
+                if order.exists():
+                    vals['partner_id'] = order.partner_id.id
+
             for line in self:
                 old_assignments[line.id] = {
                     'partner_id': line.partner_id.id if line.partner_id else False,
                     'order_id': line.order_id.id if line.order_id else False,
+                    'product_id': line.product_id.id if line.product_id else False,
                 }
+
+                new_partner = line.partner_id
+                new_order = line.order_id
+
+                if 'partner_id' in vals:
+                    new_partner = self.env['res.partner'].browse(vals['partner_id']) if vals.get('partner_id') else False
+
+                if 'order_id' in vals:
+                    new_order = self.env['sale.order'].browse(vals['order_id']) if vals.get('order_id') else False
+
+                # Se permite cliente sin pedido como edición intermedia de UI.
+                # Cuando ya hay pedido, el pedido debe cumplir las reglas.
+                if new_order:
+                    line._tc_validate_assignment_target(new_partner, new_order)
 
         res = super(StockTransitLine, self).write(vals)
 
@@ -157,44 +494,59 @@ class StockTransitLine(models.Model):
                 new_partner = line.partner_id
                 new_order = line.order_id
 
-                if old.get('partner_id') != (new_partner.id if new_partner else False) or \
-                   old.get('order_id') != (new_order.id if new_order else False):
+                changed = (
+                    old.get('partner_id') != (new_partner.id if new_partner else False)
+                    or old.get('order_id') != (new_order.id if new_order else False)
+                )
 
-                    new_status = 'reserved' if (new_partner and new_order) else 'available'
-                    if line.allocation_status != new_status:
-                        super(StockTransitLine, line).write({'allocation_status': new_status})
+                if not changed:
+                    continue
 
+                new_status = 'reserved' if (new_partner and new_order) else 'available'
+
+                if line.allocation_status != new_status:
+                    super(StockTransitLine, line).write({
+                        'allocation_status': new_status,
+                    })
+
+                if new_partner and new_order:
+                    # En ubicación de tránsito, stock_transit_publication intercepta
+                    # esta llamada y evita crear hold físico.
+                    line._execute_reservation_logic(new_partner, new_order)
+                else:
+                    line._execute_release_logic()
+
+                if line.voyage_id:
                     if new_partner and new_order:
-                        line._execute_reservation_logic(new_partner, new_order)
-                    elif not new_partner:
-                        line._execute_release_logic()
+                        msg = Markup("🔄 <b>Asignación:</b> %s<br/>→ %s / %s") % (
+                            line.lot_id.name or line.product_id.name,
+                            new_partner.name,
+                            new_order.name,
+                        )
+                    elif new_partner and not new_order:
+                        msg = Markup("👤 <b>Cliente asignado pendiente de pedido:</b> %s → %s") % (
+                            line.lot_id.name or line.product_id.name,
+                            new_partner.name,
+                        )
+                    else:
+                        msg = Markup("🔓 <b>Liberado a Stock:</b> %s") % (
+                            line.lot_id.name or line.product_id.name,
+                        )
 
-                    if line.voyage_id:
-                        if new_partner and new_order:
-                            msg = Markup("🔄 <b>Asignación:</b> %s<br/>→ %s / %s") % (
-                                line.lot_id.name or line.product_id.name,
-                                new_partner.name,
-                                new_order.name,
-                            )
-                        elif new_partner and not new_order:
-                            msg = Markup("👤 <b>Cliente asignado (sin orden aún):</b> %s → %s") % (
-                                line.lot_id.name or line.product_id.name,
-                                new_partner.name,
-                            )
-                        else:
-                            msg = Markup("🔓 <b>Liberado a Stock:</b> %s") % (
-                                line.lot_id.name or line.product_id.name,
-                            )
-                        line.voyage_id.message_post(body=msg)
+                    line.voyage_id.message_post(body=msg)
 
         return res
+
+    # -------------------------------------------------------------------------
+    # RESERVA / LIBERACIÓN
+    # -------------------------------------------------------------------------
 
     def _execute_reservation_logic(self, partner, order):
         self.ensure_one()
 
         if not self.lot_id or not self.quant_id:
-            _logger.info(f"TransitLine {self.id}: Sin lote físico, solo asignación visual")
-            return
+            _logger.info("TransitLine %s: Sin lote físico, solo asignación visual", self.id)
+            return True
 
         existing_hold = self.env['stock.lot.hold'].search([
             ('quant_id', '=', self.quant_id.id),
@@ -202,17 +554,19 @@ class StockTransitLine(models.Model):
         ], limit=1)
 
         if existing_hold:
-            _logger.info(f"TransitLine {self.id}: Ya existe hold activo, verificando...")
+            _logger.info("TransitLine %s: Ya existe hold activo, verificando...", self.id)
             hold_partner = existing_hold.partner_id if hasattr(existing_hold, 'partner_id') else False
             if hold_partner and hold_partner == partner:
-                return
+                return True
+
             try:
                 existing_hold.action_cancelar_hold()
             except Exception as e:
-                _logger.warning(f"No se pudo cancelar hold existente: {e}")
+                _logger.warning("No se pudo cancelar hold existente: %s", e)
 
         try:
             from .utils.transit_manager import TransitManager
+
             TransitManager.reassign_lot(
                 self.env,
                 self,
@@ -221,13 +575,15 @@ class StockTransitLine(models.Model):
                 notes="Asignación directa desde Torre de Control",
             )
         except Exception as e:
-            _logger.error(f"Error creando reserva: {e}")
+            _logger.error("Error creando reserva: %s", e, exc_info=True)
+
+        return True
 
     def _execute_release_logic(self):
         self.ensure_one()
 
         if not self.quant_id:
-            return
+            return True
 
         existing_holds = self.env['stock.lot.hold'].search([
             ('quant_id', '=', self.quant_id.id),
@@ -237,19 +593,36 @@ class StockTransitLine(models.Model):
         for hold in existing_holds:
             try:
                 hold.action_cancelar_hold()
-                _logger.info(f"TransitLine {self.id}: Hold cancelado")
+                _logger.info("TransitLine %s: Hold cancelado", self.id)
             except Exception as e:
-                _logger.error(f"Error cancelando hold: {e}")
+                _logger.error("Error cancelando hold: %s", e, exc_info=True)
+
+        return True
+
+    # -------------------------------------------------------------------------
+    # CANTIDADES REFERENCIA
+    # -------------------------------------------------------------------------
 
     @api.depends('purchase_id', 'order_id', 'product_id', 'allocation_id')
     def _compute_po_so_qty(self):
         for line in self:
             po_qty = line.allocation_id.quantity if line.allocation_id else 0.0
             so_qty = line.allocation_id.quantity if line.allocation_id else 0.0
+
             if not line.allocation_id:
                 if line.purchase_id:
-                    po_qty = sum(line.purchase_id.order_line.filtered(lambda l: l.product_id == line.product_id).mapped('product_qty'))
+                    po_qty = sum(
+                        line.purchase_id.order_line.filtered(
+                            lambda l: l.product_id == line.product_id
+                        ).mapped('product_qty')
+                    )
+
                 if line.order_id:
-                    so_qty = sum(line.order_id.order_line.filtered(lambda l: l.product_id == line.product_id).mapped('product_uom_qty'))
+                    so_qty = sum(
+                        line.order_id.order_line.filtered(
+                            lambda l: l.product_id == line.product_id
+                        ).mapped('product_uom_qty')
+                    )
+
             line.qty_proforma = po_qty
             line.qty_original_demand = so_qty
