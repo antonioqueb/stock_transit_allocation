@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
+import re
+from collections import Counter
 
 from odoo import models, _
 from odoo.exceptions import UserError
@@ -86,7 +88,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         return voyage
 
     # -------------------------------------------------------------------------
-    #  HELPERS
+    #  HELPERS GENERALES
     # -------------------------------------------------------------------------
 
     def _tc_qty_field(self):
@@ -142,13 +144,203 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             self._tc_normalize_text(getattr(lot, "x_referencia_proveedor", "")),
         )
 
+    def _tc_parse_lot_name(self, lot_name):
+        """
+        Convierte:
+            20206-01 -> ("20206", 1)
+
+        El prefijo 20206 NO se trata como número literal de contenedor físico,
+        sino como prefijo consecutivo del grupo/recepción/contenedor operativo.
+        """
+        raw = str(lot_name or "").strip()
+        match = re.match(r"^(.+)-(\d+)$", raw)
+        if not match:
+            return False, 0
+
+        prefix = match.group(1)
+        try:
+            seq = int(match.group(2))
+        except Exception:
+            seq = 0
+
+        return prefix, seq
+
+    def _tc_lot_container_value(self, lot):
+        if not lot:
+            return ""
+
+        if "x_contenedor" in lot._fields and lot.x_contenedor:
+            return str(lot.x_contenedor or "").strip()
+
+        if getattr(lot, "ref", False):
+            return str(lot.ref or "").strip()
+
+        return ""
+
+    def _tc_row_container_key(self, row, fallback_lot=False):
+        container = str(row.get("contenedor") or "").strip()
+
+        if not container and fallback_lot:
+            container = self._tc_lot_container_value(fallback_lot)
+
+        return container or "SN"
+
+    def _tc_collect_existing_sequence_lots(self, voyage):
+        """
+        Lotes disponibles para detectar el prefijo correcto de la recepción.
+
+        Incluye:
+        - Lotes de la recepción física actual.
+        - Lotes del viaje.
+        """
+        picking_lots = self.picking_id.move_line_ids.mapped("lot_id")
+        voyage_lots = voyage.line_ids.mapped("lot_id")
+        return (picking_lots | voyage_lots).filtered(lambda lot: lot and lot.name)
+
+    def _tc_choose_prefix_from_lots(self, lots):
+        """
+        Elige el prefijo dominante.
+
+        Caso real:
+        - Ya existen 20206-01 ... 20206-05
+        - Por error se generaron 20207-01 ... 20207-03
+
+        Debe seguir mandando 20206, porque es el prefijo dominante de la recepción.
+        """
+        prefix_counter = Counter()
+
+        for lot in lots:
+            prefix, seq = self._tc_parse_lot_name(lot.name)
+            if prefix:
+                prefix_counter[prefix] += 1
+
+        if not prefix_counter:
+            return False
+
+        def sort_key(item):
+            prefix, count = item
+            try:
+                numeric_prefix = int(prefix)
+            except Exception:
+                numeric_prefix = 999999999
+            # más frecuente primero; en empate, prefijo menor primero
+            return (-count, numeric_prefix, prefix)
+
+        return sorted(prefix_counter.items(), key=sort_key)[0][0]
+
+    def _tc_existing_lots_for_container(self, voyage, container_key):
+        all_lots = self._tc_collect_existing_sequence_lots(voyage)
+
+        if not all_lots:
+            return self.env["stock.lot"]
+
+        container_key = str(container_key or "").strip()
+
+        if container_key and container_key not in ("SN", "PENDIENTE", "False"):
+            line_lots = voyage.line_ids.filtered(
+                lambda line: (
+                    line.lot_id
+                    and str(line.container_number or "").strip() == container_key
+                )
+            ).mapped("lot_id")
+
+            lot_field_lots = all_lots.filtered(
+                lambda lot: self._tc_lot_container_value(lot) == container_key
+            )
+
+            scoped = (line_lots | lot_field_lots).filtered(lambda lot: lot and lot.name)
+            if scoped:
+                return scoped
+
+        # Fallback importante:
+        # Si no hay contenedor explícito o no se puede mapear,
+        # se usa el universo de la recepción/viaje para mantener el prefijo actual.
+        return all_lots
+
+    def _tc_find_existing_prefix_for_container(self, voyage, container_key):
+        lots = self._tc_existing_lots_for_container(voyage, container_key)
+        return self._tc_choose_prefix_from_lots(lots)
+
+    def _tc_get_sequence_for_container(self, voyage, container_key, container_sequences):
+        """
+        Devuelve la secuencia operativa para un contenedor/grupo.
+
+        Cambio principal:
+        - Antes, si la placa era nueva, se usaba _get_next_global_prefix().
+        - Ahora primero se busca el prefijo ya usado en esa recepción/contenedor.
+        - Solo si no existe ningún prefijo previo, se usa uno global nuevo.
+        """
+        key = str(container_key or "SN").strip() or "SN"
+
+        if key in container_sequences:
+            return container_sequences[key]
+
+        existing_prefix = self._tc_find_existing_prefix_for_container(voyage, key)
+
+        if existing_prefix:
+            prefix = str(existing_prefix)
+        else:
+            if "_next_prefix" not in container_sequences:
+                container_sequences["_next_prefix"] = self._get_next_global_prefix()
+
+            prefix = str(container_sequences["_next_prefix"])
+            container_sequences["_next_prefix"] += 1
+
+        next_number = self._get_next_lot_number_for_prefix(prefix)
+
+        container_sequences[key] = {
+            "prefix": prefix,
+            "num": next_number,
+        }
+
+        return container_sequences[key]
+
+    def _tc_seed_sequence_from_existing_lot(self, voyage, row, lot, container_sequences):
+        """
+        Cuando una fila reutiliza un lote existente, si ese lote tiene prefijo,
+        se usa para sembrar la secuencia del contenedor. Así, si después aparece
+        una placa nueva, continúa como 20206-06 y no como 20207-01.
+        """
+        if not lot:
+            return
+
+        container_key = self._tc_row_container_key(row, fallback_lot=lot)
+        prefix, seq = self._tc_parse_lot_name(lot.name)
+
+        if not prefix:
+            return
+
+        if container_key not in container_sequences:
+            container_sequences[container_key] = {
+                "prefix": prefix,
+                "num": self._get_next_lot_number_for_prefix(prefix),
+            }
+        else:
+            current = container_sequences[container_key]
+            if current.get("prefix") == prefix:
+                current["num"] = max(
+                    current.get("num") or 1,
+                    seq + 1,
+                    self._get_next_lot_number_for_prefix(prefix),
+                )
+
+    # -------------------------------------------------------------------------
+    #  LOTES
+    # -------------------------------------------------------------------------
+
     def _tc_find_existing_lot(self, voyage, row, used_lot_ids):
         target_sig = self._tc_row_signature(row)
 
         candidates = (
             self.picking_id.move_line_ids.mapped("lot_id")
             | voyage.line_ids.mapped("lot_id")
-        ).filtered(lambda lot: lot and lot.product_id.id == row["product"].id and lot.id not in used_lot_ids)
+        ).filtered(
+            lambda lot: (
+                lot
+                and lot.product_id.id == row["product"].id
+                and lot.id not in used_lot_ids
+            )
+        )
 
         for lot in candidates:
             if self._tc_lot_signature(lot) == target_sig:
@@ -199,30 +391,56 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_get_or_create_lot(self, voyage, row, used_lot_ids, container_sequences):
         existing_lot = self._tc_find_existing_lot(voyage, row, used_lot_ids)
+
         if existing_lot:
             vals = self._tc_prepare_lot_vals(row)
             vals.pop("product_id", None)
             vals.pop("company_id", None)
+
             existing_lot.write(vals)
             used_lot_ids.add(existing_lot.id)
+
+            self._tc_seed_sequence_from_existing_lot(
+                voyage,
+                row,
+                existing_lot,
+                container_sequences,
+            )
+
             return existing_lot, False
 
-        cont = (row.get("contenedor") or "SN").strip() or "SN"
-        if cont not in container_sequences:
-            next_prefix = container_sequences.setdefault("_next_prefix", self._get_next_global_prefix())
-            container_sequences[cont] = {
-                "prefix": str(next_prefix),
-                "num": self._get_next_lot_number_for_prefix(str(next_prefix)),
-            }
-            container_sequences["_next_prefix"] = next_prefix + 1
+        container_key = self._tc_row_container_key(row)
 
-        seq_data = container_sequences[cont]
+        seq_data = self._tc_get_sequence_for_container(
+            voyage,
+            container_key,
+            container_sequences,
+        )
+
         lot_name = f"{seq_data['prefix']}-{seq_data['num']:02d}"
         seq_data["num"] += 1
 
-        lot = self.env["stock.lot"].create(self._tc_prepare_lot_vals(row, lot_name=lot_name))
+        lot = self.env["stock.lot"].create(
+            self._tc_prepare_lot_vals(row, lot_name=lot_name)
+        )
+
         used_lot_ids.add(lot.id)
+
+        self.picking_id.message_post(body=_(
+            "➕ Se agregó lote físico no declarado originalmente en PL/recepción en tránsito: "
+            "%(lot)s | Producto: %(product)s | Cantidad estimada: %(qty).3f | Contenedor: %(container)s"
+        ) % {
+            "lot": lot.name,
+            "product": product.display_name if (product := row.get("product")) else "",
+            "qty": self._tc_effective_qty_from_row(row),
+            "container": row.get("contenedor") or "SN",
+        })
+
         return lot, True
+
+    # -------------------------------------------------------------------------
+    #  QUANTS / MOVIMIENTOS
+    # -------------------------------------------------------------------------
 
     def _tc_set_source_quant_qty(self, product, lot, location, target_qty):
         Quant = self.env["stock.quant"].sudo()
@@ -255,6 +473,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_sync_voyage_line(self, voyage, row, lot, quant, qty):
         existing = voyage.line_ids.filtered(lambda line: line.lot_id.id == lot.id)[:1]
+
         vals = {
             "product_id": row["product"].id,
             "lot_id": lot.id,
@@ -274,6 +493,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             "order_id": False,
             "allocation_id": False,
         })
+
         return self.env["stock.transit.line"].create(vals)
 
     def _tc_prepare_moves(self, product_totals):
@@ -290,12 +510,16 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 continue
 
             vals = {}
+
             if self._tc_float_compare(move.product_id, move.product_uom_qty, total_qty) != 0:
                 vals["product_uom_qty"] = total_qty
+
             if move.location_id.id != picking.location_id.id:
                 vals["location_id"] = picking.location_id.id
+
             if move.location_dest_id.id != picking.location_dest_id.id:
                 vals["location_dest_id"] = picking.location_dest_id.id
+
             if vals:
                 move.write(vals)
 
@@ -303,6 +527,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         for product_id, total_qty in product_totals.items():
             product = self.env["product.product"].browse(product_id)
+
             if product_id in move_map:
                 continue
 
@@ -341,6 +566,109 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         return self.env["stock.move.line"].create(vals)
 
     # -------------------------------------------------------------------------
+    #  RENOMBRADO FINAL DE LOTES
+    # -------------------------------------------------------------------------
+
+    def _tc_sort_lots_for_sequence(self, lots):
+        def sort_key(lot):
+            prefix, seq = self._tc_parse_lot_name(lot.name)
+            try:
+                prefix_num = int(prefix) if prefix else 999999999
+            except Exception:
+                prefix_num = 999999999
+
+            return (
+                prefix_num,
+                seq or 999999,
+                lot.id,
+            )
+
+        return lots.sorted(key=sort_key)
+
+    def _tc_renumber_physical_reception_lots_by_container(self, voyage):
+        """
+        Normaliza nombres después de aplicar el PL físico.
+
+        Corrige el caso:
+            20206-01
+            20206-02
+            20206-03
+            20206-04
+            20206-05
+            20207-01
+            20207-02
+            20207-03
+
+        Resultado:
+            20206-01
+            20206-02
+            20206-03
+            20206-04
+            20206-05
+            20206-06
+            20206-07
+            20206-08
+        """
+        picking = self.picking_id
+
+        move_lines = picking.move_line_ids.filtered(lambda ml: ml.lot_id)
+        if not move_lines:
+            return
+
+        groups = {}
+
+        for ml in move_lines:
+            lot = ml.lot_id
+            voyage_line = voyage.line_ids.filtered(lambda line: line.lot_id.id == lot.id)[:1]
+            container = (
+                (voyage_line.container_number if voyage_line else False)
+                or self._tc_lot_container_value(lot)
+                or "SN"
+            )
+            container = str(container or "SN").strip() or "SN"
+            groups.setdefault(container, self.env["stock.lot"])
+            groups[container] |= lot
+
+        for container, lots in groups.items():
+            target_prefix = self._tc_choose_prefix_from_lots(lots)
+
+            if not target_prefix:
+                target_prefix = str(self._get_next_global_prefix())
+
+            ordered_lots = self._tc_sort_lots_for_sequence(lots)
+
+            desired_names = {
+                lot.id: f"{target_prefix}-{idx:02d}"
+                for idx, lot in enumerate(ordered_lots, start=1)
+            }
+
+            already_ok = all(lot.name == desired_names[lot.id] for lot in ordered_lots)
+            if already_ok:
+                continue
+
+            # Renombrado en dos pasos para evitar colisiones temporales.
+            temp_prefix = f"TMP-TC-{picking.id}-{container}".replace("/", "_").replace(" ", "_")
+
+            for lot in ordered_lots:
+                lot.write({
+                    "name": f"{temp_prefix}-{lot.id}"
+                })
+
+            for lot in ordered_lots:
+                lot.write({
+                    "name": desired_names[lot.id]
+                })
+
+            picking.message_post(body=_(
+                "🔢 Secuencia de lotes normalizada para contenedor/grupo %(container)s "
+                "con prefijo %(prefix)s. Total lotes: %(count)s."
+            ) % {
+                "container": container,
+                "prefix": target_prefix,
+                "count": len(ordered_lots),
+            })
+
+    # -------------------------------------------------------------------------
     #  APLICACIÓN DEL PL FÍSICO
     # -------------------------------------------------------------------------
 
@@ -365,6 +693,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 continue
 
             qty = self._tc_effective_qty_from_row(row)
+
             if self._tc_float_is_zero(product, qty) or qty < 0:
                 skipped += 1
                 continue
@@ -414,6 +743,44 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "qty": qty,
             })
 
+        # Marcar como omitidas las líneas anteriores que ya no vienen en el PL físico.
+        omitted_lines = voyage.line_ids.filtered(
+            lambda line: (
+                line.lot_id
+                and line.lot_id.id not in used_lot_ids
+                and line.product_uom_qty > 0
+            )
+        )
+
+        for line in omitted_lines:
+            if line.quant_id and line.quant_id.exists():
+                qty_to_remove = line.quant_id.quantity or 0.0
+                if qty_to_remove > 0:
+                    self.env["stock.quant"].sudo()._update_available_quantity(
+                        line.product_id,
+                        line.quant_id.location_id,
+                        -qty_to_remove,
+                        lot_id=line.lot_id,
+                    )
+
+            try:
+                line._execute_release_logic()
+            except Exception as e:
+                _logger.warning(
+                    "[TC_PHYSICAL_PL] No se pudo liberar hold de lote omitido %s: %s",
+                    line.lot_id.display_name,
+                    e,
+                )
+
+            line.with_context(skip_reservation_logic=True).write({
+                "product_uom_qty": 0.0,
+                "quant_id": False,
+                "allocation_status": "available",
+                "partner_id": False,
+                "order_id": False,
+                "notes": ((line.notes or "") + "\n[Recepción Física] Omitido en PL físico corregido.").strip(),
+            })
+
         # Reconstruir únicamente las líneas de la recepción física.
         if picking.move_line_ids:
             picking.move_line_ids.unlink()
@@ -421,14 +788,19 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         move_map = self._tc_prepare_moves(product_totals)
 
         created = 0
+
         for item in prepared_lines:
             product = item["product"]
             move = move_map.get(product.id)
+
             if not move:
                 raise UserError(_("No se encontró movimiento para %s.") % product.display_name)
 
             self._tc_create_move_line(move, item["lot"], item["qty"])
             created += 1
+
+        # Normalizar nombres después de reconstruir líneas.
+        self._tc_renumber_physical_reception_lots_by_container(voyage)
 
         if picking.ws_spreadsheet_id:
             picking.ws_spreadsheet_id.sudo().unlink()
