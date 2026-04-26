@@ -1877,30 +1877,48 @@ class StockTransitVoyage(models.Model):
         self.ensure_one()
 
         Move = self.env['stock.move']
+        move_fields = Move._fields
 
-        vals = {
-            'name': product.display_name,
+        vals = {}
+
+        # Odoo 19 en tu instancia NO tiene stock.move.name.
+        # En versiones donde exista, se usa; si no, se omite.
+        if 'name' in move_fields:
+            vals['name'] = product.display_name
+
+        # Campo descriptivo alternativo si existe.
+        if 'description_picking' in move_fields:
+            vals['description_picking'] = product.display_name
+
+        vals.update({
             'picking_id': picking.id,
             'product_id': product.id,
             'product_uom_qty': total_qty,
             'location_id': picking.location_id.id,
             'location_dest_id': picking.location_dest_id.id,
             'company_id': picking.company_id.id or self.company_id.id,
-        }
+        })
 
-        if 'product_uom' in Move._fields:
+        if 'product_uom' in move_fields:
             vals['product_uom'] = product.uom_id.id
-        elif 'product_uom_id' in Move._fields:
+        elif 'product_uom_id' in move_fields:
             vals['product_uom_id'] = product.uom_id.id
 
-        if 'picking_type_id' in Move._fields:
+        if 'picking_type_id' in move_fields:
             vals['picking_type_id'] = picking.picking_type_id.id
 
-        if 'date' in Move._fields:
+        if 'date' in move_fields:
             vals['date'] = fields_module.Datetime.now()
 
-        if 'procure_method' in Move._fields:
+        if 'procure_method' in move_fields:
             vals['procure_method'] = 'make_to_stock'
+
+        # Defensa final: elimina cualquier campo que no exista en stock.move.
+        vals = {
+            field_name: field_value
+            for field_name, field_value in vals.items()
+            if field_name in move_fields
+        }
 
         return vals
 
