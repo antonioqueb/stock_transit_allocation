@@ -167,6 +167,7 @@ class StockTransitVoyage(models.Model):
         string='Compañía',
         default=lambda self: self.env.company,
     )
+
     line_ids = fields_module.One2many(
         'stock.transit.line',
         'voyage_id',
@@ -179,12 +180,14 @@ class StockTransitVoyage(models.Model):
         store=True,
         compute_sudo=True,
     )
+
     allocated_m2 = fields_module.Float(
         string='Asignado m²',
         compute='_compute_totals',
         store=True,
         compute_sudo=True,
     )
+
     allocation_percent = fields_module.Float(
         string='% Asignación',
         compute='_compute_allocation_percent',
@@ -196,6 +199,7 @@ class StockTransitVoyage(models.Model):
         string="Última Sincronización API",
         readonly=True,
     )
+
     shipsgo_payload = fields_module.Text(
         string="Datos Geoespaciales (JSON)",
         readonly=True,
@@ -1858,132 +1862,97 @@ class StockTransitVoyage(models.Model):
 
         return picking_type, dest_location
 
-    def _tc_log_reception_snapshot(self, picking, label):
-        """
-        Debug temporal para diagnosticar por qué la recepción física
-        se valida/cierra sin pasar manualmente por el flujo esperado.
+    def _tc_reception_safe_context(self):
+        ctx = dict(self.env.context or {})
+        ctx.update({
+            'skip_procurement': True,
+            'tracking_disable': True,
+            'mail_create_nolog': True,
+            'mail_create_nosubscribe': True,
+            'skip_transit_reception_sync': True,
+        })
+        return ctx
 
-        Para filtrar:
-        docker compose logs -f --tail=300 odoo19-qa 2>&1 | grep --line-buffered '\\[TC_RECEPTION_DEBUG\\]'
-        """
+    def _tc_prepare_reception_move_vals(self, picking, product, total_qty):
         self.ensure_one()
 
-        if not picking or not picking.exists():
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][%s] voyage=%s voyage_id=%s picking=NO_EXISTS",
-                label,
-                self.name,
-                self.id,
-            )
-            return
+        Move = self.env['stock.move']
 
-        packing_imported = (
-            picking.packing_list_imported
-            if "packing_list_imported" in picking._fields
-            else "NO_FIELD"
-        )
-        worksheet_imported = (
-            picking.worksheet_imported
-            if "worksheet_imported" in picking._fields
-            else "NO_FIELD"
-        )
+        vals = {
+            'name': product.display_name,
+            'picking_id': picking.id,
+            'product_id': product.id,
+            'product_uom_qty': total_qty,
+            'location_id': picking.location_id.id,
+            'location_dest_id': picking.location_dest_id.id,
+            'company_id': picking.company_id.id or self.company_id.id,
+        }
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][%s][PICKING] "
-            "voyage=%s voyage_id=%s picking=%s picking_id=%s "
-            "state=%s type=%s origin=%s location=%s dest=%s "
-            "moves=%s move_lines=%s packing_list_imported=%s worksheet_imported=%s",
-            label,
-            self.name,
-            self.id,
-            picking.name,
-            picking.id,
-            picking.state,
-            picking.picking_type_code,
-            picking.origin,
-            picking.location_id.complete_name if picking.location_id else False,
-            picking.location_dest_id.complete_name if picking.location_dest_id else False,
-            len(picking.move_ids),
-            len(picking.move_line_ids),
-            packing_imported,
-            worksheet_imported,
-        )
+        if 'product_uom' in Move._fields:
+            vals['product_uom'] = product.uom_id.id
+        elif 'product_uom_id' in Move._fields:
+            vals['product_uom_id'] = product.uom_id.id
 
-        for move in picking.move_ids:
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][%s][MOVE] "
-                "move_id=%s product=%s state=%s demand=%s reserved_availability=%s "
-                "location=%s dest=%s move_lines=%s",
-                label,
-                move.id,
-                move.product_id.display_name,
-                move.state,
-                move.product_uom_qty,
-                getattr(move, "reserved_availability", "NO_FIELD"),
-                move.location_id.complete_name if move.location_id else False,
-                move.location_dest_id.complete_name if move.location_dest_id else False,
-                len(move.move_line_ids),
-            )
+        if 'picking_type_id' in Move._fields:
+            vals['picking_type_id'] = picking.picking_type_id.id
 
-        for ml in picking.move_line_ids:
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][%s][MOVE_LINE] "
-                "ml_id=%s move_id=%s product=%s lot=%s ml_state=%s "
-                "quantity=%s picked=%s location=%s dest=%s",
-                label,
-                ml.id,
-                ml.move_id.id if ml.move_id else False,
-                ml.product_id.display_name,
-                ml.lot_id.name if ml.lot_id else False,
-                getattr(ml, "state", "NO_FIELD"),
-                ml.quantity if "quantity" in ml._fields else "NO_FIELD",
-                ml.picked if "picked" in ml._fields else "NO_FIELD",
-                ml.location_id.complete_name if ml.location_id else False,
-                ml.location_dest_id.complete_name if ml.location_dest_id else False,
-            )
+        if 'date' in Move._fields:
+            vals['date'] = fields_module.Datetime.now()
+
+        if 'procure_method' in Move._fields:
+            vals['procure_method'] = 'make_to_stock'
+
+        return vals
+
+    def _tc_prepare_reception_move_line_vals(self, picking, move, line, quant, qty_to_receive):
+        self.ensure_one()
+
+        MoveLine = self.env['stock.move.line']
+
+        vals = {
+            'picking_id': picking.id,
+            'move_id': move.id,
+            'company_id': picking.company_id.id or self.company_id.id,
+            'product_id': line.product_id.id,
+            'lot_id': line.lot_id.id,
+            'location_id': quant.location_id.id,
+            'location_dest_id': picking.location_dest_id.id,
+        }
+
+        if 'product_uom_id' in MoveLine._fields:
+            vals['product_uom_id'] = line.product_id.uom_id.id
+        elif 'product_uom' in MoveLine._fields:
+            vals['product_uom'] = line.product_id.uom_id.id
+
+        if 'quantity' in MoveLine._fields:
+            vals['quantity'] = qty_to_receive
+        elif 'qty_done' in MoveLine._fields:
+            vals['qty_done'] = 0.0
+
+        if 'picked' in MoveLine._fields:
+            vals['picked'] = False
+
+        return vals
 
     def _sync_reception_picking_lines(self, picking, resolved_lines=None):
         """
         Sincroniza la recepción física con los lotes del viaje.
 
-        CRÍTICO:
+        Corrección:
         - No confirma movimientos.
         - No valida la recepción.
-        - La recepción debe quedar en borrador para permitir revisar PL físico
-          y Worksheet antes de validar manualmente.
-
-        DEBUG:
-        - Este método está instrumentado con [TC_RECEPTION_DEBUG] para identificar
-          si Odoo 19 está marcando move lines como picked=True al crear quantity.
+        - No marca packing_list_imported=True.
+        - Precarga líneas esperadas, pero fuerza picked=False para evitar cierre automático.
         """
         self.ensure_one()
         picking.ensure_one()
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][START] "
-            "Iniciando sync recepción física | voyage=%s voyage_id=%s | picking=%s picking_id=%s state=%s",
-            self.name,
-            self.id,
-            picking.name,
-            picking.id,
-            picking.state,
-        )
-        self._tc_log_reception_snapshot(picking, "START")
+        ctx = self._tc_reception_safe_context()
 
         if picking.state == 'done':
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][ABORT_DONE] Picking ya estaba done antes de sincronizar | picking=%s id=%s",
-                picking.name,
-                picking.id,
-            )
             raise UserError(_("La recepción ya fue validada."))
 
         if picking.state == 'cancel':
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][ABORT_CANCEL] Picking cancelado antes de sincronizar | picking=%s id=%s",
-                picking.name,
-                picking.id,
-            )
             raise UserError(_("La recepción está cancelada. Debe generar una nueva."))
 
         if resolved_lines is None:
@@ -1991,52 +1960,9 @@ class StockTransitVoyage(models.Model):
         else:
             if not resolved_lines:
                 raise UserError(_("No hay líneas válidas para sincronizar."))
-
             source_location = resolved_lines[0]['quant'].location_id
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][RESOLVED_LINES] "
-            "voyage=%s picking=%s source_location=%s resolved_lines=%s",
-            self.name,
-            picking.name,
-            source_location.complete_name if source_location else False,
-            len(resolved_lines),
-        )
-
-        for idx, item in enumerate(resolved_lines, start=1):
-            line = item['line']
-            quant = item['quant']
-            qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
-
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][RESOLVED_LINE_%s] "
-                "transit_line_id=%s product=%s lot=%s qty_to_receive=%s "
-                "quant_id=%s quant_qty=%s quant_location=%s allocation_status=%s order=%s partner=%s",
-                idx,
-                line.id,
-                line.product_id.display_name,
-                line.lot_id.name if line.lot_id else False,
-                qty_to_receive,
-                quant.id if quant else False,
-                quant.quantity if quant else False,
-                quant.location_id.complete_name if quant and quant.location_id else False,
-                line.allocation_status,
-                line.order_id.name if line.order_id else False,
-                line.partner_id.display_name if line.partner_id else False,
-            )
-
         picking_type, dest_location = self._get_reception_operation_defaults(source_location)
-
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][OP_DEFAULTS] "
-            "voyage=%s picking=%s picking_type=%s picking_type_id=%s dest_location=%s dest_location_id=%s",
-            self.name,
-            picking.name,
-            picking_type.display_name if picking_type else False,
-            picking_type.id if picking_type else False,
-            dest_location.complete_name if dest_location else False,
-            dest_location.id if dest_location else False,
-        )
 
         picking_vals = {}
 
@@ -2050,21 +1976,18 @@ class StockTransitVoyage(models.Model):
             picking_vals['location_dest_id'] = dest_location.id
 
         if picking_vals:
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][BEFORE_PICKING_VALS] picking=%s state=%s vals=%s",
-                picking.name,
-                picking.state,
-                picking_vals,
-            )
-            picking.with_context(skip_procurement=True).write(picking_vals)
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][AFTER_PICKING_VALS_WRITE] picking=%s state=%s vals=%s",
-                picking.name,
-                picking.state,
-                picking_vals,
-            )
+            picking.with_context(ctx).write(picking_vals)
 
-        self._tc_log_reception_snapshot(picking, "AFTER_PICKING_VALS")
+        reset_vals = {}
+
+        if 'packing_list_imported' in picking._fields and picking.packing_list_imported:
+            reset_vals['packing_list_imported'] = False
+
+        if 'worksheet_imported' in picking._fields and picking.worksheet_imported:
+            reset_vals['worksheet_imported'] = False
+
+        if reset_vals:
+            picking.with_context(ctx).write(reset_vals)
 
         product_totals = {}
 
@@ -2075,36 +1998,14 @@ class StockTransitVoyage(models.Model):
             product_totals.setdefault(line.product_id.id, 0.0)
             product_totals[line.product_id.id] += qty_to_receive
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][PRODUCT_TOTALS] voyage=%s picking=%s totals=%s",
-            self.name,
-            picking.name,
-            product_totals,
-        )
-
         move_map = {}
         existing_moves = picking.move_ids.filtered(lambda m: m.state not in ('done', 'cancel'))
 
         for move in existing_moves:
             total_qty = product_totals.get(move.product_id.id, 0.0)
 
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][EXISTING_MOVE_CHECK] "
-                "move_id=%s product=%s state=%s current_demand=%s target_total=%s",
-                move.id,
-                move.product_id.display_name,
-                move.state,
-                move.product_uom_qty,
-                total_qty,
-            )
-
             if total_qty <= 0:
-                _logger.warning(
-                    "[TC_RECEPTION_DEBUG][MOVE_UNLINK] move_id=%s product=%s reason=not_in_product_totals",
-                    move.id,
-                    move.product_id.display_name,
-                )
-                move.unlink()
+                move.with_context(ctx).unlink()
                 continue
 
             move_vals = {}
@@ -2119,19 +2020,7 @@ class StockTransitVoyage(models.Model):
                 move_vals['location_dest_id'] = picking.location_dest_id.id
 
             if move_vals:
-                _logger.warning(
-                    "[TC_RECEPTION_DEBUG][BEFORE_MOVE_WRITE] move_id=%s state=%s vals=%s",
-                    move.id,
-                    move.state,
-                    move_vals,
-                )
-                move.with_context(skip_procurement=True).write(move_vals)
-                _logger.warning(
-                    "[TC_RECEPTION_DEBUG][AFTER_MOVE_WRITE] move_id=%s state=%s demand=%s",
-                    move.id,
-                    move.state,
-                    move.product_uom_qty,
-                )
+                move.with_context(ctx).write(move_vals)
 
             move_map[move.product_id.id] = move
 
@@ -2141,55 +2030,45 @@ class StockTransitVoyage(models.Model):
 
             product = self.env['product.product'].browse(product_id)
 
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][BEFORE_MOVE_CREATE] "
-                "picking=%s picking_state=%s product=%s product_id=%s demand=%s location=%s dest=%s",
-                picking.name,
-                picking.state,
-                product.display_name,
-                product.id,
-                total_qty,
-                picking.location_id.complete_name if picking.location_id else False,
-                picking.location_dest_id.complete_name if picking.location_dest_id else False,
+            move_vals = self._tc_prepare_reception_move_vals(
+                picking=picking,
+                product=product,
+                total_qty=total_qty,
             )
 
-            move = self.env['stock.move'].with_context(skip_procurement=True).create({
-                'name': product.display_name,
-                'picking_id': picking.id,
-                'product_id': product.id,
-                'product_uom': product.uom_id.id,
-                'product_uom_qty': total_qty,
-                'location_id': picking.location_id.id,
-                'location_dest_id': picking.location_dest_id.id,
-                'company_id': self.company_id.id,
-            })
-
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][AFTER_MOVE_CREATE] "
-                "move_id=%s move_state=%s picking=%s picking_state=%s product=%s demand=%s",
-                move.id,
-                move.state,
-                picking.name,
-                picking.state,
-                product.display_name,
-                move.product_uom_qty,
-            )
+            try:
+                move = self.env['stock.move'].with_context(ctx).create(move_vals)
+            except Exception as e:
+                _logger.exception(
+                    "[TC_RECEPTION_ERROR][MOVE_CREATE] "
+                    "No se pudo crear stock.move | voyage=%s | picking=%s | "
+                    "product=%s | qty=%s | vals=%s | error=%s",
+                    self.name,
+                    picking.name,
+                    product.display_name,
+                    total_qty,
+                    move_vals,
+                    str(e),
+                )
+                raise UserError(_(
+                    "No se pudo crear la demanda de recepción para el producto:\n\n"
+                    "%(product)s\n\n"
+                    "Cantidad: %(qty)s\n"
+                    "Origen: %(src)s\n"
+                    "Destino: %(dest)s\n\n"
+                    "Error técnico: %(error)s"
+                ) % {
+                    'product': product.display_name,
+                    'qty': total_qty,
+                    'src': picking.location_id.complete_name,
+                    'dest': picking.location_dest_id.complete_name,
+                    'error': str(e),
+                })
 
             move_map[product_id] = move
 
-        # No llamar _action_confirm aquí.
-        # La recepción física debe quedar en borrador.
-        self._tc_log_reception_snapshot(picking, "BEFORE_UNLINK_MOVE_LINES")
-
         if picking.move_line_ids:
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][BEFORE_UNLINK_MOVE_LINES] picking=%s move_lines_to_unlink=%s",
-                picking.name,
-                len(picking.move_line_ids),
-            )
-            picking.move_line_ids.unlink()
-
-        self._tc_log_reception_snapshot(picking, "AFTER_UNLINK_MOVE_LINES")
+            picking.move_line_ids.with_context(ctx).unlink()
 
         lines_created = 0
 
@@ -2205,151 +2084,77 @@ class StockTransitVoyage(models.Model):
 
             qty_to_receive = item.get('qty_to_receive', line.product_uom_qty)
 
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][BEFORE_ML_CREATE] "
-                "voyage=%s picking=%s picking_state=%s product=%s lot=%s "
-                "qty_to_receive=%s move_id=%s move_state=%s quant_id=%s quant_qty=%s",
-                self.name,
-                picking.name,
-                picking.state,
-                line.product_id.display_name,
-                line.lot_id.name if line.lot_id else False,
-                qty_to_receive,
-                move.id,
-                move.state,
-                quant.id if quant else False,
-                quant.quantity if quant else False,
+            ml_vals = self._tc_prepare_reception_move_line_vals(
+                picking=picking,
+                move=move,
+                line=line,
+                quant=quant,
+                qty_to_receive=qty_to_receive,
             )
 
-            ml_vals = {
-                'picking_id': picking.id,
-                'move_id': move.id,
-                'company_id': self.company_id.id,
-                'product_id': line.product_id.id,
-                'product_uom_id': line.product_id.uom_id.id,
-                'lot_id': line.lot_id.id,
-                'location_id': quant.location_id.id,
-                'location_dest_id': picking.location_dest_id.id,
-                'quantity': qty_to_receive,
-            }
+            try:
+                move_line = self.env['stock.move.line'].with_context(ctx).create(ml_vals)
 
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][ML_VALS] picking=%s move_id=%s vals=%s",
-                picking.name,
-                move.id,
-                ml_vals,
-            )
+                if 'picked' in move_line._fields and move_line.picked:
+                    move_line.with_context(ctx).write({'picked': False})
 
-            ml = self.env['stock.move.line'].with_context(skip_procurement=True).create(ml_vals)
-
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][AFTER_ML_CREATE] "
-                "ml_id=%s picking=%s picking_state=%s move_id=%s move_state=%s "
-                "product=%s lot=%s quantity=%s picked=%s ml_state=%s",
-                ml.id,
-                picking.name,
-                picking.state,
-                move.id,
-                move.state,
-                ml.product_id.display_name,
-                ml.lot_id.name if ml.lot_id else False,
-                ml.quantity if "quantity" in ml._fields else "NO_FIELD",
-                ml.picked if "picked" in ml._fields else "NO_FIELD",
-                getattr(ml, "state", "NO_FIELD"),
-            )
+            except Exception as e:
+                _logger.exception(
+                    "[TC_RECEPTION_ERROR][MOVE_LINE_CREATE] "
+                    "No se pudo crear stock.move.line | voyage=%s | picking=%s | "
+                    "move=%s | product=%s | lot=%s | qty=%s | vals=%s | error=%s",
+                    self.name,
+                    picking.name,
+                    move.id,
+                    line.product_id.display_name,
+                    line.lot_id.name if line.lot_id else False,
+                    qty_to_receive,
+                    ml_vals,
+                    str(e),
+                )
+                raise UserError(_(
+                    "No se pudo crear la línea de lote para la recepción física.\n\n"
+                    "Producto: %(product)s\n"
+                    "Lote: %(lot)s\n"
+                    "Cantidad: %(qty)s\n\n"
+                    "Error técnico: %(error)s"
+                ) % {
+                    'product': line.product_id.display_name,
+                    'lot': line.lot_id.name if line.lot_id else '',
+                    'qty': qty_to_receive,
+                    'error': str(e),
+                })
 
             lines_created += 1
-
-            self._tc_log_reception_snapshot(
-                picking,
-                "AFTER_ML_CREATE_%s" % lines_created,
-            )
-
-        self._tc_log_reception_snapshot(picking, "AFTER_ALL_MOVE_LINES_CREATED")
 
         expected_lines = len(resolved_lines)
 
         if lines_created != expected_lines:
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][LINE_COUNT_MISMATCH] expected=%s created=%s picking=%s state=%s",
-                expected_lines,
-                lines_created,
-                picking.name,
-                picking.state,
-            )
             raise UserError(_(
                 "Se intentaron sincronizar %s lotes pero solo se crearon %s move lines."
             ) % (expected_lines, lines_created))
 
         total_qty = sum(product_totals.values())
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][BEFORE_MESSAGE_POST] picking=%s state=%s lines_created=%s total_qty=%s",
-            picking.name,
-            picking.state,
-            lines_created,
-            total_qty,
-        )
-
         picking.message_post(
             body=_(
-                "🔄 %s lotes sincronizados desde Viaje %s. Total: %.3f<br/>"
-                "La recepción queda en borrador para revisión de PL físico y Worksheet."
+                "🔄 %s lotes sincronizados desde Viaje %s. Total esperado: %.3f<br/>"
+                "La recepción queda pendiente para revisión de Packing List físico y Worksheet."
             ) % (lines_created, self.name, total_qty)
         )
 
-        self._tc_log_reception_snapshot(picking, "AFTER_MESSAGE_POST")
-
-        if hasattr(picking, 'packing_list_imported') and not picking.packing_list_imported:
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][BEFORE_MARK_PL_IMPORTED] picking=%s state=%s packing_list_imported=%s",
-                picking.name,
-                picking.state,
-                picking.packing_list_imported,
-            )
-            picking.write({'packing_list_imported': True})
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][AFTER_MARK_PL_IMPORTED] picking=%s state=%s packing_list_imported=%s",
-                picking.name,
-                picking.state,
-                picking.packing_list_imported,
-            )
-
-        self._tc_log_reception_snapshot(picking, "END_BEFORE_RETURN")
-
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][END] "
-            "Finalizó sync recepción física | voyage=%s voyage_id=%s | picking=%s picking_id=%s final_state=%s",
-            self.name,
-            self.id,
-            picking.name,
-            picking.id,
-            picking.state,
-        )
+        if picking.state == 'done':
+            raise UserError(_(
+                "La recepción se cerró automáticamente durante la sincronización. "
+                "Esto no debería ocurrir. Revise los campos quantity/picked en stock.move.line."
+            ))
 
         return picking
 
     def action_generate_reception(self):
         self.ensure_one()
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][ACTION_GENERATE_RECEPTION_START] "
-            "voyage=%s voyage_id=%s current_status=%s reception_picking=%s reception_state=%s",
-            self.name,
-            self.id,
-            self.custom_status,
-            self.reception_picking_id.name if self.reception_picking_id else False,
-            self.reception_picking_id.state if self.reception_picking_id else False,
-        )
-
         if self.reception_picking_id and self.reception_picking_id.state == 'done':
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][ACTION_GENERATE_RECEPTION_ALREADY_DONE] "
-                "voyage=%s picking=%s state=%s",
-                self.name,
-                self.reception_picking_id.name,
-                self.reception_picking_id.state,
-            )
             return {
                 'type': 'ir.actions.act_window',
                 'res_model': 'stock.picking',
@@ -2364,21 +2169,24 @@ class StockTransitVoyage(models.Model):
         picking = self.reception_picking_id
 
         if picking and picking.state == 'cancel':
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][ACTION_GENERATE_RECEPTION_CANCELLED_PICKING_RESET] "
-                "voyage=%s old_picking=%s old_state=%s",
-                self.name,
-                picking.name,
-                picking.state,
-            )
             picking = False
+
+        origin = f"{self.name} (Recepción Física)"
+
+        if not picking:
+            picking = self.env['stock.picking'].search([
+                ('origin', '=', origin),
+                ('company_id', '=', self.company_id.id),
+                ('state', 'not in', ('done', 'cancel')),
+                ('picking_type_code', '=', 'internal'),
+            ], order='id desc', limit=1)
 
         if not picking:
             vals = {
                 'picking_type_id': picking_type.id,
                 'location_id': source_location.id,
                 'location_dest_id': dest_location.id,
-                'origin': f"{self.name} (Recepción Física)",
+                'origin': origin,
                 'company_id': self.company_id.id,
                 'move_type': 'direct',
             }
@@ -2392,58 +2200,18 @@ class StockTransitVoyage(models.Model):
             if 'supplier_origin' in self.env['stock.picking']._fields:
                 vals['supplier_origin'] = 'TRÁNSITO'
 
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][BEFORE_PICKING_CREATE] voyage=%s vals=%s",
-                self.name,
-                vals,
-            )
-
-            picking = self.env['stock.picking'].with_context(skip_procurement=True).create(vals)
-
-            _logger.warning(
-                "[TC_RECEPTION_DEBUG][AFTER_PICKING_CREATE] "
-                "voyage=%s picking=%s picking_id=%s state=%s",
-                self.name,
-                picking.name,
-                picking.id,
-                picking.state,
-            )
-
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][BEFORE_VOYAGE_WRITE_RECEPTION] "
-            "voyage=%s current_status=%s picking=%s picking_state=%s",
-            self.name,
-            self.custom_status,
-            picking.name,
-            picking.state,
-        )
+            picking = self.env['stock.picking'].with_context(
+                self._tc_reception_safe_context()
+            ).create(vals)
 
         self.write({
             'reception_picking_id': picking.id,
             'custom_status': 'reception_pending',
         })
 
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][AFTER_VOYAGE_WRITE_RECEPTION] "
-            "voyage=%s current_status=%s picking=%s picking_state=%s",
-            self.name,
-            self.custom_status,
-            picking.name,
-            picking.state,
-        )
-
         self._sync_reception_picking_lines(
             picking,
             resolved_lines=resolved_lines,
-        )
-
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][ACTION_GENERATE_RECEPTION_END] "
-            "voyage=%s picking=%s picking_id=%s final_state=%s",
-            self.name,
-            picking.name,
-            picking.id,
-            picking.state,
         )
 
         return {
@@ -2461,22 +2229,7 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("Primero debe generar la Recepción Física."))
 
         picking = self.reception_picking_id
-
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][ACTION_SYNC_RECEPTION_START] voyage=%s picking=%s state=%s",
-            self.name,
-            picking.name,
-            picking.state,
-        )
-
         self._sync_reception_picking_lines(picking)
-
-        _logger.warning(
-            "[TC_RECEPTION_DEBUG][ACTION_SYNC_RECEPTION_END] voyage=%s picking=%s state=%s",
-            self.name,
-            picking.name,
-            picking.state,
-        )
 
         return {
             'type': 'ir.actions.act_window',
