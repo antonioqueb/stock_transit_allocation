@@ -11,6 +11,7 @@ from . import supplier_shipment_packing
 from . import supplier_shipment_container
 from . import stock_picking
 from . import stock_picking_physical_pl
+from . import stock_transit_publication
 from . import sale_order_inherit
 from . import purchase_order_inherit
 from . import to_be_purchased

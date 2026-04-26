@@ -1,14 +1,23 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.10.0.0',
+    'version': '19.0.11.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
-        
+
+        Novedades v11.0:
+        - Publicación controlada de inventario en tránsito.
+        - El material recibido en tránsito no aparece como disponible hasta publicar inventario.
+        - El inventario en tránsito se clasifica como Disponible o Committed desde Torre de Control.
+        - On Hold ya no aplica para material en tránsito.
+
+        Novedades v10.0:
+        - Correcciones de recepción física, PL físico y Worksheet físico.
+
         Novedades v9.0 (Portal Embarques):
-        - Nuevos modelos: supplier.proforma.header, supplier.shipment, 
+        - Nuevos modelos: supplier.proforma.header, supplier.shipment,
           supplier.shipment.invoice, supplier.shipment.packing, supplier.shipment.container
         - Estructura jerárquica: Proforma → N Embarques → Invoices/PL/Contenedores
         - Integración con Torre de Control (voyage_id en shipment)
@@ -28,9 +37,14 @@
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
     'depends': [
-        'stock', 'sale_management', 'purchase', 'web',
-        'stock_lot_dimensions', 'sale_stock',
-        'inventory_shopping_cart', 'sale_stone_selection',
+        'stock',
+        'sale_management',
+        'purchase',
+        'web',
+        'stock_lot_dimensions',
+        'sale_stock',
+        'inventory_shopping_cart',
+        'sale_stone_selection',
         'stock_lot_packing_import',
     ],
     'external_dependencies': {
@@ -44,6 +58,7 @@
         'data/ir_cron_data.xml',
         'views/stock_transit_sheet_action.xml',
         'views/stock_transit_voyage_views.xml',
+        'views/stock_transit_publication_views.xml',
         'views/stock_picking_views.xml',
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',

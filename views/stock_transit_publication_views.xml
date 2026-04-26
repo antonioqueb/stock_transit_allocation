@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_stock_transit_voyage_form_inventory_publication" model="ir.ui.view">
+        <field name="name">stock.transit.voyage.form.inventory.publication</field>
+        <field name="model">stock.transit.voyage</field>
+        <field name="inherit_id" ref="stock_transit_allocation.view_stock_transit_voyage_form"/>
+        <field name="priority">80</field>
+        <field name="arch" type="xml">
+
+            <xpath expr="//header/button[@name='action_sync_reception_from_voyage']" position="after">
+                <button name="action_publish_transit_inventory"
+                        string="📢 Publicar Inventario"
+                        type="object"
+                        class="btn-primary"
+                        invisible="transit_inventory_published or custom_status in ['solicitud', 'production', 'delivered', 'cancel']"
+                        confirm="¿Desea publicar el inventario en tránsito? Lo asignado se mostrará como Committed y lo libre como Disponible."/>
+
+                <button name="action_publish_transit_inventory"
+                        string="🔁 Re-publicar Inventario"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not transit_inventory_published or custom_status in ['delivered', 'cancel']"
+                        confirm="¿Desea recalcular la publicación del inventario en tránsito con las asignaciones actuales?"/>
+
+                <button name="action_unpublish_transit_inventory"
+                        string="🙈 Ocultar Inventario"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not transit_inventory_published or custom_status in ['delivered', 'cancel']"
+                        confirm="¿Desea ocultar nuevamente este inventario en tránsito del Inventario Visual?"/>
+            </xpath>
+
+            <xpath expr="//sheet" position="inside">
+                <field name="transit_inventory_published" invisible="1"/>
+                <field name="transit_inventory_published_at" invisible="1"/>
+                <field name="transit_inventory_published_by" invisible="1"/>
+            </xpath>
+
+        </field>
+    </record>
+</odoo>
