@@ -61,6 +61,136 @@ class StockPicking(models.Model):
 
         return move_line.qty_done or 0.0
 
+    def _tc_assignment_context(self):
+        ctx = dict(self.env.context or {})
+        ctx.update({
+            'skip_stone_sync_so': True,
+            'skip_stone_sync_picking': True,
+            'skip_hold_validation': True,
+            'skip_picking_clean': True,
+            'skip_transit_sale_sync': True,
+            'skip_procurement': True,
+        })
+        return ctx
+
+    def _tc_prepare_stock_move_vals(
+        self,
+        picking,
+        product,
+        qty,
+        sale_line=False,
+        description=False,
+    ):
+        """
+        Crea valores seguros para stock.move en Odoo 18/19.
+
+        En tu Odoo 19 ya se detectó que stock.move puede no aceptar 'name',
+        por eso todos los campos se validan contra _fields antes de crear.
+        """
+        self.ensure_one()
+
+        Move = self.env['stock.move']
+        move_fields = Move._fields
+
+        vals = {
+            'picking_id': picking.id,
+            'product_id': product.id,
+            'product_uom_qty': qty or 0.0,
+            'location_id': picking.location_id.id,
+            'location_dest_id': picking.location_dest_id.id,
+            'company_id': picking.company_id.id or self.company_id.id,
+        }
+
+        label = description or product.display_name
+
+        if 'name' in move_fields:
+            vals['name'] = label
+
+        if 'description_picking' in move_fields:
+            vals['description_picking'] = label
+
+        if 'product_uom' in move_fields:
+            vals['product_uom'] = product.uom_id.id
+        elif 'product_uom_id' in move_fields:
+            vals['product_uom_id'] = product.uom_id.id
+
+        if 'picking_type_id' in move_fields:
+            vals['picking_type_id'] = picking.picking_type_id.id
+
+        if 'partner_id' in move_fields:
+            vals['partner_id'] = picking.partner_id.id if picking.partner_id else False
+
+        if 'group_id' in move_fields and picking.group_id:
+            vals['group_id'] = picking.group_id.id
+
+        if sale_line and 'sale_line_id' in move_fields:
+            vals['sale_line_id'] = sale_line.id
+
+        if 'date' in move_fields:
+            vals['date'] = fields.Datetime.now()
+
+        if 'procure_method' in move_fields:
+            vals['procure_method'] = 'make_to_stock'
+
+        vals = {
+            field_name: field_value
+            for field_name, field_value in vals.items()
+            if field_name in move_fields
+        }
+
+        return vals
+
+    def _tc_prepare_stock_move_line_vals(
+        self,
+        picking,
+        move,
+        product,
+        lot,
+        qty,
+        location_id=False,
+        location_dest_id=False,
+    ):
+        """
+        Crea valores seguros para stock.move.line en Odoo 18/19.
+        """
+        self.ensure_one()
+
+        MoveLine = self.env['stock.move.line']
+        move_line_fields = MoveLine._fields
+
+        vals = {
+            'picking_id': picking.id,
+            'move_id': move.id,
+            'company_id': picking.company_id.id or self.company_id.id,
+            'product_id': product.id,
+            'lot_id': lot.id if lot else False,
+            'location_id': location_id or move.location_id.id,
+            'location_dest_id': location_dest_id or move.location_dest_id.id,
+        }
+
+        if 'product_uom_id' in move_line_fields:
+            vals['product_uom_id'] = product.uom_id.id
+        elif 'product_uom' in move_line_fields:
+            vals['product_uom'] = product.uom_id.id
+
+        if 'quantity' in move_line_fields:
+            vals['quantity'] = qty or 0.0
+        elif 'qty_done' in move_line_fields:
+            vals['qty_done'] = qty or 0.0
+
+        # Evita que Odoo 19 trate la línea como físicamente "picked"
+        # antes de que el usuario valide la operación de salida.
+        if 'picked' in move_line_fields:
+            vals['picked'] = False
+
+        vals = {
+            field_name: field_value
+            for field_name, field_value in vals.items()
+            if field_name in move_line_fields
+        }
+
+        return vals
+
     def _get_linked_reception_voyage(self):
         self.ensure_one()
 
@@ -125,8 +255,10 @@ class StockPicking(models.Model):
         if self.state == 'cancel':
             raise UserError(_("No puede sincronizar una recepción cancelada."))
 
+        ctx = self._tc_assignment_context()
+
         if self.move_line_ids:
-            self.move_line_ids.unlink()
+            self.move_line_ids.with_context(ctx).unlink()
 
         lines_created = 0
 
@@ -149,18 +281,19 @@ class StockPicking(models.Model):
                     line.product_id.name,
                     self.name,
                 )
+
                 try:
-                    target_move = self.env['stock.move'].create({
-                        'picking_id': self.id,
-                        'product_id': line.product_id.id,
-                        'product_uom': line.product_id.uom_id.id,
-                        'product_uom_qty': line.product_uom_qty,
-                        'location_id': self.location_id.id,
-                        'location_dest_id': self.location_dest_id.id,
-                        'company_id': self.company_id.id,
-                        'name': line.product_id.display_name,
-                    })
-                    target_move._action_confirm()
+                    move_vals = self._tc_prepare_stock_move_vals(
+                        picking=self,
+                        product=line.product_id,
+                        qty=line.product_uom_qty,
+                        description=line.product_id.display_name,
+                    )
+                    target_move = self.env['stock.move'].with_context(ctx).create(move_vals)
+
+                    if target_move.state == 'draft' and hasattr(target_move, '_action_confirm'):
+                        target_move.with_context(ctx)._action_confirm()
+
                 except Exception as e:
                     _logger.error(
                         "[TC_ERROR] No se pudo crear demanda para %s: %s",
@@ -171,17 +304,19 @@ class StockPicking(models.Model):
                     continue
 
             try:
-                self.env['stock.move.line'].create({
-                    'picking_id': self.id,
-                    'move_id': target_move.id,
-                    'product_id': line.product_id.id,
-                    'product_uom_id': line.product_id.uom_id.id,
-                    'lot_id': line.lot_id.id,
-                    'location_id': target_move.location_id.id,
-                    'location_dest_id': target_move.location_dest_id.id,
-                    'quantity': line.product_uom_qty,
-                })
+                move_line_vals = self._tc_prepare_stock_move_line_vals(
+                    picking=self,
+                    move=target_move,
+                    product=line.product_id,
+                    lot=line.lot_id,
+                    qty=line.product_uom_qty,
+                    location_id=target_move.location_id.id,
+                    location_dest_id=target_move.location_dest_id.id,
+                )
+
+                self.env['stock.move.line'].with_context(ctx).create(move_line_vals)
                 lines_created += 1
+
             except Exception as e:
                 _logger.error(
                     "[TC_ERROR] Error creando línea de sincronización para lote %s: %s",
@@ -385,40 +520,148 @@ class StockPicking(models.Model):
             skip_stone_sync_so=True,
             skip_hold_validation=True,
             skip_picking_clean=True,
+            skip_transit_sale_sync=True,
         ).write(vals)
 
         return True
 
-    def _tc_find_delivery_for_order(self, order, delivery_cache):
+    def _tc_find_delivery_for_order(self, order, delivery_cache, product=False, sale_line=False):
+        """
+        Busca la entrega de salida asociada a una orden de venta.
+
+        Corrección:
+        No basta con buscar por sale_id u origin. En algunos flujos personalizados,
+        especialmente con sale_stone_selection / selección de placas, el vínculo real
+        está en stock.move.sale_line_id.
+
+        Prioridad:
+        1. Picking outgoing con move.sale_line_id exacta.
+        2. Picking outgoing con moves de líneas de la orden y producto.
+        3. Picking outgoing por cualquier move de la orden.
+        4. Picking outgoing por procurement group.
+        5. Picking outgoing por sale_id.
+        6. Picking outgoing por origin exacto.
+        7. Picking outgoing por origin ilike.
+        """
         self.ensure_one()
 
-        if order.id in delivery_cache:
-            return delivery_cache[order.id]
+        if not order or not order.exists():
+            return False
 
-        domain_delivery = [
+        cache_key = (
+            order.id,
+            sale_line.id if sale_line else 0,
+            product.id if product else 0,
+        )
+
+        if cache_key in delivery_cache:
+            return delivery_cache[cache_key]
+
+        Picking = self.env['stock.picking']
+
+        pending_states = [
+            'draft',
+            'waiting',
+            'confirmed',
+            'assigned',
+            'partially_available',
+        ]
+
+        base_domain = [
             ('picking_type_code', '=', 'outgoing'),
-            ('state', 'in', ['confirmed', 'assigned', 'partially_available', 'waiting']),
+            ('state', 'in', pending_states),
             ('company_id', '=', self.company_id.id),
         ]
 
-        delivery = self.env['stock.picking'].search(
-            domain_delivery + [('sale_id', '=', order.id)],
-            order='id asc',
-            limit=1,
-        )
+        delivery = Picking
 
-        if not delivery:
-            delivery = self.env['stock.picking'].search(
-                domain_delivery + [('origin', '=', order.name)],
+        if sale_line:
+            delivery = Picking.search(
+                base_domain + [
+                    ('move_ids.sale_line_id', '=', sale_line.id),
+                ],
                 order='id asc',
                 limit=1,
             )
 
-        delivery_cache[order.id] = delivery or False
-        return delivery_cache[order.id]
+        if not delivery and product:
+            delivery = Picking.search(
+                base_domain + [
+                    ('move_ids.sale_line_id.order_id', '=', order.id),
+                    ('move_ids.product_id', '=', product.id),
+                ],
+                order='id asc',
+                limit=1,
+            )
+
+        if not delivery:
+            delivery = Picking.search(
+                base_domain + [
+                    ('move_ids.sale_line_id.order_id', '=', order.id),
+                ],
+                order='id asc',
+                limit=1,
+            )
+
+        if not delivery and order.procurement_group_id:
+            delivery = Picking.search(
+                base_domain + [
+                    ('group_id', '=', order.procurement_group_id.id),
+                ],
+                order='id asc',
+                limit=1,
+            )
+
+        if not delivery:
+            delivery = Picking.search(
+                base_domain + [
+                    ('sale_id', '=', order.id),
+                ],
+                order='id asc',
+                limit=1,
+            )
+
+        if not delivery:
+            delivery = Picking.search(
+                base_domain + [
+                    ('origin', '=', order.name),
+                ],
+                order='id asc',
+                limit=1,
+            )
+
+        if not delivery:
+            delivery = Picking.search(
+                base_domain + [
+                    ('origin', 'ilike', order.name),
+                ],
+                order='id asc',
+                limit=1,
+            )
+
+        if delivery:
+            _logger.info(
+                "[TC_ASSIGN] Entrega encontrada para pedido %s | picking=%s | sale_line=%s | product=%s",
+                order.name,
+                delivery.name,
+                sale_line.id if sale_line else False,
+                product.display_name if product else False,
+            )
+        else:
+            _logger.warning(
+                "[TC_ASSIGN] No se encontró entrega para pedido %s | sale_line=%s | product=%s",
+                order.name,
+                sale_line.id if sale_line else False,
+                product.display_name if product else False,
+            )
+
+        delivery_cache[cache_key] = delivery or False
+        return delivery_cache[cache_key]
 
     def _tc_get_or_create_delivery_move(self, delivery, sale_line, product, qty):
         self.ensure_one()
+
+        ctx = self._tc_assignment_context()
 
         move = delivery.move_ids.filtered(
             lambda m: m.sale_line_id.id == sale_line.id
@@ -428,23 +671,21 @@ class StockPicking(models.Model):
 
         if move:
             if move.product_uom_qty < qty:
-                move.write({'product_uom_qty': qty})
+                move.with_context(ctx).write({'product_uom_qty': qty})
             return move
 
-        move = self.env['stock.move'].create({
-            'name': sale_line.name or product.display_name,
-            'picking_id': delivery.id,
-            'sale_line_id': sale_line.id,
-            'product_id': product.id,
-            'product_uom': product.uom_id.id,
-            'product_uom_qty': qty,
-            'location_id': delivery.location_id.id,
-            'location_dest_id': delivery.location_dest_id.id,
-            'company_id': delivery.company_id.id,
-        })
+        move_vals = self._tc_prepare_stock_move_vals(
+            picking=delivery,
+            product=product,
+            qty=qty,
+            sale_line=sale_line,
+            description=sale_line.name or product.display_name,
+        )
 
-        if move.state == 'draft':
-            move._action_confirm()
+        move = self.env['stock.move'].with_context(ctx).create(move_vals)
+
+        if move.state == 'draft' and hasattr(move, '_action_confirm'):
+            move.with_context(ctx)._action_confirm()
 
         return move
 
@@ -523,13 +764,7 @@ class StockPicking(models.Model):
         delivery_cache = {}
         total_assigned_lots = 0
 
-        ctx = dict(
-            self.env.context,
-            skip_stone_sync_so=True,
-            skip_stone_sync_picking=True,
-            skip_hold_validation=True,
-            skip_picking_clean=True,
-        )
+        ctx = self._tc_assignment_context()
 
         for (order_id, product_id), transit_lines in assignments_by_key.items():
             order = self.env['sale.order'].browse(order_id)
@@ -553,7 +788,12 @@ class StockPicking(models.Model):
                     'product': product.display_name,
                 })
 
-            delivery = self._tc_find_delivery_for_order(order, delivery_cache)
+            delivery = self._tc_find_delivery_for_order(
+                order=order,
+                delivery_cache=delivery_cache,
+                product=product,
+                sale_line=sale_line,
+            )
 
             if not delivery:
                 raise UserError(_(
@@ -586,7 +826,7 @@ class StockPicking(models.Model):
             # 3) Desreservar y limpiar SOLO el move del mismo producto/línea.
             if target_move.state in ('assigned', 'partially_available'):
                 try:
-                    target_move._do_unreserve()
+                    target_move.with_context(ctx)._do_unreserve()
                 except Exception as e:
                     _logger.warning(
                         "[TC_ASSIGN] No se pudo desreservar move %s: %s",
@@ -623,17 +863,17 @@ class StockPicking(models.Model):
                 if qty_to_assign <= 0:
                     continue
 
-                self.env['stock.move.line'].with_context(ctx).create({
-                    'picking_id': delivery.id,
-                    'move_id': target_move.id,
-                    'company_id': delivery.company_id.id,
-                    'product_id': product.id,
-                    'product_uom_id': product.uom_id.id,
-                    'lot_id': lot.id,
-                    'location_id': source_location_id,
-                    'location_dest_id': target_move.location_dest_id.id,
-                    'quantity': qty_to_assign,
-                })
+                move_line_vals = self._tc_prepare_stock_move_line_vals(
+                    picking=delivery,
+                    move=target_move,
+                    product=product,
+                    lot=lot,
+                    qty=qty_to_assign,
+                    location_id=source_location_id,
+                    location_dest_id=target_move.location_dest_id.id,
+                )
+
+                self.env['stock.move.line'].with_context(ctx).create(move_line_vals)
 
                 total_assigned_lots += 1
 
