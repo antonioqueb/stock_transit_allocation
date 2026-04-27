@@ -82,6 +82,7 @@
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
+            'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.scss',
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.js',
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.xml',
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.js',
