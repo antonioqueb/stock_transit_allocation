@@ -529,19 +529,10 @@ class StockPicking(models.Model):
         """
         Busca la entrega de salida asociada a una orden de venta.
 
-        Corrección:
-        No basta con buscar por sale_id u origin. En algunos flujos personalizados,
-        especialmente con sale_stone_selection / selección de placas, el vínculo real
-        está en stock.move.sale_line_id.
-
-        Prioridad:
-        1. Picking outgoing con move.sale_line_id exacta.
-        2. Picking outgoing con moves de líneas de la orden y producto.
-        3. Picking outgoing por cualquier move de la orden.
-        4. Picking outgoing por procurement group.
-        5. Picking outgoing por sale_id.
-        6. Picking outgoing por origin exacto.
-        7. Picking outgoing por origin ilike.
+        Corrección Odoo 19:
+        - No usar order.procurement_group_id directo porque puede no existir.
+        - Buscar primero por stock.move.sale_line_id, que es el vínculo real
+          observado en SOM/PICK/00039.
         """
         self.ensure_one()
 
@@ -558,6 +549,7 @@ class StockPicking(models.Model):
             return delivery_cache[cache_key]
 
         Picking = self.env['stock.picking']
+        Move = self.env['stock.move']
 
         pending_states = [
             'draft',
@@ -574,8 +566,10 @@ class StockPicking(models.Model):
         ]
 
         delivery = Picking
+        has_sale_line_id = 'sale_line_id' in Move._fields
 
-        if sale_line:
+        # 1) Búsqueda más precisa: entrega con move de la sale_line exacta.
+        if not delivery and sale_line and has_sale_line_id:
             delivery = Picking.search(
                 base_domain + [
                     ('move_ids.sale_line_id', '=', sale_line.id),
@@ -584,7 +578,8 @@ class StockPicking(models.Model):
                 limit=1,
             )
 
-        if not delivery and product:
+        # 2) Entrega con movimientos de la orden y producto.
+        if not delivery and product and has_sale_line_id:
             delivery = Picking.search(
                 base_domain + [
                     ('move_ids.sale_line_id.order_id', '=', order.id),
@@ -594,7 +589,8 @@ class StockPicking(models.Model):
                 limit=1,
             )
 
-        if not delivery:
+        # 3) Cualquier entrega con movimientos ligados a la orden.
+        if not delivery and has_sale_line_id:
             delivery = Picking.search(
                 base_domain + [
                     ('move_ids.sale_line_id.order_id', '=', order.id),
@@ -603,16 +599,30 @@ class StockPicking(models.Model):
                 limit=1,
             )
 
-        if not delivery and order.procurement_group_id:
+        # 4) Procurement group defensivo.
+        procurement_group = False
+
+        if 'procurement_group_id' in order._fields:
+            procurement_group = order.procurement_group_id
+        elif 'group_id' in order._fields:
+            procurement_group = order.group_id
+
+        if (
+            not delivery
+            and procurement_group
+            and procurement_group.exists()
+            and 'group_id' in Picking._fields
+        ):
             delivery = Picking.search(
                 base_domain + [
-                    ('group_id', '=', order.procurement_group_id.id),
+                    ('group_id', '=', procurement_group.id),
                 ],
                 order='id asc',
                 limit=1,
             )
 
-        if not delivery:
+        # 5) Búsqueda legacy por sale_id si existe en stock.picking.
+        if not delivery and 'sale_id' in Picking._fields:
             delivery = Picking.search(
                 base_domain + [
                     ('sale_id', '=', order.id),
@@ -621,6 +631,7 @@ class StockPicking(models.Model):
                 limit=1,
             )
 
+        # 6) Origin exacto.
         if not delivery:
             delivery = Picking.search(
                 base_domain + [
@@ -630,6 +641,7 @@ class StockPicking(models.Model):
                 limit=1,
             )
 
+        # 7) Origin flexible.
         if not delivery:
             delivery = Picking.search(
                 base_domain + [
@@ -657,7 +669,6 @@ class StockPicking(models.Model):
 
         delivery_cache[cache_key] = delivery or False
         return delivery_cache[cache_key]
-
     def _tc_get_or_create_delivery_move(self, delivery, sale_line, product, qty):
         self.ensure_one()
 
