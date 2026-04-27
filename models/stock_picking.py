@@ -527,12 +527,13 @@ class StockPicking(models.Model):
 
     def _tc_find_delivery_for_order(self, order, delivery_cache, product=False, sale_line=False):
         """
-        Busca la entrega de salida asociada a una orden de venta.
+        Busca la operación de venta pendiente asociada a una orden.
 
-        Corrección Odoo 19:
-        - No usar order.procurement_group_id directo porque puede no existir.
-        - Buscar primero por stock.move.sale_line_id, que es el vínculo real
-          observado en SOM/PICK/00039.
+        Odoo 19 / rutas multi-step:
+        - En almacenes con Pick/Pack/Ship, la primera operación vinculada a la SO
+          puede ser internal, por ejemplo SOM/PICK/00039.
+        - No se debe limitar la búsqueda a picking_type_code = outgoing.
+        - La clave real observada es stock.move.sale_line_id.
         """
         self.ensure_one()
 
@@ -559,44 +560,47 @@ class StockPicking(models.Model):
             'partially_available',
         ]
 
+        # CRÍTICO:
+        # outgoing = entrega directa / salida final
+        # internal = picking/preparación en rutas multi-step, ej. SOM/PICK/00039
+        sale_operation_codes = ['outgoing', 'internal']
+
         base_domain = [
-            ('picking_type_code', '=', 'outgoing'),
+            ('id', '!=', self.id),
+            ('picking_type_code', 'in', sale_operation_codes),
             ('state', 'in', pending_states),
-            ('company_id', '=', self.company_id.id),
+            ('company_id', 'in', [False, self.company_id.id]),
         ]
 
         delivery = Picking
         has_sale_line_id = 'sale_line_id' in Move._fields
 
-        # 1) Búsqueda más precisa: entrega con move de la sale_line exacta.
+        def _search(domain, order_by='id asc'):
+            return Picking.search(domain, order=order_by, limit=1)
+
+        # 1) Búsqueda más precisa: operación con move de la sale_line exacta.
         if not delivery and sale_line and has_sale_line_id:
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('move_ids.sale_line_id', '=', sale_line.id),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
-        # 2) Entrega con movimientos de la orden y producto.
+        # 2) Operación con movimientos de la orden y producto.
         if not delivery and product and has_sale_line_id:
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('move_ids.sale_line_id.order_id', '=', order.id),
                     ('move_ids.product_id', '=', product.id),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
-        # 3) Cualquier entrega con movimientos ligados a la orden.
+        # 3) Cualquier operación pendiente ligada a la orden.
         if not delivery and has_sale_line_id:
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('move_ids.sale_line_id.order_id', '=', order.id),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
         # 4) Procurement group defensivo.
@@ -613,55 +617,48 @@ class StockPicking(models.Model):
             and procurement_group.exists()
             and 'group_id' in Picking._fields
         ):
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('group_id', '=', procurement_group.id),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
         # 5) Búsqueda legacy por sale_id si existe en stock.picking.
         if not delivery and 'sale_id' in Picking._fields:
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('sale_id', '=', order.id),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
         # 6) Origin exacto.
         if not delivery:
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('origin', '=', order.name),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
         # 7) Origin flexible.
         if not delivery:
-            delivery = Picking.search(
+            delivery = _search(
                 base_domain + [
                     ('origin', 'ilike', order.name),
-                ],
-                order='id asc',
-                limit=1,
+                ]
             )
 
         if delivery:
             _logger.info(
-                "[TC_ASSIGN] Entrega encontrada para pedido %s | picking=%s | sale_line=%s | product=%s",
+                "[TC_ASSIGN] Operación de venta encontrada para pedido %s | picking=%s | type=%s | sale_line=%s | product=%s",
                 order.name,
                 delivery.name,
+                delivery.picking_type_code,
                 sale_line.id if sale_line else False,
                 product.display_name if product else False,
             )
         else:
             _logger.warning(
-                "[TC_ASSIGN] No se encontró entrega para pedido %s | sale_line=%s | product=%s",
+                "[TC_ASSIGN] No se encontró operación de venta pendiente para pedido %s | sale_line=%s | product=%s",
                 order.name,
                 sale_line.id if sale_line else False,
                 product.display_name if product else False,
@@ -669,16 +666,25 @@ class StockPicking(models.Model):
 
         delivery_cache[cache_key] = delivery or False
         return delivery_cache[cache_key]
+
     def _tc_get_or_create_delivery_move(self, delivery, sale_line, product, qty):
         self.ensure_one()
 
         ctx = self._tc_assignment_context()
+        Move = self.env['stock.move']
+        has_sale_line_id = 'sale_line_id' in Move._fields
 
-        move = delivery.move_ids.filtered(
-            lambda m: m.sale_line_id.id == sale_line.id
-            and m.product_id.id == product.id
-            and m.state not in ['done', 'cancel']
-        )[:1]
+        if has_sale_line_id:
+            move = delivery.move_ids.filtered(
+                lambda m: m.sale_line_id.id == sale_line.id
+                and m.product_id.id == product.id
+                and m.state not in ['done', 'cancel']
+            )[:1]
+        else:
+            move = delivery.move_ids.filtered(
+                lambda m: m.product_id.id == product.id
+                and m.state not in ['done', 'cancel']
+            )[:1]
 
         if move:
             if move.product_uom_qty < qty:
@@ -808,8 +814,8 @@ class StockPicking(models.Model):
 
             if not delivery:
                 raise UserError(_(
-                    "No se encontró una entrega pendiente para el pedido %s.\n\n"
-                    "Confirme que el pedido tenga una entrega de salida activa."
+                    "No se encontró una operación de venta pendiente para el pedido %s.\n\n"
+                    "Confirme que el pedido tenga un picking activo vinculado a la línea de venta."
                 ) % order.name)
 
             total_qty = 0.0
@@ -889,7 +895,7 @@ class StockPicking(models.Model):
                 total_assigned_lots += 1
 
                 _logger.info(
-                    "[TC_ASSIGN] Pedido %s | Entrega %s | Producto %s | Lote %s | Qty %.4f",
+                    "[TC_ASSIGN] Pedido %s | Operación %s | Producto %s | Lote %s | Qty %.4f",
                     order.name,
                     delivery.name,
                     product.display_name,
