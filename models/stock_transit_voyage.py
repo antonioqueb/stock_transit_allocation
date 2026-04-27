@@ -1963,11 +1963,10 @@ class StockTransitVoyage(models.Model):
         Prepara la recepción física desde el viaje.
 
         Regla funcional:
-        - El botón Recibir automáticamente deja el picking en BORRADOR real.
-        - Solo crea demanda stock.move.
-        - NO crea stock.move.line.
-        - Las líneas operativas/lotes deben aparecer después, al confirmar o procesar
-          el flujo físico correspondiente.
+        - El botón Recibir prepara la recepción física.
+        - Si otro módulo/automatismo confirma o valida el picking, NO se bloquea el flujo.
+        - Se mantiene la lógica actual de creación de demanda stock.move.
+        - Se eliminan los UserError que exigían que la recepción quedara forzosamente en draft.
         """
         self.ensure_one()
         picking.ensure_one()
@@ -1975,7 +1974,12 @@ class StockTransitVoyage(models.Model):
         ctx = self._tc_reception_safe_context()
 
         if picking.state == 'done':
-            raise UserError(_("La recepción ya fue validada."))
+            _logger.info(
+                "[TC_RECEPTION_INFO] La recepción %s ya está validada. "
+                "Se abre sin bloquear el flujo.",
+                picking.name,
+            )
+            return picking
 
         if picking.state == 'cancel':
             raise UserError(_("La recepción está cancelada. Debe generar una nueva."))
@@ -2024,8 +2028,8 @@ class StockTransitVoyage(models.Model):
             product_totals[line.product_id.id] += qty_to_receive
 
         # CRÍTICO: en preparación inicial no deben existir move lines.
-        # Si ya existían por intentos anteriores, se eliminan para devolver el picking
-        # a un borrador real.
+        # Si ya existían por intentos anteriores, se eliminan para reconstruir
+        # la recepción física de forma limpia.
         if picking.move_line_ids:
             picking.move_line_ids.with_context(ctx).unlink()
 
@@ -2093,27 +2097,28 @@ class StockTransitVoyage(models.Model):
                 "📦 Recepción física preparada desde Viaje %s.<br/>"
                 "<b>Productos:</b> %s<br/>"
                 "<b>Total esperado:</b> %.3f<br/><br/>"
-                "La recepción queda en <b>borrador</b>. "
-                "Las líneas operativas se crearán posteriormente al confirmar/procesar el flujo físico."
+                "La recepción fue preparada correctamente. "
+                "Si otro módulo la confirmó o validó automáticamente, no se bloquea el flujo."
             ) % (self.name, moves_created, total_qty)
         )
 
         if picking.move_line_ids:
-            raise UserError(_(
-                "La recepción no quedó en borrador real porque se generaron líneas operativas "
-                "stock.move.line durante la preparación. Este paso no debe crear move lines."
-            ))
+            _logger.info(
+                "[TC_RECEPTION_INFO] La recepción %s tiene líneas operativas después de prepararse. "
+                "Estado actual: %s. No se bloquea el flujo.",
+                picking.name,
+                picking.state,
+            )
 
         if picking.state != 'draft':
-            raise UserError(_(
-                "La recepción fue preparada, pero Odoo no la dejó en borrador.\n\n"
-                "Estado actual: %s\n\n"
-                "Esto indica que otro módulo o automatismo está confirmando/reservando "
-                "el picking al crear la demanda."
-            ) % picking.state)
+            _logger.info(
+                "[TC_RECEPTION_INFO] La recepción %s fue preparada y quedó en estado %s. "
+                "No se bloquea el flujo porque este comportamiento es aceptado.",
+                picking.name,
+                picking.state,
+            )
 
         return picking
-
     def action_generate_reception(self):
         self.ensure_one()
 

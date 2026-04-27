@@ -11,8 +11,9 @@
 }
 
 .o_tbp_modal_dialog {
-    width: 96%;
-    max-width: 720px;
+    width: 60%;
+    max-width: 60%;
+    min-width: 720px;
     max-height: 92vh;
     display: flex;
     flex-direction: column;
@@ -301,6 +302,14 @@
     background: #f9fafb;
 }
 
+@media (max-width: 900px) {
+    .o_tbp_modal_dialog {
+        width: 96%;
+        max-width: 96%;
+        min-width: 0;
+    }
+}
+
 @media (max-width: 640px) {
     .o_tbp_modal_backdrop {
         padding: 10px;
@@ -310,6 +319,7 @@
     .o_tbp_modal_dialog {
         width: 100%;
         max-width: 100%;
+        min-width: 0;
         max-height: 96vh;
         border-radius: 18px 18px 0 0;
     }
