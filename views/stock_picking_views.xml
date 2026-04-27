@@ -4,15 +4,16 @@
     <!--
         Extensión propia de Torre de Control.
 
-        IMPORTANTE:
         Este archivo NO crea botones nuevos de Packing List / Worksheet.
-        Los botones PL/WS ya existen en stock_lot_packing_import.
+        Los botones originales ya existen en stock_lot_packing_import.
 
         Aquí solo agregamos:
         - Campo técnico tc_is_physical_reception
         - Botón Sincronizar con Embarque
         - Smart button de tránsito
         - Pedidos consolidados
+
+        Y después reactivamos un parche de visibilidad sobre los botones originales.
     -->
     <record id="view_picking_form_transit_inherit" model="ir.ui.view">
         <field name="name">stock.picking.form.transit.inherit</field>
@@ -58,23 +59,65 @@
 
 
     <!--
-        Neutralización de la vista parche anterior.
+        Parche sobre los botones ORIGINALES del módulo principal:
+        stock_lot_packing_import.view_picking_form_inherit_packing_import
 
-        Esta vista se creó para modificar botones PL/WS del módulo principal,
-        pero terminó generando errores por modifiers multilínea y/o duplicidad.
+        No se crea ningún botón nuevo.
+        Solo se ajusta la visibilidad de los botones existentes para que también
+        aparezcan en recepciones físicas internas de Torre de Control.
 
-        No la eliminamos solo quitándola del archivo porque Odoo conserva vistas
-        ya registradas en base de datos. Por eso mantenemos el mismo XML ID,
-        la dejamos inactiva y con arch vacío.
+        Importante Odoo 19:
+        - No usar @string como selector XPath.
+        - No usar atributos invisible multilínea.
     -->
     <record id="view_picking_form_transit_patch_packing_import_buttons" model="ir.ui.view">
-        <field name="name">stock.picking.form.transit.patch.packing.import.buttons.disabled</field>
+        <field name="name">stock.picking.form.transit.patch.packing.import.buttons</field>
         <field name="model">stock.picking</field>
-        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="inherit_id" ref="stock_lot_packing_import.view_picking_form_inherit_packing_import"/>
         <field name="priority">99</field>
-        <field name="active">False</field>
+        <field name="active" eval="True"/>
         <field name="arch" type="xml">
-            <data/>
+
+            <!-- Campo técnico disponible dentro de la rama heredada del módulo principal. -->
+            <xpath expr="//field[@name='supplier_access_ids']" position="after">
+                <field name="tc_is_physical_reception" invisible="1"/>
+            </xpath>
+
+            <!-- Abrir PL: primer botón action_open_packing_list_spreadsheet del módulo principal. -->
+            <xpath expr="(//header/button[@name='action_open_packing_list_spreadsheet'])[1]" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- Procesar PL: primer botón action_import_packing_list del módulo principal. -->
+            <xpath expr="(//header/button[@name='action_import_packing_list'])[1]" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or packing_list_imported or not spreadsheet_id or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- Corregir PL: segundo botón action_open_packing_list_spreadsheet del módulo principal. -->
+            <xpath expr="(//header/button[@name='action_open_packing_list_spreadsheet'])[2]" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- Reprocesar PL: segundo botón action_import_packing_list del módulo principal. -->
+            <xpath expr="(//header/button[@name='action_import_packing_list'])[2]" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- Imprimir Worksheet original. -->
+            <xpath expr="//header/button[@name='action_print_worksheet_pdf']" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- Abrir Worksheet original. -->
+            <xpath expr="//header/button[@name='action_open_worksheet_spreadsheet']" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- Procesar Worksheet original. -->
+            <xpath expr="//header/button[@name='action_import_worksheet']" position="attributes">
+                <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or not ws_spreadsheet_id or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
         </field>
     </record>
 
