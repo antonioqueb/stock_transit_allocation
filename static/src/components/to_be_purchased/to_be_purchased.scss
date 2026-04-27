@@ -11,7 +11,8 @@
 }
 
 .o_tbp_modal_dialog {
-    width: min(720px, 96vw);
+    width: 96%;
+    max-width: 720px;
     max-height: 92vh;
     display: flex;
     flex-direction: column;
@@ -41,6 +42,7 @@
     background: #eef2ff;
     color: #2563eb;
     font-size: 18px;
+    flex: 0 0 auto;
 }
 
 .o_tbp_modal_close {
@@ -54,6 +56,7 @@
     align-items: center;
     justify-content: center;
     cursor: pointer;
+    flex: 0 0 auto;
 
     &:hover {
         background: #e5e7eb;
@@ -84,6 +87,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
 }
 
 .o_tbp_count_number {
@@ -155,7 +159,7 @@
 
 .o_tbp_vendor_dropdown {
     position: absolute;
-    top: calc(100% + 6px);
+    top: 48px;
     left: 0;
     right: 0;
     z-index: 1080;
@@ -190,6 +194,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
 }
 
 .o_tbp_vendor_info {
@@ -269,6 +274,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
+    flex: 0 0 auto;
 
     &.new {
         background: #dcfce7;
@@ -303,6 +309,7 @@
 
     .o_tbp_modal_dialog {
         width: 100%;
+        max-width: 100%;
         max-height: 96vh;
         border-radius: 18px 18px 0 0;
     }
