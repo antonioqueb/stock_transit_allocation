@@ -1,11 +1,19 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.11.0.0',
+    'version': '19.0.12.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
+
+        Novedades v12.0:
+        - Nuevo hub To Be Allocated para pedidos con requerimiento pendiente y stock disponible.
+        - Integración To Be Allocated → To Be Purchased mediante botón Mandar pedido.
+        - Cálculo de pendiente comercial por placas asignadas, no por cantidad entregada.
+        - Soporte de flujo mixto: parcialmente asignado + restante por asignar/comprar.
+        - Rechazo explícito de stock por vendedor sin bloquear inventario disponible.
+        - Protección para que material de OC no se reasigne a pedidos ya cubiertos.
 
         Novedades v11.0:
         - Publicación controlada de inventario en tránsito.
@@ -74,21 +82,32 @@
         'web.assets_backend': [
             'stock_transit_allocation/static/src/css/transit_style.css',
             'stock_transit_allocation/static/src/css/transit_voyage_lines.css',
+
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.scss',
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.scss',
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form_odoo.scss',
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.scss',
+
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
+
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.scss',
+
+            'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.js',
+            'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.xml',
+            'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.scss',
+
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.js',
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.xml',
+
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.js',
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.xml',
+
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.js',
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.xml',
+
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.js',
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.xml',
         ],
