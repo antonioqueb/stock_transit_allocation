@@ -22,11 +22,13 @@
     <menuitem id="menu_app_to_be_allocated_root"
               name="To Be Allocated"
               action="action_to_be_allocated_client"
+              web_icon="stock_transit_allocation,static/description/tobeallocated.png"
               sequence="2"/>
 
     <menuitem id="menu_app_to_be_purchased_root"
               name="To Be Purchased"
               action="action_to_be_purchased_client"
+              web_icon="stock_transit_allocation,static/description/tobepurchase.png"
               sequence="3"/>
 
     <!-- ========================================================= -->
