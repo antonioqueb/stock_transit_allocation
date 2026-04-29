@@ -157,12 +157,38 @@ class SaleOrderLine(models.Model):
     # CANTIDAD COMERCIAL ASIGNADA / PENDIENTE
     # -------------------------------------------------------------------------
 
+    def _tc_get_line_uom(self):
+        """
+        Compatibilidad Odoo 17/18/19.
+
+        En algunas versiones/customizaciones la línea de venta usa product_uom.
+        En Odoo 19 en este entorno el campo observado es product_uom_id.
+        Nunca se debe acceder directo a self.product_uom sin validar _fields,
+        porque rompe los tableros To Be Allocated / To Be Purchased.
+        """
+        self.ensure_one()
+
+        for field_name in ('product_uom', 'product_uom_id'):
+            if field_name in self._fields:
+                uom = self[field_name]
+                if uom:
+                    return uom
+
+        if self.product_id and self.product_id.uom_id:
+            return self.product_id.uom_id
+
+        return self.env['uom.uom']
+
     def _tc_get_qty_rounding(self):
         self.ensure_one()
-        if self.product_uom and self.product_uom.rounding:
-            return self.product_uom.rounding
+
+        uom = self._tc_get_line_uom()
+        if uom and uom.rounding:
+            return uom.rounding
+
         if self.product_id and self.product_id.uom_id and self.product_id.uom_id.rounding:
             return self.product_id.uom_id.rounding
+
         return 0.0001
 
     def _tc_float_gt_zero(self, qty):

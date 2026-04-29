@@ -102,6 +102,11 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         if 'x_tiene_hold' in Quant._fields:
             domain.append(('x_tiene_hold', '=', False))
 
+        if hasattr(Quant, '_get_committed_lot_ids'):
+            committed_lot_ids = Quant._get_committed_lot_ids(product.id)
+            if committed_lot_ids:
+                domain.append(('lot_id', 'not in', committed_lot_ids))
+
         quants = Quant.search(domain)
         return sum(quants.mapped('quantity'))
 
@@ -224,9 +229,15 @@ class ToBePurchasedLogic(models.AbstractModel):
                 lambda pol: pol.product_qty > pol.qty_received
             )
 
-            qty_p = sum(po_lines_open.mapped('product_qty')) - sum(po_lines_open.mapped('qty_received'))
+            qty_p = (
+                sum(po_lines_open.mapped('product_qty'))
+                - sum(po_lines_open.mapped('qty_received'))
+            )
 
-            product_sale_lines = sale_lines.filtered(lambda line: line.product_id.id == product.id)
+            product_sale_lines = sale_lines.filtered(
+                lambda line: line.product_id.id == product.id
+            )
+
             so_details = []
             total_demanded = 0.0
 
@@ -284,9 +295,10 @@ class ToBePurchasedLogic(models.AbstractModel):
 
             vendor_name = vendors[0]['name'] if vendors else 'SIN PROVEEDOR'
 
-            # Regla nueva:
+            # Regla:
             # En To Be Purchased NO se descuenta stock interno disponible,
             # porque la línea puede estar aquí por rechazo explícito del vendedor.
+            # Solo se descuenta cantidad ya abierta en OC.
             qty_to_buy = max(0.0, total_demanded - qty_p)
 
             result.append({
@@ -308,7 +320,10 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         result.sort(
             key=lambda product: (
-                -max([line.get('payment_percent', 0.0) for line in product.get('so_lines', [])] or [0.0]),
+                -max([
+                    line.get('payment_percent', 0.0)
+                    for line in product.get('so_lines', [])
+                ] or [0.0]),
                 product.get('name') or '',
             )
         )
@@ -384,6 +399,17 @@ class ToBePurchasedLogic(models.AbstractModel):
             transit_loc.name,
         )
         return False
+
+    def _prepare_purchase_line_uom_vals(self, product):
+        PurchaseLine = self.env['purchase.order.line']
+        vals = {}
+
+        if 'product_uom_id' in PurchaseLine._fields:
+            vals['product_uom_id'] = product.uom_id.id
+        elif 'product_uom' in PurchaseLine._fields:
+            vals['product_uom'] = product.uom_id.id
+
+        return vals
 
     @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
@@ -465,15 +491,17 @@ class ToBePurchasedLogic(models.AbstractModel):
                     for data in sale_line_data
                 ])
 
-                po_line = self.env['purchase.order.line'].create({
+                po_line_vals = {
                     'order_id': po.id,
                     'product_id': product_id,
                     'product_qty': total_qty,
-                    'product_uom_id': product.uom_id.id,
                     'price_unit': product.standard_price,
                     'name': f"[{so_refs}] {product.name}",
                     'date_planned': fields.Datetime.now(),
-                })
+                }
+                po_line_vals.update(self._prepare_purchase_line_uom_vals(product))
+
+                po_line = self.env['purchase.order.line'].create(po_line_vals)
 
             for data in sale_line_data:
                 sale_line = data['sale_line']
