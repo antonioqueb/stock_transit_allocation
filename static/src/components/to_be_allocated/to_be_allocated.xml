@@ -166,9 +166,10 @@
                                             </td>
                                             <td class="text-end">
                                                 <button class="btn btn-sm btn-outline-primary me-1"
-                                                        t-on-click="(ev) => this.openSaleOrder(line.so_id, ev)"
-                                                        title="Abrir orden para seleccionar placas">
-                                                    <i class="fa fa-th me-1"/>
+                                                        t-att-disabled="state.assigning[line.id]"
+                                                        t-on-click="(ev) => this.openAllocationPopup(line, ev)"
+                                                        title="Abrir selector de placas para esta línea">
+                                                    <i t-attf-class="fa #{state.assigning[line.id] ? 'fa-spinner fa-spin' : 'fa-th'} me-1"/>
                                                     Asignar
                                                 </button>
                                                 <button class="btn btn-sm btn-warning"
