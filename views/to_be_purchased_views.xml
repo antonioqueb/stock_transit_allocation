@@ -1,25 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Acción que invoca el componente JS To Be Purchased -->
+    <!-- ========================================================= -->
+    <!-- ACCIONES CLIENTE                                          -->
+    <!-- ========================================================= -->
+
     <record id="action_to_be_purchased_client" model="ir.actions.client">
         <field name="name">To Be Purchased</field>
         <field name="tag">action_to_be_purchased</field>
     </record>
 
-    <!-- Acción que invoca el componente JS To Be Allocated -->
     <record id="action_to_be_allocated_client" model="ir.actions.client">
         <field name="name">To Be Allocated</field>
         <field name="tag">action_to_be_allocated</field>
     </record>
 
-    <!-- Menú vendedor: To Be Allocated -->
+    <!-- ========================================================= -->
+    <!-- APLICACIONES INDEPENDIENTES EN RAÍZ                       -->
+    <!-- Estas aparecen como apps principales en el menú raíz       -->
+    <!-- ========================================================= -->
+
+    <menuitem id="menu_app_to_be_allocated_root"
+              name="To Be Allocated"
+              action="action_to_be_allocated_client"
+              sequence="2"/>
+
+    <menuitem id="menu_app_to_be_purchased_root"
+              name="To Be Purchased"
+              action="action_to_be_purchased_client"
+              sequence="3"/>
+
+    <!-- ========================================================= -->
+    <!-- MENÚS DENTRO DE APLICACIONES EXISTENTES                   -->
+    <!-- Se conservan además de las apps independientes             -->
+    <!-- ========================================================= -->
+
+    <!-- Menú dentro de Ventas -->
     <menuitem id="menu_sale_to_be_allocated"
               name="To Be Allocated"
               parent="sale.sale_order_menu"
               action="action_to_be_allocated_client"
               sequence="0"/>
 
-    <!-- Menú compras: To Be Purchased -->
+    <!-- Menú dentro de Compras -->
     <menuitem id="menu_purchase_to_be_purchased"
               name="To Be Purchased"
               parent="purchase.menu_procurement_management"
@@ -27,5 +49,6 @@
               sequence="0"/>
 
     <!-- Eliminar binding del wizard viejo si existía en sale.order -->
-    <delete model="ir.actions.act_window" search="[('res_model','=','sale.order.consolidate.purchase')]"/>
+    <delete model="ir.actions.act_window"
+            search="[('res_model','=','sale.order.consolidate.purchase')]"/>
 </odoo>
