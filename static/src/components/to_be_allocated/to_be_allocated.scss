@@ -2,11 +2,12 @@
 // To Be Allocated — Premium Control Hub
 // Archivo: static/src/components/to_be_allocated/to_be_allocated.scss
 // Paleta aplicada:
-// Principal / dominante: #5CB9F2
-// Azul soporte:          #4BA4F2
-// Azul hielo:            #DCEAF2
-// Verde acento:          #04D94F
-// Amarillo acento:       #F2B705
+// Dominante:      #5CB9F2
+// Azul soporte:   #4BA4F2
+// Azul hielo:     #DCEAF2
+// Verde acento:   #04D94F
+// Amarillo:       #F2B705
+// Cabecera tabla: negro profesional
 // ============================================================================
 
 $o-tba-bg: #eef8fe;
@@ -42,6 +43,10 @@ $o-tba-red: #dc2626;
 $o-tba-red-dark: #991b1b;
 $o-tba-red-soft: #fef2f2;
 
+$o-tba-head: #0f172a;
+$o-tba-head-2: #111827;
+$o-tba-head-border: rgba(15, 23, 42, 0.96);
+
 $o-tba-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
 $o-tba-shadow-sm: 0 4px 14px rgba(75, 164, 242, 0.09);
 $o-tba-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
@@ -64,7 +69,7 @@ $o-tba-pill: 999px;
     background:
         radial-gradient(circle at top left, rgba(92, 185, 242, 0.24), transparent 31%),
         radial-gradient(circle at top right, rgba(75, 164, 242, 0.16), transparent 30%),
-        radial-gradient(circle at 72% 18%, rgba(4, 217, 79, 0.08), transparent 24%),
+        radial-gradient(circle at 72% 18%, rgba(4, 217, 79, 0.07), transparent 24%),
         linear-gradient(180deg, #fbfdff 0%, $o-tba-bg 48%, #e6f4fc 100%);
     color: $o-tba-text;
     font-family: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
@@ -644,7 +649,7 @@ $o-tba-pill: 999px;
 }
 
 .o_tba_table thead {
-    background: $o-tba-blue-deep;
+    background: $o-tba-head;
     color: #ffffff;
 }
 
@@ -659,8 +664,7 @@ $o-tba-pill: 999px;
     position: sticky;
     top: 0;
     z-index: 2;
-    background:
-        linear-gradient(180deg, #1b7fba 0%, #155f94 100%);
+    background: linear-gradient(180deg, $o-tba-head-2 0%, $o-tba-head 100%);
     color: rgba(255, 255, 255, 0.96);
     font-weight: 850;
     text-align: left;
@@ -668,7 +672,7 @@ $o-tba-pill: 999px;
     text-transform: uppercase;
     font-size: 9px;
     letter-spacing: 0.06em;
-    border-bottom: 1px solid rgba(21, 95, 148, 0.92);
+    border-bottom: 1px solid $o-tba-head-border;
 }
 
 .o_tba_table th.text-end,
@@ -708,19 +712,32 @@ $o-tba-pill: 999px;
     padding-left: 14px;
 }
 
+// ============================================================================
+// Sticky action column — homogénea con la fila
+// ============================================================================
+
 .o_tba_table th:last-child,
 .o_tba_table td:last-child {
     position: sticky;
     right: 0;
-    z-index: 1;
     min-width: 220px;
-    background: inherit;
-    box-shadow: -10px 0 18px rgba(21, 95, 148, 0.08);
 }
 
 .o_tba_table th:last-child {
     z-index: 3;
-    background: linear-gradient(180deg, #1b7fba 0%, #155f94 100%);
+    background: linear-gradient(180deg, $o-tba-head-2 0%, $o-tba-head 100%);
+    color: rgba(255, 255, 255, 0.96);
+    box-shadow: none;
+}
+
+.o_tba_table td:last-child {
+    z-index: 1;
+    background: #ffffff;
+    box-shadow: none;
+}
+
+.o_tba_table tbody tr:nth-child(even) td:last-child {
+    background: rgba(248, 252, 255, 0.72);
 }
 
 .o_tba_table tbody tr:hover td:last-child {
