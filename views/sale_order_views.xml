@@ -9,6 +9,7 @@
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="has_stone_lots" column_invisible="1"/>
                 <field name="auto_transit_assign"
+                       widget="boolean_toggle"
                        optional="show"
                        width="100px"
                        readonly="has_stone_lots"/>
