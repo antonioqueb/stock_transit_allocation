@@ -273,6 +273,24 @@ export class ToBeAllocated extends Component {
         return v % 1 === 0 ? v.toFixed(0) : v.toFixed(2);
     }
 
+    _fmtPct(num) {
+        if (num === null || num === undefined || isNaN(num)) return "0";
+        const v = parseFloat(num);
+        return v % 1 === 0 ? v.toFixed(0) : v.toFixed(1);
+    }
+
+    _isPieceUnit(unit) {
+        const txt = String(unit || "").toLowerCase();
+        return txt.includes("pza") || txt.includes("pieza") || txt.includes("unidad") || txt.includes("unit");
+    }
+
+    _getAllocationBaseFromTotals(totals, targetUnit) {
+        if (this._isPieceUnit(targetUnit)) {
+            return totals.totalPiezas || totals.totalM2 || 0;
+        }
+        return totals.totalM2 || totals.totalPiezas || 0;
+    }
+
     _normalizeLotIds(rawLots) {
         if (!rawLots) return [];
         if (Array.isArray(rawLots)) {
@@ -645,6 +663,9 @@ export class ToBeAllocated extends Component {
             page: 0,
             pendingIds: new Set(config.currentLotIds || []),
             pendingBreakdown: { ...(config.currentBreakdown || {}) },
+            requestedQty: Number(config.qtyOrdered || 0),
+            requestedUnit: "m²",
+            qtyCache: {},
             filters: {
                 lot_name: "",
                 bloque: "",
@@ -681,6 +702,12 @@ export class ToBeAllocated extends Component {
                                 ${this._escapeHtml(config.customer)}
                             </span>
 
+                            <span class="stone-badge-requested">
+                                <i class="fa fa-bullseye me-1"></i>
+                                Mandado <span id="sp-badge-target">${this._fmtPlain(state.requestedQty)}</span>
+                                <span id="sp-badge-target-unit">${this._escapeHtml(state.requestedUnit)}</span>
+                            </span>
+
                             <span class="stone-badge-selected">
                                 <i class="fa fa-check-circle me-1"></i>
                                 <span id="sp-badge-count">${state.pendingIds.size}</span> selec.
@@ -699,6 +726,30 @@ export class ToBeAllocated extends Component {
                             <button class="stone-btn stone-btn-ghost" id="sp-close">
                                 <i class="fa fa-times"></i>
                             </button>
+                        </div>
+                    </div>
+
+                    <div class="stone-popup-allocation-summary" id="sp-allocation-summary">
+                        <div class="stone-allocation-card stone-allocation-target">
+                            <span class="stone-allocation-label">Mandado</span>
+                            <strong id="sp-allocation-target">${this._fmtPlain(state.requestedQty)} ${this._escapeHtml(state.requestedUnit)}</strong>
+                        </div>
+                        <div class="stone-allocation-card stone-allocation-selected">
+                            <span class="stone-allocation-label">Asignado</span>
+                            <strong id="sp-allocation-selected">0.00 ${this._escapeHtml(state.requestedUnit)}</strong>
+                        </div>
+                        <div class="stone-allocation-card stone-allocation-remaining">
+                            <span class="stone-allocation-label">Pendiente</span>
+                            <strong id="sp-allocation-remaining">${this._fmtPlain(state.requestedQty)} ${this._escapeHtml(state.requestedUnit)}</strong>
+                        </div>
+                        <div class="stone-allocation-progress-box">
+                            <div class="stone-allocation-progress-head">
+                                <span id="sp-allocation-progress-text">0.00 de ${this._fmtPlain(state.requestedQty)} ${this._escapeHtml(state.requestedUnit)}</span>
+                                <strong id="sp-allocation-progress-label">0%</strong>
+                            </div>
+                            <div class="stone-allocation-progress-track">
+                                <div class="stone-allocation-progress-fill" id="sp-allocation-progress-fill"></div>
+                            </div>
                         </div>
                     </div>
 
@@ -803,6 +854,85 @@ export class ToBeAllocated extends Component {
         const badgeQty = root.querySelector("#sp-badge-qty");
         const badgeUnit = root.querySelector("#sp-badge-unit");
         const footerQtyText = root.querySelector("#sp-footer-qty-text");
+        const allocationSummary = root.querySelector("#sp-allocation-summary");
+        const allocationTarget = root.querySelector("#sp-allocation-target");
+        const allocationSelected = root.querySelector("#sp-allocation-selected");
+        const allocationRemaining = root.querySelector("#sp-allocation-remaining");
+        const allocationProgressText = root.querySelector("#sp-allocation-progress-text");
+        const allocationProgressLabel = root.querySelector("#sp-allocation-progress-label");
+        const allocationProgressFill = root.querySelector("#sp-allocation-progress-fill");
+
+        const cacheQuantForTotals = (q) => {
+            const lotId = q && q.lot_id ? q.lot_id[0] : 0;
+            if (!lotId) return;
+            const key = String(lotId);
+            const current = state.qtyCache[key] || { qty: 0, tipo: (q.x_tipo || "placa").toLowerCase() };
+            state.qtyCache[key] = {
+                qty: q.quantity || current.qty || 0,
+                tipo: (q.x_tipo || current.tipo || "placa").toLowerCase(),
+            };
+        };
+
+        const cacheQuantListForTotals = (items) => {
+            for (const q of items || []) {
+                cacheQuantForTotals(q);
+            }
+        };
+
+        const ensureQtyCacheForPending = async () => {
+            const missingIds = Array.from(state.pendingIds).filter(
+                (lotId) => !state.qtyCache[String(lotId)]
+            );
+            if (!missingIds.length) return;
+
+            try {
+                const [lotsData, quants] = await Promise.all([
+                    this.orm.searchRead(
+                        "stock.lot",
+                        [["id", "in", missingIds]],
+                        ["id", "x_tipo"],
+                        { limit: missingIds.length }
+                    ),
+                    this.orm.searchRead(
+                        "stock.quant",
+                        [
+                            ["lot_id", "in", missingIds],
+                            ["location_id.usage", "=", "internal"],
+                            ["quantity", ">", 0],
+                        ],
+                        ["lot_id", "quantity"],
+                        { limit: missingIds.length * 5 }
+                    ),
+                ]);
+
+                const tipoMap = {};
+                for (const lot of lotsData || []) {
+                    tipoMap[lot.id] = (lot.x_tipo || "placa").toLowerCase();
+                }
+
+                for (const lotId of missingIds) {
+                    state.qtyCache[String(lotId)] = {
+                        qty: 0,
+                        tipo: tipoMap[lotId] || "placa",
+                    };
+                }
+
+                for (const q of quants || []) {
+                    const lotId = q.lot_id ? q.lot_id[0] : 0;
+                    if (!lotId) continue;
+                    const key = String(lotId);
+                    if (!state.qtyCache[key]) {
+                        state.qtyCache[key] = {
+                            qty: 0,
+                            tipo: tipoMap[lotId] || "placa",
+                        };
+                    }
+                    state.qtyCache[key].qty += q.quantity || 0;
+                }
+            } catch (error) {
+                console.warn("[ToBeAllocated] No se pudo precargar cantidad de lotes seleccionados:", error);
+            }
+        };
 
         const computeSelectedTotals = () => {
             let totalM2 = 0;
@@ -811,9 +941,10 @@ export class ToBeAllocated extends Component {
             let hasM2 = false;
 
             for (const lotId of state.pendingIds) {
-                const q = state.quants.find((qq) => qq.lot_id && qq.lot_id[0] === lotId);
-                const tipo = q ? (q.x_tipo || "placa").toLowerCase() : "placa";
                 const lotIdStr = String(lotId);
+                const cached = state.qtyCache[lotIdStr];
+                const q = state.quants.find((qq) => qq.lot_id && qq.lot_id[0] === lotId);
+                const tipo = (cached?.tipo || q?.x_tipo || "placa").toLowerCase();
 
                 let qty = 0;
                 if (
@@ -821,6 +952,8 @@ export class ToBeAllocated extends Component {
                     && state.pendingBreakdown[lotIdStr] !== undefined
                 ) {
                     qty = parseFloat(state.pendingBreakdown[lotIdStr]) || 0;
+                } else if (cached) {
+                    qty = cached.qty || 0;
                 } else if (q) {
                     qty = q.quantity || 0;
                 } else if (config.currentBreakdown && config.currentBreakdown[lotIdStr] !== undefined) {
@@ -840,7 +973,8 @@ export class ToBeAllocated extends Component {
         };
 
         const updateQtyDisplay = () => {
-            const { totalM2, totalPiezas, hasM2, hasPiezas } = computeSelectedTotals();
+            const totals = computeSelectedTotals();
+            const { totalM2, totalPiezas, hasM2, hasPiezas } = totals;
 
             if (hasM2 && hasPiezas) {
                 badgeQty.textContent = this._fmtPlain(totalM2);
@@ -858,6 +992,38 @@ export class ToBeAllocated extends Component {
             if (hasPiezas) parts.push(`${this._fmtPlain(totalPiezas)} pzas`);
 
             footerQtyText.textContent = parts.length > 0 ? parts.join(" + ") : "0.00 m²";
+
+            const selectedForTarget = this._getAllocationBaseFromTotals(totals, state.requestedUnit);
+            const requestedQty = state.requestedQty || 0;
+            const requestedUnit = state.requestedUnit || "m²";
+            const rawPercent = requestedQty > 0 ? (selectedForTarget / requestedQty) * 100 : 0;
+            const barPercent = Math.max(0, Math.min(rawPercent, 100));
+            const diff = requestedQty - selectedForTarget;
+
+            if (allocationTarget) {
+                allocationTarget.textContent = `${this._fmtPlain(requestedQty)} ${requestedUnit}`;
+            }
+            if (allocationSelected) {
+                allocationSelected.textContent = `${this._fmtPlain(selectedForTarget)} ${requestedUnit}`;
+            }
+            if (allocationRemaining) {
+                allocationRemaining.textContent = `${diff >= 0 ? this._fmtPlain(diff) : "+" + this._fmtPlain(Math.abs(diff))} ${requestedUnit}`;
+            }
+            if (allocationProgressText) {
+                allocationProgressText.textContent = `${this._fmtPlain(selectedForTarget)} de ${this._fmtPlain(requestedQty)} ${requestedUnit}`;
+            }
+            if (allocationProgressLabel) {
+                allocationProgressLabel.textContent = `${this._fmtPct(rawPercent)}%`;
+            }
+            if (allocationProgressFill) {
+                allocationProgressFill.style.width = `${barPercent}%`;
+            }
+            if (allocationSummary) {
+                allocationSummary.classList.toggle("is-empty-target", requestedQty <= 0);
+                allocationSummary.classList.toggle("is-under", requestedQty > 0 && rawPercent < 99.995);
+                allocationSummary.classList.toggle("is-ok", requestedQty > 0 && rawPercent >= 99.995 && rawPercent <= 100.005);
+                allocationSummary.classList.toggle("is-over", requestedQty > 0 && rawPercent > 100.005);
+            }
         };
 
         const updateBadge = () => {
@@ -1133,6 +1299,7 @@ export class ToBeAllocated extends Component {
                 }
 
                 const items = result.items || [];
+                cacheQuantListForTotals(items);
 
                 if (reset || page === 0) {
                     state.quants = items;
@@ -1145,6 +1312,8 @@ export class ToBeAllocated extends Component {
                 state.totalCount = result.total || 0;
                 state.page = page;
                 state.hasMore = state.quants.length < state.totalCount;
+
+                await ensureQtyCacheForPending();
             } catch (error) {
                 console.error("[ToBeAllocated] Error cargando lotes:", error);
                 body.innerHTML = `
@@ -1166,6 +1335,7 @@ export class ToBeAllocated extends Component {
 
         const doSelectAll = () => {
             for (const q of state.quants) {
+                cacheQuantForTotals(q);
                 const lotId = q.lot_id ? q.lot_id[0] : 0;
                 if (!lotId) continue;
 
