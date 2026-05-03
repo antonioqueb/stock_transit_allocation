@@ -663,7 +663,7 @@ export class ToBeAllocated extends Component {
             page: 0,
             pendingIds: new Set(config.currentLotIds || []),
             pendingBreakdown: { ...(config.currentBreakdown || {}) },
-            requestedQty: Number(config.qtyOrdered || 0),
+            requestedQty: Number(config.qtyPending || config.qtyOrdered || config.saleLine?.product_uom_qty || 0),
             requestedUnit: "m²",
             qtyCache: {},
             filters: {
@@ -865,8 +865,13 @@ export class ToBeAllocated extends Component {
         const cacheQuantForTotals = (q) => {
             const lotId = q && q.lot_id ? q.lot_id[0] : 0;
             if (!lotId) return;
+
             const key = String(lotId);
-            const current = state.qtyCache[key] || { qty: 0, tipo: (q.x_tipo || "placa").toLowerCase() };
+            const current = state.qtyCache[key] || {
+                qty: 0,
+                tipo: (q.x_tipo || "placa").toLowerCase(),
+            };
+
             state.qtyCache[key] = {
                 qty: q.quantity || current.qty || 0,
                 tipo: (q.x_tipo || current.tipo || "placa").toLowerCase(),
@@ -883,6 +888,7 @@ export class ToBeAllocated extends Component {
             const missingIds = Array.from(state.pendingIds).filter(
                 (lotId) => !state.qtyCache[String(lotId)]
             );
+
             if (!missingIds.length) return;
 
             try {
@@ -920,6 +926,7 @@ export class ToBeAllocated extends Component {
                 for (const q of quants || []) {
                     const lotId = q.lot_id ? q.lot_id[0] : 0;
                     if (!lotId) continue;
+
                     const key = String(lotId);
                     if (!state.qtyCache[key]) {
                         state.qtyCache[key] = {
@@ -927,6 +934,7 @@ export class ToBeAllocated extends Component {
                             tipo: tipoMap[lotId] || "placa",
                         };
                     }
+
                     state.qtyCache[key].qty += q.quantity || 0;
                 }
             } catch (error) {
@@ -947,6 +955,7 @@ export class ToBeAllocated extends Component {
                 const tipo = (cached?.tipo || q?.x_tipo || "placa").toLowerCase();
 
                 let qty = 0;
+
                 if (
                     (tipo === "formato" || tipo === "pieza")
                     && state.pendingBreakdown[lotIdStr] !== undefined
@@ -956,7 +965,10 @@ export class ToBeAllocated extends Component {
                     qty = cached.qty || 0;
                 } else if (q) {
                     qty = q.quantity || 0;
-                } else if (config.currentBreakdown && config.currentBreakdown[lotIdStr] !== undefined) {
+                } else if (
+                    config.currentBreakdown
+                    && config.currentBreakdown[lotIdStr] !== undefined
+                ) {
                     qty = parseFloat(config.currentBreakdown[lotIdStr]) || 0;
                 }
 
@@ -990,7 +1002,6 @@ export class ToBeAllocated extends Component {
             const parts = [];
             if (hasM2) parts.push(`${this._fmtPlain(totalM2)} m²`);
             if (hasPiezas) parts.push(`${this._fmtPlain(totalPiezas)} pzas`);
-
             footerQtyText.textContent = parts.length > 0 ? parts.join(" + ") : "0.00 m²";
 
             const selectedForTarget = this._getAllocationBaseFromTotals(totals, state.requestedUnit);
@@ -1003,21 +1014,29 @@ export class ToBeAllocated extends Component {
             if (allocationTarget) {
                 allocationTarget.textContent = `${this._fmtPlain(requestedQty)} ${requestedUnit}`;
             }
+
             if (allocationSelected) {
                 allocationSelected.textContent = `${this._fmtPlain(selectedForTarget)} ${requestedUnit}`;
             }
+
             if (allocationRemaining) {
-                allocationRemaining.textContent = `${diff >= 0 ? this._fmtPlain(diff) : "+" + this._fmtPlain(Math.abs(diff))} ${requestedUnit}`;
+                allocationRemaining.textContent =
+                    `${diff >= 0 ? this._fmtPlain(diff) : "+" + this._fmtPlain(Math.abs(diff))} ${requestedUnit}`;
             }
+
             if (allocationProgressText) {
-                allocationProgressText.textContent = `${this._fmtPlain(selectedForTarget)} de ${this._fmtPlain(requestedQty)} ${requestedUnit}`;
+                allocationProgressText.textContent =
+                    `${this._fmtPlain(selectedForTarget)} de ${this._fmtPlain(requestedQty)} ${requestedUnit}`;
             }
+
             if (allocationProgressLabel) {
                 allocationProgressLabel.textContent = `${this._fmtPct(rawPercent)}%`;
             }
+
             if (allocationProgressFill) {
                 allocationProgressFill.style.width = `${barPercent}%`;
             }
+
             if (allocationSummary) {
                 allocationSummary.classList.toggle("is-empty-target", requestedQty <= 0);
                 allocationSummary.classList.toggle("is-under", requestedQty > 0 && rawPercent < 99.995);
