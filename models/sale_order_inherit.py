@@ -154,18 +154,10 @@ class SaleOrderLine(models.Model):
             line.has_stone_lots = bool(line.lot_ids)
 
     # -------------------------------------------------------------------------
-    # CANTIDAD COMERCIAL ASIGNADA / PENDIENTE
+    # COMPATIBILIDAD / PRECISIÓN
     # -------------------------------------------------------------------------
 
     def _tc_get_line_uom(self):
-        """
-        Compatibilidad Odoo 17/18/19.
-
-        En algunas versiones/customizaciones la línea de venta usa product_uom.
-        En Odoo 19 en este entorno el campo observado es product_uom_id.
-        Nunca se debe acceder directo a self.product_uom sin validar _fields,
-        porque rompe los tableros To Be Allocated / To Be Purchased.
-        """
         self.ensure_one()
 
         for field_name in ('product_uom', 'product_uom_id'):
@@ -206,6 +198,10 @@ class SaleOrderLine(models.Model):
             0.0,
             precision_rounding=self._tc_get_qty_rounding(),
         ) <= 0
+
+    # -------------------------------------------------------------------------
+    # CANTIDAD COMERCIAL ASIGNADA / PENDIENTE
+    # -------------------------------------------------------------------------
 
     def _tc_read_lot_breakdown(self):
         self.ensure_one()
@@ -277,7 +273,6 @@ class SaleOrderLine(models.Model):
         assigned_qty = self._tc_get_assigned_lot_qty()
         delivered_qty = self.qty_delivered or 0.0
 
-        # Lo entregado también cubre necesidad; lo asignado comercialmente cubre necesidad.
         covered_qty = max(assigned_qty, delivered_qty)
         pending_qty = (self.product_uom_qty or 0.0) - covered_qty
 
@@ -360,6 +355,261 @@ class SaleOrderLine(models.Model):
                 line.tc_allocation_hub_state = 'to_be_purchased'
 
     # -------------------------------------------------------------------------
+    # RECUPERACIÓN AUTOMÁTICA AL DESASIGNAR PLACAS
+    # -------------------------------------------------------------------------
+
+    def _tc_has_active_purchase_flow(self):
+        self.ensure_one()
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+        allocation = Allocation.search([
+            ('sale_line_id', '=', self.id),
+            ('state', 'not in', ['cancelled', 'done']),
+        ], order='id desc', limit=1)
+
+        if not allocation:
+            return False
+
+        po = allocation.purchase_order_id
+        if not po or po.state == 'cancel':
+            return False
+
+        return True
+
+    def _tc_cancel_removed_lot_holds(self, removed_lot_ids):
+        self.ensure_one()
+
+        if not removed_lot_ids:
+            return
+
+        if 'stock.lot.hold' not in self.env.registry.models:
+            return
+
+        Quant = self.env['stock.quant'].sudo()
+        Hold = self.env['stock.lot.hold'].sudo()
+
+        quants = Quant.search([
+            ('product_id', '=', self.product_id.id),
+            ('lot_id', 'in', list(removed_lot_ids)),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ])
+
+        if not quants:
+            return
+
+        domain = [
+            ('quant_id', 'in', quants.ids),
+            ('estado', '=', 'activo'),
+        ]
+
+        if 'partner_id' in Hold._fields and self.order_id and self.order_id.partner_id:
+            domain.append(('partner_id', '=', self.order_id.partner_id.id))
+
+        holds = Hold.search(domain)
+
+        for hold in holds:
+            try:
+                if hasattr(hold, 'action_cancelar_hold'):
+                    hold.action_cancelar_hold()
+                elif 'estado' in hold._fields:
+                    hold.write({'estado': 'cancelado'})
+            except Exception as e:
+                _logger.warning(
+                    "[TC_ALLOCATION_RECOVERY] No se pudo cancelar hold de lote removido. "
+                    "sale_line=%s hold=%s error=%s",
+                    self.id,
+                    hold.id,
+                    e,
+                    exc_info=True,
+                )
+
+    def _tc_release_removed_lots_from_pending_pickings(self, removed_lot_ids):
+        self.ensure_one()
+
+        if not removed_lot_ids:
+            return
+
+        Move = self.env['stock.move'].sudo()
+        MoveLine = self.env['stock.move.line'].sudo()
+
+        domain = [
+            ('lot_id', 'in', list(removed_lot_ids)),
+            ('product_id', '=', self.product_id.id),
+            ('picking_id.state', 'not in', ['done', 'cancel']),
+        ]
+
+        if 'sale_line_id' in Move._fields:
+            domain.append(('move_id.sale_line_id', '=', self.id))
+        elif self.order_id and self.order_id.name:
+            domain.append(('picking_id.origin', 'ilike', self.order_id.name))
+
+        move_lines = MoveLine.search(domain)
+        if not move_lines:
+            return
+
+        moves = move_lines.mapped('move_id')
+        ctx = {
+            'skip_stone_sync_so': True,
+            'skip_stone_sync_picking': True,
+            'skip_hold_validation': True,
+            'skip_picking_clean': True,
+            'skip_transit_sale_sync': True,
+            'skip_procurement': True,
+        }
+
+        for move in moves:
+            try:
+                if move.state in ('assigned', 'partially_available') and hasattr(move, '_do_unreserve'):
+                    move.with_context(ctx)._do_unreserve()
+            except Exception as e:
+                _logger.warning(
+                    "[TC_ALLOCATION_RECOVERY] No se pudo desreservar move %s: %s",
+                    move.id,
+                    e,
+                    exc_info=True,
+                )
+
+        remaining_move_lines = MoveLine.search(domain)
+        if remaining_move_lines:
+            try:
+                remaining_move_lines.with_context(ctx).unlink()
+            except Exception as e:
+                _logger.warning(
+                    "[TC_ALLOCATION_RECOVERY] No se pudieron eliminar move lines de lotes removidos. "
+                    "sale_line=%s error=%s",
+                    self.id,
+                    e,
+                    exc_info=True,
+                )
+
+    def _tc_release_removed_lots(self, removed_lot_ids):
+        self.ensure_one()
+
+        if not removed_lot_ids or not self.product_id:
+            return
+
+        self._tc_release_removed_lots_from_pending_pickings(removed_lot_ids)
+        self._tc_cancel_removed_lot_holds(removed_lot_ids)
+
+    def _tc_prepare_hub_state_for_read(self):
+        """
+        Reparación defensiva para los hubs.
+
+        Caso que corrige:
+        - Una línea fue completamente asignada y salió de To Be Allocated.
+        - Luego se desasignaron placas desde el pedido.
+        - La línea vuelve a tener pendiente real.
+        - Si hay stock libre y no existe una compra activa, se limpian banderas viejas
+          para que vuelva a To Be Allocated.
+        """
+        for line in self:
+            if (
+                line.display_type
+                or line.state not in ('sale', 'done')
+                or not line.product_id
+            ):
+                continue
+
+            pending_qty = line._tc_get_pending_allocation_qty()
+            if line._tc_float_le_zero(pending_qty):
+                continue
+
+            if line._tc_has_active_purchase_flow():
+                continue
+
+            available_qty = line._tc_get_free_internal_qty()
+            if line._tc_float_le_zero(available_qty):
+                continue
+
+            vals = {}
+
+            if 'auto_transit_assign' in line._fields and line.auto_transit_assign:
+                vals['auto_transit_assign'] = False
+
+            if line.tc_stock_rejected:
+                vals.update({
+                    'tc_stock_rejected': False,
+                    'tc_stock_rejected_reason': False,
+                    'tc_stock_rejected_by': False,
+                    'tc_stock_rejected_at': False,
+                })
+
+            if vals:
+                line.with_context(skip_tc_allocation_recovery=True).write(vals)
+
+    def _tc_after_lot_assignment_change(self, old_lots_by_line):
+        for line in self:
+            if (
+                line.display_type
+                or line.state not in ('sale', 'done')
+                or not line.product_id
+            ):
+                continue
+
+            old_lot_ids = old_lots_by_line.get(line.id, set())
+            new_lot_ids = set(line.lot_ids.ids) if 'lot_ids' in line._fields else set()
+            removed_lot_ids = old_lot_ids - new_lot_ids
+
+            if removed_lot_ids:
+                line._tc_release_removed_lots(removed_lot_ids)
+
+            pending_qty = line._tc_get_pending_allocation_qty()
+            if line._tc_float_le_zero(pending_qty):
+                continue
+
+            if line._tc_has_active_purchase_flow():
+                continue
+
+            vals = {}
+
+            if 'auto_transit_assign' in line._fields and line.auto_transit_assign:
+                vals['auto_transit_assign'] = False
+
+            if line.tc_stock_rejected:
+                vals.update({
+                    'tc_stock_rejected': False,
+                    'tc_stock_rejected_reason': False,
+                    'tc_stock_rejected_by': False,
+                    'tc_stock_rejected_at': False,
+                })
+
+            if vals:
+                line.with_context(skip_tc_allocation_recovery=True).write(vals)
+
+    def write(self, vals):
+        vals = dict(vals or {})
+
+        allocation_sensitive_fields = {
+            'lot_ids',
+            'x_lot_breakdown_json',
+            'product_uom_qty',
+            'qty_delivered',
+        }
+
+        must_recover = (
+            not self.env.context.get('skip_tc_allocation_recovery')
+            and bool(allocation_sensitive_fields.intersection(vals.keys()))
+        )
+
+        old_lots_by_line = {}
+
+        if must_recover:
+            for line in self:
+                old_lots_by_line[line.id] = (
+                    set(line.lot_ids.ids)
+                    if 'lot_ids' in line._fields and line.lot_ids
+                    else set()
+                )
+
+        res = super(SaleOrderLine, self).write(vals)
+
+        if must_recover:
+            self._tc_after_lot_assignment_change(old_lots_by_line)
+
+        return res
+
+    # -------------------------------------------------------------------------
     # ACCIONES HUB
     # -------------------------------------------------------------------------
 
@@ -402,6 +652,7 @@ class SaleOrderLine(models.Model):
                 'tc_stock_rejected_reason': False,
                 'tc_stock_rejected_by': False,
                 'tc_stock_rejected_at': False,
+                'auto_transit_assign': False,
             })
         return True
 

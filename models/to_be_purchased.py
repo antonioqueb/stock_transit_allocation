@@ -119,14 +119,24 @@ class ToBeAllocatedLogic(models.AbstractModel):
     @api.model
     def get_data(self):
         sale_lines = self.env['sale.order.line'].search([
-            ('state', '=', 'sale'),
+            ('state', 'in', ['sale', 'done']),
             ('display_type', '=', False),
             ('product_id', '!=', False),
         ])
 
+        # Reparación defensiva:
+        # Si una línea fue asignada, salió de To Be Allocated, y después se le
+        # quitaron placas desde el pedido, aquí se limpian banderas viejas para
+        # que vuelva a entrar al hub cuando tenga pendiente real y stock libre.
+        if hasattr(sale_lines, '_tc_prepare_hub_state_for_read'):
+            sale_lines._tc_prepare_hub_state_for_read()
+
         sale_lines = sale_lines.filtered(
-            lambda line: line.tc_allocation_hub_state == 'to_be_allocated'
-            and line.tc_qty_pending_allocation > 0
+            lambda line: line.tc_qty_pending_allocation > 0
+            and line.tc_available_internal_qty > 0
+            and not line.tc_stock_rejected
+            and not line.auto_transit_assign
+            and line.tc_allocation_hub_state == 'to_be_allocated'
         )
 
         result = []
@@ -188,10 +198,16 @@ class ToBePurchasedLogic(models.AbstractModel):
     @api.model
     def get_data(self):
         all_sale_lines = self.env['sale.order.line'].search([
-            ('state', '=', 'sale'),
+            ('state', 'in', ['sale', 'done']),
             ('display_type', '=', False),
             ('product_id', '!=', False),
         ])
+
+        # Misma reparación defensiva que To Be Allocated:
+        # evita que líneas con pendiente real queden atrapadas en un estado viejo
+        # por banderas auto_transit_assign/tc_stock_rejected obsoletas.
+        if hasattr(all_sale_lines, '_tc_prepare_hub_state_for_read'):
+            all_sale_lines._tc_prepare_hub_state_for_read()
 
         sale_lines = all_sale_lines.filtered(
             lambda line: line.tc_allocation_hub_state == 'to_be_purchased'
@@ -420,7 +436,8 @@ class ToBePurchasedLogic(models.AbstractModel):
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
 
         sale_lines = sale_lines.filtered(
-            lambda line: line.tc_allocation_hub_state == 'to_be_purchased'
+            lambda line: line.state in ('sale', 'done')
+            and line.tc_allocation_hub_state == 'to_be_purchased'
             and line.tc_qty_pending_allocation > 0
         )
 
