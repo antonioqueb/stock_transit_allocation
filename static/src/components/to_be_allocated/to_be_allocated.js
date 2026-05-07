@@ -654,6 +654,24 @@ export class ToBeAllocated extends Component {
         const root = this._allocationPopupRoot;
         const PAGE_SIZE = 35;
 
+        const orderedQty = Number(
+            config.qtyOrdered !== undefined && config.qtyOrdered !== null
+                ? config.qtyOrdered
+                : (
+                    config.saleLine?.product_uom_qty !== undefined && config.saleLine?.product_uom_qty !== null
+                        ? config.saleLine.product_uom_qty
+                        : (config.qtyPending || 0)
+                )
+        );
+
+        const assignedQty = Number(config.qtyAssigned || 0);
+
+        const pendingQty = Number(
+            config.qtyPending !== undefined && config.qtyPending !== null
+                ? config.qtyPending
+                : Math.max(orderedQty - assignedQty, 0)
+        );
+
         const state = {
             quants: [],
             totalCount: 0,
@@ -663,7 +681,16 @@ export class ToBeAllocated extends Component {
             page: 0,
             pendingIds: new Set(config.currentLotIds || []),
             pendingBreakdown: { ...(config.currentBreakdown || {}) },
-            requestedQty: Number(config.qtyPending || config.qtyOrdered || config.saleLine?.product_uom_qty || 0),
+
+            // Objetivo total actual de la línea.
+            // Si la línea fue cambiada manualmente a 50 m² y ya tiene 24.92 m² asignados,
+            // el popup debe medir el avance contra 50 m², no contra el pendiente.
+            requestedQty: orderedQty,
+
+            // Referencias informativas del estado actual.
+            assignedQty,
+            pendingQty,
+
             requestedUnit: "m²",
             qtyCache: {},
             filters: {
@@ -740,7 +767,7 @@ export class ToBeAllocated extends Component {
                         </div>
                         <div class="stone-allocation-card stone-allocation-remaining">
                             <span class="stone-allocation-label">Pendiente</span>
-                            <strong id="sp-allocation-remaining">${this._fmtPlain(state.requestedQty)} ${this._escapeHtml(state.requestedUnit)}</strong>
+                            <strong id="sp-allocation-remaining">${this._fmtPlain(state.pendingQty)} ${this._escapeHtml(state.requestedUnit)}</strong>
                         </div>
                         <div class="stone-allocation-progress-box">
                             <div class="stone-allocation-progress-head">
