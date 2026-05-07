@@ -1,235 +1,107 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Sale Order Form: Delivery Cockpit -->
-    <record id="sale_order_form_delivery_cockpit" model="ir.ui.view">
-        <field name="name">sale.order.form.delivery.cockpit</field>
+    <!-- ── Formulario: columnas operativas limpias en líneas ── -->
+    <record id="view_order_form_transit_inherit" model="ir.ui.view">
+        <field name="name">sale.order.form.transit.inherit</field>
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
-        <field name="priority">99</field>
         <field name="arch" type="xml">
+            <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
+                <field name="has_stone_lots" column_invisible="1"/>
+                <field name="tc_assignment_closed" column_invisible="1"/>
+                <field name="tc_closure_reason" column_invisible="1"/>
+                <field name="tc_closure_by" column_invisible="1"/>
+                <field name="tc_closure_at" column_invisible="1"/>
 
-            <!-- Acciones principales -->
-            <xpath expr="//header" position="inside">
-                <button name="action_open_delivery_wizard"
-                        string="Entregar"
-                        type="object"
-                        class="btn-primary"
-                        invisible="state not in ('sale', 'done')"
-                        groups="sale_delivery_wizard.group_delivery_user"/>
+                <field name="auto_transit_assign"
+                       widget="boolean_toggle"
+                       optional="hide"
+                       width="100px"
+                       string="Mandar a pedir"
+                       readonly="has_stone_lots"/>
 
-                <button name="action_open_return_wizard"
-                        string="Devolución"
-                        type="object"
-                        class="btn-warning"
-                        invisible="state not in ('sale', 'done')"
-                        groups="sale_delivery_wizard.group_delivery_user"/>
-
-                <button name="action_open_swap_wizard"
-                        string="Swap"
-                        type="object"
-                        invisible="state not in ('sale', 'done')"
-                        groups="sale_delivery_wizard.group_delivery_user"/>
-            </xpath>
-
-            <!-- Smart buttons -->
-            <xpath expr="//div[@name='button_box']" position="inside">
-                <button name="action_view_pick_tickets"
-                        type="object"
-                        class="oe_stat_button"
-                        icon="fa-clipboard"
-                        invisible="x_pick_ticket_count == 0">
-                    <div class="o_stat_info">
-                        <span class="o_stat_value">
-                            <field name="x_pick_ticket_count"/>
-                            <span invisible="x_pick_ticket_open_count == 0"
-                                  class="text-warning">
-                                (<field name="x_pick_ticket_open_count"/> abiertos)
-                            </span>
-                        </span>
-                        <span class="o_stat_text">Pick Tickets</span>
-                    </div>
-                </button>
-
-                <button name="action_view_remissions"
-                        type="object"
-                        class="oe_stat_button"
-                        icon="fa-truck"
-                        invisible="x_remission_count == 0">
-                    <field name="x_remission_count"
-                           widget="statinfo"
-                           string="Remisiones"/>
-                </button>
-
-                <button name="action_view_returns"
-                        type="object"
-                        class="oe_stat_button"
-                        icon="fa-undo"
-                        invisible="x_return_count == 0">
-                    <field name="x_return_count"
-                           widget="statinfo"
-                           string="Devoluciones"/>
-                </button>
-
-                <button name="action_view_redeliveries"
-                        type="object"
-                        class="oe_stat_button"
-                        icon="fa-refresh"
-                        invisible="x_redelivery_count == 0">
-                    <field name="x_redelivery_count"
-                           widget="statinfo"
-                           string="Reentregas"/>
-                </button>
-            </xpath>
-
-            <!-- KPIs de entrega: aquí sí conservamos la información extendida -->
-            <xpath expr="//notebook" position="before">
-                <div class="som_kpi_strip" invisible="state not in ('sale', 'done')">
-                    <div class="som_kpi">
-                        <span class="som_kpi_value">
-                            <field name="x_total_demand_qty" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Demanda Origen</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value">
-                            <field name="x_total_current_demand_qty" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Demanda Actual</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--success">
-                            <field name="x_total_delivered_net_qty" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Entregado Neto</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--warn">
-                            <field name="x_total_returned_qty" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Devuelto</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value">
-                            <field name="x_total_pending_delivery_qty" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Pendiente Origen</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--warn">
-                            <field name="x_total_overdelivered_qty" class="d-inline"/>
-                        </span>
-                        <span class="som_kpi_label">Sobreentrega</span>
-                    </div>
-
-                    <div class="som_kpi">
-                        <span class="som_kpi_value som_kpi_value--accent">
-                            <field name="x_fulfillment_net_pct"
-                                   widget="float"
-                                   digits="[3,1]"
-                                   class="d-inline"/>%
-                        </span>
-                        <span class="som_kpi_label">Fulfillment</span>
-                    </div>
-                </div>
-            </xpath>
-
-            <!-- Historial de documentos -->
-            <xpath expr="//notebook" position="inside">
-                <page string="Historial de Entregas"
-                      name="delivery_history"
-                      invisible="x_delivery_document_count == 0">
-                    <field name="delivery_document_ids" readonly="1">
-                        <list>
-                            <field name="name"/>
-                            <field name="document_type"/>
-                            <field name="state"
-                                   decoration-success="state == 'confirmed'"
-                                   decoration-warning="state == 'prepared'"
-                                   decoration-danger="state == 'cancelled'"
-                                   widget="badge"/>
-                            <field name="remission_number"/>
-                            <field name="total_qty"/>
-                            <field name="return_reason_id"/>
-                            <field name="return_action"/>
-                            <field name="delivery_date"/>
-                            <field name="create_date"/>
-                        </list>
-                    </field>
-                </page>
-            </xpath>
-
-            <!--
-                Limpieza visual de líneas de venta.
-
-                Antes este módulo metía en la tabla principal:
-                - Demanda Origen
-                - Origen Cong.
-                - Entregado Neto
-                - Pendiente Origen
-                - Pendiente Actual
-                - Sobreentrega
-                - Fulfillment %
-                - Estado Entrega
-
-                Eso duplicaba conceptos con stock_transit_allocation,
-                sale_stock y otros módulos comerciales.
-
-                Ahora dejamos solo Devuelto como métrica útil en línea.
-                Los demás campos siguen existiendo en backend y KPIs,
-                pero no se muestran como columnas principales.
-            -->
-            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
-                <field name="x_returned_qty"
-                       string="Devuelto"
-                       optional="show"
+                <field name="transit_status"
+                       optional="hide"
+                       widget="badge"
+                       decoration-secondary="transit_status == 'solicitud'"
+                       decoration-warning="transit_status in ['production', 'booking', 'puerto_origen']"
+                       decoration-info="transit_status in ['on_sea', 'puerto_destino']"
+                       decoration-danger="transit_status == 'arrived_port'"
+                       decoration-success="transit_status == 'delivered'"
+                       string="Estado Embarque"
                        readonly="1"/>
 
-                <field name="x_origin_demand_qty" column_invisible="1"/>
-                <field name="x_origin_demand_locked" column_invisible="1"/>
-                <field name="x_origin_demand_locked_at" column_invisible="1"/>
-                <field name="x_origin_demand_source" column_invisible="1"/>
-                <field name="x_delivered_net_qty" column_invisible="1"/>
-                <field name="x_pending_qty" column_invisible="1"/>
-                <field name="x_current_pending_qty" column_invisible="1"/>
-                <field name="x_origin_pending_qty" column_invisible="1"/>
-                <field name="x_overdelivered_origin_qty" column_invisible="1"/>
-                <field name="x_fulfillment_net_pct" column_invisible="1"/>
-                <field name="x_delivery_status" column_invisible="1"/>
+                <field name="transit_eta"
+                       optional="hide"
+                       string="ETA Embarque"
+                       readonly="1"/>
             </xpath>
 
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
+                <attribute name="string">Solicitado</attribute>
+            </xpath>
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
+                <field name="tc_qty_assigned_lots"
+                       string="Asignado"
+                       optional="show"
+                       readonly="1"/>
+                <field name="tc_qty_pending_allocation"
+                       string="Pendiente"
+                       optional="show"
+                       readonly="1"/>
+                <field name="tc_qty_assigned_percent"
+                       string="% Asignado"
+                       optional="hide"
+                       readonly="1"/>
+                <field name="tc_qty_over_assigned"
+                       string="Sobreasignado"
+                       optional="hide"
+                       readonly="1"/>
+                <field name="tc_assignment_state"
+                       string="Estado asignación"
+                       optional="show"
+                       widget="badge"
+                       decoration-muted="tc_assignment_state == 'no_demand'"
+                       decoration-warning="tc_assignment_state in ['open', 'partial', 'to_purchase']"
+                       decoration-success="tc_assignment_state == 'complete'"
+                       decoration-danger="tc_assignment_state in ['over_assigned', 'closed_short']"
+                       readonly="1"/>
+                <field name="tc_closed_short_qty"
+                       string="Dif. cerrada"
+                       optional="hide"
+                       readonly="1"/>
+
+                <button name="action_tc_close_allocation_short"
+                        type="object"
+                        string="Cerrar"
+                        class="btn-secondary"
+                        title="Cerrar pendiente sin modificar la cantidad solicitada"
+                        invisible="tc_qty_pending_allocation &lt;= 0 or tc_assignment_closed"/>
+
+                <button name="action_tc_reopen_allocation"
+                        type="object"
+                        string="Reabrir"
+                        class="btn-secondary"
+                        title="Reabrir asignación cerrada"
+                        invisible="not tc_assignment_closed"/>
+            </xpath>
         </field>
     </record>
 
-    <!-- Campos técnicos requeridos por modificadores, KPIs y smart buttons -->
-    <record id="sale_order_form_delivery_fields" model="ir.ui.view">
-        <field name="name">sale.order.form.delivery.fields</field>
+    <!-- ── Vista de búsqueda: filtro y agrupación ── -->
+    <record id="view_sales_order_filter_transit_inherit" model="ir.ui.view">
+        <field name="name">sale.order.filter.transit.inherit</field>
         <field name="model">sale.order</field>
-        <field name="inherit_id" ref="sale.view_order_form"/>
-        <field name="priority">100</field>
+        <field name="inherit_id" ref="sale.view_sales_order_filter"/>
         <field name="arch" type="xml">
-            <xpath expr="//field[@name='partner_id']" position="after">
-                <field name="x_delivery_document_count" invisible="1"/>
-                <field name="x_remission_count" invisible="1"/>
-                <field name="x_return_count" invisible="1"/>
-                <field name="x_pick_ticket_count" invisible="1"/>
-                <field name="x_pick_ticket_open_count" invisible="1"/>
-                <field name="x_redelivery_count" invisible="1"/>
-                <field name="x_redelivery_pending_count" invisible="1"/>
-
-                <field name="x_total_assigned_qty" invisible="1"/>
-                <field name="x_total_delivered_gross_qty" invisible="1"/>
-                <field name="x_total_returned_qty" invisible="1"/>
-                <field name="x_total_delivered_net_qty" invisible="1"/>
-                <field name="x_total_pending_delivery_qty" invisible="1"/>
-                <field name="x_total_demand_qty" invisible="1"/>
-                <field name="x_total_current_demand_qty" invisible="1"/>
-                <field name="x_total_overdelivered_qty" invisible="1"/>
-                <field name="x_fulfillment_net_pct" invisible="1"/>
+            <xpath expr="//filter[@name='my_sale_orders_filter']" position="after">
+                <filter name="has_mandar_pedir"
+                        string="Con Mandar a pedir"
+                        domain="[('has_mandar_pedir', '=', True)]"/>
+                <filter name="group_mandar_pedir"
+                        string="Agrupar por Mandar a pedir"
+                        context="{'group_by': 'has_mandar_pedir'}"/>
             </xpath>
         </field>
     </record>
