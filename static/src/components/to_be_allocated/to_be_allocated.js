@@ -24,6 +24,7 @@ export class ToBeAllocated extends Component {
             groupBy: "product", // product | sale_order | salesperson
             sending: {},
             assigning: {},
+            closing: {},
         });
 
         onWillStart(async () => {
@@ -101,6 +102,9 @@ export class ToBeAllocated extends Component {
                     label: line.product_name || "Sin producto",
                     sublabel: "Producto",
                     lines: [],
+                    qty_requested: 0,
+                    qty_ordered: 0,
+                    qty_assigned: 0,
                     qty_pending: 0,
                     qty_available: 0,
                     max_payment_percent: 0,
@@ -108,6 +112,9 @@ export class ToBeAllocated extends Component {
             }
 
             map[key].lines.push(line);
+            map[key].qty_requested += line.qty_requested || line.qty_ordered || 0;
+            map[key].qty_ordered += line.qty_ordered || line.qty_requested || 0;
+            map[key].qty_assigned += line.qty_assigned || 0;
             map[key].qty_pending += line.qty_pending || 0;
             map[key].qty_available = Math.max(
                 map[key].qty_available,
@@ -140,6 +147,9 @@ export class ToBeAllocated extends Component {
                     label: line.so_name || "Sin SO",
                     sublabel: line.customer || "Sin cliente",
                     lines: [],
+                    qty_requested: 0,
+                    qty_ordered: 0,
+                    qty_assigned: 0,
                     qty_pending: 0,
                     qty_available: 0,
                     max_payment_percent: 0,
@@ -147,6 +157,9 @@ export class ToBeAllocated extends Component {
             }
 
             map[key].lines.push(line);
+            map[key].qty_requested += line.qty_requested || line.qty_ordered || 0;
+            map[key].qty_ordered += line.qty_ordered || line.qty_requested || 0;
+            map[key].qty_assigned += line.qty_assigned || 0;
             map[key].qty_pending += line.qty_pending || 0;
             map[key].qty_available += line.qty_available || 0;
             map[key].max_payment_percent = Math.max(
@@ -176,6 +189,9 @@ export class ToBeAllocated extends Component {
                     label: key,
                     sublabel: "Vendedor",
                     lines: [],
+                    qty_requested: 0,
+                    qty_ordered: 0,
+                    qty_assigned: 0,
                     qty_pending: 0,
                     qty_available: 0,
                     max_payment_percent: 0,
@@ -183,6 +199,9 @@ export class ToBeAllocated extends Component {
             }
 
             map[key].lines.push(line);
+            map[key].qty_requested += line.qty_requested || line.qty_ordered || 0;
+            map[key].qty_ordered += line.qty_ordered || line.qty_requested || 0;
+            map[key].qty_assigned += line.qty_assigned || 0;
             map[key].qty_pending += line.qty_pending || 0;
             map[key].qty_available += line.qty_available || 0;
             map[key].max_payment_percent = Math.max(
@@ -633,7 +652,7 @@ export class ToBeAllocated extends Component {
                 productName: line.product_name || "",
                 soName: line.so_name || "",
                 customer: line.customer || "",
-                qtyOrdered: line.qty_ordered || saleLine.product_uom_qty || 0,
+                qtyOrdered: line.qty_ordered || line.qty_requested || saleLine.product_uom_qty || 0,
                 qtyAssigned: line.qty_assigned || 0,
                 qtyPending: line.qty_pending || 0,
                 currentLotIds,
@@ -683,11 +702,10 @@ export class ToBeAllocated extends Component {
             pendingBreakdown: { ...(config.currentBreakdown || {}) },
 
             // Objetivo total actual de la línea.
-            // Si la línea fue cambiada manualmente a 50 m² y ya tiene 24.92 m² asignados,
-            // el popup debe medir el avance contra 50 m², no contra el pendiente.
+            // product_uom_qty ahora significa Solicitado / Demanda viva.
+            // La asignación de placas NO debe modificar este valor.
             requestedQty: orderedQty,
 
-            // Referencias informativas del estado actual.
             assignedQty,
             pendingQty,
 
@@ -731,7 +749,7 @@ export class ToBeAllocated extends Component {
 
                             <span class="stone-badge-requested">
                                 <i class="fa fa-bullseye me-1"></i>
-                                Requerido <span id="sp-badge-target">${this._fmtPlain(state.requestedQty)}</span>
+                                Solicitado <span id="sp-badge-target">${this._fmtPlain(state.requestedQty)}</span>
                                 <span id="sp-badge-target-unit">${this._escapeHtml(state.requestedUnit)}</span>
                             </span>
 
@@ -758,7 +776,7 @@ export class ToBeAllocated extends Component {
 
                     <div class="stone-popup-allocation-summary" id="sp-allocation-summary">
                         <div class="stone-allocation-card stone-allocation-target">
-                            <span class="stone-allocation-label">Requerido</span>
+                            <span class="stone-allocation-label">Solicitado</span>
                             <strong id="sp-allocation-target">${this._fmtPlain(state.requestedQty)} ${this._escapeHtml(state.requestedUnit)}</strong>
                         </div>
                         <div class="stone-allocation-card stone-allocation-selected">
@@ -830,7 +848,7 @@ export class ToBeAllocated extends Component {
 
                         <div class="stone-filter-stats">
                             <span class="stone-filter-stat-count">
-                                Pedido: <strong class="ms-1">${this._fmt(config.qtyOrdered)}</strong>
+                                Solicitado: <strong class="ms-1">${this._fmt(config.qtyOrdered)}</strong>
                             </span>
                             <span class="stone-filter-stat-count ms-2">
                                 Pendiente: <strong class="ms-1">${this._fmt(config.qtyPending)}</strong>
@@ -1424,13 +1442,22 @@ export class ToBeAllocated extends Component {
                     [[config.line.id], newIds, cleanBreakdown]
                 );
 
-                const finalQty = result && result.final_qty !== undefined
-                    ? this._fmtPlain(result.final_qty)
+                const assignedQty = result && result.assigned_qty !== undefined
+                    ? this._fmtPlain(result.assigned_qty)
+                    : (
+                        result && result.final_qty !== undefined
+                            ? this._fmtPlain(result.final_qty)
+                            : "0.00"
+                    );
+
+                const pendingQty = result && result.pending_qty !== undefined
+                    ? this._fmtPlain(result.pending_qty)
                     : "0.00";
+
                 const uomName = result && result.uom_name ? ` ${result.uom_name}` : "";
 
                 this.notification.add(
-                    `Asignación guardada. Cantidad final: ${finalQty}${uomName}`,
+                    `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`,
                     {
                         type: "success",
                         sticky: false,
@@ -1549,6 +1576,60 @@ export class ToBeAllocated extends Component {
     }
 
     // =========================================================================
+    // CERRAR PENDIENTE
+    // =========================================================================
+
+    async closeShort(line, ev) {
+        if (ev) {
+            ev.stopPropagation();
+            ev.preventDefault();
+        }
+
+        if (!line || !line.id) return;
+
+        const reason = window.prompt(
+            `Cerrar el pendiente de ${line.product_name} en ${line.so_name}?\n\n` +
+            `Solicitado: ${this.fmtNum(line.qty_ordered || line.qty_requested)}\n` +
+            `Asignado: ${this.fmtNum(line.qty_assigned)}\n` +
+            `Pendiente: ${this.fmtNum(line.qty_pending)}\n\n` +
+            "Escribe el motivo del cierre:",
+            "Diferencia aceptada por cierre manual"
+        );
+
+        if (reason === null) return;
+
+        this.state.closing[line.id] = true;
+
+        try {
+            const result = await this.orm.call(
+                "sale.allocation.manager.logic",
+                "close_short",
+                [[line.id], reason || "Cierre manual desde To Be Allocated"]
+            );
+
+            if (result && result.error) {
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+
+            this.notification.add("Pendiente cerrado sin modificar lo solicitado", {
+                type: "success",
+                sticky: false,
+            });
+
+            await this.loadData();
+        } catch (error) {
+            console.error("[ToBeAllocated] Error cerrando pendiente:", error);
+            this.notification.add(
+                "Error al cerrar pendiente: " + (error.message || error),
+                { type: "danger" }
+            );
+        } finally {
+            this.state.closing[line.id] = false;
+        }
+    }
+
+    // =========================================================================
     // FORMATO
     // =========================================================================
 
@@ -1579,8 +1660,35 @@ export class ToBeAllocated extends Component {
         return "o_tba_pay_low";
     }
 
+    assignmentStateLabel(value) {
+        const labels = {
+            no_demand: "Sin demanda",
+            open: "Pendiente",
+            partial: "Parcial",
+            complete: "Completo",
+            over_assigned: "Sobreasignado",
+            to_purchase: "Mandado a pedir",
+            closed_short: "Cerrado corto",
+        };
+        return labels[value] || value || "";
+    }
+
     get totalLines() {
         return this.state.data.length;
+    }
+
+    get totalRequested() {
+        return this.state.data.reduce(
+            (sum, line) => sum + (line.qty_ordered || line.qty_requested || 0),
+            0
+        );
+    }
+
+    get totalAssigned() {
+        return this.state.data.reduce(
+            (sum, line) => sum + (line.qty_assigned || 0),
+            0
+        );
     }
 
     get totalPending() {

@@ -124,10 +124,6 @@ class ToBeAllocatedLogic(models.AbstractModel):
             ('product_id', '!=', False),
         ])
 
-        # Reparación defensiva:
-        # Si una línea fue asignada, salió de To Be Allocated, y después se le
-        # quitaron placas desde el pedido, aquí se limpian banderas viejas para
-        # que vuelva a entrar al hub cuando tenga pendiente real y stock libre.
         if hasattr(sale_lines, '_tc_prepare_hub_state_for_read'):
             sale_lines._tc_prepare_hub_state_for_read()
 
@@ -136,6 +132,7 @@ class ToBeAllocatedLogic(models.AbstractModel):
             and line.tc_available_internal_qty > 0
             and not line.tc_stock_rejected
             and not line.auto_transit_assign
+            and not line.tc_assignment_closed
             and line.tc_allocation_hub_state == 'to_be_allocated'
         )
 
@@ -157,10 +154,13 @@ class ToBeAllocatedLogic(models.AbstractModel):
                 'product_id': line.product_id.id,
                 'product_name': line.product_id.display_name,
                 'description': line.name or '',
+                'qty_requested': line.product_uom_qty,
                 'qty_ordered': line.product_uom_qty,
                 'qty_assigned': line.tc_qty_assigned_lots,
                 'qty_pending': line.tc_qty_pending_allocation,
                 'qty_available': line.tc_available_internal_qty,
+                'assignment_percent': line.tc_qty_assigned_percent,
+                'assignment_state': line.tc_assignment_state or '',
                 'payment_percent': payment_percent,
                 'note': order.note or '',
             })
@@ -189,6 +189,20 @@ class ToBeAllocatedLogic(models.AbstractModel):
             'message': 'Línea(s) enviada(s) a To Be Purchased',
         }
 
+    @api.model
+    def close_short(self, sale_line_ids, reason=False):
+        lines = self.env['sale.order.line'].browse(sale_line_ids).exists()
+
+        if not lines:
+            return {'error': 'No se encontraron líneas válidas'}
+
+        lines.action_tc_close_allocation_short(reason=reason)
+
+        return {
+            'success': True,
+            'message': 'Pendiente cerrado correctamente',
+        }
+
 
 class ToBePurchasedLogic(models.AbstractModel):
     _name = 'purchase.manager.logic'
@@ -203,15 +217,13 @@ class ToBePurchasedLogic(models.AbstractModel):
             ('product_id', '!=', False),
         ])
 
-        # Misma reparación defensiva que To Be Allocated:
-        # evita que líneas con pendiente real queden atrapadas en un estado viejo
-        # por banderas auto_transit_assign/tc_stock_rejected obsoletas.
         if hasattr(all_sale_lines, '_tc_prepare_hub_state_for_read'):
             all_sale_lines._tc_prepare_hub_state_for_read()
 
         sale_lines = all_sale_lines.filtered(
             lambda line: line.tc_allocation_hub_state == 'to_be_purchased'
             and line.tc_qty_pending_allocation > 0
+            and not line.tc_assignment_closed
         )
 
         product_ids = sale_lines.mapped('product_id.id')
@@ -279,8 +291,11 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'location': sol.order_id.partner_shipping_id.city or '',
                     'description': sol.name or '',
                     'qty_orig': sol.product_uom_qty,
+                    'qty_requested': sol.product_uom_qty,
                     'qty_assigned': sol.tc_qty_assigned_lots,
                     'qty_pending': pending,
+                    'assignment_percent': sol.tc_qty_assigned_percent,
+                    'assignment_state': sol.tc_assignment_state or '',
                     'note': sol.order_id.note or '',
                     'po_name': alloc_info['po_name'],
                     'po_qty': alloc_info['po_qty'],
@@ -311,10 +326,6 @@ class ToBePurchasedLogic(models.AbstractModel):
 
             vendor_name = vendors[0]['name'] if vendors else 'SIN PROVEEDOR'
 
-            # Regla:
-            # En To Be Purchased NO se descuenta stock interno disponible,
-            # porque la línea puede estar aquí por rechazo explícito del vendedor.
-            # Solo se descuenta cantidad ya abierta en OC.
             qty_to_buy = max(0.0, total_demanded - qty_p)
 
             result.append({
@@ -429,16 +440,13 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
-        """
-        CONSOLIDACIÓN:
-        Una línea por producto en la OC, múltiples allocations por línea de venta.
-        """
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
 
         sale_lines = sale_lines.filtered(
             lambda line: line.state in ('sale', 'done')
             and line.tc_allocation_hub_state == 'to_be_purchased'
             and line.tc_qty_pending_allocation > 0
+            and not line.tc_assignment_closed
         )
 
         if not sale_lines:

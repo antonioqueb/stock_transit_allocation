@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- ── Formulario: columnas extra en líneas ── -->
+    <!-- ── Formulario: columnas operativas limpias en líneas ── -->
     <record id="view_order_form_transit_inherit" model="ir.ui.view">
         <field name="name">sale.order.form.transit.inherit</field>
         <field name="model">sale.order</field>
@@ -8,11 +8,18 @@
         <field name="arch" type="xml">
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="has_stone_lots" column_invisible="1"/>
+                <field name="tc_assignment_closed" column_invisible="1"/>
+                <field name="tc_closure_reason" column_invisible="1"/>
+                <field name="tc_closure_by" column_invisible="1"/>
+                <field name="tc_closure_at" column_invisible="1"/>
+
                 <field name="auto_transit_assign"
                        widget="boolean_toggle"
-                       optional="show"
+                       optional="hide"
                        width="100px"
+                       string="Mandar a pedir"
                        readonly="has_stone_lots"/>
+
                 <field name="transit_status"
                        optional="hide"
                        widget="badge"
@@ -23,21 +30,61 @@
                        decoration-success="transit_status == 'delivered'"
                        string="Estado Embarque"
                        readonly="1"/>
+
                 <field name="transit_eta"
                        optional="hide"
                        string="ETA Embarque"
                        readonly="1"/>
             </xpath>
 
-            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="before">
-                <field name="tc_qty_origin_requested"
-                       optional="hide"
-                       string="Cantidad origen"
-                       readonly="1"/>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
+                <attribute name="string">Solicitado</attribute>
             </xpath>
 
-            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
-                <attribute name="string">Cantidad final</attribute>
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
+                <field name="tc_qty_assigned_lots"
+                       string="Asignado"
+                       optional="show"
+                       readonly="1"/>
+                <field name="tc_qty_pending_allocation"
+                       string="Pendiente"
+                       optional="show"
+                       readonly="1"/>
+                <field name="tc_qty_assigned_percent"
+                       string="% Asignado"
+                       optional="hide"
+                       readonly="1"/>
+                <field name="tc_qty_over_assigned"
+                       string="Sobreasignado"
+                       optional="hide"
+                       readonly="1"/>
+                <field name="tc_assignment_state"
+                       string="Estado asignación"
+                       optional="show"
+                       widget="badge"
+                       decoration-muted="tc_assignment_state == 'no_demand'"
+                       decoration-warning="tc_assignment_state in ['open', 'partial', 'to_purchase']"
+                       decoration-success="tc_assignment_state == 'complete'"
+                       decoration-danger="tc_assignment_state in ['over_assigned', 'closed_short']"
+                       readonly="1"/>
+                <field name="tc_closed_short_qty"
+                       string="Dif. cerrada"
+                       optional="hide"
+                       readonly="1"/>
+
+                <button name="action_tc_close_allocation_short"
+                        type="object"
+                        string="Cerrar"
+                        class="btn-secondary"
+                        title="Cerrar pendiente sin modificar la cantidad solicitada"
+                        invisible="tc_qty_pending_allocation &lt;= 0 or tc_assignment_closed"/>
+
+                <button name="action_tc_reopen_allocation"
+                        type="object"
+                        string="Reabrir"
+                        class="btn-secondary"
+                        title="Reabrir asignación cerrada"
+                        invisible="not tc_assignment_closed"/>
             </xpath>
         </field>
     </record>
@@ -50,10 +97,10 @@
         <field name="arch" type="xml">
             <xpath expr="//filter[@name='my_sale_orders_filter']" position="after">
                 <filter name="has_mandar_pedir"
-                        string="Con Mandar Pedir"
+                        string="Con Mandar a pedir"
                         domain="[('has_mandar_pedir', '=', True)]"/>
                 <filter name="group_mandar_pedir"
-                        string="Agrupar por Mandar Pedir"
+                        string="Agrupar por Mandar a pedir"
                         context="{'group_by': 'has_mandar_pedir'}"/>
             </xpath>
         </field>
