@@ -731,7 +731,7 @@ export class ToBeAllocated extends Component {
 
                             <span class="stone-badge-requested">
                                 <i class="fa fa-bullseye me-1"></i>
-                                Mandado <span id="sp-badge-target">${this._fmtPlain(state.requestedQty)}</span>
+                                Requerido <span id="sp-badge-target">${this._fmtPlain(state.requestedQty)}</span>
                                 <span id="sp-badge-target-unit">${this._escapeHtml(state.requestedUnit)}</span>
                             </span>
 
@@ -758,7 +758,7 @@ export class ToBeAllocated extends Component {
 
                     <div class="stone-popup-allocation-summary" id="sp-allocation-summary">
                         <div class="stone-allocation-card stone-allocation-target">
-                            <span class="stone-allocation-label">Mandado</span>
+                            <span class="stone-allocation-label">Requerido</span>
                             <strong id="sp-allocation-target">${this._fmtPlain(state.requestedQty)} ${this._escapeHtml(state.requestedUnit)}</strong>
                         </div>
                         <div class="stone-allocation-card stone-allocation-selected">
