@@ -1390,23 +1390,25 @@ export class ToBeAllocated extends Component {
                 }
             }
 
-            const vals = {
-                lot_ids: [[6, 0, newIds]],
-                x_lot_breakdown_json: cleanBreakdown,
-                auto_transit_assign: false,
-                tc_stock_rejected: false,
-                tc_stock_rejected_reason: false,
-                tc_stock_rejected_by: false,
-                tc_stock_rejected_at: false,
-            };
-
             try {
-                await this.orm.write("sale.order.line", [config.line.id], vals);
+                const result = await this.orm.call(
+                    "sale.order.line",
+                    "action_tc_apply_allocation_from_hub",
+                    [[config.line.id], newIds, cleanBreakdown]
+                );
 
-                this.notification.add("Asignación guardada correctamente", {
-                    type: "success",
-                    sticky: false,
-                });
+                const finalQty = result && result.final_qty !== undefined
+                    ? this._fmtPlain(result.final_qty)
+                    : "0.00";
+                const uomName = result && result.uom_name ? ` ${result.uom_name}` : "";
+
+                this.notification.add(
+                    `Asignación guardada. Cantidad final: ${finalQty}${uomName}`,
+                    {
+                        type: "success",
+                        sticky: false,
+                    }
+                );
 
                 this.destroyAllocationPopup();
                 await this.loadData();

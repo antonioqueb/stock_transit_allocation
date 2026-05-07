@@ -28,6 +28,17 @@
                        string="ETA Embarque"
                        readonly="1"/>
             </xpath>
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="before">
+                <field name="tc_qty_origin_requested"
+                       optional="hide"
+                       string="Cantidad origen"
+                       readonly="1"/>
+            </xpath>
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
+                <attribute name="string">Cantidad final</attribute>
+            </xpath>
         </field>
     </record>
 

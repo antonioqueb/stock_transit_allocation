@@ -4,7 +4,7 @@ import logging
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
-from odoo.tools.float_utils import float_compare
+from odoo.tools.float_utils import float_compare, float_round
 
 _logger = logging.getLogger(__name__)
 
@@ -86,6 +86,17 @@ class SaleOrderLine(models.Model):
         string='Fecha rechazo stock',
         copy=False,
         readonly=True,
+    )
+
+    tc_qty_origin_requested = fields.Float(
+        string='Cantidad origen',
+        digits='Product Unit of Measure',
+        copy=True,
+        readonly=True,
+        help=(
+            'Cantidad originalmente solicitada/prometida por el cliente antes de que '
+            'To Be Allocated ajuste la cantidad final facturable según los lotes asignados.'
+        ),
     )
 
     tc_qty_assigned_lots = fields.Float(
@@ -225,6 +236,35 @@ class SaleOrderLine(models.Model):
 
         return {}
 
+    def _tc_get_lot_type(self, lot):
+        self.ensure_one()
+
+        if lot and 'x_tipo' in lot._fields and lot.x_tipo:
+            return str(lot.x_tipo).lower()
+
+        return 'placa'
+
+    def _tc_get_lot_internal_qty(self, lot):
+        self.ensure_one()
+
+        if not lot or not self.product_id:
+            return 0.0
+
+        Quant = self.env['stock.quant'].sudo()
+
+        domain = [
+            ('product_id', '=', self.product_id.id),
+            ('lot_id', '=', lot.id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ]
+
+        if 'company_id' in Quant._fields and self.order_id and self.order_id.company_id:
+            domain.append(('company_id', 'in', [False, self.order_id.company_id.id]))
+
+        quants = Quant.search(domain)
+        return sum(quants.mapped('quantity'))
+
     def _tc_get_lot_qty(self, lot, breakdown=None):
         self.ensure_one()
 
@@ -232,26 +272,250 @@ class SaleOrderLine(models.Model):
             return 0.0
 
         breakdown = breakdown or {}
-        lot_type = ''
+        lot_type = self._tc_get_lot_type(lot)
+        lot_key = str(lot.id)
 
-        if 'x_tipo' in lot._fields and lot.x_tipo:
-            lot_type = str(lot.x_tipo).lower()
-
-        if lot_type in ('formato', 'pieza') and str(lot.id) in breakdown:
+        if lot_type in ('formato', 'pieza') and lot_key in breakdown:
             try:
-                return float(breakdown.get(str(lot.id)) or 0.0)
+                return float(breakdown.get(lot_key) or 0.0)
             except Exception:
                 return 0.0
 
-        Quant = self.env['stock.quant'].sudo()
-        quant = Quant.search([
-            ('product_id', '=', self.product_id.id),
-            ('lot_id', '=', lot.id),
-            ('location_id.usage', '=', 'internal'),
-            ('quantity', '>', 0),
-        ], order='id desc', limit=1)
+        return self._tc_get_lot_internal_qty(lot)
 
-        return quant.quantity if quant else 0.0
+    def _tc_normalize_hub_breakdown(self, lot_ids, breakdown=None):
+        self.ensure_one()
+
+        selected_ids = set()
+        for lot_id in lot_ids or []:
+            try:
+                selected_ids.add(int(lot_id))
+            except Exception:
+                continue
+
+        if not selected_ids:
+            return {}
+
+        raw = breakdown or {}
+
+        if isinstance(raw, str):
+            try:
+                raw = json.loads(raw) or {}
+            except Exception:
+                raw = {}
+
+        if not isinstance(raw, dict):
+            raw = {}
+
+        lots = self.env['stock.lot'].browse(list(selected_ids)).exists()
+        partial_lot_ids = set(
+            lots.filtered(
+                lambda lot: self._tc_get_lot_type(lot) in ('formato', 'pieza')
+            ).ids
+        )
+
+        clean = {}
+
+        for key, value in raw.items():
+            try:
+                lot_id = int(key)
+            except Exception:
+                continue
+
+            if lot_id not in selected_ids or lot_id not in partial_lot_ids:
+                continue
+
+            try:
+                qty = float(value or 0.0)
+            except Exception:
+                qty = 0.0
+
+            if qty < 0:
+                qty = 0.0
+
+            clean[str(lot_id)] = qty
+
+        return clean
+
+    def _tc_prepare_breakdown_value_for_line(self, breakdown):
+        self.ensure_one()
+
+        if not breakdown:
+            return False
+
+        field = self._fields.get('x_lot_breakdown_json')
+        if field and field.type in ('char', 'text'):
+            return json.dumps(breakdown)
+
+        return breakdown
+
+    def _tc_compute_final_qty_from_lots(self, lot_ids, breakdown=None):
+        self.ensure_one()
+
+        safe_lot_ids = []
+        for lot_id in lot_ids or []:
+            try:
+                lot_id = int(lot_id)
+            except Exception:
+                continue
+            if lot_id not in safe_lot_ids:
+                safe_lot_ids.append(lot_id)
+
+        if not safe_lot_ids:
+            raise UserError(_(
+                'Debe seleccionar al menos un lote para guardar una asignación desde To Be Allocated.'
+            ))
+
+        lots = self.env['stock.lot'].browse(safe_lot_ids).exists()
+
+        if len(lots) != len(safe_lot_ids):
+            raise UserError(_(
+                'Uno o más lotes seleccionados ya no existen. Actualice el tablero y vuelva a intentar.'
+            ))
+
+        invalid_lots = lots.filtered(
+            lambda lot: lot.product_id and lot.product_id.id != self.product_id.id
+        )
+        if invalid_lots:
+            raise UserError(_(
+                'No puede asignar lotes de otro producto a la línea %(line)s.\n\nLotes inválidos: %(lots)s'
+            ) % {
+                'line': self.display_name,
+                'lots': ', '.join(invalid_lots.mapped('display_name')),
+            })
+
+        clean_breakdown = self._tc_normalize_hub_breakdown(
+            safe_lot_ids,
+            breakdown=breakdown,
+        )
+
+        total_qty = 0.0
+        missing_lots = []
+        rounded_breakdown = {}
+        rounding = self._tc_get_qty_rounding()
+
+        for lot in lots:
+            lot_type = self._tc_get_lot_type(lot)
+            lot_key = str(lot.id)
+            physical_qty = self._tc_get_lot_internal_qty(lot)
+
+            if lot_type in ('formato', 'pieza') and lot_key in clean_breakdown:
+                qty = clean_breakdown.get(lot_key) or 0.0
+                if physical_qty > 0 and float_compare(qty, physical_qty, precision_rounding=rounding) > 0:
+                    qty = physical_qty
+                qty = float_round(qty, precision_rounding=rounding)
+                rounded_breakdown[lot_key] = qty
+            else:
+                qty = float_round(physical_qty, precision_rounding=rounding)
+
+            if float_compare(qty, 0.0, precision_rounding=rounding) <= 0:
+                missing_lots.append(lot.display_name)
+                continue
+
+            total_qty += qty
+
+        total_qty = float_round(total_qty, precision_rounding=rounding)
+
+        if float_compare(total_qty, 0.0, precision_rounding=rounding) <= 0:
+            raise UserError(_(
+                'La asignación no tiene cantidad final positiva. Revise los lotes y las cantidades capturadas.'
+            ))
+
+        if missing_lots:
+            raise UserError(_(
+                'No se puede guardar la asignación porque estos lotes no tienen cantidad interna positiva:\n\n%s'
+            ) % '\n'.join(missing_lots[:50]))
+
+        return total_qty, rounded_breakdown, safe_lot_ids
+
+    def action_tc_apply_allocation_from_hub(self, lot_ids, breakdown=None):
+        """
+        Punto único para guardar asignaciones desde To Be Allocated.
+
+        Regla de negocio:
+        - product_uom_qty queda como cantidad final/facturable.
+        - tc_qty_origin_requested conserva la cantidad solicitada original.
+        - lot_ids/x_lot_breakdown_json quedan sincronizados con sale_stone_selection.
+        - El write NO salta la sincronización de picking, para que el módulo de
+          selección de piedra reconstruya las líneas de entrega con la misma cantidad.
+        """
+        result = {}
+
+        for line in self:
+            if line.display_type or not line.product_id:
+                raise UserError(_(
+                    'La línea seleccionada no es una línea de producto válida.'
+                ))
+
+            if line.state not in ('sale', 'done'):
+                raise UserError(_(
+                    'Solo puede asignar lotes desde To Be Allocated cuando la cotización ya está confirmada como orden de venta.'
+                ))
+
+            final_qty, clean_breakdown, safe_lot_ids = line._tc_compute_final_qty_from_lots(
+                lot_ids,
+                breakdown=breakdown,
+            )
+
+            vals = {
+                'lot_ids': [(6, 0, safe_lot_ids)],
+                'product_uom_qty': final_qty,
+            }
+
+            if 'x_lot_breakdown_json' in line._fields:
+                vals['x_lot_breakdown_json'] = line._tc_prepare_breakdown_value_for_line(
+                    clean_breakdown
+                )
+
+            if 'tc_qty_origin_requested' in line._fields and not line.tc_qty_origin_requested:
+                vals['tc_qty_origin_requested'] = line.product_uom_qty or 0.0
+
+            if 'auto_transit_assign' in line._fields:
+                vals['auto_transit_assign'] = False
+
+            if 'tc_stock_rejected' in line._fields:
+                vals.update({
+                    'tc_stock_rejected': False,
+                    'tc_stock_rejected_reason': False,
+                    'tc_stock_rejected_by': False,
+                    'tc_stock_rejected_at': False,
+                })
+
+            old_qty = line.product_uom_qty or 0.0
+            origin_qty = (
+                line.tc_qty_origin_requested
+                if 'tc_qty_origin_requested' in line._fields and line.tc_qty_origin_requested
+                else old_qty
+            )
+
+            line.write(vals)
+
+            line.order_id.message_post(body=_(
+                '✅ <b>Asignación aplicada desde To Be Allocated</b><br/>'
+                'Producto: <b>%(product)s</b><br/>'
+                'Cantidad origen: <b>%(origin).3f</b><br/>'
+                'Cantidad final/facturable: <b>%(final).3f</b><br/>'
+                'Lotes asignados: <b>%(lots)s</b>'
+            ) % {
+                'product': line.product_id.display_name,
+                'origin': origin_qty,
+                'final': final_qty,
+                'lots': len(safe_lot_ids),
+            })
+
+            line_uom = line._tc_get_line_uom()
+            result = {
+                'success': True,
+                'sale_line_id': line.id,
+                'origin_qty': origin_qty,
+                'previous_qty': old_qty,
+                'final_qty': final_qty,
+                'lot_ids': safe_lot_ids,
+                'lot_count': len(safe_lot_ids),
+                'uom_name': line_uom.display_name if line_uom else '',
+            }
+
+        return result
 
     def _tc_get_assigned_lot_qty(self):
         self.ensure_one()
