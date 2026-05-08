@@ -603,7 +603,7 @@
                                     <t t-if="state.loadingPOs">
                                         <div class="o_tbp_loading">
                                             <i class="fa fa-spinner fa-spin fa-lg me-2"/>
-                                            Buscando órdenes abiertas o confirmadas...
+                                            Buscando OCs abiertas, confirmadas o vinculadas...
                                         </div>
                                     </t>
 
@@ -616,7 +616,7 @@
                                             <div class="o_tbp_po_info">
                                                 <div class="fw-semibold">Crear nueva orden de compra</div>
                                                 <div class="text-muted" style="font-size: 11px;">
-                                                    Se generará una OC nueva para este proveedor
+                                                    Se generará una OC nueva para el diferencial seleccionado
                                                 </div>
                                             </div>
                                             <i t-if="!state.selectedPO"

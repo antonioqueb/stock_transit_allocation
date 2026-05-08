@@ -120,24 +120,41 @@ export class ToBePurchased extends Component {
                 // por comprar, neto de OC/allocation activa. No se debe ocultar
                 // una línea solo porque tenga po_id: si la demanda subió, debe
                 // seguir apareciendo con el faltante nuevo.
-                const filteredLines = (product.so_lines || []).filter(
-                    (line) => Number(line.qty_pending || 0) > 0
-                );
+                const filteredLines = (product.so_lines || []).filter((line) => {
+                    const pendingToBuy = Number(
+                        line.qty_purchase_pending !== undefined
+                            ? line.qty_purchase_pending
+                            : (line.qty_pending || 0)
+                    );
+                    return pendingToBuy > 0.0001;
+                });
 
                 if (filteredLines.length === 0) {
                     return null;
                 }
 
                 const qtySo = filteredLines.reduce(
-                    (sum, line) => sum + Number(line.qty_pending || 0),
+                    (sum, line) => sum + Number(
+                        line.qty_purchase_pending !== undefined
+                            ? line.qty_purchase_pending
+                            : (line.qty_pending || 0)
+                    ),
                     0
                 );
                 const qtySoM2 = filteredLines.reduce(
-                    (sum, line) => sum + Number(line.qty_pending_m2 || 0),
+                    (sum, line) => sum + Number(
+                        line.qty_purchase_pending_m2 !== undefined
+                            ? line.qty_purchase_pending_m2
+                            : (line.qty_pending_m2 || 0)
+                    ),
                     0
                 );
                 const qtySoPieces = filteredLines.reduce(
-                    (sum, line) => sum + Number(line.qty_pending_pieces || 0),
+                    (sum, line) => sum + Number(
+                        line.qty_purchase_pending_pieces !== undefined
+                            ? line.qty_purchase_pending_pieces
+                            : (line.qty_pending_pieces || 0)
+                    ),
                     0
                 );
 
@@ -672,12 +689,14 @@ export class ToBePurchased extends Component {
         this.state.vendorSearch = vendorName;
         this.state.showVendorDropdown = false;
 
-        const openPOs = await this._loadOpenPurchaseOrdersForVendor(vendorId);
-        const linkedPOIds = [...new Set(linkedLines.map((line) => line.po_id).filter(Boolean))];
+        await this._loadOpenPurchaseOrdersForVendor(vendorId);
 
-        if (linkedPOIds.length === 1 && openPOs.some((po) => po.id === linkedPOIds[0])) {
-            this.state.selectedPO = linkedPOIds[0];
-        }
+        // Importante: si la línea ya tiene una OC vinculada, NO la seleccionamos
+        // automáticamente. El flujo debe permitir dos decisiones claras:
+        // 1) crear una OC nueva para el incremento, o
+        // 2) elegir manualmente la OC vinculada/abierta y agregar ahí.
+        // Esto evita que una OC vinculada bloquee la creación de una OC nueva.
+        this.state.selectedPO = null;
     }
 
     async openPurchaseModal() {
@@ -954,4 +973,6 @@ registry.category("actions").add(
     "action_to_be_purchased",
     ToBePurchased,
     { force: true }
-);
+);```
+
+## ./static/src/components/to_be_purchased/to_be_purchased.scss

@@ -121,10 +121,10 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         """
         Allocations activas que ya cubren demanda de compra de una línea.
 
-        Estas allocations representan material que ya fue agregado a una OC,
-        aunque todavía no haya llegado ni esté asignado físicamente con placas.
-        Se excluyen canceladas/done para no restar material que ya fue liberado
-        o que ya debería estar reflejado como asignado/entregado.
+        No se toma ciegamente allocation.quantity como verdad absoluta, porque
+        una allocation histórica pudo haberse inflado al editar la demanda de
+        la SO. La cobertura real se calcula después contra la capacidad real
+        de la purchase.order.line.
         """
         if not sale_line or not sale_line.exists():
             return self.env['purchase.order.line.allocation']
@@ -139,24 +139,88 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             lambda alloc: alloc.purchase_order_id
             and alloc.purchase_order_id.exists()
             and alloc.purchase_order_id.state != 'cancel'
+            and alloc.purchase_line_id
+            and alloc.purchase_line_id.exists()
         )
 
+    def _get_purchase_coverage_by_sale_line(self, sale_line_ids):
+        """
+        Cobertura real de compra por sale.order.line.
+
+        Por qué existe:
+        - Si una línea vendida nació con 100 m² y se compraron 100 m², existe
+          una allocation activa.
+        - Si después la demanda sube a 200 m², To Be Purchased debe mostrar
+          solo el diferencial: 100 m².
+        - Si por una lógica anterior la allocation quedó inflada a 200 m² pero
+          la línea real de OC sigue siendo 100 m², no debemos considerar 200 m²
+          como comprado.
+
+        Regla: la suma de allocations de una purchase.order.line se topa contra
+        la cantidad real de esa línea de OC. Si varias SO comparten la misma
+        línea de compra, se reparte proporcionalmente.
+        """
+        if not sale_line_ids:
+            return {}
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+        allocations = Allocation.search([
+            ('sale_line_id', 'in', list(sale_line_ids)),
+            ('state', 'not in', ['cancelled', 'done']),
+            ('purchase_order_id.state', '!=', 'cancel'),
+            ('purchase_line_id', '!=', False),
+        ], order='purchase_line_id, id')
+
+        allocations = allocations.filtered(
+            lambda alloc: alloc.purchase_line_id
+            and alloc.purchase_line_id.exists()
+            and alloc.purchase_order_id
+            and alloc.purchase_order_id.exists()
+            and alloc.purchase_order_id.state != 'cancel'
+        )
+
+        coverage_by_line = defaultdict(float)
+        allocations_by_po_line = defaultdict(lambda: self.env['purchase.order.line.allocation'].sudo())
+
+        for allocation in allocations:
+            allocations_by_po_line[allocation.purchase_line_id.id] |= allocation
+
+        for _po_line_id, po_allocations in allocations_by_po_line.items():
+            po_line = po_allocations[0].purchase_line_id
+            po_capacity = max(float(po_line.product_qty or 0.0), 0.0)
+
+            # Nunca una línea de OC puede cubrir más que lo comprado realmente.
+            total_declared = sum(max(float(alloc.quantity or 0.0), 0.0) for alloc in po_allocations)
+
+            if po_capacity <= 0.0 or total_declared <= 0.0:
+                continue
+
+            if total_declared <= po_capacity:
+                for alloc in po_allocations:
+                    if alloc.sale_line_id:
+                        coverage_by_line[alloc.sale_line_id.id] += max(float(alloc.quantity or 0.0), 0.0)
+                continue
+
+            # Caso defensivo: allocations infladas contra una PO line menor.
+            # Se distribuye la capacidad real de la OC proporcionalmente.
+            factor = po_capacity / total_declared
+            for alloc in po_allocations:
+                if alloc.sale_line_id:
+                    coverage_by_line[alloc.sale_line_id.id] += max(float(alloc.quantity or 0.0), 0.0) * factor
+
+        return dict(coverage_by_line)
+
     def _get_active_purchase_qty_for_line(self, sale_line):
-        allocations = self._get_active_purchase_allocations(sale_line)
-        return sum(allocations.mapped('quantity'))
+        if not sale_line or not sale_line.exists():
+            return 0.0
+        return self._get_purchase_coverage_by_sale_line([sale_line.id]).get(sale_line.id, 0.0)
 
     def _get_purchase_gap_qty_for_line(self, sale_line, raw_pending_qty=False):
         """
-        Pendiente real para To Be Purchased.
+        Pendiente incremental para To Be Purchased.
 
         raw_pending_qty = demanda viva pendiente de cubrir físicamente.
-        active_purchase_qty = cantidad de esa demanda que ya tiene OC/allocation.
-
-        Ejemplo:
-        - Pedido sube de 100 a 200 m².
-        - Ya existe allocation/OC por 100 m².
-        - raw_pending_qty = 200 si aún no hay placas recibidas/asignadas.
-        - gap = 100, que es lo único que debe volver a aparecer en TBP.
+        active_purchase_qty = cantidad real ya cubierta por líneas de OC activas.
         """
         if not sale_line or not sale_line.exists():
             return 0.0
@@ -469,23 +533,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return self._hub_parse_json_value(line.x_lot_breakdown_json)
 
     def _hub_get_active_purchase_qty_by_sale_line(self, sale_line_ids):
-        if not sale_line_ids:
-            return {}
-
-        Allocation = self.env['purchase.order.line.allocation'].sudo()
-        allocations = Allocation.search([
-            ('sale_line_id', 'in', list(sale_line_ids)),
-            ('state', 'not in', ['cancelled', 'done']),
-            ('purchase_order_id.state', '!=', 'cancel'),
-        ])
-
-        qty_map = defaultdict(float)
-        for allocation in allocations:
-            if not allocation.sale_line_id:
-                continue
-            qty_map[allocation.sale_line_id.id] += allocation.quantity or 0.0
-
-        return dict(qty_map)
+        return self._get_purchase_coverage_by_sale_line(sale_line_ids)
 
     def _hub_compute_sale_line_metrics(self, sale_lines):
         """Calcula cantidades de asignación en lote para evitar N+1 queries."""
@@ -827,9 +875,11 @@ class ToBePurchasedLogic(models.AbstractModel):
                 )
                 row.update({
                     'qty_raw_pending': raw_pending,
+                    'qty_purchase_pending': purchase_pending,
                     'qty_purchase_covered': purchase_covered,
                 })
                 row.update(self._split_qty_fields(product, 'qty_raw_pending', raw_pending))
+                row.update(self._split_qty_fields(product, 'qty_purchase_pending', purchase_pending))
                 row.update(self._split_qty_fields(product, 'qty_purchase_covered', purchase_covered))
                 so_details.append(row)
 
@@ -1068,7 +1118,11 @@ class ToBePurchasedLogic(models.AbstractModel):
         line_data = []
 
         for line in candidate_lines:
-            raw_pending = line.tc_qty_pending_allocation
+            if hasattr(line, '_tc_get_pending_allocation_qty'):
+                raw_pending = line._tc_get_pending_allocation_qty()
+            else:
+                raw_pending = line.tc_qty_pending_allocation
+
             purchase_gap = self._get_purchase_gap_qty_for_line(
                 line,
                 raw_pending_qty=raw_pending,
@@ -1088,7 +1142,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'tag': 'display_notification',
                 'params': {
                     'title': 'Sin pendiente nuevo por comprar',
-                    'message': 'La demanda seleccionada ya está cubierta por OC/allocation activa o ya fue cerrada.',
+                    'message': 'La demanda seleccionada no tiene diferencial nuevo por comprar. Revise la columna OC vinculada/cubierto o use Mostrar todo para auditar.',
                     'type': 'warning',
                     'sticky': False,
                 },
