@@ -1417,6 +1417,190 @@ class SaleOrderLine(models.Model):
     # ACCIONES HUB
     # -------------------------------------------------------------------------
 
+    def _tc_cancel_active_purchase_flow_from_tbp(self, reason=False):
+        """
+        Limpia la intención de compra vinculada a una línea cerrada desde
+        To Be Purchased.
+
+        Reglas conservadoras:
+        - Cancela allocations activas de la línea de venta.
+        - Si la OC sigue en borrador/enviada, reduce la línea de compra por la
+          cantidad cancelada, sin bajar de las allocations que sigan activas.
+        - Si la OC ya está confirmada, NO modifica la OC; solo cancela la
+          allocation para que el material llegue como stock libre.
+        - Si ya existen líneas de tránsito no entregadas para esa allocation,
+          se liberan como disponibles.
+        """
+        self.ensure_one()
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+        allocations = Allocation.search([
+            ('sale_line_id', '=', self.id),
+            ('state', 'not in', ['cancelled', 'done']),
+        ], order='id asc')
+
+        result = {
+            'allocation_count': 0,
+            'cancelled_qty': 0.0,
+            'po_names': [],
+            'draft_po_adjusted': 0,
+            'confirmed_po_untouched': 0,
+            'transit_lines_released': 0,
+        }
+
+        if not allocations:
+            return result
+
+        po_names = set()
+
+        for allocation in allocations:
+            allocation_qty = allocation.quantity or 0.0
+            po_line = allocation.purchase_line_id
+            po = allocation.purchase_order_id
+
+            result['allocation_count'] += 1
+            result['cancelled_qty'] += allocation_qty
+
+            if po:
+                po_names.add(po.name)
+
+            allocation.write({'state': 'cancelled'})
+
+            if po_line and po_line.exists() and po and po.exists():
+                if po.state in ('draft', 'sent'):
+                    active_allocations = po_line.allocation_ids.filtered(
+                        lambda alloc: alloc.state not in ('cancelled', 'done')
+                    )
+                    active_qty = sum(active_allocations.mapped('quantity'))
+                    reduced_qty = max((po_line.product_qty or 0.0) - allocation_qty, 0.0)
+                    target_qty = max(active_qty, reduced_qty)
+
+                    if target_qty > 0:
+                        po_line.write({'product_qty': target_qty})
+                    elif (po_line.qty_received or 0.0) <= 0:
+                        po_line.unlink()
+                    else:
+                        po_line.write({'product_qty': po_line.qty_received})
+
+                    result['draft_po_adjusted'] += 1
+
+                    po.message_post(body=(
+                        '🧹 <b>Pendiente de compra cancelado desde To Be Purchased</b><br/>'
+                        'Pedido: <b>%s</b><br/>'
+                        'Producto: <b>%s</b><br/>'
+                        'Cantidad cancelada: <b>%.3f</b><br/>'
+                        'Motivo: %s'
+                    ) % (
+                        self.order_id.name,
+                        self.product_id.display_name,
+                        allocation_qty,
+                        reason or 'Pendiente cancelado desde To Be Purchased.',
+                    ))
+                else:
+                    result['confirmed_po_untouched'] += 1
+                    po.message_post(body=(
+                        '🧹 <b>Allocation cancelada desde To Be Purchased</b><br/>'
+                        'Pedido: <b>%s</b><br/>'
+                        'Producto: <b>%s</b><br/>'
+                        'Cantidad cancelada de la allocation: <b>%.3f</b><br/>'
+                        'La OC ya está confirmada; no se modificó la compra. '
+                        'El material relacionado deberá quedar como stock libre al recibirse.<br/>'
+                        'Motivo: %s'
+                    ) % (
+                        self.order_id.name,
+                        self.product_id.display_name,
+                        allocation_qty,
+                        reason or 'Pendiente cancelado desde To Be Purchased.',
+                    ))
+
+            TransitLine = self.env['stock.transit.line'].sudo()
+            transit_lines = TransitLine.search([
+                ('allocation_id', '=', allocation.id),
+                ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+            ])
+
+            if transit_lines:
+                for transit_line in transit_lines:
+                    try:
+                        transit_line._execute_release_logic()
+                    except Exception as e:
+                        _logger.warning(
+                            '[TC_TBP_CANCEL] No se pudo ejecutar release en stock.transit.line %s: %s',
+                            transit_line.id,
+                            e,
+                            exc_info=True,
+                        )
+
+                transit_lines.with_context(
+                    skip_reservation_logic=True,
+                    skip_transit_publication_sync=False,
+                ).write({
+                    'partner_id': False,
+                    'order_id': False,
+                    'allocation_id': False,
+                    'allocation_status': 'available',
+                    'notes': (reason or 'Liberado por cancelación desde To Be Purchased'),
+                })
+
+                result['transit_lines_released'] += len(transit_lines)
+
+        result['po_names'] = sorted(po_names)
+        return result
+
+    def action_tc_cancel_purchase_pending(self, reason=False, closure_action=False):
+        """
+        Cancela el pendiente operativo desde To Be Purchased.
+
+        Solo permite:
+        - settle: cancelar sin descuento.
+        - discount: cancelar aplicando descuento equivalente.
+
+        No usa credit_note en este hub.
+        """
+        valid_actions = {'settle', 'discount'}
+        action_value = closure_action or 'settle'
+
+        if action_value not in valid_actions:
+            raise UserError(_('Seleccione una acción válida para cancelar el pendiente de compra.'))
+
+        for line in self:
+            if line.display_type:
+                continue
+
+            raw_pending_qty = line._tc_get_raw_pending_allocation_qty()
+
+            if line._tc_float_le_zero(raw_pending_qty):
+                raise UserError(_(
+                    'La línea "%s" no tiene pendiente de compra por cancelar.'
+                ) % (line.product_id.display_name or line.name or line.id))
+
+            close_reason = reason or _('Pendiente de compra cancelado desde To Be Purchased.')
+            cleanup_result = line._tc_cancel_active_purchase_flow_from_tbp(reason=close_reason)
+
+            line.action_tc_close_allocation_short(
+                reason=close_reason,
+                closure_action=action_value,
+            )
+
+            action_label = 'Cancelar sin descuento' if action_value == 'settle' else 'Cancelar aplicando descuento'
+
+            line._tc_post_plain_message(
+                _('🧹 Pendiente de compra cancelado desde To Be Purchased'),
+                [
+                    _('Producto: %s') % (line.product_id.display_name or ''),
+                    _('Pedido: %s') % (line.order_id.name or ''),
+                    _('Pendiente cancelado: %.3f') % raw_pending_qty,
+                    _('Acción: %s') % action_label,
+                    _('Allocations canceladas: %s') % cleanup_result.get('allocation_count', 0),
+                    _('Cantidad cancelada en compras: %.3f') % cleanup_result.get('cancelled_qty', 0.0),
+                    _('OC relacionadas: %s') % (', '.join(cleanup_result.get('po_names') or []) or 'N/A'),
+                    _('Líneas de tránsito liberadas: %s') % cleanup_result.get('transit_lines_released', 0),
+                    _('Motivo: %s') % close_reason,
+                ],
+            )
+
+        return True
+
     def action_tc_send_to_purchase(self, reason=False):
         for line in self:
             if line.display_type:

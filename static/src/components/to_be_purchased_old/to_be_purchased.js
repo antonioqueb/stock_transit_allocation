@@ -1,6 +1,6 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
-import { Component, useState, onWillStart, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onWillStart } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 export class ToBePurchased extends Component {
@@ -8,9 +8,6 @@ export class ToBePurchased extends Component {
         this.orm = useService("orm");
         this.action = useService("action");
         this.notification = useService("notification");
-
-        this._cancelPopupRoot = null;
-        this._cancelPopupKeyHandler = null;
 
         this.state = useState({
             data: [],
@@ -35,16 +32,11 @@ export class ToBePurchased extends Component {
             selectedPO: null,
             loadingPOs: false,
             creatingPO: false,
-            cancelling: {},
         });
 
         onWillStart(async () => {
             await this.loadData();
             await this.loadAllVendors();
-        });
-
-        onWillUnmount(() => {
-            this.destroyCancelPopup();
         });
     }
 
@@ -401,210 +393,6 @@ export class ToBePurchased extends Component {
             }
         } else {
             this.state.selectedLines = this.state.selectedLines.filter((id) => id !== lineId);
-        }
-    }
-
-    _escapeHtml(value) {
-        const div = document.createElement("div");
-        div.textContent = value === null || value === undefined ? "" : String(value);
-        return div.innerHTML;
-    }
-
-    destroyCancelPopup() {
-        if (this._cancelPopupKeyHandler) {
-            document.removeEventListener("keydown", this._cancelPopupKeyHandler);
-            this._cancelPopupKeyHandler = null;
-        }
-
-        if (this._cancelPopupRoot) {
-            this._cancelPopupRoot.remove();
-            this._cancelPopupRoot = null;
-        }
-    }
-
-    askCancelDecision(line) {
-        this.destroyCancelPopup();
-
-        return new Promise((resolve) => {
-            const root = document.createElement("div");
-            root.className = "o_tbp_cancel_root";
-            document.body.appendChild(root);
-            this._cancelPopupRoot = root;
-
-            const pending = this.fmtQtyWithUnit(line.qty_pending || 0, line.unit_label || "");
-            const requested = this.fmtQtyWithUnit(line.qty_requested || line.qty_orig || 0, line.unit_label || "");
-            const assigned = this.fmtQtyWithUnit(line.qty_assigned || 0, line.unit_label || "");
-            const poLabel = line.po_name || "Sin OC vinculada";
-
-            root.innerHTML = `
-                <div class="o_tbp_cancel_backdrop">
-                    <div class="o_tbp_cancel_dialog">
-                        <div class="o_tbp_cancel_header">
-                            <div>
-                                <h4>Cancelar pendiente de compra</h4>
-                                <p>
-                                    Esta acción saca la línea de To Be Purchased. No genera nota de crédito.
-                                </p>
-                            </div>
-                            <button type="button" class="o_tbp_cancel_x" data-action="cancel">
-                                <i class="fa fa-times"></i>
-                            </button>
-                        </div>
-
-                        <div class="o_tbp_cancel_summary">
-                            <div><span>Pedido</span><strong>${this._escapeHtml(line.so_name || "-")}</strong></div>
-                            <div><span>Cliente</span><strong>${this._escapeHtml(line.customer || "-")}</strong></div>
-                            <div><span>Solicitado</span><strong>${this._escapeHtml(requested)}</strong></div>
-                            <div><span>Asignado</span><strong>${this._escapeHtml(assigned)}</strong></div>
-                            <div><span>Pendiente</span><strong>${this._escapeHtml(pending)}</strong></div>
-                            <div><span>OC</span><strong>${this._escapeHtml(poLabel)}</strong></div>
-                        </div>
-
-                        <div class="o_tbp_cancel_options">
-                            <label class="o_tbp_cancel_option active">
-                                <input type="radio" name="tbp_cancel_action" value="settle" checked="checked"/>
-                                <span class="o_tbp_cancel_option_icon"><i class="fa fa-check-circle"></i></span>
-                                <span>
-                                    <strong>Cancelar sin descuento</strong>
-                                    <small>Se cierra el pendiente operativo. La cantidad y el cobro actual del pedido se mantienen intactos.</small>
-                                </span>
-                            </label>
-
-                            <label class="o_tbp_cancel_option">
-                                <input type="radio" name="tbp_cancel_action" value="discount"/>
-                                <span class="o_tbp_cancel_option_icon"><i class="fa fa-tag"></i></span>
-                                <span>
-                                    <strong>Cancelar aplicando descuento</strong>
-                                    <small>Se cierra el pendiente y se aplica descuento equivalente al faltante no comprado.</small>
-                                </span>
-                            </label>
-                        </div>
-
-                        <div class="o_tbp_cancel_note">
-                            <label>Motivo</label>
-                            <textarea id="tbp-cancel-reason" rows="3">Pendiente de compra cancelado desde To Be Purchased.</textarea>
-                        </div>
-
-                        <div class="o_tbp_cancel_footer">
-                            <button type="button" class="btn btn-light" data-action="cancel">Volver</button>
-                            <button type="button" class="btn btn-danger" data-action="accept">
-                                <i class="fa fa-ban me-1"></i> Cancelar pendiente
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            const cleanup = () => this.destroyCancelPopup();
-            const cancel = () => {
-                cleanup();
-                resolve(false);
-            };
-
-            root.querySelectorAll(".o_tbp_cancel_option").forEach((option) => {
-                option.addEventListener("click", () => {
-                    root.querySelectorAll(".o_tbp_cancel_option").forEach((el) => el.classList.remove("active"));
-                    option.classList.add("active");
-
-                    const input = option.querySelector("input[name='tbp_cancel_action']");
-                    if (input) {
-                        input.checked = true;
-                    }
-                });
-            });
-
-            root.querySelectorAll("[data-action='cancel']").forEach((btn) => {
-                btn.addEventListener("click", (ev) => {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    cancel();
-                });
-            });
-
-            root.querySelector("[data-action='accept']").addEventListener("click", (ev) => {
-                ev.preventDefault();
-                ev.stopPropagation();
-
-                const selected = root.querySelector("input[name='tbp_cancel_action']:checked");
-                const reason = root.querySelector("#tbp-cancel-reason");
-
-                const payload = {
-                    action: selected ? selected.value : "settle",
-                    reason: reason && reason.value
-                        ? reason.value
-                        : "Pendiente de compra cancelado desde To Be Purchased.",
-                };
-
-                cleanup();
-                resolve(payload);
-            });
-
-            const keyHandler = (ev) => {
-                if (ev.key === "Escape") {
-                    ev.preventDefault();
-                    ev.stopPropagation();
-                    cancel();
-                }
-            };
-
-            document.addEventListener("keydown", keyHandler);
-            this._cancelPopupKeyHandler = keyHandler;
-        });
-    }
-
-    async cancelPending(line, ev) {
-        if (ev) {
-            ev.stopPropagation();
-            ev.preventDefault();
-        }
-
-        if (!line || !line.id) {
-            return;
-        }
-
-        const decision = await this.askCancelDecision(line);
-        if (!decision) {
-            return;
-        }
-
-        this.state.cancelling[line.id] = true;
-
-        try {
-            const result = await this.orm.call(
-                "purchase.manager.logic",
-                "cancel_pending",
-                [
-                    [line.id],
-                    decision.reason || "Pendiente de compra cancelado desde To Be Purchased.",
-                    decision.action || "settle",
-                ]
-            );
-
-            if (result && result.error) {
-                this.notification.add(result.error, { type: "danger" });
-                return;
-            }
-
-            this.state.selectedLines = this.state.selectedLines.filter((id) => id !== line.id);
-
-            const message = decision.action === "discount"
-                ? "Pendiente cancelado y descuento aplicado."
-                : "Pendiente cancelado sin modificar el pedido.";
-
-            this.notification.add(message, {
-                type: "success",
-                sticky: false,
-            });
-
-            await this.loadData();
-        } catch (error) {
-            console.error("[ToBePurchased] Error cancelando pendiente:", error);
-            this.notification.add(
-                "Error al cancelar pendiente: " + (error.message || error),
-                { type: "danger" }
-            );
-        } finally {
-            this.state.cancelling[line.id] = false;
         }
     }
 

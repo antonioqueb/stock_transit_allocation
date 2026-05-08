@@ -610,6 +610,54 @@ class ToBePurchasedLogic(models.AbstractModel):
         return True
 
     @api.model
+    def cancel_pending(self, sale_line_ids, reason=False, closure_action=False):
+        """
+        Cancela/cierra pendientes desde To Be Purchased.
+
+        Acciones permitidas en este hub:
+        - settle: limpia el pendiente sin modificar cantidad ni descuento.
+        - discount: limpia el pendiente y aplica descuento equivalente al faltante.
+
+        No expone nota de crédito porque este flujo se usa para limpieza operativa
+        y ajuste comercial por descuento.
+        """
+        action_value = closure_action or 'settle'
+
+        if action_value not in ('settle', 'discount'):
+            return {
+                'error': 'Seleccione una acción válida: cancelar sin descuento o cancelar aplicando descuento.',
+            }
+
+        lines = self.env['sale.order.line'].browse(sale_line_ids).exists()
+
+        lines = lines.filtered(
+            lambda line: line.state in ('sale', 'done')
+            and line.tc_allocation_hub_state == 'to_be_purchased'
+            and line.tc_qty_pending_allocation > 0
+            and not line.tc_assignment_closed
+        )
+
+        if not lines:
+            return {'error': 'No hay líneas válidas pendientes por cancelar en To Be Purchased'}
+
+        if hasattr(lines, 'action_tc_cancel_purchase_pending'):
+            lines.action_tc_cancel_purchase_pending(
+                reason=reason or 'Pendiente de compra cancelado desde To Be Purchased.',
+                closure_action=action_value,
+            )
+        else:
+            lines.action_tc_close_allocation_short(
+                reason=reason or 'Pendiente de compra cancelado desde To Be Purchased.',
+                closure_action=action_value,
+            )
+
+        return {
+            'success': True,
+            'message': 'Pendiente(s) cancelado(s) correctamente',
+            'closed_count': len(lines),
+        }
+
+    @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
 
