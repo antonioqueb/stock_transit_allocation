@@ -1,24 +1,41 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- ── Formulario: columnas operativas limpias en líneas ── -->
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <!-- Formulario: columnas operativas limpias en líneas de pedido    -->
+    <!-- ───────────────────────────────────────────────────────────── -->
     <record id="view_order_form_transit_inherit" model="ir.ui.view">
         <field name="name">sale.order.form.transit.inherit</field>
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="arch" type="xml">
+
+            <!-- ========================================================= -->
+            <!-- Columnas operativas después de descripción                 -->
+            <!-- ========================================================= -->
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
                 <field name="has_stone_lots" column_invisible="1"/>
+                <field name="tc_stock_rejected" column_invisible="1"/>
                 <field name="tc_assignment_closed" column_invisible="1"/>
                 <field name="tc_closure_reason" column_invisible="1"/>
                 <field name="tc_closure_by" column_invisible="1"/>
                 <field name="tc_closure_at" column_invisible="1"/>
 
+                <!--
+                    IMPORTANTE:
+                    Antes estaba readonly="has_stone_lots".
+                    Eso bloqueaba el flujo mixto:
+                    - asignar placas primero
+                    - después mandar a pedir el restante
+
+                    Ahora se permite marcar Mandar a pedir aunque existan placas,
+                    siempre que exista pendiente real por cubrir.
+                -->
                 <field name="auto_transit_assign"
                        widget="boolean_toggle"
-                       optional="hide"
-                       width="100px"
+                       optional="show"
+                       width="110px"
                        string="Mandar a pedir"
-                       readonly="has_stone_lots"/>
+                       readonly="tc_qty_pending_allocation &lt;= 0 and not auto_transit_assign"/>
 
                 <field name="transit_status"
                        optional="hide"
@@ -37,27 +54,37 @@
                        readonly="1"/>
             </xpath>
 
+            <!-- ========================================================= -->
+            <!-- Renombrar cantidad comercial                              -->
+            <!-- ========================================================= -->
             <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
                 <attribute name="string">Solicitado</attribute>
             </xpath>
 
+            <!-- ========================================================= -->
+            <!-- Métricas de asignación y acciones                          -->
+            <!-- ========================================================= -->
             <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
                 <field name="tc_qty_assigned_lots"
                        string="Asignado"
                        optional="show"
                        readonly="1"/>
+
                 <field name="tc_qty_pending_allocation"
                        string="Pendiente"
                        optional="show"
                        readonly="1"/>
+
                 <field name="tc_qty_assigned_percent"
                        string="% Asignado"
                        optional="hide"
                        readonly="1"/>
+
                 <field name="tc_qty_over_assigned"
                        string="Sobreasignado"
                        optional="hide"
                        readonly="1"/>
+
                 <field name="tc_assignment_state"
                        string="Estado asignación"
                        optional="show"
@@ -67,10 +94,37 @@
                        decoration-success="tc_assignment_state == 'complete'"
                        decoration-danger="tc_assignment_state in ['over_assigned', 'closed_short']"
                        readonly="1"/>
+
                 <field name="tc_closed_short_qty"
                        string="Dif. cerrada"
                        optional="hide"
                        readonly="1"/>
+
+                <!--
+                    Acción explícita desde el pedido.
+                    Sirve para el flujo:
+                    100 solicitado / 80 asignado / 20 pendiente
+                    → Mandar restante a To Be Purchased.
+                -->
+                <button name="action_tc_send_to_purchase"
+                        type="object"
+                        string="Mandar restante"
+                        class="btn-warning"
+                        title="Mandar el pendiente real a compra aunque exista stock disponible"
+                        invisible="tc_qty_pending_allocation &lt;= 0 or tc_assignment_closed or auto_transit_assign"/>
+
+                <!--
+                    Acción inversa:
+                    si se mandó a pedir pero luego se quiere volver a revisar stock,
+                    limpia la intención de compra y permite que el pendiente regrese
+                    a To Be Allocated si existe stock libre.
+                -->
+                <button name="action_tc_clear_stock_rejection"
+                        type="object"
+                        string="Revisar stock"
+                        class="btn-secondary"
+                        title="Quitar Mandar a pedir y volver a revisar stock disponible"
+                        invisible="not auto_transit_assign or tc_assignment_closed"/>
 
                 <button name="action_tc_close_allocation_short"
                         type="object"
@@ -89,7 +143,9 @@
         </field>
     </record>
 
-    <!-- ── Vista de búsqueda: filtro y agrupación ── -->
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <!-- Vista de búsqueda: filtro y agrupación                         -->
+    <!-- ───────────────────────────────────────────────────────────── -->
     <record id="view_sales_order_filter_transit_inherit" model="ir.ui.view">
         <field name="name">sale.order.filter.transit.inherit</field>
         <field name="model">sale.order</field>
@@ -99,6 +155,7 @@
                 <filter name="has_mandar_pedir"
                         string="Con Mandar a pedir"
                         domain="[('has_mandar_pedir', '=', True)]"/>
+
                 <filter name="group_mandar_pedir"
                         string="Agrupar por Mandar a pedir"
                         context="{'group_by': 'has_mandar_pedir'}"/>
