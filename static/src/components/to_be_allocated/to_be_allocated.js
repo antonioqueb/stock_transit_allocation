@@ -1,6 +1,6 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
-import { Component, useState, onWillStart, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 export class ToBeAllocated extends Component {
@@ -29,8 +29,8 @@ export class ToBeAllocated extends Component {
             closing: {},
         });
 
-        onWillStart(async () => {
-            await this.loadData();
+        onMounted(() => {
+            this.loadData();
         });
 
         onWillUnmount(() => {

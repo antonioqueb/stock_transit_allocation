@@ -92,9 +92,29 @@
             </div>
 
             <!-- Loading -->
-            <div t-if="state.loading" class="o_tbp_loading_state">
-                <i class="fa fa-spinner fa-spin fa-2x"/>
-                <span>Cargando pendientes por compra...</span>
+            <div t-if="state.loading" class="o_tbp_skeleton" aria-label="Cargando pendientes por compra">
+                <div class="o_tbp_skeleton_notice">
+                    <i class="fa fa-circle-o-notch fa-spin"/>
+                    <span>Cargando pendientes por compra...</span>
+                </div>
+
+                <t t-foreach="[1, 2, 3, 4, 5]" t-as="idx" t-key="idx">
+                    <div class="o_tbp_skeleton_group">
+                        <div class="o_tbp_skeleton_left">
+                            <span class="o_tbp_skeleton_chevron"/>
+                            <div class="o_tbp_skeleton_texts">
+                                <span class="o_tbp_skeleton_line o_tbp_skeleton_line_lg"/>
+                                <span class="o_tbp_skeleton_line o_tbp_skeleton_line_sm"/>
+                            </div>
+                        </div>
+                        <div class="o_tbp_skeleton_stats">
+                            <span class="o_tbp_skeleton_pill"/>
+                            <span class="o_tbp_skeleton_pill"/>
+                            <span class="o_tbp_skeleton_pill"/>
+                            <span class="o_tbp_skeleton_pill"/>
+                        </div>
+                    </div>
+                </t>
             </div>
 
             <!-- Empty general -->

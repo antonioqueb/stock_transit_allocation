@@ -1,6 +1,6 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
-import { Component, useState, onWillStart, onWillUnmount } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 export class ToBePurchased extends Component {
@@ -38,9 +38,9 @@ export class ToBePurchased extends Component {
             cancelling: {},
         });
 
-        onWillStart(async () => {
-            await this.loadData();
-            await this.loadAllVendors();
+        onMounted(() => {
+            this.loadData();
+            this.loadAllVendors();
         });
 
         onWillUnmount(() => {

@@ -1489,3 +1489,113 @@ $o-tba-pill: 999px;
 .stone-overassign-modal {
     z-index: 100001 !important;
 }
+
+
+// ============================================================================
+// Loading skeleton — renderiza inmediato mientras el RPC termina
+// ============================================================================
+
+.o_tba_skeleton {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 18px 22px 28px;
+}
+
+.o_tba_skeleton_notice {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 13px;
+    padding: 9px 12px;
+    border: 1px solid rgba(215, 232, 242, 0.96);
+    border-radius: $o-tba-pill;
+    background: rgba(255, 255, 255, 0.86);
+    color: $o-tba-text-2;
+    font-size: 12px;
+    font-weight: 750;
+    box-shadow: $o-tba-shadow-xs;
+
+    i {
+        color: $o-tba-blue-dark;
+    }
+}
+
+.o_tba_skeleton_group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    margin-bottom: 13px;
+    padding: 15px 16px;
+    border: 1px solid rgba(215, 232, 242, 0.96);
+    border-radius: 19px;
+    background: rgba(255, 255, 255, 0.96);
+    box-shadow: $o-tba-shadow-sm;
+}
+
+.o_tba_skeleton_left {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    min-width: 0;
+    flex: 1;
+}
+
+.o_tba_skeleton_texts {
+    min-width: 0;
+    width: 100%;
+    display: grid;
+    gap: 8px;
+}
+
+.o_tba_skeleton_stats {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+
+.o_tba_skeleton_line,
+.o_tba_skeleton_pill,
+.o_tba_skeleton_chevron {
+    display: inline-block;
+    background:
+        linear-gradient(90deg, rgba(220, 234, 242, 0.72), rgba(255, 255, 255, 0.96), rgba(220, 234, 242, 0.72));
+    background-size: 240% 100%;
+    animation: o_tba_skeleton_shimmer 1.2s ease-in-out infinite;
+}
+
+.o_tba_skeleton_chevron {
+    width: 26px;
+    height: 26px;
+    border-radius: 10px;
+    flex: 0 0 auto;
+}
+
+.o_tba_skeleton_line {
+    height: 12px;
+    border-radius: $o-tba-pill;
+}
+
+.o_tba_skeleton_line_lg {
+    width: 52%;
+    max-width: 480px;
+}
+
+.o_tba_skeleton_line_sm {
+    width: 32%;
+    max-width: 260px;
+}
+
+.o_tba_skeleton_pill {
+    width: 110px;
+    height: 26px;
+    border-radius: $o-tba-pill;
+}
+
+@keyframes o_tba_skeleton_shimmer {
+    0% { background-position: 120% 0; }
+    100% { background-position: -120% 0; }
+}

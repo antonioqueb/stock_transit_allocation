@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from collections import defaultdict
+import json
 import logging
 
 from odoo import models, fields, api
@@ -195,6 +196,417 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return True
 
 
+    # -------------------------------------------------------------------------
+    # OPTIMIZACIÓN HUBS
+    # -------------------------------------------------------------------------
+
+    def _hub_float_gt_zero(self, qty, precision=0.0001):
+        return float(qty or 0.0) > precision
+
+    def _hub_parse_json_value(self, raw):
+        if not raw:
+            return {}
+
+        if isinstance(raw, dict):
+            return raw
+
+        if isinstance(raw, str):
+            try:
+                value = json.loads(raw)
+                return value if isinstance(value, dict) else {}
+            except Exception:
+                return {}
+
+        return {}
+
+    def _hub_get_candidate_sale_lines(self):
+        """
+        Candidatos base para ambos hubs.
+
+        Antes el tablero cargaba TODAS las líneas confirmadas y después leía
+        campos compute línea por línea. Eso dispara búsquedas repetidas sobre
+        stock.quant, stock.lot y allocations. Aquí solo se leen campos
+        almacenados y las cantidades operativas se calculan en lote.
+        """
+        SaleLine = self.env['sale.order.line']
+        domain = [
+            ('state', 'in', ['sale', 'done']),
+            ('display_type', '=', False),
+            ('product_id', '!=', False),
+        ]
+
+        if 'tc_assignment_closed' in SaleLine._fields:
+            domain.append(('tc_assignment_closed', '=', False))
+
+        if 'product_uom_qty' in SaleLine._fields:
+            domain.append(('product_uom_qty', '>', 0))
+
+        sale_lines = SaleLine.search(domain, order='order_id desc, id desc')
+
+        return sale_lines.filtered(
+            lambda line: self._is_hub_stock_product(line.product_id)
+        )
+
+    def _hub_get_quant_sum(self, domain, groupby):
+        Quant = self.env['stock.quant'].sudo()
+        groups = Quant.read_group(
+            domain,
+            ['quantity:sum'],
+            groupby,
+            lazy=False,
+        )
+        return groups
+
+    def _hub_get_internal_qty_by_product_lot(self, product_ids, lot_ids):
+        if not product_ids or not lot_ids:
+            return {}
+
+        Quant = self.env['stock.quant'].sudo()
+        domain = [
+            ('product_id', 'in', list(product_ids)),
+            ('lot_id', 'in', list(lot_ids)),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ]
+
+        if 'company_id' in Quant._fields and self.env.company:
+            domain.append(('company_id', 'in', [False, self.env.company.id]))
+
+        qty_map = {}
+        for group in self._hub_get_quant_sum(domain, ['product_id', 'lot_id']):
+            product = group.get('product_id')
+            lot = group.get('lot_id')
+            if not product or not lot:
+                continue
+            qty_map[(product[0], lot[0])] = group.get('quantity') or group.get('quantity_sum') or 0.0
+
+        return qty_map
+
+    def _hub_get_free_internal_qty_by_product(self, product_ids):
+        if not product_ids:
+            return {}
+
+        Quant = self.env['stock.quant'].sudo()
+        domain = [
+            ('product_id', 'in', list(product_ids)),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ]
+
+        if 'reserved_quantity' in Quant._fields:
+            domain.append(('reserved_quantity', '=', 0))
+
+        if 'x_tiene_hold' in Quant._fields:
+            domain.append(('x_tiene_hold', '=', False))
+
+        if 'company_id' in Quant._fields and self.env.company:
+            domain.append(('company_id', 'in', [False, self.env.company.id]))
+
+        committed_lot_ids = set()
+        if hasattr(Quant, '_get_committed_lot_ids'):
+            for product_id in product_ids:
+                try:
+                    committed_lot_ids.update(Quant._get_committed_lot_ids(product_id) or [])
+                except Exception as e:
+                    _logger.warning(
+                        '[AllocationHub] No se pudieron resolver committed_lot_ids para product_id=%s: %s',
+                        product_id,
+                        e,
+                    )
+
+        if committed_lot_ids:
+            domain.append(('lot_id', 'not in', list(committed_lot_ids)))
+
+        qty_map = defaultdict(float)
+        for group in self._hub_get_quant_sum(domain, ['product_id']):
+            product = group.get('product_id')
+            if not product:
+                continue
+            qty_map[product[0]] += group.get('quantity') or group.get('quantity_sum') or 0.0
+
+        return dict(qty_map)
+
+    def _hub_get_transit_qty_by_product(self, product_ids):
+        if not product_ids:
+            return {}
+
+        domain = [
+            ('product_id', 'in', list(product_ids)),
+            ('quantity', '>', 0),
+            '|', '|',
+            ('location_id.usage', '=', 'transit'),
+            ('location_id.name', 'ilike', 'Transit'),
+            ('location_id.name', 'ilike', 'Tránsito'),
+        ]
+
+        qty_map = defaultdict(float)
+        for group in self._hub_get_quant_sum(domain, ['product_id']):
+            product = group.get('product_id')
+            if not product:
+                continue
+            qty_map[product[0]] += group.get('quantity') or group.get('quantity_sum') or 0.0
+
+        return dict(qty_map)
+
+    def _hub_get_open_po_qty_by_product(self, product_ids):
+        if not product_ids:
+            return {}
+
+        PurchaseLine = self.env['purchase.order.line']
+        po_lines = PurchaseLine.search([
+            ('product_id', 'in', list(product_ids)),
+            ('state', 'in', ['draft', 'sent', 'purchase']),
+        ])
+
+        qty_map = defaultdict(float)
+        for po_line in po_lines:
+            pending = (po_line.product_qty or 0.0) - (po_line.qty_received or 0.0)
+            if pending > 0:
+                qty_map[po_line.product_id.id] += pending
+
+        return dict(qty_map)
+
+    def _hub_get_lot_metadata(self, lot_ids):
+        if not lot_ids:
+            return {}
+
+        lots = self.env['stock.lot'].browse(list(lot_ids)).exists()
+        metadata = {}
+
+        for lot in lots:
+            lot_type = 'placa'
+            if 'x_tipo' in lot._fields and lot.x_tipo:
+                lot_type = str(lot.x_tipo).lower()
+
+            fallback_qty = 0.0
+            if 'x_alto' in lot._fields and 'x_ancho' in lot._fields:
+                try:
+                    fallback_qty = float(lot.x_alto or 0.0) * float(lot.x_ancho or 0.0)
+                except Exception:
+                    fallback_qty = 0.0
+
+            metadata[lot.id] = {
+                'type': lot_type,
+                'fallback_qty': fallback_qty,
+            }
+
+        return metadata
+
+    def _hub_get_line_lot_ids(self, sale_lines):
+        if not sale_lines or 'lot_ids' not in sale_lines._fields:
+            return {}, set()
+
+        line_lot_ids = {}
+        all_lot_ids = set()
+
+        for line in sale_lines:
+            ids = line.lot_ids.ids if line.lot_ids else []
+            line_lot_ids[line.id] = ids
+            all_lot_ids.update(ids)
+
+        return line_lot_ids, all_lot_ids
+
+    def _hub_get_breakdown_for_line(self, line):
+        if 'x_lot_breakdown_json' not in line._fields:
+            return {}
+        return self._hub_parse_json_value(line.x_lot_breakdown_json)
+
+    def _hub_compute_sale_line_metrics(self, sale_lines):
+        """Calcula cantidades de asignación en lote para evitar N+1 queries."""
+        if not sale_lines:
+            return {}, {}, {}
+
+        product_ids = set(sale_lines.mapped('product_id').ids)
+        line_lot_ids, all_lot_ids = self._hub_get_line_lot_ids(sale_lines)
+        lot_metadata = self._hub_get_lot_metadata(all_lot_ids)
+        internal_qty_by_product_lot = self._hub_get_internal_qty_by_product_lot(product_ids, all_lot_ids)
+        free_qty_by_product = self._hub_get_free_internal_qty_by_product(product_ids)
+
+        metrics = {}
+
+        for line in sale_lines:
+            product = line.product_id
+            requested_qty = float(line.product_uom_qty or 0.0)
+            delivered_qty = float(line.qty_delivered or 0.0)
+            breakdown = self._hub_get_breakdown_for_line(line)
+            assigned_qty = 0.0
+
+            for lot_id in line_lot_ids.get(line.id, []):
+                lot_info = lot_metadata.get(lot_id, {})
+                lot_type = lot_info.get('type') or 'placa'
+                lot_key = str(lot_id)
+
+                if lot_type in ('formato', 'pieza') and lot_key in breakdown:
+                    try:
+                        qty = float(breakdown.get(lot_key) or 0.0)
+                    except Exception:
+                        qty = 0.0
+                else:
+                    qty = internal_qty_by_product_lot.get((product.id, lot_id), 0.0)
+                    if not self._hub_float_gt_zero(qty):
+                        qty = lot_info.get('fallback_qty') or 0.0
+
+                assigned_qty += qty or 0.0
+
+            covered_qty = max(assigned_qty, delivered_qty)
+            raw_pending_qty = max(requested_qty - covered_qty, 0.0)
+            pending_qty = 0.0 if getattr(line, 'tc_assignment_closed', False) else raw_pending_qty
+            over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
+            purchase_intent = bool(
+                getattr(line, 'tc_stock_rejected', False)
+                or getattr(line, 'auto_transit_assign', False)
+            )
+            available_qty = free_qty_by_product.get(product.id, 0.0)
+
+            if requested_qty <= 0:
+                assignment_state = 'no_demand'
+                hub_state = 'nothing'
+            elif getattr(line, 'tc_assignment_closed', False):
+                assignment_state = 'closed_short' if self._hub_float_gt_zero(raw_pending_qty) else 'complete'
+                hub_state = 'nothing'
+            elif self._hub_float_gt_zero(over_assigned_qty):
+                assignment_state = 'over_assigned'
+                hub_state = 'allocated' if not self._hub_float_gt_zero(pending_qty) else 'to_be_allocated'
+            elif not self._hub_float_gt_zero(raw_pending_qty):
+                assignment_state = 'complete'
+                hub_state = 'allocated'
+            elif purchase_intent:
+                assignment_state = 'to_purchase'
+                hub_state = 'to_be_purchased'
+            elif self._hub_float_gt_zero(covered_qty):
+                assignment_state = 'partial'
+                hub_state = 'to_be_allocated' if self._hub_float_gt_zero(available_qty) else 'to_be_purchased'
+            else:
+                assignment_state = 'open'
+                hub_state = 'to_be_allocated' if self._hub_float_gt_zero(available_qty) else 'to_be_purchased'
+
+            assigned_percent = (assigned_qty / requested_qty) * 100.0 if requested_qty > 0 else 0.0
+
+            metrics[line.id] = {
+                'requested_qty': requested_qty,
+                'assigned_qty': assigned_qty,
+                'covered_qty': covered_qty,
+                'raw_pending_qty': raw_pending_qty,
+                'pending_qty': pending_qty,
+                'over_assigned_qty': over_assigned_qty,
+                'available_qty': available_qty,
+                'assigned_percent': assigned_percent,
+                'assignment_state': assignment_state,
+                'hub_state': hub_state,
+                'purchase_intent': purchase_intent,
+            }
+
+        return metrics, free_qty_by_product, product_ids
+
+    def _hub_get_payment_percent_map(self, sale_lines):
+        orders = sale_lines.mapped('order_id')
+        result = {}
+
+        for order in orders:
+            result[order.id] = self._get_payment_percent(order)
+
+        return result
+
+    def _hub_get_active_allocation_info_map(self, sale_line_ids):
+        empty = {
+            'allocation': False,
+            'po_name': '',
+            'po_qty': 0.0,
+            'po_id': False,
+            'po_state': '',
+        }
+
+        if not sale_line_ids:
+            return {}
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+        allocations = Allocation.search([
+            ('sale_line_id', 'in', list(sale_line_ids)),
+            ('state', 'not in', ['cancelled', 'done']),
+        ], order='id desc')
+
+        result = {}
+
+        for allocation in allocations:
+            sale_line_id = allocation.sale_line_id.id
+            if sale_line_id in result:
+                continue
+
+            po_line = allocation.purchase_line_id
+            po = po_line.order_id if po_line else allocation.purchase_order_id
+
+            if not po or po.state == 'cancel':
+                continue
+
+            result[sale_line_id] = {
+                'allocation': allocation,
+                'po_name': po.name,
+                'po_qty': allocation.quantity,
+                'po_id': po.id,
+                'po_state': po.state,
+            }
+
+        return defaultdict(lambda: dict(empty), result)
+
+    def _hub_make_sale_line_row(self, line, metrics, payment_percent=False, allocation_info=False):
+        order = line.order_id
+        product = line.product_id
+        unit_kind = self._get_product_unit_kind(product)
+        unit_label = self._get_product_unit_label(product)
+        unit_group_label = self._get_product_unit_group_label(product)
+        requested_qty = metrics.get('requested_qty', line.product_uom_qty or 0.0)
+        assigned_qty = metrics.get('assigned_qty', 0.0)
+        pending_qty = metrics.get('pending_qty', 0.0)
+
+        row = {
+            'id': line.id,
+            'so_id': order.id,
+            'so_name': order.name,
+            'date': order.date_order.strftime('%Y-%m-%d') if order.date_order else '',
+            'commitment_date': order.commitment_date.strftime('%Y-%m-%d') if order.commitment_date else 'N/A',
+            'customer': order.partner_id.name,
+            'customer_id': order.partner_id.id,
+            'salesperson': order.user_id.name if order.user_id else '',
+            'product_id': product.id,
+            'product_name': product.display_name,
+            'product_type': unit_group_label,
+            'unit_kind': unit_kind,
+            'unit_label': unit_label,
+            'description': line.name or '',
+            'qty_requested': requested_qty,
+            'qty_ordered': requested_qty,
+            'qty_assigned': assigned_qty,
+            'qty_pending': pending_qty,
+            'qty_available': metrics.get('available_qty', 0.0),
+            'assignment_percent': metrics.get('assigned_percent', 0.0),
+            'assignment_state': metrics.get('assignment_state') or '',
+            'days_unassigned': self._get_days_without_assignment(order),
+            'payment_percent': payment_percent if payment_percent is not False else 0.0,
+            'note': order.note or '',
+        }
+
+        if allocation_info is not False:
+            row.update({
+                'location': order.partner_shipping_id.city or '',
+                'qty_orig': requested_qty,
+                'po_name': allocation_info.get('po_name', ''),
+                'po_qty': allocation_info.get('po_qty', 0.0),
+                'po_id': allocation_info.get('po_id', False),
+                'po_state': allocation_info.get('po_state', ''),
+                'stock_rejected': bool(getattr(line, 'tc_stock_rejected', False)),
+            })
+            row.update(self._split_qty_fields(product, 'qty_orig', requested_qty))
+            row.update(self._split_qty_fields(product, 'po_qty', allocation_info.get('po_qty', 0.0)))
+
+        row.update(self._split_qty_fields(product, 'qty_requested', requested_qty))
+        row.update(self._split_qty_fields(product, 'qty_ordered', requested_qty))
+        row.update(self._split_qty_fields(product, 'qty_assigned', assigned_qty))
+        row.update(self._split_qty_fields(product, 'qty_pending', pending_qty))
+        row.update(self._split_qty_fields(product, 'qty_available', metrics.get('available_qty', 0.0)))
+
+        return row
+
+
 class ToBeAllocatedLogic(models.AbstractModel):
     _name = 'sale.allocation.manager.logic'
     _inherit = 'allocation.hub.payment.mixin'
@@ -202,69 +614,31 @@ class ToBeAllocatedLogic(models.AbstractModel):
 
     @api.model
     def get_data(self):
-        sale_lines = self.env['sale.order.line'].search([
-            ('state', 'in', ['sale', 'done']),
-            ('display_type', '=', False),
-            ('product_id', '!=', False),
-        ])
-
-        if hasattr(sale_lines, '_tc_prepare_hub_state_for_read'):
-            sale_lines._tc_prepare_hub_state_for_read()
-
-        sale_lines = sale_lines.filtered(
-            lambda line: self._is_hub_stock_product(line.product_id)
-            and line.tc_qty_pending_allocation > 0
-            and line.tc_available_internal_qty > 0
-            and not line.tc_stock_rejected
-            and not line.auto_transit_assign
-            and not line.tc_assignment_closed
-            and line.tc_allocation_hub_state == 'to_be_allocated'
-        )
+        sale_lines = self._hub_get_candidate_sale_lines()
+        metrics_by_line, _free_qty_by_product, _product_ids = self._hub_compute_sale_line_metrics(sale_lines)
+        payment_map = self._hub_get_payment_percent_map(sale_lines)
 
         result = []
 
         for line in sale_lines:
-            order = line.order_id
-            product = line.product_id
-            payment_percent = self._get_payment_percent(order)
-            unit_kind = self._get_product_unit_kind(product)
-            unit_label = self._get_product_unit_label(product)
-            unit_group_label = self._get_product_unit_group_label(product)
+            metrics = metrics_by_line.get(line.id, {})
 
-            row = {
-                'id': line.id,
-                'so_id': order.id,
-                'so_name': order.name,
-                'date': order.date_order.strftime('%Y-%m-%d') if order.date_order else '',
-                'commitment_date': order.commitment_date.strftime('%Y-%m-%d') if order.commitment_date else 'N/A',
-                'customer': order.partner_id.name,
-                'customer_id': order.partner_id.id,
-                'salesperson': order.user_id.name if order.user_id else '',
-                'product_id': product.id,
-                'product_name': product.display_name,
-                'product_type': unit_group_label,
-                'unit_kind': unit_kind,
-                'unit_label': unit_label,
-                'description': line.name or '',
-                'qty_requested': line.product_uom_qty,
-                'qty_ordered': line.product_uom_qty,
-                'qty_assigned': line.tc_qty_assigned_lots,
-                'qty_pending': line.tc_qty_pending_allocation,
-                'qty_available': line.tc_available_internal_qty,
-                'assignment_percent': line.tc_qty_assigned_percent,
-                'assignment_state': line.tc_assignment_state or '',
-                'days_unassigned': self._get_days_without_assignment(order),
-                'payment_percent': payment_percent,
-                'note': order.note or '',
-            }
+            if metrics.get('hub_state') != 'to_be_allocated':
+                continue
 
-            row.update(self._split_qty_fields(product, 'qty_requested', line.product_uom_qty))
-            row.update(self._split_qty_fields(product, 'qty_ordered', line.product_uom_qty))
-            row.update(self._split_qty_fields(product, 'qty_assigned', line.tc_qty_assigned_lots))
-            row.update(self._split_qty_fields(product, 'qty_pending', line.tc_qty_pending_allocation))
-            row.update(self._split_qty_fields(product, 'qty_available', line.tc_available_internal_qty))
+            if not self._hub_float_gt_zero(metrics.get('pending_qty')):
+                continue
 
-            result.append(row)
+            if not self._hub_float_gt_zero(metrics.get('available_qty')):
+                continue
+
+            result.append(
+                self._hub_make_sale_line_row(
+                    line,
+                    metrics,
+                    payment_percent=payment_map.get(line.order_id.id, 0.0),
+                )
+            )
 
         result.sort(
             key=lambda item: (
@@ -314,24 +688,24 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def get_data(self):
-        all_sale_lines = self.env['sale.order.line'].search([
-            ('state', 'in', ['sale', 'done']),
-            ('display_type', '=', False),
-            ('product_id', '!=', False),
-        ])
+        sale_lines_all = self._hub_get_candidate_sale_lines()
+        metrics_by_line, free_qty_by_product, product_ids = self._hub_compute_sale_line_metrics(sale_lines_all)
+        payment_map = self._hub_get_payment_percent_map(sale_lines_all)
 
-        if hasattr(all_sale_lines, '_tc_prepare_hub_state_for_read'):
-            all_sale_lines._tc_prepare_hub_state_for_read()
-
-        sale_lines = all_sale_lines.filtered(
-            lambda line: self._is_hub_stock_product(line.product_id)
-            and line.tc_allocation_hub_state == 'to_be_purchased'
-            and line.tc_qty_pending_allocation > 0
-            and not line.tc_assignment_closed
+        sale_lines = sale_lines_all.filtered(
+            lambda line: metrics_by_line.get(line.id, {}).get('hub_state') == 'to_be_purchased'
+            and self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('pending_qty'))
         )
 
-        product_ids = sale_lines.mapped('product_id.id')
-        products = self.env['product.product'].browse(product_ids)
+        product_ids = set(sale_lines.mapped('product_id').ids)
+        products = self.env['product.product'].browse(list(product_ids))
+        transit_qty_by_product = self._hub_get_transit_qty_by_product(product_ids)
+        open_po_qty_by_product = self._hub_get_open_po_qty_by_product(product_ids)
+        allocation_info_by_line = self._hub_get_active_allocation_info_map(sale_lines.ids)
+
+        lines_by_product = defaultdict(lambda: self.env['sale.order.line'])
+        for line in sale_lines:
+            lines_by_product[line.product_id.id] |= line
 
         result = []
 
@@ -339,91 +713,27 @@ class ToBePurchasedLogic(models.AbstractModel):
             unit_kind = self._get_product_unit_kind(product)
             unit_label = self._get_product_unit_label(product)
             unit_group_label = self._get_product_unit_group_label(product)
-
-            quants = self.env['stock.quant'].search([
-                ('product_id', '=', product.id),
-            ])
-
-            qty_a = self._get_free_internal_qty_for_product(product)
-
-            qty_i = sum(
-                quants.filtered(
-                    lambda q: (
-                        q.location_id.usage == 'transit'
-                        or 'transit' in (q.location_id.name or '').lower()
-                        or 'tránsito' in (q.location_id.name or '').lower()
-                    )
-                ).mapped('quantity')
-            )
-
-            all_po_lines = self.env['purchase.order.line'].search([
-                ('product_id', '=', product.id),
-                ('state', 'in', ['draft', 'sent', 'purchase']),
-            ])
-
-            po_lines_open = all_po_lines.filtered(
-                lambda pol: pol.product_qty > pol.qty_received
-            )
-
-            qty_p = (
-                sum(po_lines_open.mapped('product_qty'))
-                - sum(po_lines_open.mapped('qty_received'))
-            )
-
-            product_sale_lines = sale_lines.filtered(
-                lambda line: line.product_id.id == product.id
-            )
+            product_sale_lines = lines_by_product.get(product.id, self.env['sale.order.line'])
 
             so_details = []
             total_demanded = 0.0
 
             for sol in product_sale_lines:
-                pending = sol.tc_qty_pending_allocation
+                metrics = metrics_by_line.get(sol.id, {})
+                pending = metrics.get('pending_qty', 0.0)
 
-                if pending <= 0:
+                if not self._hub_float_gt_zero(pending):
                     continue
 
                 total_demanded += pending
-
-                alloc_info = self._get_active_allocation_info(sol)
-                payment_percent = self._get_payment_percent(sol.order_id)
-
-                so_row = {
-                    'id': sol.id,
-                    'so_name': sol.order_id.name,
-                    'so_id': sol.order_id.id,
-                    'date': sol.order_id.date_order.strftime('%Y-%m-%d') if sol.order_id.date_order else '',
-                    'commitment_date': sol.order_id.commitment_date.strftime('%Y-%m-%d') if sol.order_id.commitment_date else 'N/A',
-                    'customer': sol.order_id.partner_id.name,
-                    'customer_id': sol.order_id.partner_id.id,
-                    'location': sol.order_id.partner_shipping_id.city or '',
-                    'description': sol.name or '',
-                    'unit_kind': unit_kind,
-                    'unit_label': unit_label,
-                    'product_type': unit_group_label,
-                    'qty_orig': sol.product_uom_qty,
-                    'qty_requested': sol.product_uom_qty,
-                    'qty_assigned': sol.tc_qty_assigned_lots,
-                    'qty_pending': pending,
-                    'assignment_percent': sol.tc_qty_assigned_percent,
-                    'assignment_state': sol.tc_assignment_state or '',
-                    'days_unassigned': self._get_days_without_assignment(sol.order_id),
-                    'note': sol.order_id.note or '',
-                    'po_name': alloc_info['po_name'],
-                    'po_qty': alloc_info['po_qty'],
-                    'po_id': alloc_info['po_id'],
-                    'po_state': alloc_info['po_state'],
-                    'stock_rejected': sol.tc_stock_rejected,
-                    'payment_percent': payment_percent,
-                }
-
-                so_row.update(self._split_qty_fields(product, 'qty_orig', sol.product_uom_qty))
-                so_row.update(self._split_qty_fields(product, 'qty_requested', sol.product_uom_qty))
-                so_row.update(self._split_qty_fields(product, 'qty_assigned', sol.tc_qty_assigned_lots))
-                so_row.update(self._split_qty_fields(product, 'qty_pending', pending))
-                so_row.update(self._split_qty_fields(product, 'po_qty', alloc_info['po_qty']))
-
-                so_details.append(so_row)
+                so_details.append(
+                    self._hub_make_sale_line_row(
+                        sol,
+                        metrics,
+                        payment_percent=payment_map.get(sol.order_id.id, 0.0),
+                        allocation_info=allocation_info_by_line[sol.id],
+                    )
+                )
 
             if not so_details:
                 continue
@@ -445,7 +755,9 @@ class ToBePurchasedLogic(models.AbstractModel):
                 })
 
             vendor_name = vendors[0]['name'] if vendors else 'SIN PROVEEDOR'
-
+            qty_a = free_qty_by_product.get(product.id, 0.0)
+            qty_i = transit_qty_by_product.get(product.id, 0.0)
+            qty_p = open_po_qty_by_product.get(product.id, 0.0)
             qty_to_buy = max(0.0, total_demanded - qty_p)
 
             row = {
