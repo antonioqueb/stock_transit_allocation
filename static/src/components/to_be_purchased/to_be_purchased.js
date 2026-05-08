@@ -324,7 +324,7 @@ export class ToBePurchased extends Component {
 
         for (const product of data) {
             const vendorName = product.vendor || "SIN PROVEEDOR";
-            const vendorId = product.vendors?.[0]?.id || 0;
+            const vendorId = (product.vendors && product.vendors[0] && product.vendors[0].id) || 0;
 
             if (!map[vendorName]) {
                 map[vendorName] = this._makeOperationalGroup({
@@ -973,6 +973,4 @@ registry.category("actions").add(
     "action_to_be_purchased",
     ToBePurchased,
     { force: true }
-);```
-
-## ./static/src/components/to_be_purchased/to_be_purchased.scss
+);
