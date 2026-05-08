@@ -2,54 +2,79 @@
 <templates xml:space="preserve">
     <t t-name="stock_transit_allocation.ToBeAllocated" owl="1">
         <div class="o_tba_root">
+
+            <!-- ============================================================= -->
+            <!-- HEADER -->
+            <!-- ============================================================= -->
             <div class="o_tba_header">
-                <div class="o_tba_title_block">
-                    <div class="o_tba_title">
-                        <i class="fa fa-object-group me-2"/>
-                        To Be Allocated
+                <div class="o_tba_title_box">
+                    <div class="o_tba_icon">
+                        <i class="fa fa-object-group"/>
                     </div>
-                    <div class="o_tba_subtitle">
-                        Pedidos confirmados con demanda pendiente y stock disponible.
+
+                    <div>
+                        <h2 class="o_tba_title">
+                            To Be Allocated
+                        </h2>
+                        <div class="o_tba_subtitle">
+                            Pedidos confirmados con demanda pendiente y stock disponible.
+                        </div>
                     </div>
                 </div>
 
-                <div class="o_tba_kpis">
-                    <div class="o_tba_kpi">
-                        <span class="o_tba_kpi_label">Líneas</span>
-                        <strong><t t-esc="totalLines"/></strong>
+                <div class="o_tba_metrics">
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Líneas</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="totalLines"/>
+                        </span>
                     </div>
-                    <div class="o_tba_kpi">
-                        <span class="o_tba_kpi_label">Solicitado</span>
-                        <strong><t t-esc="fmtNum(totalRequested)"/></strong>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Solicitado</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalRequested)"/>
+                        </span>
                     </div>
-                    <div class="o_tba_kpi">
-                        <span class="o_tba_kpi_label">Asignado</span>
-                        <strong><t t-esc="fmtNum(totalAssigned)"/></strong>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Asignado</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalAssigned)"/>
+                        </span>
                     </div>
-                    <div class="o_tba_kpi o_tba_kpi_pending">
-                        <span class="o_tba_kpi_label">Pendiente</span>
-                        <strong><t t-esc="fmtNum(totalPending)"/></strong>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Pendiente</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalPending)"/>
+                        </span>
                     </div>
                 </div>
 
-                <div class="o_tba_header_actions">
-                    <button class="btn btn-sm btn-outline-primary"
-                            t-on-click="refresh"
-                            t-att-disabled="state.loading">
-                        <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'} me-1"/>
-                        Actualizar
-                    </button>
-                </div>
+                <button type="button"
+                        class="btn btn-sm btn-outline-primary"
+                        t-on-click="refresh"
+                        t-att-disabled="state.loading">
+                    <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'} me-1"/>
+                    Actualizar
+                </button>
             </div>
 
+            <!-- ============================================================= -->
+            <!-- TOOLBAR -->
+            <!-- ============================================================= -->
             <div class="o_tba_toolbar">
                 <div class="o_tba_search">
-                    <i class="fa fa-search"/>
+                    <i class="fa fa-search o_tba_search_icon"/>
                     <input type="text"
+                           class="o_tba_search_input"
                            placeholder="Buscar por pedido, cliente, producto o vendedor..."
                            t-att-value="state.searchQuery"
                            t-on-input="onSearchInput"/>
+
                     <button t-if="state.searchQuery"
+                            type="button"
                             class="o_tba_search_clear"
                             t-on-click="clearSearch">
                         <i class="fa fa-times"/>
@@ -57,66 +82,92 @@
                 </div>
 
                 <div class="o_tba_group_buttons">
-                    <button t-att-class="state.groupBy === 'product' ? 'active' : ''"
+                    <button type="button"
+                            t-att-class="state.groupBy === 'product' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
                             t-on-click="() => this.setGroupBy('product')">
+                        <i class="fa fa-cube me-1"/>
                         Producto
                     </button>
-                    <button t-att-class="state.groupBy === 'sale_order' ? 'active' : ''"
+
+                    <button type="button"
+                            t-att-class="state.groupBy === 'sale_order' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
                             t-on-click="() => this.setGroupBy('sale_order')">
+                        <i class="fa fa-file-text-o me-1"/>
                         Pedido
                     </button>
-                    <button t-att-class="state.groupBy === 'salesperson' ? 'active' : ''"
+
+                    <button type="button"
+                            t-att-class="state.groupBy === 'salesperson' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
                             t-on-click="() => this.setGroupBy('salesperson')">
+                        <i class="fa fa-user me-1"/>
                         Vendedor
                     </button>
                 </div>
             </div>
 
+            <!-- ============================================================= -->
+            <!-- LOADING / EMPTY -->
+            <!-- ============================================================= -->
             <div t-if="state.loading" class="o_tba_loading">
-                <i class="fa fa-circle-o-notch fa-spin fa-2x"/>
+                <i class="fa fa-spinner fa-spin fa-2x"/>
                 <span>Cargando requerimientos...</span>
             </div>
 
             <div t-elif="!state.filteredData.length" class="o_tba_empty">
-                <i class="fa fa-check-circle fa-3x"/>
-                <strong>Sin pendientes para asignar</strong>
-                <span>No hay líneas con demanda pendiente y stock disponible.</span>
+                <i class="fa fa-check-circle"/>
+                <h4>Sin pendientes para asignar</h4>
+                <p>No hay líneas con demanda pendiente y stock disponible.</p>
             </div>
 
-            <div t-else="" class="o_tba_content">
+            <!-- ============================================================= -->
+            <!-- CONTENT -->
+            <!-- ============================================================= -->
+            <div t-else="" class="o_tba_groups">
                 <t t-foreach="state.filteredData" t-as="group" t-key="group.key">
                     <div class="o_tba_group">
+
                         <div class="o_tba_group_header"
                              t-on-click="() => this.toggleExpand(group.key)">
+
                             <div class="o_tba_group_left">
-                                <i t-attf-class="fa #{isExpanded(group.key) ? 'fa-chevron-down' : 'fa-chevron-right'} me-2"/>
-                                <div>
-                                    <strong><t t-esc="group.label"/></strong>
-                                    <span><t t-esc="group.sublabel"/></span>
+                                <div class="o_tba_chevron">
+                                    <i t-attf-class="fa #{isExpanded(group.key) ? 'fa-chevron-down' : 'fa-chevron-right'}"/>
+                                </div>
+
+                                <div class="min-w-0">
+                                    <div class="o_tba_group_title" t-att-title="group.label">
+                                        <t t-esc="group.label"/>
+                                    </div>
+                                    <div class="o_tba_group_subtitle">
+                                        <t t-esc="group.sublabel"/>
+                                    </div>
                                 </div>
                             </div>
 
-                            <div class="o_tba_group_metrics">
-                                <span>
+                            <div class="o_tba_group_stats">
+                                <span class="o_tba_stat">
                                     Solicitado:
-                                    <strong><t t-esc="fmtNum(group.qty_requested)"/></strong>
+                                    <b><t t-esc="fmtNum(group.qty_requested)"/></b>
                                 </span>
-                                <span>
+
+                                <span class="o_tba_stat">
                                     Asignado:
-                                    <strong><t t-esc="fmtNum(group.qty_assigned)"/></strong>
+                                    <b><t t-esc="fmtNum(group.qty_assigned)"/></b>
                                 </span>
-                                <span>
+
+                                <span class="o_tba_stat">
                                     Pendiente:
-                                    <strong><t t-esc="fmtNum(group.qty_pending)"/></strong>
+                                    <b><t t-esc="fmtNum(group.qty_pending)"/></b>
                                 </span>
-                                <span>
+
+                                <span class="o_tba_stat o_tba_stat_available">
                                     Disponible:
-                                    <strong><t t-esc="fmtNum(group.qty_available)"/></strong>
+                                    <b><t t-esc="fmtNum(group.qty_available)"/></b>
                                 </span>
                             </div>
                         </div>
 
-                        <div t-if="isExpanded(group.key)" class="o_tba_group_body">
+                        <div t-if="isExpanded(group.key)" class="o_tba_table_wrap">
                             <table class="o_tba_table">
                                 <thead>
                                     <tr>
@@ -134,32 +185,49 @@
                                         <th class="text-end">Acciones</th>
                                     </tr>
                                 </thead>
+
                                 <tbody>
                                     <t t-foreach="group.lines" t-as="line" t-key="line.id">
                                         <tr>
                                             <td>
-                                                <button class="btn btn-link p-0 fw-bold"
+                                                <button type="button"
+                                                        class="btn btn-link p-0 o_tba_so_link"
                                                         t-on-click="(ev) => this.openSaleOrder(line.so_id, ev)">
+                                                    <i class="fa fa-external-link"/>
                                                     <t t-esc="line.so_name"/>
                                                 </button>
-                                                <div class="text-muted small">
-                                                    <t t-esc="line.commitment_date"/>
+
+                                                <div class="o_tba_cell_sub">
+                                                    <i class="fa fa-calendar-o me-1"/>
+                                                    <t t-esc="line.commitment_date || 'N/A'"/>
                                                 </div>
                                             </td>
 
                                             <td>
-                                                <t t-esc="line.customer"/>
+                                                <div class="o_tba_cell_main" t-att-title="line.customer">
+                                                    <t t-esc="line.customer || '-'"/>
+                                                </div>
                                             </td>
 
                                             <td>
-                                                <strong><t t-esc="line.product_name"/></strong>
-                                                <div t-if="line.description" class="text-muted small">
+                                                <div class="o_tba_cell_main" t-att-title="line.product_name">
+                                                    <t t-esc="line.product_name || '-'"/>
+                                                </div>
+
+                                                <div t-if="line.description" class="o_tba_cell_sub" t-att-title="line.description">
                                                     <t t-esc="line.description"/>
                                                 </div>
+
+                                                <div t-if="line.note" class="o_tba_cell_note" t-att-title="line.note">
+                                                    <i class="fa fa-sticky-note-o me-1"/>
+                                                    Nota
+                                                </div>
                                             </td>
 
                                             <td>
-                                                <t t-esc="line.salesperson or '-'"/>
+                                                <div class="o_tba_cell_main" t-att-title="line.salesperson || '-'">
+                                                    <t t-esc="line.salesperson || '-'"/>
+                                                </div>
                                             </td>
 
                                             <td class="text-end">
@@ -169,19 +237,19 @@
                                             </td>
 
                                             <td class="text-end fw-bold">
-                                                <t t-esc="fmtNum(line.qty_ordered)"/>
+                                                <t t-esc="fmtNum(line.qty_ordered || line.qty_requested || 0)"/>
                                             </td>
 
                                             <td class="text-end">
-                                                <t t-esc="fmtNum(line.qty_assigned)"/>
+                                                <t t-esc="fmtNum(line.qty_assigned || 0)"/>
                                             </td>
 
-                                            <td class="text-end text-danger fw-bold">
-                                                <t t-esc="fmtNum(line.qty_pending)"/>
+                                            <td class="text-end o_tba_pending_qty">
+                                                <t t-esc="fmtNum(line.qty_pending || 0)"/>
                                             </td>
 
-                                            <td class="text-end">
-                                                <t t-esc="fmtNum(line.qty_available)"/>
+                                            <td class="text-end o_tba_available_qty">
+                                                <t t-esc="fmtNum(line.qty_available || 0)"/>
                                             </td>
 
                                             <td class="text-end">
@@ -189,13 +257,14 @@
                                             </td>
 
                                             <td>
-                                                <span t-attf-class="badge rounded-pill #{line.assignment_state === 'partial' ? 'text-bg-warning' : line.assignment_state === 'open' ? 'text-bg-secondary' : line.assignment_state === 'over_assigned' ? 'text-bg-danger' : 'text-bg-light'}">
+                                                <span t-attf-class="badge rounded-pill #{line.assignment_state === 'partial' ? 'text-bg-warning' : line.assignment_state === 'open' ? 'text-bg-secondary' : line.assignment_state === 'over_assigned' ? 'text-bg-danger' : line.assignment_state === 'to_purchase' ? 'text-bg-info' : 'text-bg-light'}">
                                                     <t t-esc="assignmentStateLabel(line.assignment_state)"/>
                                                 </span>
                                             </td>
 
                                             <td class="text-end">
-                                                <button class="btn btn-sm btn-outline-primary me-1"
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-primary me-1"
                                                         t-att-disabled="state.assigning[line.id]"
                                                         t-on-click="(ev) => this.openAllocationPopup(line, ev)"
                                                         title="Abrir selector de placas para esta línea">
@@ -203,7 +272,8 @@
                                                     Asignar
                                                 </button>
 
-                                                <button class="btn btn-sm btn-warning me-1"
+                                                <button type="button"
+                                                        class="btn btn-sm btn-warning me-1"
                                                         t-att-disabled="state.sending[line.id]"
                                                         t-on-click="(ev) => this.sendToPurchase(line, ev)"
                                                         title="El vendedor rechaza el stock y manda a compra">
@@ -211,7 +281,8 @@
                                                     Mandar pedido
                                                 </button>
 
-                                                <button class="btn btn-sm btn-outline-secondary"
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-secondary"
                                                         t-att-disabled="state.closing[line.id]"
                                                         t-on-click="(ev) => this.closeShort(line, ev)"
                                                         title="Cerrar el pendiente sin modificar la cantidad solicitada">
