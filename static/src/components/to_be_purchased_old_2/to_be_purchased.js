@@ -779,16 +779,6 @@ export class ToBePurchased extends Component {
         });
     }
 
-    fmtPercent(value) {
-        const n = Number(value || 0);
-        return (
-            n.toLocaleString("es-MX", {
-                minimumFractionDigits: 0,
-                maximumFractionDigits: 0,
-            }) + "%"
-        );
-    }
-
     fmtQtyWithUnit(value, unitLabel) {
         return `${this.fmtNum(value)} ${unitLabel || ""}`.trim();
     }
