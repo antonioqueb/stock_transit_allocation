@@ -58,8 +58,8 @@
 
                 <div class="o_tbp_metrics">
                     <div class="o_tbp_metric">
-                        <span class="o_tbp_metric_label">Grupos</span>
-                        <span class="o_tbp_metric_value"><t t-esc="state.filteredData.length"/></span>
+                        <span class="o_tbp_metric_label">Líneas</span>
+                        <span class="o_tbp_metric_value"><t t-esc="totalLines"/></span>
                     </div>
 
                     <div class="o_tbp_metric">
@@ -68,26 +68,20 @@
                     </div>
 
                     <div class="o_tbp_metric">
-                        <span class="o_tbp_metric_label">SO m²</span>
+                        <span class="o_tbp_metric_label">Pend. m²</span>
                         <span class="o_tbp_metric_value"><t t-esc="fmtNum(totalDemandM2)"/></span>
                     </div>
 
                     <div class="o_tbp_metric">
-                        <span class="o_tbp_metric_label">SO pzas</span>
+                        <span class="o_tbp_metric_label">Pend. pzas</span>
                         <span class="o_tbp_metric_value"><t t-esc="fmtNum(totalDemandPieces)"/></span>
                     </div>
 
                     <div class="o_tbp_metric">
-                        <span class="o_tbp_metric_label">Comprar m²</span>
-                        <span class="o_tbp_metric_value"><t t-esc="fmtNum(totalToBuyM2)"/></span>
-                    </div>
-
-                    <div class="o_tbp_metric">
-                        <span class="o_tbp_metric_label">Comprar pzas</span>
-                        <span class="o_tbp_metric_value"><t t-esc="fmtNum(totalToBuyPieces)"/></span>
+                        <span class="o_tbp_metric_label">% global</span>
+                        <span class="o_tbp_metric_value"><t t-esc="fmtPercent(totalAssignedPercentGlobal)"/></span>
                     </div>
                 </div>
-
                 <button class="btn btn-sm btn-primary o_tbp_generate_btn"
                         t-on-click="openPurchaseModal"
                         t-att-disabled="state.selectedLines.length === 0">
@@ -137,22 +131,16 @@
 
                                 <div class="o_tbp_group_stats">
                                     <span class="o_tbp_stat">
-                                        A <b><t t-esc="fmtQtyWithUnit(product.qty_a, product.unit_label)"/></b>
+                                        Líneas <b><t t-esc="product.so_lines.length"/></b>
+                                    </span>
+                                    <span class="o_tbp_stat o_tbp_stat_buy is-positive">
+                                        Pend. m² <b><t t-esc="fmtNum(product.qty_so_m2)"/></b>
+                                    </span>
+                                    <span class="o_tbp_stat o_tbp_stat_buy is-positive">
+                                        Pend. pzas <b><t t-esc="fmtNum(product.qty_so_pieces)"/></b>
                                     </span>
                                     <span class="o_tbp_stat">
-                                        I <b><t t-esc="fmtQtyWithUnit(product.qty_i, product.unit_label)"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
-                                        P <b><t t-esc="fmtQtyWithUnit(product.qty_p, product.unit_label)"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
-                                        SO <b><t t-esc="fmtQtyWithUnit(product.qty_so, product.unit_label)"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
-                                        Total <b><t t-esc="fmtQtyWithUnit(product.qty_total, product.unit_label)"/></b>
-                                    </span>
-                                    <span t-attf-class="o_tbp_stat o_tbp_stat_buy #{product.qty_to_buy > 0 ? 'is-positive' : 'is-ok'}">
-                                        Comprar <b><t t-esc="fmtQtyWithUnit(product.qty_to_buy, product.unit_label)"/></b>
+                                        % global <b><t t-esc="fmtPercent(linesAssignmentPercent(product.so_lines))"/></b>
                                     </span>
                                 </div>
                             </div>
@@ -168,11 +156,8 @@
                                             <th>Cliente</th>
                                             <th>Ubicación</th>
                                             <th>Descripción</th>
-                                            <th>Tipo</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
-                                            <th class="text-end" style="width: 84px;">Cant.</th>
-                                            <th class="text-end" style="width: 74px;">Asig.</th>
-                                            <th class="text-end" style="width: 74px;">Pend.</th>
+                                            <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 130px;">Nota</th>
                                             <th style="width: 160px;">OC vinculada</th>
                                             <th class="text-end" style="width: 132px;">Acciones</th>
@@ -212,13 +197,8 @@
                                                         <t t-esc="so.description"/>
                                                     </div>
                                                 </td>
-                                                <td>
-                                                    <span class="o_tbp_empty_badge"><t t-esc="so.product_type || so.unit_label || '-'"/></span>
-                                                </td>
                                                 <td class="text-end"><t t-esc="fmtDays(so.days_unassigned || 0)"/></td>
-                                                <td class="text-end"><t t-esc="fmtQtyWithUnit(so.qty_orig, so.unit_label)"/></td>
-                                                <td class="text-end"><t t-esc="fmtQtyWithUnit(so.qty_assigned, so.unit_label)"/></td>
-                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtQtyWithUnit(so.qty_pending, so.unit_label)"/></td>
+                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtNum(so.qty_pending)"/></td>
                                                 <td>
                                                     <div t-if="so.note" class="o_tbp_cell_note" t-att-title="so.note">
                                                         <i class="fa fa-sticky-note-o me-1"/>
@@ -234,7 +214,6 @@
                                                            t-att-title="'Abrir ' + so.po_name">
                                                             <i class="fa fa-external-link me-1"/>
                                                             <t t-esc="so.po_name"/>
-                                                            <span class="o_tbp_po_qty">(<t t-esc="fmtQtyWithUnit(so.po_qty, so.unit_label)"/>)</span>
                                                         </a>
                                                     </t>
                                                     <t t-else="">
@@ -289,13 +268,16 @@
 
                                 <div class="o_tbp_group_stats">
                                     <span class="o_tbp_stat">
-                                        Fecha <b><t t-esc="so.date"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
                                         Líneas <b><t t-esc="so.products.length"/></b>
                                     </span>
                                     <span class="o_tbp_stat o_tbp_stat_buy is-positive">
-                                        Pendiente <b><t t-esc="fmtSplitQty(so.total_pending_m2, so.total_pending_pieces)"/></b>
+                                        Pend. m² <b><t t-esc="fmtNum(so.total_pending_m2)"/></b>
+                                    </span>
+                                    <span class="o_tbp_stat o_tbp_stat_buy is-positive">
+                                        Pend. pzas <b><t t-esc="fmtNum(so.total_pending_pieces)"/></b>
+                                    </span>
+                                    <span class="o_tbp_stat">
+                                        % global <b><t t-esc="fmtPercent(allocationPercent(so.total_assigned, so.total_requested))"/></b>
                                     </span>
                                     <span class="o_tbp_stat">
                                         Días <b><t t-esc="fmtDays(so.max_days_unassigned)"/></b>
@@ -310,13 +292,7 @@
                                             <th class="text-center" style="width: 42px;">Sel</th>
                                             <th>Producto</th>
                                             <th>Proveedor</th>
-                                            <th>Tipo</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
-                                            <th class="text-center" style="width: 72px;">A</th>
-                                            <th class="text-center" style="width: 60px;">I</th>
-                                            <th class="text-center" style="width: 60px;">P</th>
-                                            <th class="text-end" style="width: 76px;">Cant.</th>
-                                            <th class="text-end" style="width: 76px;">Asig.</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 160px;">OC vinculada</th>
                                             <th class="text-end" style="width: 132px;">Acciones</th>
@@ -342,16 +318,8 @@
                                                         <t t-esc="prod.vendor"/>
                                                     </div>
                                                 </td>
-                                                <td>
-                                                    <span class="o_tbp_empty_badge"><t t-esc="prod.product_type || prod.unit_label || '-'"/></span>
-                                                </td>
                                                 <td class="text-end"><t t-esc="fmtDays(prod.days_unassigned || 0)"/></td>
-                                                <td class="text-center"><t t-esc="fmtQtyWithUnit(prod.qty_a, prod.unit_label)"/></td>
-                                                <td class="text-center"><t t-esc="fmtQtyWithUnit(prod.qty_i, prod.unit_label)"/></td>
-                                                <td class="text-center"><t t-esc="fmtQtyWithUnit(prod.qty_p, prod.unit_label)"/></td>
-                                                <td class="text-end"><t t-esc="fmtQtyWithUnit(prod.qty_orig, prod.unit_label)"/></td>
-                                                <td class="text-end"><t t-esc="fmtQtyWithUnit(prod.qty_assigned, prod.unit_label)"/></td>
-                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtQtyWithUnit(prod.qty_pending, prod.unit_label)"/></td>
+                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtNum(prod.qty_pending)"/></td>
                                                 <td>
                                                     <t t-if="prod.po_id">
                                                         <a href="#"
@@ -408,11 +376,14 @@
                                     <span class="o_tbp_stat">
                                         Líneas <b><t t-esc="vendor.products.length"/></b>
                                     </span>
-                                    <span class="o_tbp_stat">
-                                        Pendiente <b><t t-esc="fmtSplitQty(vendor.total_pending_m2, vendor.total_pending_pieces)"/></b>
+                                    <span class="o_tbp_stat o_tbp_stat_buy is-positive">
+                                        Pend. m² <b><t t-esc="fmtNum(vendor.total_pending_m2)"/></b>
                                     </span>
-                                    <span t-attf-class="o_tbp_stat o_tbp_stat_buy #{vendor.total_to_buy > 0 ? 'is-positive' : 'is-ok'}">
-                                        Comprar <b><t t-esc="fmtSplitQty(vendor.total_to_buy_m2, vendor.total_to_buy_pieces)"/></b>
+                                    <span class="o_tbp_stat o_tbp_stat_buy is-positive">
+                                        Pend. pzas <b><t t-esc="fmtNum(vendor.total_pending_pieces)"/></b>
+                                    </span>
+                                    <span class="o_tbp_stat">
+                                        % global <b><t t-esc="fmtPercent(allocationPercent(vendor.total_assigned, vendor.total_requested))"/></b>
                                     </span>
                                     <span class="o_tbp_stat">
                                         Días <b><t t-esc="fmtDays(vendor.max_days_unassigned)"/></b>
@@ -429,11 +400,7 @@
                                             <th style="width: 90px;">SO</th>
                                             <th>Cliente</th>
                                             <th style="width: 88px;">Fecha</th>
-                                            <th>Tipo</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
-                                            <th class="text-center" style="width: 72px;">A</th>
-                                            <th class="text-center" style="width: 60px;">I</th>
-                                            <th class="text-center" style="width: 60px;">P</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 160px;">OC vinculada</th>
                                             <th class="text-end" style="width: 132px;">Acciones</th>
@@ -467,14 +434,8 @@
                                                     </div>
                                                 </td>
                                                 <td><t t-esc="prod.date"/></td>
-                                                <td>
-                                                    <span class="o_tbp_empty_badge"><t t-esc="prod.product_type || prod.unit_label || '-'"/></span>
-                                                </td>
                                                 <td class="text-end"><t t-esc="fmtDays(prod.days_unassigned || 0)"/></td>
-                                                <td class="text-center"><t t-esc="fmtQtyWithUnit(prod.qty_a, prod.unit_label)"/></td>
-                                                <td class="text-center"><t t-esc="fmtQtyWithUnit(prod.qty_i, prod.unit_label)"/></td>
-                                                <td class="text-center"><t t-esc="fmtQtyWithUnit(prod.qty_p, prod.unit_label)"/></td>
-                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtQtyWithUnit(prod.qty_pending, prod.unit_label)"/></td>
+                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtNum(prod.qty_pending)"/></td>
                                                 <td>
                                                     <t t-if="prod.po_id">
                                                         <a href="#"

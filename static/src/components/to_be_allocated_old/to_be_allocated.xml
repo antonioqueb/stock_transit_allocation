@@ -31,6 +31,34 @@
                     </div>
 
                     <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Sol. m²</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalRequestedM2)"/>
+                        </span>
+                    </div>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Sol. pzas</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalRequestedPieces)"/>
+                        </span>
+                    </div>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Asig. m²</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalAssignedM2)"/>
+                        </span>
+                    </div>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Asig. pzas</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalAssignedPieces)"/>
+                        </span>
+                    </div>
+
+                    <div class="o_tba_metric">
                         <span class="o_tba_metric_label">Pend. m²</span>
                         <span class="o_tba_metric_value">
                             <t t-esc="fmtNum(totalPendingM2)"/>
@@ -45,9 +73,16 @@
                     </div>
 
                     <div class="o_tba_metric">
-                        <span class="o_tba_metric_label">% global</span>
+                        <span class="o_tba_metric_label">% m²</span>
                         <span class="o_tba_metric_value">
-                            <t t-esc="fmtPercent(totalAssignedPercentGlobal)"/>
+                            <t t-esc="fmtPercent(totalAssignedPercentM2)"/>
+                        </span>
+                    </div>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">% pzas</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtPercent(totalAssignedPercentPieces)"/>
                         </span>
                     </div>
                 </div>
@@ -160,23 +195,33 @@
 
                             <div class="o_tba_group_stats">
                                 <span class="o_tba_stat">
-                                    Líneas:
-                                    <b><t t-esc="group.lines.length"/></b>
-                                </span>
-
-                                <span class="o_tba_stat o_tba_stat_available">
-                                    Pend. m²:
-                                    <b><t t-esc="fmtNum(group.qty_pending_m2)"/></b>
-                                </span>
-
-                                <span class="o_tba_stat o_tba_stat_available">
-                                    Pend. pzas:
-                                    <b><t t-esc="fmtNum(group.qty_pending_pieces)"/></b>
+                                    Solicitado:
+                                    <b><t t-esc="fmtSplitQty(group.qty_requested_m2, group.qty_requested_pieces)"/></b>
                                 </span>
 
                                 <span class="o_tba_stat">
-                                    % global:
-                                    <b><t t-esc="splitPercent(group.qty_assigned, group.qty_requested || group.qty_ordered)"/></b>
+                                    Asignado:
+                                    <b><t t-esc="fmtSplitQty(group.qty_assigned_m2, group.qty_assigned_pieces)"/></b>
+                                </span>
+
+                                <span class="o_tba_stat">
+                                    Pendiente:
+                                    <b><t t-esc="fmtSplitQty(group.qty_pending_m2, group.qty_pending_pieces)"/></b>
+                                </span>
+
+                                <span class="o_tba_stat o_tba_stat_available">
+                                    Disponible:
+                                    <b><t t-esc="fmtSplitQty(group.qty_available_m2, group.qty_available_pieces)"/></b>
+                                </span>
+
+                                <span class="o_tba_stat">
+                                    % m²:
+                                    <b><t t-esc="splitPercent(group.qty_assigned_m2, group.qty_requested_m2)"/></b>
+                                </span>
+
+                                <span class="o_tba_stat">
+                                    % pzas:
+                                    <b><t t-esc="splitPercent(group.qty_assigned_pieces, group.qty_requested_pieces)"/></b>
                                 </span>
 
                                 <span class="o_tba_stat">
@@ -194,9 +239,13 @@
                                         <th>Cliente</th>
                                         <th>Producto</th>
                                         <th>Vendedor</th>
+                                        <th>Tipo</th>
                                         <th class="text-end">Días sin asignar</th>
                                         <th class="text-end">Pago</th>
+                                        <th class="text-end">Solicitado</th>
+                                        <th class="text-end">Asignado</th>
                                         <th class="text-end">Pendiente</th>
+                                        <th class="text-end">Disponible</th>
                                         <th class="text-end">% Asig.</th>
                                         <th>Estado</th>
                                         <th class="text-end">Acciones</th>
@@ -247,6 +296,12 @@
                                                 </div>
                                             </td>
 
+                                            <td>
+                                                <span class="badge rounded-pill text-bg-light">
+                                                    <t t-esc="line.product_type || line.unit_label || '-'"/>
+                                                </span>
+                                            </td>
+
                                             <td class="text-end fw-bold">
                                                 <t t-esc="fmtDays(line.days_unassigned || 0)"/>
                                             </td>
@@ -257,8 +312,20 @@
                                                 </span>
                                             </td>
 
+                                            <td class="text-end fw-bold">
+                                                <t t-esc="fmtQtyWithUnit(line.qty_ordered || line.qty_requested || 0, line.unit_label)"/>
+                                            </td>
+
+                                            <td class="text-end">
+                                                <t t-esc="fmtQtyWithUnit(line.qty_assigned || 0, line.unit_label)"/>
+                                            </td>
+
                                             <td class="text-end o_tba_pending_qty">
-                                                <t t-esc="fmtNum(line.qty_pending || 0)"/>
+                                                <t t-esc="fmtQtyWithUnit(line.qty_pending || 0, line.unit_label)"/>
+                                            </td>
+
+                                            <td class="text-end o_tba_available_qty">
+                                                <t t-esc="fmtQtyWithUnit(line.qty_available || 0, line.unit_label)"/>
                                             </td>
 
                                             <td class="text-end">

@@ -2141,11 +2141,6 @@ export class ToBeAllocated extends Component {
         );
     }
 
-    get totalAssignedPercentGlobal() {
-        if (this.totalRequested <= 0) return 0;
-        return (this.totalAssigned / this.totalRequested) * 100;
-    }
-
     get totalRequestedM2() {
         return this._sum("qty_ordered_m2") || this._sum("qty_requested_m2");
     }

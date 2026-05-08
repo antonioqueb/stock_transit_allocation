@@ -175,6 +175,7 @@
                                             <th class="text-end" style="width: 74px;">Pend.</th>
                                             <th style="width: 130px;">Nota</th>
                                             <th style="width: 160px;">OC vinculada</th>
+                                            <th class="text-end" style="width: 132px;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -239,6 +240,16 @@
                                                     <t t-else="">
                                                         <span class="o_tbp_empty_badge">Sin OC</span>
                                                     </t>
+                                                </td>
+                                                <td class="text-end">
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-outline-danger o_tbp_cancel_btn"
+                                                            t-att-disabled="state.cancelling[so.id]"
+                                                            t-on-click="(ev) => this.cancelPending(so, ev)"
+                                                            title="Cancelar pendiente de compra">
+                                                        <i t-attf-class="fa #{state.cancelling[so.id] ? 'fa-spinner fa-spin' : 'fa-ban'} me-1"/>
+                                                        Cancelar
+                                                    </button>
                                                 </td>
                                             </tr>
                                         </t>
@@ -308,6 +319,7 @@
                                             <th class="text-end" style="width: 76px;">Asig.</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 160px;">OC vinculada</th>
+                                            <th class="text-end" style="width: 132px;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -353,6 +365,16 @@
                                                     <t t-else="">
                                                         <span class="o_tbp_empty_badge">Sin OC</span>
                                                     </t>
+                                                </td>
+                                                <td class="text-end">
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-outline-danger o_tbp_cancel_btn"
+                                                            t-att-disabled="state.cancelling[prod.id]"
+                                                            t-on-click="(ev) => this.cancelPending(prod, ev)"
+                                                            title="Cancelar pendiente de compra">
+                                                        <i t-attf-class="fa #{state.cancelling[prod.id] ? 'fa-spinner fa-spin' : 'fa-ban'} me-1"/>
+                                                        Cancelar
+                                                    </button>
                                                 </td>
                                             </tr>
                                         </t>
@@ -414,6 +436,7 @@
                                             <th class="text-center" style="width: 60px;">P</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 160px;">OC vinculada</th>
+                                            <th class="text-end" style="width: 132px;">Acciones</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -465,6 +488,16 @@
                                                     <t t-else="">
                                                         <span class="o_tbp_empty_badge">Sin OC</span>
                                                     </t>
+                                                </td>
+                                                <td class="text-end">
+                                                    <button type="button"
+                                                            class="btn btn-sm btn-outline-danger o_tbp_cancel_btn"
+                                                            t-att-disabled="state.cancelling[prod.id]"
+                                                            t-on-click="(ev) => this.cancelPending(prod, ev)"
+                                                            title="Cancelar pendiente de compra">
+                                                        <i t-attf-class="fa #{state.cancelling[prod.id] ? 'fa-spinner fa-spin' : 'fa-ban'} me-1"/>
+                                                        Cancelar
+                                                    </button>
                                                 </td>
                                             </tr>
                                         </t>

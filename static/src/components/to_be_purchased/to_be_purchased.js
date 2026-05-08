@@ -190,6 +190,8 @@ export class ToBePurchased extends Component {
                         total_pending: 0,
                         total_pending_m2: 0,
                         total_pending_pieces: 0,
+                        total_requested: 0,
+                        total_assigned: 0,
                         max_days_unassigned: 0,
                     };
                 }
@@ -217,6 +219,8 @@ export class ToBePurchased extends Component {
                 soMap[soKey].total_pending += Number(soLine.qty_pending || 0);
                 soMap[soKey].total_pending_m2 += Number(soLine.qty_pending_m2 || 0);
                 soMap[soKey].total_pending_pieces += Number(soLine.qty_pending_pieces || 0);
+                soMap[soKey].total_requested += Number(soLine.qty_requested || soLine.qty_orig || 0);
+                soMap[soKey].total_assigned += Number(soLine.qty_assigned || 0);
                 soMap[soKey].max_days_unassigned = Math.max(
                     soMap[soKey].max_days_unassigned,
                     Number(soLine.days_unassigned || 0)
@@ -242,6 +246,8 @@ export class ToBePurchased extends Component {
             total_to_buy: 0,
             total_to_buy_m2: 0,
             total_to_buy_pieces: 0,
+            total_requested: 0,
+            total_assigned: 0,
             max_days_unassigned: 0,
         };
     }
@@ -271,6 +277,8 @@ export class ToBePurchased extends Component {
             group.total_pending += Number(soLine.qty_pending || 0);
             group.total_pending_m2 += Number(soLine.qty_pending_m2 || 0);
             group.total_pending_pieces += Number(soLine.qty_pending_pieces || 0);
+            group.total_requested += Number(soLine.qty_requested || soLine.qty_orig || 0);
+            group.total_assigned += Number(soLine.qty_assigned || 0);
             group.max_days_unassigned = Math.max(
                 group.max_days_unassigned,
                 Number(soLine.days_unassigned || 0)
@@ -787,8 +795,60 @@ export class ToBePurchased extends Component {
         return n === 1 ? "1 día" : `${n} días`;
     }
 
+    allocationPercent(assigned, requested) {
+        const req = Number(requested || 0);
+        if (req <= 0) return 0;
+        return (Number(assigned || 0) / req) * 100;
+    }
+
+    linesAssignmentPercent(lines) {
+        const requested = (lines || []).reduce(
+            (sum, line) => sum + Number(line.qty_requested || line.qty_orig || 0),
+            0
+        );
+        const assigned = (lines || []).reduce(
+            (sum, line) => sum + Number(line.qty_assigned || 0),
+            0
+        );
+        return this.allocationPercent(assigned, requested);
+    }
+
+    _allLines() {
+        return this.state.data.flatMap((product) => product.so_lines || []);
+    }
+
+    _sumLines(fieldName) {
+        return this._allLines().reduce(
+            (sum, line) => sum + Number(line[fieldName] || 0),
+            0
+        );
+    }
+
+    _sumLinesFirst(primaryField, fallbackField) {
+        return this._allLines().reduce(
+            (sum, line) => sum + Number(line[primaryField] || line[fallbackField] || 0),
+            0
+        );
+    }
+
     _sum(fieldName) {
         return this.state.data.reduce((sum, product) => sum + Number(product[fieldName] || 0), 0);
+    }
+
+    get totalLines() {
+        return this._allLines().length;
+    }
+
+    get totalRequested() {
+        return this._sumLinesFirst("qty_requested", "qty_orig");
+    }
+
+    get totalAssigned() {
+        return this._sumLines("qty_assigned");
+    }
+
+    get totalAssignedPercentGlobal() {
+        return this.allocationPercent(this.totalAssigned, this.totalRequested);
     }
 
     get totalDemandM2() {
