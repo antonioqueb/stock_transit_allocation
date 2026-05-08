@@ -165,6 +165,36 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return sum(quants.mapped('quantity'))
 
 
+    def _is_hub_stock_product(self, product):
+        """Devuelve False para servicios: los hubs solo gestionan material físico."""
+        if not product or not product.exists():
+            return False
+
+        product_type = False
+
+        if 'detailed_type' in product._fields:
+            product_type = product.detailed_type
+        elif 'type' in product._fields:
+            product_type = product.type
+
+        if product_type == 'service':
+            return False
+
+        template = product.product_tmpl_id
+        if template:
+            template_type = False
+
+            if 'detailed_type' in template._fields:
+                template_type = template.detailed_type
+            elif 'type' in template._fields:
+                template_type = template.type
+
+            if template_type == 'service':
+                return False
+
+        return True
+
+
 class ToBeAllocatedLogic(models.AbstractModel):
     _name = 'sale.allocation.manager.logic'
     _inherit = 'allocation.hub.payment.mixin'
@@ -182,7 +212,8 @@ class ToBeAllocatedLogic(models.AbstractModel):
             sale_lines._tc_prepare_hub_state_for_read()
 
         sale_lines = sale_lines.filtered(
-            lambda line: line.tc_qty_pending_allocation > 0
+            lambda line: self._is_hub_stock_product(line.product_id)
+            and line.tc_qty_pending_allocation > 0
             and line.tc_available_internal_qty > 0
             and not line.tc_stock_rejected
             and not line.auto_transit_assign
@@ -248,9 +279,10 @@ class ToBeAllocatedLogic(models.AbstractModel):
     @api.model
     def send_to_purchase(self, sale_line_ids, reason=False):
         lines = self.env['sale.order.line'].browse(sale_line_ids).exists()
+        lines = lines.filtered(lambda line: self._is_hub_stock_product(line.product_id))
 
         if not lines:
-            return {'error': 'No se encontraron líneas válidas'}
+            return {'error': 'No se encontraron líneas válidas de producto físico'}
 
         lines.action_tc_send_to_purchase(reason=reason)
 
@@ -262,9 +294,10 @@ class ToBeAllocatedLogic(models.AbstractModel):
     @api.model
     def close_short(self, sale_line_ids, reason=False, closure_action=False):
         lines = self.env['sale.order.line'].browse(sale_line_ids).exists()
+        lines = lines.filtered(lambda line: self._is_hub_stock_product(line.product_id))
 
         if not lines:
-            return {'error': 'No se encontraron líneas válidas'}
+            return {'error': 'No se encontraron líneas válidas de producto físico'}
 
         lines.action_tc_close_allocation_short(reason=reason, closure_action=closure_action)
 
@@ -291,7 +324,8 @@ class ToBePurchasedLogic(models.AbstractModel):
             all_sale_lines._tc_prepare_hub_state_for_read()
 
         sale_lines = all_sale_lines.filtered(
-            lambda line: line.tc_allocation_hub_state == 'to_be_purchased'
+            lambda line: self._is_hub_stock_product(line.product_id)
+            and line.tc_allocation_hub_state == 'to_be_purchased'
             and line.tc_qty_pending_allocation > 0
             and not line.tc_assignment_closed
         )
@@ -631,7 +665,8 @@ class ToBePurchasedLogic(models.AbstractModel):
         lines = self.env['sale.order.line'].browse(sale_line_ids).exists()
 
         lines = lines.filtered(
-            lambda line: line.state in ('sale', 'done')
+            lambda line: self._is_hub_stock_product(line.product_id)
+            and line.state in ('sale', 'done')
             and line.tc_allocation_hub_state == 'to_be_purchased'
             and line.tc_qty_pending_allocation > 0
             and not line.tc_assignment_closed
@@ -662,7 +697,8 @@ class ToBePurchasedLogic(models.AbstractModel):
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
 
         sale_lines = sale_lines.filtered(
-            lambda line: line.state in ('sale', 'done')
+            lambda line: self._is_hub_stock_product(line.product_id)
+            and line.state in ('sale', 'done')
             and line.tc_allocation_hub_state == 'to_be_purchased'
             and line.tc_qty_pending_allocation > 0
             and not line.tc_assignment_closed

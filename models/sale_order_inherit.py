@@ -664,6 +664,39 @@ class SaleOrderLine(models.Model):
         quants = Quant.search(domain)
         return sum(quants.mapped('quantity'))
 
+
+    def _tc_is_service_product(self):
+        """Los hubs de asignación/compra no gestionan servicios."""
+        self.ensure_one()
+
+        product = self.product_id
+        if not product:
+            return False
+
+        product_type = False
+
+        if 'detailed_type' in product._fields:
+            product_type = product.detailed_type
+        elif 'type' in product._fields:
+            product_type = product.type
+
+        if product_type == 'service':
+            return True
+
+        template = product.product_tmpl_id
+        if template:
+            template_type = False
+
+            if 'detailed_type' in template._fields:
+                template_type = template.detailed_type
+            elif 'type' in template._fields:
+                template_type = template.type
+
+            if template_type == 'service':
+                return True
+
+        return False
+
     @api.depends(
         'product_uom_qty',
         'qty_delivered',
@@ -682,6 +715,7 @@ class SaleOrderLine(models.Model):
                 line.display_type
                 or line.state not in ('sale', 'done')
                 or not line.product_id
+                or line._tc_is_service_product()
             ):
                 line.tc_qty_assigned_lots = 0.0
                 line.tc_qty_pending_allocation = 0.0
@@ -1605,6 +1639,11 @@ class SaleOrderLine(models.Model):
         for line in self:
             if line.display_type:
                 continue
+
+            if line._tc_is_service_product():
+                raise UserError(_(
+                    'La línea "%s" es un servicio. Los servicios no se gestionan en To Be Allocated ni To Be Purchased.'
+                ) % (line.product_id.display_name or line.name or line.id))
 
             pending_qty = line._tc_get_pending_allocation_qty()
 
