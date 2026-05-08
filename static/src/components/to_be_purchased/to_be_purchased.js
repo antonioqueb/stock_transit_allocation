@@ -116,7 +116,13 @@ export class ToBePurchased extends Component {
 
         if (this.state.showOnlyPending) {
             result = result.map((product) => {
-                const filteredLines = (product.so_lines || []).filter((line) => !line.po_id);
+                // El backend ya devuelve qty_pending como pendiente incremental
+                // por comprar, neto de OC/allocation activa. No se debe ocultar
+                // una línea solo porque tenga po_id: si la demanda subió, debe
+                // seguir apareciendo con el faltante nuevo.
+                const filteredLines = (product.so_lines || []).filter(
+                    (line) => Number(line.qty_pending || 0) > 0
+                );
 
                 if (filteredLines.length === 0) {
                     return null;
@@ -135,10 +141,7 @@ export class ToBePurchased extends Component {
                     0
                 );
 
-                // Debe respetar la misma regla del backend:
-                // To Be Purchased NO descuenta stock interno ni tránsito.
-                // Solo descuenta OC abierta.
-                const qtyToBuy = Math.max(0, qtySo - Number(product.qty_p || 0));
+                const qtyToBuy = qtySo;
                 const qtyToBuyM2 = product.unit_kind === "pieces" ? 0 : qtyToBuy;
                 const qtyToBuyPieces = product.unit_kind === "pieces" ? qtyToBuy : 0;
 
@@ -616,7 +619,68 @@ export class ToBePurchased extends Component {
         }
     }
 
-    openPurchaseModal() {
+    _getSelectedLineObjects() {
+        const selected = new Set(this.state.selectedLines || []);
+        return this._allLines().filter((line) => selected.has(line.id));
+    }
+
+    async _loadOpenPurchaseOrdersForVendor(vendorId) {
+        if (!vendorId) {
+            this.state.openPOs = [];
+            return [];
+        }
+
+        this.state.loadingPOs = true;
+
+        try {
+            const orders = await this.orm.call(
+                "purchase.manager.logic",
+                "get_open_purchase_orders",
+                [vendorId]
+            );
+            this.state.openPOs = orders || [];
+            return this.state.openPOs;
+        } catch (error) {
+            console.error("[ToBePurchased] Error al cargar OCs:", error);
+            this.state.openPOs = [];
+            return [];
+        } finally {
+            this.state.loadingPOs = false;
+        }
+    }
+
+    async _prefillModalFromLinkedPOs() {
+        const selectedLines = this._getSelectedLineObjects();
+        const linkedLines = selectedLines.filter(
+            (line) => line.po_id && line.po_partner_id && line.po_partner_name
+        );
+
+        if (!linkedLines.length) {
+            return;
+        }
+
+        const vendorIds = [...new Set(linkedLines.map((line) => line.po_partner_id))];
+        if (vendorIds.length !== 1) {
+            return;
+        }
+
+        const vendorId = vendorIds[0];
+        const vendorName = linkedLines[0].po_partner_name || "";
+
+        this.state.selectedVendor = vendorId;
+        this.state.selectedVendorName = vendorName;
+        this.state.vendorSearch = vendorName;
+        this.state.showVendorDropdown = false;
+
+        const openPOs = await this._loadOpenPurchaseOrdersForVendor(vendorId);
+        const linkedPOIds = [...new Set(linkedLines.map((line) => line.po_id).filter(Boolean))];
+
+        if (linkedPOIds.length === 1 && openPOs.some((po) => po.id === linkedPOIds[0])) {
+            this.state.selectedPO = linkedPOIds[0];
+        }
+    }
+
+    async openPurchaseModal() {
         if (this.state.selectedLines.length === 0) {
             this.notification.add("Seleccione al menos una línea", { type: "warning" });
             return;
@@ -629,6 +693,8 @@ export class ToBePurchased extends Component {
         this.state.showVendorDropdown = false;
         this.state.selectedPO = null;
         this.state.openPOs = [];
+
+        await this._prefillModalFromLinkedPOs();
     }
 
     closeModal() {
@@ -685,20 +751,7 @@ export class ToBePurchased extends Component {
         this.state.showVendorDropdown = false;
         this.state.selectedPO = null;
 
-        this.state.loadingPOs = true;
-
-        try {
-            this.state.openPOs = await this.orm.call(
-                "purchase.manager.logic",
-                "get_open_purchase_orders",
-                [vendor.id]
-            );
-        } catch (error) {
-            console.error("[ToBePurchased] Error al cargar OCs:", error);
-            this.state.openPOs = [];
-        } finally {
-            this.state.loadingPOs = false;
-        }
+        await this._loadOpenPurchaseOrdersForVendor(vendor.id);
     }
 
     clearVendorSelection() {

@@ -504,7 +504,7 @@
                                 </div>
                                 <div>
                                     <h4 class="mb-0 fw-bold">Generar Orden de Compra</h4>
-                                    <small class="text-muted">Seleccione proveedor y configure la orden</small>
+                                    <small class="text-muted">Seleccione proveedor y configure la OC nueva o vinculada</small>
                                 </div>
                             </div>
                             <button class="o_tbp_modal_close" t-on-click="closeModal">
@@ -597,13 +597,13 @@
                                 <div class="o_tbp_section">
                                     <label class="o_tbp_section_label">
                                         <i class="fa fa-file-text-o me-2"/>Orden de Compra
-                                        <span class="text-muted fw-normal ms-2" style="font-size: 12px;">(opcional)</span>
+                                        <span class="text-muted fw-normal ms-2" style="font-size: 12px;">(nueva o existente)</span>
                                     </label>
 
                                     <t t-if="state.loadingPOs">
                                         <div class="o_tbp_loading">
                                             <i class="fa fa-spinner fa-spin fa-lg me-2"/>
-                                            Buscando órdenes abiertas...
+                                            Buscando órdenes abiertas o confirmadas...
                                         </div>
                                     </t>
 
@@ -635,6 +635,7 @@
                                                     <div class="d-flex gap-3 text-muted" style="font-size: 11px;">
                                                         <span><i class="fa fa-calendar me-1"/><t t-esc="po.date"/></span>
                                                         <span><i class="fa fa-list me-1"/><t t-esc="po.lines_count"/> líneas</span>
+                                                        <span t-if="po.state_label"><i class="fa fa-tag me-1"/><t t-esc="po.state_label"/></span>
                                                         <span t-if="po.origin"><i class="fa fa-link me-1"/><t t-esc="po.origin"/></span>
                                                     </div>
                                                 </div>

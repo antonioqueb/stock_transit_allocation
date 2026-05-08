@@ -106,39 +106,96 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
         return max((today - order_date).days, 0)
 
-    def _get_active_allocation_info(self, sale_line):
-        allocation = self.env['purchase.order.line.allocation'].search([
+    def _get_empty_allocation_info(self):
+        return {
+            'allocation': False,
+            'po_name': '',
+            'po_qty': 0.0,
+            'po_id': False,
+            'po_state': '',
+            'po_partner_id': False,
+            'po_partner_name': '',
+        }
+
+    def _get_active_purchase_allocations(self, sale_line):
+        """
+        Allocations activas que ya cubren demanda de compra de una línea.
+
+        Estas allocations representan material que ya fue agregado a una OC,
+        aunque todavía no haya llegado ni esté asignado físicamente con placas.
+        Se excluyen canceladas/done para no restar material que ya fue liberado
+        o que ya debería estar reflejado como asignado/entregado.
+        """
+        if not sale_line or not sale_line.exists():
+            return self.env['purchase.order.line.allocation']
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+        allocations = Allocation.search([
             ('sale_line_id', '=', sale_line.id),
             ('state', 'not in', ['cancelled', 'done']),
-        ], order='id desc', limit=1)
+        ], order='id desc')
 
-        if not allocation:
-            return {
-                'allocation': False,
-                'po_name': '',
-                'po_qty': 0.0,
-                'po_id': False,
-                'po_state': '',
-            }
+        return allocations.filtered(
+            lambda alloc: alloc.purchase_order_id
+            and alloc.purchase_order_id.exists()
+            and alloc.purchase_order_id.state != 'cancel'
+        )
 
-        po_line = allocation.purchase_line_id
-        po = po_line.order_id
+    def _get_active_purchase_qty_for_line(self, sale_line):
+        allocations = self._get_active_purchase_allocations(sale_line)
+        return sum(allocations.mapped('quantity'))
 
-        if not po or po.state == 'cancel':
-            return {
-                'allocation': False,
-                'po_name': '',
-                'po_qty': 0.0,
-                'po_id': False,
-                'po_state': '',
-            }
+    def _get_purchase_gap_qty_for_line(self, sale_line, raw_pending_qty=False):
+        """
+        Pendiente real para To Be Purchased.
+
+        raw_pending_qty = demanda viva pendiente de cubrir físicamente.
+        active_purchase_qty = cantidad de esa demanda que ya tiene OC/allocation.
+
+        Ejemplo:
+        - Pedido sube de 100 a 200 m².
+        - Ya existe allocation/OC por 100 m².
+        - raw_pending_qty = 200 si aún no hay placas recibidas/asignadas.
+        - gap = 100, que es lo único que debe volver a aparecer en TBP.
+        """
+        if not sale_line or not sale_line.exists():
+            return 0.0
+
+        if raw_pending_qty is False:
+            if hasattr(sale_line, '_tc_get_pending_allocation_qty'):
+                raw_pending_qty = sale_line._tc_get_pending_allocation_qty()
+            else:
+                raw_pending_qty = sale_line.tc_qty_pending_allocation
+
+        active_purchase_qty = self._get_active_purchase_qty_for_line(sale_line)
+        return max(float(raw_pending_qty or 0.0) - float(active_purchase_qty or 0.0), 0.0)
+
+    def _get_active_allocation_info(self, sale_line):
+        allocations = self._get_active_purchase_allocations(sale_line)
+
+        if not allocations:
+            return self._get_empty_allocation_info()
+
+        purchase_orders = allocations.mapped('purchase_order_id').filtered(
+            lambda po: po and po.exists() and po.state != 'cancel'
+        )
+        latest_allocation = allocations[:1]
+        latest_po = latest_allocation.purchase_order_id if latest_allocation else False
+        total_qty = sum(allocations.mapped('quantity'))
+
+        po_names = []
+        for po in purchase_orders:
+            if po.name and po.name not in po_names:
+                po_names.append(po.name)
 
         return {
-            'allocation': allocation,
-            'po_name': po.name,
-            'po_qty': allocation.quantity,
-            'po_id': po.id,
-            'po_state': po.state,
+            'allocation': latest_allocation,
+            'po_name': ', '.join(po_names),
+            'po_qty': total_qty,
+            'po_id': latest_po.id if latest_po else False,
+            'po_state': latest_po.state if latest_po else '',
+            'po_partner_id': latest_po.partner_id.id if latest_po and latest_po.partner_id else False,
+            'po_partner_name': latest_po.partner_id.name if latest_po and latest_po.partner_id else '',
         }
 
     def _get_free_internal_qty_for_product(self, product):
@@ -411,6 +468,25 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             return {}
         return self._hub_parse_json_value(line.x_lot_breakdown_json)
 
+    def _hub_get_active_purchase_qty_by_sale_line(self, sale_line_ids):
+        if not sale_line_ids:
+            return {}
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+        allocations = Allocation.search([
+            ('sale_line_id', 'in', list(sale_line_ids)),
+            ('state', 'not in', ['cancelled', 'done']),
+            ('purchase_order_id.state', '!=', 'cancel'),
+        ])
+
+        qty_map = defaultdict(float)
+        for allocation in allocations:
+            if not allocation.sale_line_id:
+                continue
+            qty_map[allocation.sale_line_id.id] += allocation.quantity or 0.0
+
+        return dict(qty_map)
+
     def _hub_compute_sale_line_metrics(self, sale_lines):
         """Calcula cantidades de asignación en lote para evitar N+1 queries."""
         if not sale_lines:
@@ -421,6 +497,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         lot_metadata = self._hub_get_lot_metadata(all_lot_ids)
         internal_qty_by_product_lot = self._hub_get_internal_qty_by_product_lot(product_ids, all_lot_ids)
         free_qty_by_product = self._hub_get_free_internal_qty_by_product(product_ids)
+        active_purchase_qty_by_line = self._hub_get_active_purchase_qty_by_sale_line(sale_lines.ids)
 
         metrics = {}
 
@@ -451,6 +528,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             covered_qty = max(assigned_qty, delivered_qty)
             raw_pending_qty = max(requested_qty - covered_qty, 0.0)
             pending_qty = 0.0 if getattr(line, 'tc_assignment_closed', False) else raw_pending_qty
+            active_purchase_qty = active_purchase_qty_by_line.get(line.id, 0.0)
+            purchase_pending_qty = 0.0 if getattr(line, 'tc_assignment_closed', False) else max(raw_pending_qty - active_purchase_qty, 0.0)
             over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
             purchase_intent = bool(
                 getattr(line, 'tc_stock_rejected', False)
@@ -488,6 +567,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 'covered_qty': covered_qty,
                 'raw_pending_qty': raw_pending_qty,
                 'pending_qty': pending_qty,
+                'purchase_allocated_qty': active_purchase_qty,
+                'purchase_pending_qty': purchase_pending_qty,
                 'over_assigned_qty': over_assigned_qty,
                 'available_qty': available_qty,
                 'assigned_percent': assigned_percent,
@@ -508,13 +589,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return result
 
     def _hub_get_active_allocation_info_map(self, sale_line_ids):
-        empty = {
-            'allocation': False,
-            'po_name': '',
-            'po_qty': 0.0,
-            'po_id': False,
-            'po_state': '',
-        }
+        empty = self._get_empty_allocation_info()
 
         if not sale_line_ids:
             return {}
@@ -523,27 +598,36 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         allocations = Allocation.search([
             ('sale_line_id', 'in', list(sale_line_ids)),
             ('state', 'not in', ['cancelled', 'done']),
+            ('purchase_order_id.state', '!=', 'cancel'),
         ], order='id desc')
+
+        grouped = defaultdict(lambda: self.env['purchase.order.line.allocation'])
+
+        for allocation in allocations:
+            if allocation.sale_line_id:
+                grouped[allocation.sale_line_id.id] |= allocation
 
         result = {}
 
-        for allocation in allocations:
-            sale_line_id = allocation.sale_line_id.id
-            if sale_line_id in result:
-                continue
-
-            po_line = allocation.purchase_line_id
-            po = po_line.order_id if po_line else allocation.purchase_order_id
-
-            if not po or po.state == 'cancel':
-                continue
+        for sale_line_id, line_allocations in grouped.items():
+            latest_allocation = line_allocations[:1]
+            latest_po = latest_allocation.purchase_order_id if latest_allocation else False
+            purchase_orders = line_allocations.mapped('purchase_order_id').filtered(
+                lambda po: po and po.exists() and po.state != 'cancel'
+            )
+            po_names = []
+            for po in purchase_orders:
+                if po.name and po.name not in po_names:
+                    po_names.append(po.name)
 
             result[sale_line_id] = {
-                'allocation': allocation,
-                'po_name': po.name,
-                'po_qty': allocation.quantity,
-                'po_id': po.id,
-                'po_state': po.state,
+                'allocation': latest_allocation,
+                'po_name': ', '.join(po_names),
+                'po_qty': sum(line_allocations.mapped('quantity')),
+                'po_id': latest_po.id if latest_po else False,
+                'po_state': latest_po.state if latest_po else '',
+                'po_partner_id': latest_po.partner_id.id if latest_po and latest_po.partner_id else False,
+                'po_partner_name': latest_po.partner_id.name if latest_po and latest_po.partner_id else '',
             }
 
         return defaultdict(lambda: dict(empty), result)
@@ -593,6 +677,9 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 'po_qty': allocation_info.get('po_qty', 0.0),
                 'po_id': allocation_info.get('po_id', False),
                 'po_state': allocation_info.get('po_state', ''),
+                'po_partner_id': allocation_info.get('po_partner_id', False),
+                'po_partner_name': allocation_info.get('po_partner_name', ''),
+                'qty_purchase_covered': allocation_info.get('po_qty', 0.0),
                 'stock_rejected': bool(getattr(line, 'tc_stock_rejected', False)),
             })
             row.update(self._split_qty_fields(product, 'qty_orig', requested_qty))
@@ -694,7 +781,7 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         sale_lines = sale_lines_all.filtered(
             lambda line: metrics_by_line.get(line.id, {}).get('hub_state') == 'to_be_purchased'
-            and self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('pending_qty'))
+            and self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('purchase_pending_qty'))
         )
 
         product_ids = set(sale_lines.mapped('product_id').ids)
@@ -720,20 +807,31 @@ class ToBePurchasedLogic(models.AbstractModel):
 
             for sol in product_sale_lines:
                 metrics = metrics_by_line.get(sol.id, {})
-                pending = metrics.get('pending_qty', 0.0)
+                raw_pending = metrics.get('pending_qty', 0.0)
+                purchase_pending = metrics.get('purchase_pending_qty', 0.0)
+                purchase_covered = metrics.get('purchase_allocated_qty', 0.0)
 
-                if not self._hub_float_gt_zero(pending):
+                if not self._hub_float_gt_zero(purchase_pending):
                     continue
 
-                total_demanded += pending
-                so_details.append(
-                    self._hub_make_sale_line_row(
-                        sol,
-                        metrics,
-                        payment_percent=payment_map.get(sol.order_id.id, 0.0),
-                        allocation_info=allocation_info_by_line[sol.id],
-                    )
+                total_demanded += purchase_pending
+
+                display_metrics = dict(metrics)
+                display_metrics['pending_qty'] = purchase_pending
+
+                row = self._hub_make_sale_line_row(
+                    sol,
+                    display_metrics,
+                    payment_percent=payment_map.get(sol.order_id.id, 0.0),
+                    allocation_info=allocation_info_by_line[sol.id],
                 )
+                row.update({
+                    'qty_raw_pending': raw_pending,
+                    'qty_purchase_covered': purchase_covered,
+                })
+                row.update(self._split_qty_fields(product, 'qty_raw_pending', raw_pending))
+                row.update(self._split_qty_fields(product, 'qty_purchase_covered', purchase_covered))
+                so_details.append(row)
 
             if not so_details:
                 continue
@@ -758,7 +856,10 @@ class ToBePurchasedLogic(models.AbstractModel):
             qty_a = free_qty_by_product.get(product.id, 0.0)
             qty_i = transit_qty_by_product.get(product.id, 0.0)
             qty_p = open_po_qty_by_product.get(product.id, 0.0)
-            qty_to_buy = max(0.0, total_demanded - qty_p)
+            # total_demanded ya viene neto de allocations/OC activas vinculadas a SO.
+            # No se resta qty_p aquí porque eso descontaría de nuevo la OC ya ligada
+            # y ocultaría incrementos reales de demanda.
+            qty_to_buy = total_demanded
 
             row = {
                 'id': product.id,
@@ -811,8 +912,10 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         pos = self.env['purchase.order'].search([
             ('partner_id', '=', vendor_id),
-            ('state', 'in', ['draft', 'sent']),
+            ('state', 'in', ['draft', 'sent', 'purchase']),
         ], order='create_date desc')
+
+        state_labels = dict(self.env['purchase.order']._fields['state'].selection)
 
         return [{
             'id': po.id,
@@ -821,6 +924,8 @@ class ToBePurchasedLogic(models.AbstractModel):
             'origin': po.origin or '',
             'amount': po.amount_total,
             'lines_count': len(po.order_line),
+            'state': po.state,
+            'state_label': state_labels.get(po.state, po.state),
         } for po in pos]
 
     @api.model
@@ -893,67 +998,13 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     def _sync_existing_purchase_allocation(self, sale_line, pending_qty):
         """
-        Evita duplicar OC/allocation para una línea que ya tiene flujo de compra.
+        Compatibilidad: ya no bloquea la creación de nuevas allocations.
 
-        Regla:
-        - Si la OC está en borrador/enviada, se ajusta la allocation y la línea
-          de compra al pendiente real actual.
-        - Si la OC ya está confirmada, no se duplica; se conserva la trazabilidad
-          y la protección de stock_transit_voyage_allocation_guard ajustará al
-          cargar/recibir si el pendiente real cambió.
+        Antes este método devolvía True cuando encontraba cualquier OC activa,
+        lo que hacía que To Be Purchased ignorara incrementos posteriores de
+        demanda. Ahora solo calcula si queda un gap real por comprar.
         """
-        alloc_info = self._get_active_allocation_info(sale_line)
-        allocation = alloc_info.get('allocation')
-
-        if not allocation:
-            return False
-
-        po_line = allocation.purchase_line_id
-        po = allocation.purchase_order_id
-
-        if not po or not po.exists() or po.state == 'cancel':
-            return False
-
-        if pending_qty <= 0:
-            return True
-
-        if po.state in ('draft', 'sent') and po_line and po_line.exists():
-            old_qty = allocation.quantity or 0.0
-            new_qty = pending_qty
-
-            if self._float_differs(sale_line.product_id, old_qty, new_qty):
-                allocation.write({'quantity': new_qty})
-
-                active_allocations = po_line.allocation_ids.filtered(
-                    lambda alloc: alloc.state not in ('cancelled', 'done')
-                )
-                total_allocated = sum(active_allocations.mapped('quantity'))
-
-                if self._float_differs(po_line.product_id, po_line.product_qty, total_allocated):
-                    po_line.write({'product_qty': total_allocated})
-
-                po.message_post(body=(
-                    '🔄 <b>Allocation actualizada por pendiente real</b><br/>'
-                    'Pedido: <b>%s</b><br/>'
-                    'Producto: <b>%s</b><br/>'
-                    'Cantidad anterior: <b>%.3f</b><br/>'
-                    'Cantidad actual: <b>%.3f</b>'
-                ) % (
-                    sale_line.order_id.name,
-                    sale_line.product_id.display_name,
-                    old_qty,
-                    new_qty,
-                ))
-
-        sale_line.with_context(skip_tc_allocation_recovery=True).write({
-            'auto_transit_assign': True,
-            'tc_stock_rejected': True,
-            'tc_stock_rejected_reason': sale_line.tc_stock_rejected_reason or 'Pendiente enviado a compra desde To Be Purchased',
-            'tc_stock_rejected_by': sale_line.tc_stock_rejected_by.id or self.env.user.id,
-            'tc_stock_rejected_at': sale_line.tc_stock_rejected_at or fields.Datetime.now(),
-        })
-
-        return True
+        return self._get_purchase_gap_qty_for_line(sale_line, raw_pending_qty=pending_qty) <= 0
 
     @api.model
     def cancel_pending(self, sale_line_ids, reason=False, closure_action=False):
@@ -1006,37 +1057,39 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
-        sale_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
+        candidate_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
 
-        sale_lines = sale_lines.filtered(
+        candidate_lines = candidate_lines.filtered(
             lambda line: self._is_hub_stock_product(line.product_id)
             and line.state in ('sale', 'done')
-            and line.tc_allocation_hub_state == 'to_be_purchased'
-            and line.tc_qty_pending_allocation > 0
             and not line.tc_assignment_closed
         )
 
-        if not sale_lines:
-            return {'error': 'No hay líneas válidas pendientes por comprar'}
+        line_data = []
 
-        lines_to_create = self.env['sale.order.line']
+        for line in candidate_lines:
+            raw_pending = line.tc_qty_pending_allocation
+            purchase_gap = self._get_purchase_gap_qty_for_line(
+                line,
+                raw_pending_qty=raw_pending,
+            )
 
-        for line in sale_lines:
-            qty_pending = line.tc_qty_pending_allocation
-            if self._sync_existing_purchase_allocation(line, qty_pending):
-                continue
-            lines_to_create |= line
+            if self._hub_float_gt_zero(purchase_gap):
+                line_data.append({
+                    'sale_line': line,
+                    'qty_pending': purchase_gap,
+                    'raw_pending': raw_pending,
+                    'already_purchased': max((raw_pending or 0.0) - purchase_gap, 0.0),
+                })
 
-        sale_lines = lines_to_create
-
-        if not sale_lines:
+        if not line_data:
             return {
                 'type': 'ir.actions.client',
                 'tag': 'display_notification',
                 'params': {
-                    'title': 'To Be Purchased actualizado',
-                    'message': 'Las líneas seleccionadas ya tenían OC/asignación activa. Se actualizó la cantidad pendiente cuando la OC seguía en borrador.',
-                    'type': 'success',
+                    'title': 'Sin pendiente nuevo por comprar',
+                    'message': 'La demanda seleccionada ya está cubierta por OC/allocation activa o ya fue cerrada.',
+                    'type': 'warning',
                     'sticky': False,
                 },
             }
@@ -1050,7 +1103,7 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         po_vals = {
             'partner_id': vendor.id,
-            'origin': ', '.join(list(set(sale_lines.mapped('order_id.name')))),
+            'origin': ', '.join(sorted(set(data['sale_line'].order_id.name for data in line_data))),
             'company_id': self.env.company.id,
         }
 
@@ -1061,79 +1114,118 @@ class ToBePurchasedLogic(models.AbstractModel):
         if existing_po_id:
             po = self.env['purchase.order'].browse(existing_po_id)
 
-            if not po.exists() or po.state not in ['draft', 'sent']:
-                return {'error': 'La orden de compra no existe o ya fue confirmada'}
+            if not po.exists() or po.state not in ['draft', 'sent', 'purchase']:
+                return {'error': 'La orden de compra no existe o no permite agregar pendientes.'}
 
-            new_origins = sale_lines.mapped('order_id.name')
+            if po.partner_id.id != vendor.id:
+                return {'error': 'La OC seleccionada pertenece a otro proveedor.'}
+
+            if 'locked' in po._fields and po.locked:
+                return {'error': 'La OC seleccionada está bloqueada. Cree una OC nueva para este incremento.'}
+
+            new_origins = [data['sale_line'].order_id.name for data in line_data]
             current_origin = po.origin or ''
 
             for name in new_origins:
-                if name not in current_origin:
+                if name and name not in current_origin:
                     current_origin += f", {name}" if current_origin else name
 
             po.write({'origin': current_origin})
         else:
             po = self.env['purchase.order'].create(po_vals)
 
-        lines_by_product = defaultdict(list)
+        po_line_by_product = {}
+        created_allocation_count = 0
+        total_added_qty = 0.0
 
-        for line in sale_lines:
-            qty_pending = line.tc_qty_pending_allocation
+        for data in line_data:
+            sale_line = data['sale_line']
+            product = sale_line.product_id
+            qty_pending = data['qty_pending']
+            product_id = product.id
 
-            if qty_pending > 0:
-                lines_by_product[line.product_id.id].append({
-                    'sale_line': line,
-                    'qty_pending': qty_pending,
-                })
-
-        for product_id, sale_line_data in lines_by_product.items():
-            product = self.env['product.product'].browse(product_id)
-            total_qty = sum(data['qty_pending'] for data in sale_line_data)
-
-            existing_po_line = po.order_line.filtered(
-                lambda purchase_line: purchase_line.product_id.id == product_id
+            linked_allocations_on_po = self._get_active_purchase_allocations(sale_line).filtered(
+                lambda alloc: alloc.purchase_order_id.id == po.id
+                and alloc.purchase_line_id
+                and alloc.purchase_line_id.product_id.id == product_id
             )
 
-            if existing_po_line:
-                po_line = existing_po_line[0]
-                po_line.write({
-                    'product_qty': po_line.product_qty + total_qty,
-                })
+            po_line_created_now = False
+
+            if linked_allocations_on_po:
+                po_line = linked_allocations_on_po[0].purchase_line_id
+            elif product_id in po_line_by_product:
+                po_line = po_line_by_product[product_id]
             else:
-                so_refs = ', '.join([
-                    data['sale_line'].order_id.name
-                    for data in sale_line_data
-                ])
+                existing_po_line = po.order_line.filtered(
+                    lambda purchase_line: purchase_line.product_id.id == product_id
+                )[:1]
 
-                po_line_vals = {
-                    'order_id': po.id,
-                    'product_id': product_id,
-                    'product_qty': total_qty,
-                    'price_unit': product.standard_price,
-                    'name': f"[{so_refs}] {product.name}",
-                    'date_planned': fields.Datetime.now(),
-                }
-                po_line_vals.update(self._prepare_purchase_line_uom_vals(product))
+                if existing_po_line:
+                    po_line = existing_po_line
+                else:
+                    so_refs = ', '.join(sorted(set(
+                        item['sale_line'].order_id.name
+                        for item in line_data
+                        if item['sale_line'].product_id.id == product_id
+                    )))
 
-                po_line = self.env['purchase.order.line'].create(po_line_vals)
+                    po_line_vals = {
+                        'order_id': po.id,
+                        'product_id': product_id,
+                        'product_qty': qty_pending,
+                        'price_unit': product.standard_price,
+                        'name': f"[{so_refs}] {product.name}",
+                        'date_planned': fields.Datetime.now(),
+                    }
+                    po_line_vals.update(self._prepare_purchase_line_uom_vals(product))
 
-            for data in sale_line_data:
-                sale_line = data['sale_line']
+                    po_line = self.env['purchase.order.line'].create(po_line_vals)
+                    po_line_created_now = True
 
-                self.env['purchase.order.line.allocation'].create({
-                    'purchase_line_id': po_line.id,
-                    'sale_line_id': sale_line.id,
-                    'quantity': data['qty_pending'],
-                    'state': 'pending',
+                po_line_by_product[product_id] = po_line
+
+            if not po_line_created_now:
+                po_line.write({
+                    'product_qty': (po_line.product_qty or 0.0) + qty_pending,
                 })
 
-                sale_line.with_context(skip_tc_allocation_recovery=True).write({
-                    'auto_transit_assign': True,
-                    'tc_stock_rejected': True,
-                    'tc_stock_rejected_reason': sale_line.tc_stock_rejected_reason or 'Pendiente enviado a compra desde To Be Purchased',
-                    'tc_stock_rejected_by': sale_line.tc_stock_rejected_by.id or self.env.user.id,
-                    'tc_stock_rejected_at': sale_line.tc_stock_rejected_at or fields.Datetime.now(),
-                })
+            self.env['purchase.order.line.allocation'].create({
+                'purchase_line_id': po_line.id,
+                'sale_line_id': sale_line.id,
+                'quantity': qty_pending,
+                'state': 'pending',
+            })
+
+            created_allocation_count += 1
+            total_added_qty += qty_pending
+
+            sale_line.with_context(skip_tc_allocation_recovery=True).write({
+                'auto_transit_assign': True,
+                'tc_stock_rejected': True,
+                'tc_stock_rejected_reason': sale_line.tc_stock_rejected_reason or 'Pendiente enviado a compra desde To Be Purchased',
+                'tc_stock_rejected_by': sale_line.tc_stock_rejected_by.id or self.env.user.id,
+                'tc_stock_rejected_at': sale_line.tc_stock_rejected_at or fields.Datetime.now(),
+            })
+
+        if po.state == 'purchase':
+            voyages = self.env['stock.transit.voyage'].search([
+                ('purchase_id', '=', po.id),
+                ('custom_status', '!=', 'cancel'),
+            ])
+            for voyage in voyages:
+                voyage.action_load_from_purchase()
+
+        po.message_post(body=(
+            'To Be Purchased: pendiente incremental agregado.\n'
+            'Cantidad agregada: %.3f\n'
+            'Allocations nuevas: %s\n'
+            'Pedidos: %s'
+        ) % (
+            total_added_qty,
+            created_allocation_count,
+            ', '.join(sorted(set(data['sale_line'].order_id.name for data in line_data))),
+        ))
 
         return {
             'name': 'Orden de Compra',
