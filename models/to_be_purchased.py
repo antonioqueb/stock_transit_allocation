@@ -51,6 +51,60 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
         return str(value)
 
+    def _get_product_unit_kind(self, product):
+        """Normaliza la unidad comercial para los hubs: m2 o pieces."""
+        if not product:
+            return 'm2'
+
+        values = []
+
+        for candidate in (
+            getattr(product, 'x_unidad_del_producto', False),
+            getattr(product.product_tmpl_id, 'x_unidad_del_producto', False) if product.product_tmpl_id else False,
+            product.uom_id.name if product.uom_id else False,
+            product.uom_id.display_name if product.uom_id else False,
+        ):
+            if candidate:
+                values.append(str(candidate).lower())
+
+        text = ' '.join(values)
+
+        if any(token in text for token in ['pieza', 'pza', 'pzas', 'unidad', 'unit', 'formato']):
+            return 'pieces'
+
+        return 'm2'
+
+    def _get_product_unit_label(self, product):
+        return 'pzas' if self._get_product_unit_kind(product) == 'pieces' else 'm²'
+
+    def _get_product_unit_group_label(self, product):
+        return 'Piezas' if self._get_product_unit_kind(product) == 'pieces' else 'Metros cuadrados'
+
+    def _split_qty_by_unit(self, product, qty):
+        qty = qty or 0.0
+        if self._get_product_unit_kind(product) == 'pieces':
+            return 0.0, qty
+        return qty, 0.0
+
+    def _split_qty_fields(self, product, prefix, qty):
+        qty_m2, qty_pieces = self._split_qty_by_unit(product, qty)
+        return {
+            f'{prefix}_m2': qty_m2,
+            f'{prefix}_pieces': qty_pieces,
+        }
+
+    def _get_days_without_assignment(self, order):
+        if not order or not order.date_order:
+            return 0
+
+        today = fields.Date.context_today(self)
+        order_date = fields.Date.to_date(order.date_order)
+
+        if not order_date:
+            return 0
+
+        return max((today - order_date).days, 0)
+
     def _get_active_allocation_info(self, sale_line):
         allocation = self.env['purchase.order.line.allocation'].search([
             ('sale_line_id', '=', sale_line.id),
@@ -140,9 +194,13 @@ class ToBeAllocatedLogic(models.AbstractModel):
 
         for line in sale_lines:
             order = line.order_id
+            product = line.product_id
             payment_percent = self._get_payment_percent(order)
+            unit_kind = self._get_product_unit_kind(product)
+            unit_label = self._get_product_unit_label(product)
+            unit_group_label = self._get_product_unit_group_label(product)
 
-            result.append({
+            row = {
                 'id': line.id,
                 'so_id': order.id,
                 'so_name': order.name,
@@ -151,8 +209,11 @@ class ToBeAllocatedLogic(models.AbstractModel):
                 'customer': order.partner_id.name,
                 'customer_id': order.partner_id.id,
                 'salesperson': order.user_id.name if order.user_id else '',
-                'product_id': line.product_id.id,
-                'product_name': line.product_id.display_name,
+                'product_id': product.id,
+                'product_name': product.display_name,
+                'product_type': unit_group_label,
+                'unit_kind': unit_kind,
+                'unit_label': unit_label,
                 'description': line.name or '',
                 'qty_requested': line.product_uom_qty,
                 'qty_ordered': line.product_uom_qty,
@@ -161,9 +222,18 @@ class ToBeAllocatedLogic(models.AbstractModel):
                 'qty_available': line.tc_available_internal_qty,
                 'assignment_percent': line.tc_qty_assigned_percent,
                 'assignment_state': line.tc_assignment_state or '',
+                'days_unassigned': self._get_days_without_assignment(order),
                 'payment_percent': payment_percent,
                 'note': order.note or '',
-            })
+            }
+
+            row.update(self._split_qty_fields(product, 'qty_requested', line.product_uom_qty))
+            row.update(self._split_qty_fields(product, 'qty_ordered', line.product_uom_qty))
+            row.update(self._split_qty_fields(product, 'qty_assigned', line.tc_qty_assigned_lots))
+            row.update(self._split_qty_fields(product, 'qty_pending', line.tc_qty_pending_allocation))
+            row.update(self._split_qty_fields(product, 'qty_available', line.tc_available_internal_qty))
+
+            result.append(row)
 
         result.sort(
             key=lambda item: (
@@ -190,13 +260,13 @@ class ToBeAllocatedLogic(models.AbstractModel):
         }
 
     @api.model
-    def close_short(self, sale_line_ids, reason=False):
+    def close_short(self, sale_line_ids, reason=False, closure_action=False):
         lines = self.env['sale.order.line'].browse(sale_line_ids).exists()
 
         if not lines:
             return {'error': 'No se encontraron líneas válidas'}
 
-        lines.action_tc_close_allocation_short(reason=reason)
+        lines.action_tc_close_allocation_short(reason=reason, closure_action=closure_action)
 
         return {
             'success': True,
@@ -232,6 +302,10 @@ class ToBePurchasedLogic(models.AbstractModel):
         result = []
 
         for product in products:
+            unit_kind = self._get_product_unit_kind(product)
+            unit_label = self._get_product_unit_label(product)
+            unit_group_label = self._get_product_unit_group_label(product)
+
             quants = self.env['stock.quant'].search([
                 ('product_id', '=', product.id),
             ])
@@ -280,7 +354,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                 alloc_info = self._get_active_allocation_info(sol)
                 payment_percent = self._get_payment_percent(sol.order_id)
 
-                so_details.append({
+                so_row = {
                     'id': sol.id,
                     'so_name': sol.order_id.name,
                     'so_id': sol.order_id.id,
@@ -290,12 +364,16 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'customer_id': sol.order_id.partner_id.id,
                     'location': sol.order_id.partner_shipping_id.city or '',
                     'description': sol.name or '',
+                    'unit_kind': unit_kind,
+                    'unit_label': unit_label,
+                    'product_type': unit_group_label,
                     'qty_orig': sol.product_uom_qty,
                     'qty_requested': sol.product_uom_qty,
                     'qty_assigned': sol.tc_qty_assigned_lots,
                     'qty_pending': pending,
                     'assignment_percent': sol.tc_qty_assigned_percent,
                     'assignment_state': sol.tc_assignment_state or '',
+                    'days_unassigned': self._get_days_without_assignment(sol.order_id),
                     'note': sol.order_id.note or '',
                     'po_name': alloc_info['po_name'],
                     'po_qty': alloc_info['po_qty'],
@@ -303,7 +381,15 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'po_state': alloc_info['po_state'],
                     'stock_rejected': sol.tc_stock_rejected,
                     'payment_percent': payment_percent,
-                })
+                }
+
+                so_row.update(self._split_qty_fields(product, 'qty_orig', sol.product_uom_qty))
+                so_row.update(self._split_qty_fields(product, 'qty_requested', sol.product_uom_qty))
+                so_row.update(self._split_qty_fields(product, 'qty_assigned', sol.tc_qty_assigned_lots))
+                so_row.update(self._split_qty_fields(product, 'qty_pending', pending))
+                so_row.update(self._split_qty_fields(product, 'po_qty', alloc_info['po_qty']))
+
+                so_details.append(so_row)
 
             if not so_details:
                 continue
@@ -328,10 +414,16 @@ class ToBePurchasedLogic(models.AbstractModel):
 
             qty_to_buy = max(0.0, total_demanded - qty_p)
 
-            result.append({
+            row = {
                 'id': product.id,
                 'name': product.display_name,
-                'type': self._display_value(getattr(product, 'x_unidad_del_producto', False)),
+                'type': self._display_value(
+                    getattr(product, 'x_unidad_del_producto', False)
+                    or getattr(product.product_tmpl_id, 'x_unidad_del_producto', False)
+                ),
+                'unit_kind': unit_kind,
+                'unit_label': unit_label,
+                'product_type': unit_group_label,
                 'group': self._display_value(getattr(product, 'x_grupo', False)),
                 'category': product.categ_id.name,
                 'vendor': vendor_name,
@@ -343,7 +435,16 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'qty_so': total_demanded,
                 'qty_to_buy': qty_to_buy,
                 'so_lines': so_details,
-            })
+            }
+
+            row.update(self._split_qty_fields(product, 'qty_a', qty_a))
+            row.update(self._split_qty_fields(product, 'qty_i', qty_i))
+            row.update(self._split_qty_fields(product, 'qty_p', qty_p))
+            row.update(self._split_qty_fields(product, 'qty_total', qty_a + qty_i + qty_p))
+            row.update(self._split_qty_fields(product, 'qty_so', total_demanded))
+            row.update(self._split_qty_fields(product, 'qty_to_buy', qty_to_buy))
+
+            result.append(row)
 
         result.sort(
             key=lambda product: (

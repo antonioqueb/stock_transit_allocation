@@ -170,6 +170,54 @@ class SaleOrderLine(models.Model):
         readonly=True,
     )
 
+    tc_closure_action = fields.Selection(
+        selection=[
+            ('settle', 'Liquidar sin ajustar cantidad'),
+            ('discount', 'Aplicar descuento'),
+            ('credit_note', 'Generar nota de crédito'),
+        ],
+        string='Acción administrativa cierre',
+        copy=False,
+        readonly=True,
+        help=(
+            'Define qué hará administración con el faltante cerrado: cobrarlo igual, '
+            'compensarlo con descuento o generar una nota de crédito.'
+        ),
+    )
+
+    tc_over_assignment_action = fields.Selection(
+        selection=[
+            ('free', 'Entregar excedente sin cobrar'),
+            ('bill', 'Cobrar excedente'),
+        ],
+        string='Acción sobre exceso asignado',
+        copy=False,
+        readonly=True,
+        help=(
+            'Decisión administrativa cuando se asigna más cantidad que la solicitada. '
+            'No modifica automáticamente la orden de venta ni genera documentos contables.'
+        ),
+    )
+
+    tc_over_assignment_reason = fields.Text(
+        string='Motivo sobreasignación',
+        copy=False,
+        readonly=True,
+    )
+
+    tc_over_assignment_by = fields.Many2one(
+        'res.users',
+        string='Sobreasignado por',
+        copy=False,
+        readonly=True,
+    )
+
+    tc_over_assignment_at = fields.Datetime(
+        string='Fecha sobreasignación',
+        copy=False,
+        readonly=True,
+    )
+
     tc_closure_by = fields.Many2one(
         'res.users',
         string='Cerrado por',
@@ -697,6 +745,8 @@ class SaleOrderLine(models.Model):
         breakdown=None,
         send_pending_to_purchase=False,
         reason=False,
+        over_assignment_action=False,
+        over_assignment_reason=False,
     ):
         """
         Punto único para guardar asignaciones desde To Be Allocated.
@@ -709,6 +759,8 @@ class SaleOrderLine(models.Model):
           mientras siga existiendo pendiente.
         - Si send_pending_to_purchase=True, el pendiente restante se manda a
           To Be Purchased en la misma operación.
+        - Si la selección excede lo solicitado, exige una decisión administrativa:
+          entregar excedente sin cobrar o cobrar excedente.
         """
         result = {}
 
@@ -728,6 +780,14 @@ class SaleOrderLine(models.Model):
 
             requested_qty = line.product_uom_qty or 0.0
             old_assigned_qty = line._tc_get_assigned_lot_qty()
+            over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
+            has_over_assignment = line._tc_float_gt_zero(over_assigned_qty)
+
+            if has_over_assignment and over_assignment_action not in ('free', 'bill'):
+                raise UserError(_(
+                    'La asignación excede lo solicitado por %(qty).3f. '
+                    'Debe indicar si el excedente se entrega sin cobrar o si se cobrará al cliente.'
+                ) % {'qty': over_assigned_qty})
 
             purchase_intent_before = bool(
                 getattr(line, 'auto_transit_assign', False)
@@ -737,6 +797,10 @@ class SaleOrderLine(models.Model):
 
             vals = {
                 'lot_ids': [(6, 0, safe_lot_ids)],
+                'tc_over_assignment_action': over_assignment_action if has_over_assignment else False,
+                'tc_over_assignment_reason': over_assignment_reason if has_over_assignment else False,
+                'tc_over_assignment_by': self.env.user.id if has_over_assignment else False,
+                'tc_over_assignment_at': fields.Datetime.now() if has_over_assignment else False,
             }
 
             if 'x_lot_breakdown_json' in line._fields:
@@ -747,6 +811,7 @@ class SaleOrderLine(models.Model):
                     'tc_assignment_closed': False,
                     'tc_closed_short_qty': 0.0,
                     'tc_closure_reason': False,
+                    'tc_closure_action': False,
                     'tc_closure_by': False,
                     'tc_closure_at': False,
                 })
@@ -788,6 +853,7 @@ class SaleOrderLine(models.Model):
                     'tc_assignment_closed': False,
                     'tc_closed_short_qty': 0.0,
                     'tc_closure_reason': False,
+                    'tc_closure_action': False,
                     'tc_closure_by': False,
                     'tc_closure_at': False,
                 })
@@ -815,6 +881,11 @@ class SaleOrderLine(models.Model):
                     _('Asignado actual: %.3f') % assigned_qty,
                     _('Pendiente operativo: %.3f') % pending_qty,
                     _('Pendiente enviado a compra: %.3f') % (purchase_qty if sent_to_purchase else 0.0),
+                    _('Sobreasignado: %.3f') % over_assigned_qty,
+                    _('Acción sobre exceso: %s') % (
+                        dict(line._fields['tc_over_assignment_action'].selection).get(over_assignment_action, 'No aplica')
+                        if has_over_assignment else 'No aplica'
+                    ),
                     _('Lotes asignados: %s') % len(safe_lot_ids),
                     _('La cantidad solicitada no fue modificada por la asignación.'),
                 ],
@@ -830,6 +901,8 @@ class SaleOrderLine(models.Model):
                 'pending_qty': pending_qty,
                 'sent_to_purchase': sent_to_purchase,
                 'purchase_qty': purchase_qty,
+                'over_assigned_qty': over_assigned_qty,
+                'over_assignment_action': over_assignment_action if has_over_assignment else False,
                 'lot_ids': safe_lot_ids,
                 'lot_count': len(safe_lot_ids),
                 'uom_name': line_uom.display_name if line_uom else '',
@@ -1101,8 +1174,13 @@ class SaleOrderLine(models.Model):
                 'tc_assignment_closed': False,
                 'tc_closed_short_qty': 0.0,
                 'tc_closure_reason': False,
+                'tc_closure_action': False,
                 'tc_closure_by': False,
                 'tc_closure_at': False,
+                'tc_over_assignment_action': False,
+                'tc_over_assignment_reason': False,
+                'tc_over_assignment_by': False,
+                'tc_over_assignment_at': False,
             })
 
         res = super(SaleOrderLine, self).write(vals)
@@ -1171,6 +1249,7 @@ class SaleOrderLine(models.Model):
                 'tc_assignment_closed': False,
                 'tc_closed_short_qty': 0.0,
                 'tc_closure_reason': False,
+                'tc_closure_action': False,
                 'tc_closure_by': False,
                 'tc_closure_at': False,
             })
@@ -1202,7 +1281,13 @@ class SaleOrderLine(models.Model):
             })
         return True
 
-    def action_tc_close_allocation_short(self, reason=False):
+    def action_tc_close_allocation_short(self, reason=False, closure_action=False):
+        valid_actions = {'settle', 'discount', 'credit_note'}
+        action_value = closure_action or 'settle'
+
+        if action_value not in valid_actions:
+            raise UserError(_('Seleccione una acción administrativa válida para cerrar el pendiente.'))
+
         for line in self:
             if line.display_type:
                 continue
@@ -1215,6 +1300,7 @@ class SaleOrderLine(models.Model):
                 ) % (line.product_id.display_name or line.name or line.id))
 
             close_reason = reason or _('Cierre manual de pendiente')
+            action_label = dict(line._fields['tc_closure_action'].selection).get(action_value, action_value)
 
             line.with_context(
                 skip_tc_allocation_recovery=True,
@@ -1223,6 +1309,7 @@ class SaleOrderLine(models.Model):
                 'tc_assignment_closed': True,
                 'tc_closed_short_qty': raw_pending_qty,
                 'tc_closure_reason': close_reason,
+                'tc_closure_action': action_value,
                 'tc_closure_by': self.env.user.id,
                 'tc_closure_at': fields.Datetime.now(),
                 'tc_stock_rejected': False,
@@ -1239,6 +1326,7 @@ class SaleOrderLine(models.Model):
                     _('Solicitado: %.3f') % (line.product_uom_qty or 0.0),
                     _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
                     _('Diferencia cerrada: %.3f') % raw_pending_qty,
+                    _('Acción administrativa: %s') % action_label,
                     _('Motivo: %s') % close_reason,
                     _('La cantidad solicitada se mantiene intacta.'),
                 ],
@@ -1258,6 +1346,7 @@ class SaleOrderLine(models.Model):
                 'tc_assignment_closed': False,
                 'tc_closed_short_qty': 0.0,
                 'tc_closure_reason': False,
+                'tc_closure_action': False,
                 'tc_closure_by': False,
                 'tc_closure_at': False,
             })

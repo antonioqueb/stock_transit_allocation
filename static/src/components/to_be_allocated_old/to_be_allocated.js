@@ -14,8 +14,6 @@ export class ToBeAllocated extends Component {
         this._allocationPopupKeyHandler = null;
         this._lightboxRoot = null;
         this._lightboxKeyHandler = null;
-        this._closeShortPopupRoot = null;
-        this._closeShortPopupKeyHandler = null;
 
         this.state = useState({
             data: [],
@@ -23,7 +21,7 @@ export class ToBeAllocated extends Component {
             loading: true,
             expanded: {},
             searchQuery: "",
-            groupBy: "product", // product | sale_order | salesperson | customer | unit_type
+            groupBy: "product", // product | sale_order | salesperson
             sending: {},
             assigning: {},
             closing: {},
@@ -35,7 +33,6 @@ export class ToBeAllocated extends Component {
 
         onWillUnmount(() => {
             this.destroyAllocationPopup();
-            this.destroyCloseShortPopup();
             this._destroyLightbox();
         });
     }
@@ -77,8 +74,6 @@ export class ToBeAllocated extends Component {
                     line.product_name || "",
                     line.salesperson || "",
                     line.description || "",
-                    line.product_type || "",
-                    line.unit_label || "",
                 ].join(" ").toLowerCase();
 
                 return haystack.includes(query);
@@ -91,87 +86,7 @@ export class ToBeAllocated extends Component {
             this.state.filteredData = this._groupBySaleOrder(rows);
         } else if (this.state.groupBy === "salesperson") {
             this.state.filteredData = this._groupBySalesperson(rows);
-        } else if (this.state.groupBy === "customer") {
-            this.state.filteredData = this._groupByCustomer(rows);
-        } else if (this.state.groupBy === "unit_type") {
-            this.state.filteredData = this._groupByUnitType(rows);
         }
-    }
-
-    _makeGroup({ id, key, label, sublabel }) {
-        return {
-            id,
-            key,
-            label,
-            sublabel,
-            lines: [],
-            qty_requested: 0,
-            qty_ordered: 0,
-            qty_assigned: 0,
-            qty_pending: 0,
-            qty_available: 0,
-            qty_requested_m2: 0,
-            qty_requested_pieces: 0,
-            qty_ordered_m2: 0,
-            qty_ordered_pieces: 0,
-            qty_assigned_m2: 0,
-            qty_assigned_pieces: 0,
-            qty_pending_m2: 0,
-            qty_pending_pieces: 0,
-            qty_available_m2: 0,
-            qty_available_pieces: 0,
-            max_days_unassigned: 0,
-            max_payment_percent: 0,
-        };
-    }
-
-    _addLineToGroup(group, line, { availableMode = "sum" } = {}) {
-        group.lines.push(line);
-
-        group.qty_requested += line.qty_requested || line.qty_ordered || 0;
-        group.qty_ordered += line.qty_ordered || line.qty_requested || 0;
-        group.qty_assigned += line.qty_assigned || 0;
-        group.qty_pending += line.qty_pending || 0;
-
-        if (availableMode === "max") {
-            group.qty_available = Math.max(group.qty_available, line.qty_available || 0);
-            group.qty_available_m2 = Math.max(group.qty_available_m2, line.qty_available_m2 || 0);
-            group.qty_available_pieces = Math.max(group.qty_available_pieces, line.qty_available_pieces || 0);
-        } else {
-            group.qty_available += line.qty_available || 0;
-            group.qty_available_m2 += line.qty_available_m2 || 0;
-            group.qty_available_pieces += line.qty_available_pieces || 0;
-        }
-
-        group.qty_requested_m2 += line.qty_requested_m2 || line.qty_ordered_m2 || 0;
-        group.qty_requested_pieces += line.qty_requested_pieces || line.qty_ordered_pieces || 0;
-        group.qty_ordered_m2 += line.qty_ordered_m2 || line.qty_requested_m2 || 0;
-        group.qty_ordered_pieces += line.qty_ordered_pieces || line.qty_requested_pieces || 0;
-        group.qty_assigned_m2 += line.qty_assigned_m2 || 0;
-        group.qty_assigned_pieces += line.qty_assigned_pieces || 0;
-        group.qty_pending_m2 += line.qty_pending_m2 || 0;
-        group.qty_pending_pieces += line.qty_pending_pieces || 0;
-
-        group.max_days_unassigned = Math.max(
-            group.max_days_unassigned,
-            line.days_unassigned || 0
-        );
-        group.max_payment_percent = Math.max(
-            group.max_payment_percent,
-            line.payment_percent || 0
-        );
-    }
-
-    _sortGroups(groups) {
-        return groups.sort((a, b) => {
-            if (b.max_payment_percent !== a.max_payment_percent) {
-                return b.max_payment_percent - a.max_payment_percent;
-            }
-            if (b.max_days_unassigned !== a.max_days_unassigned) {
-                return b.max_days_unassigned - a.max_days_unassigned;
-            }
-            return String(a.label || "").localeCompare(String(b.label || ""));
-        });
     }
 
     _groupByProduct(rows) {
@@ -181,18 +96,42 @@ export class ToBeAllocated extends Component {
             const key = line.product_id || 0;
 
             if (!map[key]) {
-                map[key] = this._makeGroup({
+                map[key] = {
                     id: key,
                     key: `product_${key}`,
                     label: line.product_name || "Sin producto",
-                    sublabel: `${line.product_type || "Sin tipo"} · Producto`,
-                });
+                    sublabel: "Producto",
+                    lines: [],
+                    qty_requested: 0,
+                    qty_ordered: 0,
+                    qty_assigned: 0,
+                    qty_pending: 0,
+                    qty_available: 0,
+                    max_payment_percent: 0,
+                };
             }
 
-            this._addLineToGroup(map[key], line, { availableMode: "max" });
+            map[key].lines.push(line);
+            map[key].qty_requested += line.qty_requested || line.qty_ordered || 0;
+            map[key].qty_ordered += line.qty_ordered || line.qty_requested || 0;
+            map[key].qty_assigned += line.qty_assigned || 0;
+            map[key].qty_pending += line.qty_pending || 0;
+            map[key].qty_available = Math.max(
+                map[key].qty_available,
+                line.qty_available || 0
+            );
+            map[key].max_payment_percent = Math.max(
+                map[key].max_payment_percent,
+                line.payment_percent || 0
+            );
         }
 
-        return this._sortGroups(Object.values(map));
+        return Object.values(map).sort((a, b) => {
+            if (b.max_payment_percent !== a.max_payment_percent) {
+                return b.max_payment_percent - a.max_payment_percent;
+            }
+            return String(a.label || "").localeCompare(String(b.label || ""));
+        });
     }
 
     _groupBySaleOrder(rows) {
@@ -202,18 +141,39 @@ export class ToBeAllocated extends Component {
             const key = line.so_id || 0;
 
             if (!map[key]) {
-                map[key] = this._makeGroup({
+                map[key] = {
                     id: key,
                     key: `so_${key}`,
                     label: line.so_name || "Sin SO",
                     sublabel: line.customer || "Sin cliente",
-                });
+                    lines: [],
+                    qty_requested: 0,
+                    qty_ordered: 0,
+                    qty_assigned: 0,
+                    qty_pending: 0,
+                    qty_available: 0,
+                    max_payment_percent: 0,
+                };
             }
 
-            this._addLineToGroup(map[key], line);
+            map[key].lines.push(line);
+            map[key].qty_requested += line.qty_requested || line.qty_ordered || 0;
+            map[key].qty_ordered += line.qty_ordered || line.qty_requested || 0;
+            map[key].qty_assigned += line.qty_assigned || 0;
+            map[key].qty_pending += line.qty_pending || 0;
+            map[key].qty_available += line.qty_available || 0;
+            map[key].max_payment_percent = Math.max(
+                map[key].max_payment_percent,
+                line.payment_percent || 0
+            );
         }
 
-        return this._sortGroups(Object.values(map));
+        return Object.values(map).sort((a, b) => {
+            if (b.max_payment_percent !== a.max_payment_percent) {
+                return b.max_payment_percent - a.max_payment_percent;
+            }
+            return String(a.label || "").localeCompare(String(b.label || ""));
+        });
     }
 
     _groupBySalesperson(rows) {
@@ -223,62 +183,36 @@ export class ToBeAllocated extends Component {
             const key = line.salesperson || "Sin vendedor";
 
             if (!map[key]) {
-                map[key] = this._makeGroup({
+                map[key] = {
                     id: key,
                     key: `salesperson_${key}`,
                     label: key,
                     sublabel: "Vendedor",
-                });
+                    lines: [],
+                    qty_requested: 0,
+                    qty_ordered: 0,
+                    qty_assigned: 0,
+                    qty_pending: 0,
+                    qty_available: 0,
+                    max_payment_percent: 0,
+                };
             }
 
-            this._addLineToGroup(map[key], line);
+            map[key].lines.push(line);
+            map[key].qty_requested += line.qty_requested || line.qty_ordered || 0;
+            map[key].qty_ordered += line.qty_ordered || line.qty_requested || 0;
+            map[key].qty_assigned += line.qty_assigned || 0;
+            map[key].qty_pending += line.qty_pending || 0;
+            map[key].qty_available += line.qty_available || 0;
+            map[key].max_payment_percent = Math.max(
+                map[key].max_payment_percent,
+                line.payment_percent || 0
+            );
         }
 
-        return this._sortGroups(Object.values(map));
-    }
-
-    _groupByCustomer(rows) {
-        const map = {};
-
-        for (const line of rows) {
-            const key = line.customer_id || line.customer || "Sin cliente";
-
-            if (!map[key]) {
-                map[key] = this._makeGroup({
-                    id: key,
-                    key: `customer_${key}`,
-                    label: line.customer || "Sin cliente",
-                    sublabel: "Cliente",
-                });
-            }
-
-            this._addLineToGroup(map[key], line);
-        }
-
-        return this._sortGroups(Object.values(map));
-    }
-
-    _groupByUnitType(rows) {
-        const map = {};
-
-        for (const line of rows) {
-            const key = line.unit_kind || "m2";
-            const label = key === "pieces" ? "Piezas" : "Metros cuadrados";
-            const sublabel = key === "pieces" ? "Productos vendidos por pieza" : "Productos vendidos por m²";
-
-            if (!map[key]) {
-                map[key] = this._makeGroup({
-                    id: key,
-                    key: `unit_${key}`,
-                    label,
-                    sublabel,
-                });
-            }
-
-            this._addLineToGroup(map[key], line);
-        }
-
-        return this._sortGroups(Object.values(map));
+        return Object.values(map).sort((a, b) =>
+            String(a.label || "").localeCompare(String(b.label || ""))
+        );
     }
 
     // =========================================================================
@@ -667,128 +601,6 @@ export class ToBeAllocated extends Component {
         }
     }
 
-    destroyCloseShortPopup() {
-        if (this._closeShortPopupKeyHandler) {
-            document.removeEventListener("keydown", this._closeShortPopupKeyHandler);
-            this._closeShortPopupKeyHandler = null;
-        }
-
-        if (this._closeShortPopupRoot) {
-            this._closeShortPopupRoot.remove();
-            this._closeShortPopupRoot = null;
-        }
-    }
-
-    askCloseShortDecision(line) {
-        this.destroyCloseShortPopup();
-
-        return new Promise((resolve) => {
-            const root = document.createElement("div");
-            root.className = "stone-close-root";
-            document.body.appendChild(root);
-            this._closeShortPopupRoot = root;
-
-            const requested = this.fmtQtyWithUnit(line.qty_ordered || line.qty_requested || 0, line.unit_label || "");
-            const assigned = this.fmtQtyWithUnit(line.qty_assigned || 0, line.unit_label || "");
-            const pending = this.fmtQtyWithUnit(line.qty_pending || 0, line.unit_label || "");
-
-            root.innerHTML = `
-                <div class="stone-decision-overlay">
-                    <div class="stone-decision-dialog stone-close-dialog">
-                        <div class="stone-decision-header">
-                            <div>
-                                <h4>Cerrar pendiente de asignación</h4>
-                                <p>Este cierre saca la línea de To Be Allocated sin modificar la cantidad solicitada.</p>
-                            </div>
-                            <button type="button" class="stone-decision-x" data-action="cancel">
-                                <i class="fa fa-times"></i>
-                            </button>
-                        </div>
-
-                        <div class="stone-close-summary">
-                            <div><span>Pedido</span><strong>${this._escapeHtml(line.so_name || "-")}</strong></div>
-                            <div><span>Cliente</span><strong>${this._escapeHtml(line.customer || "-")}</strong></div>
-                            <div><span>Solicitado</span><strong>${this._escapeHtml(requested)}</strong></div>
-                            <div><span>Asignado</span><strong>${this._escapeHtml(assigned)}</strong></div>
-                            <div><span>Pendiente a cerrar</span><strong>${this._escapeHtml(pending)}</strong></div>
-                        </div>
-
-                        <div class="stone-decision-options">
-                            <label class="stone-decision-option active">
-                                <input type="radio" name="closure_action" value="settle" checked="checked"/>
-                                <span class="stone-decision-option-icon"><i class="fa fa-check-circle"></i></span>
-                                <span>
-                                    <strong>Liquidar sin ajustar cantidad</strong>
-                                    <small>El pendiente queda cerrado y la orden conserva su cantidad/cobro actual.</small>
-                                </span>
-                            </label>
-
-                            <label class="stone-decision-option">
-                                <input type="radio" name="closure_action" value="discount"/>
-                                <span class="stone-decision-option-icon"><i class="fa fa-tag"></i></span>
-                                <span>
-                                    <strong>Aplicar descuento</strong>
-                                    <small>Administración deberá representar el faltante con un descuento comercial.</small>
-                                </span>
-                            </label>
-
-                            <label class="stone-decision-option">
-                                <input type="radio" name="closure_action" value="credit_note"/>
-                                <span class="stone-decision-option-icon"><i class="fa fa-file-text-o"></i></span>
-                                <span>
-                                    <strong>Generar nota de crédito</strong>
-                                    <small>Administración deberá compensar el material no entregado con nota de crédito.</small>
-                                </span>
-                            </label>
-                        </div>
-
-                        <div class="stone-decision-note">
-                            <label>Motivo del cierre</label>
-                            <textarea id="sp-close-reason" rows="3">Diferencia aceptada por cierre operativo desde To Be Allocated.</textarea>
-                        </div>
-
-                        <div class="stone-decision-footer">
-                            <button type="button" class="stone-btn stone-btn-outline" data-action="cancel">Cancelar</button>
-                            <button type="button" class="stone-btn stone-btn-primary-dark" data-action="accept">Cerrar pendiente</button>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            const cleanup = () => this.destroyCloseShortPopup();
-            const cancel = () => {
-                cleanup();
-                resolve(false);
-            };
-
-            root.querySelectorAll(".stone-decision-option").forEach((option) => {
-                option.addEventListener("click", () => {
-                    root.querySelectorAll(".stone-decision-option").forEach((el) => el.classList.remove("active"));
-                    option.classList.add("active");
-                });
-            });
-
-            root.querySelectorAll("[data-action='cancel']").forEach((btn) => btn.addEventListener("click", cancel));
-            root.querySelector("[data-action='accept']").addEventListener("click", () => {
-                const selected = root.querySelector("input[name='closure_action']:checked");
-                const reason = root.querySelector("#sp-close-reason");
-                const payload = {
-                    action: selected ? selected.value : "settle",
-                    reason: reason && reason.value ? reason.value : "Cierre operativo desde To Be Allocated",
-                };
-                cleanup();
-                resolve(payload);
-            });
-
-            const keyHandler = (ev) => {
-                if (ev.key === "Escape") cancel();
-            };
-
-            document.addEventListener("keydown", keyHandler);
-            this._closeShortPopupKeyHandler = keyHandler;
-        });
-    }
-
     async openAllocationPopup(line, ev) {
         if (ev) {
             ev.stopPropagation();
@@ -841,7 +653,6 @@ export class ToBeAllocated extends Component {
                 soName: line.so_name || "",
                 customer: line.customer || "",
                 qtyOrdered: line.qty_ordered || line.qty_requested || saleLine.product_uom_qty || 0,
-                unitLabel: line.unit_label || "m²",
                 qtyAssigned: line.qty_assigned || 0,
                 qtyPending: line.qty_pending || 0,
                 currentLotIds,
@@ -887,8 +698,6 @@ export class ToBeAllocated extends Component {
             isLoading: false,
             isLoadingMore: false,
             page: 0,
-            dirty: false,
-            saving: false,
             pendingIds: new Set(config.currentLotIds || []),
             pendingBreakdown: { ...(config.currentBreakdown || {}) },
 
@@ -900,7 +709,7 @@ export class ToBeAllocated extends Component {
             assignedQty,
             pendingQty,
 
-            requestedUnit: config.unitLabel || "m²",
+            requestedUnit: "m²",
             qtyCache: {},
             filters: {
                 lot_name: "",
@@ -913,10 +722,6 @@ export class ToBeAllocated extends Component {
         };
 
         let searchTimeout = null;
-
-        const markDirty = () => {
-            state.dirty = true;
-        };
 
         root.innerHTML = `
             <div class="stone-popup-overlay" id="stone-overlay">
@@ -959,6 +764,14 @@ export class ToBeAllocated extends Component {
                                 <span id="sp-badge-unit">m²</span>
                             </span>
 
+                            <button class="stone-btn stone-btn-accent" id="sp-confirm-top">
+                                <i class="fa fa-check me-1"></i> Guardar
+                            </button>
+
+                            <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-purchase-top"
+                                    title="Guarda las placas seleccionadas y manda el pendiente real a To Be Purchased">
+                                <i class="fa fa-shopping-cart me-1"></i> Guardar + pedir restante
+                            </button>
 
                             <button class="stone-btn stone-btn-ghost" id="sp-close">
                                 <i class="fa fa-times"></i>
@@ -1075,7 +888,7 @@ export class ToBeAllocated extends Component {
                             </button>
 
                             <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-bottom">
-                                <i class="fa fa-check me-1"></i> Guardar
+                                <i class="fa fa-check me-1"></i> Guardar asignación
                             </button>
 
                             <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-purchase-bottom"
@@ -1460,7 +1273,6 @@ export class ToBeAllocated extends Component {
                         }
                     }
 
-                    markDirty();
                     updateBadge();
                     renderTable();
                 });
@@ -1481,7 +1293,6 @@ export class ToBeAllocated extends Component {
                     }
 
                     state.pendingBreakdown[String(lotId)] = val;
-                    markDirty();
                     updateQtyDisplay();
                 });
             });
@@ -1613,7 +1424,6 @@ export class ToBeAllocated extends Component {
                 }
             }
 
-            markDirty();
             updateBadge();
             renderTable();
         };
@@ -1621,95 +1431,11 @@ export class ToBeAllocated extends Component {
         const doClearAll = () => {
             state.pendingIds.clear();
             state.pendingBreakdown = {};
-            markDirty();
             updateBadge();
             renderTable();
         };
 
-        const requestOverAssignmentDecision = (overQty, unitLabel) => {
-            return new Promise((resolve) => {
-                const decisionRoot = document.createElement("div");
-                decisionRoot.className = "stone-decision-root";
-                root.appendChild(decisionRoot);
-
-                decisionRoot.innerHTML = `
-                    <div class="stone-decision-overlay">
-                        <div class="stone-decision-dialog">
-                            <div class="stone-decision-header">
-                                <div>
-                                    <h4>Asignación mayor a lo solicitado</h4>
-                                    <p>Hay un excedente de <strong>${this._fmtPlain(overQty)} ${this._escapeHtml(unitLabel)}</strong>. Selecciona cómo se administrará.</p>
-                                </div>
-                                <button type="button" class="stone-decision-x" data-action="cancel">
-                                    <i class="fa fa-times"></i>
-                                </button>
-                            </div>
-
-                            <div class="stone-decision-options">
-                                <label class="stone-decision-option active">
-                                    <input type="radio" name="over_action" value="free" checked="checked"/>
-                                    <span class="stone-decision-option-icon"><i class="fa fa-gift"></i></span>
-                                    <span>
-                                        <strong>Entregar excedente sin cobrar</strong>
-                                        <small>El cliente recibe el material extra, pero no se modifica el cobro de la orden.</small>
-                                    </span>
-                                </label>
-
-                                <label class="stone-decision-option">
-                                    <input type="radio" name="over_action" value="bill"/>
-                                    <span class="stone-decision-option-icon"><i class="fa fa-money"></i></span>
-                                    <span>
-                                        <strong>Cobrar excedente</strong>
-                                        <small>Administración deberá ajustar/cobrar el excedente según el flujo comercial.</small>
-                                    </span>
-                                </label>
-                            </div>
-
-                            <div class="stone-decision-note">
-                                <label>Nota administrativa</label>
-                                <textarea id="sp-over-note" rows="3">Sobreasignación autorizada desde To Be Allocated.</textarea>
-                            </div>
-
-                            <div class="stone-decision-footer">
-                                <button type="button" class="stone-btn stone-btn-outline" data-action="cancel">Volver</button>
-                                <button type="button" class="stone-btn stone-btn-primary-dark" data-action="accept">Continuar</button>
-                            </div>
-                        </div>
-                    </div>
-                `;
-
-                const cleanup = () => decisionRoot.remove();
-
-                decisionRoot.querySelectorAll(".stone-decision-option").forEach((option) => {
-                    option.addEventListener("click", () => {
-                        decisionRoot.querySelectorAll(".stone-decision-option").forEach((el) => el.classList.remove("active"));
-                        option.classList.add("active");
-                    });
-                });
-
-                decisionRoot.querySelectorAll("[data-action='cancel']").forEach((btn) => {
-                    btn.addEventListener("click", () => {
-                        cleanup();
-                        resolve(false);
-                    });
-                });
-
-                decisionRoot.querySelector("[data-action='accept']").addEventListener("click", () => {
-                    const selected = decisionRoot.querySelector("input[name='over_action']:checked");
-                    const note = decisionRoot.querySelector("#sp-over-note");
-                    const payload = {
-                        action: selected ? selected.value : "free",
-                        reason: note ? note.value : "Sobreasignación autorizada desde To Be Allocated.",
-                    };
-                    cleanup();
-                    resolve(payload);
-                });
-            });
-        };
-
-        const doConfirm = async (sendPendingToPurchase = false, options = {}) => {
-            if (state.saving) return false;
-
+        const doConfirm = async (sendPendingToPurchase = false) => {
             const newIds = Array.from(state.pendingIds);
 
             const cleanBreakdown = {};
@@ -1718,22 +1444,6 @@ export class ToBeAllocated extends Component {
                     cleanBreakdown[key] = value;
                 }
             }
-
-            const totals = computeSelectedTotals();
-            const selectedForTarget = this._getAllocationBaseFromTotals(totals, state.requestedUnit);
-            const overQty = selectedForTarget - Number(state.requestedQty || 0);
-
-            let overAction = false;
-            let overReason = false;
-
-            if (overQty > 0.0001) {
-                const decision = await requestOverAssignmentDecision(overQty, state.requestedUnit || "");
-                if (!decision) return false;
-                overAction = decision.action;
-                overReason = decision.reason;
-            }
-
-            state.saving = true;
 
             try {
                 const result = await this.orm.call(
@@ -1747,8 +1457,6 @@ export class ToBeAllocated extends Component {
                         sendPendingToPurchase
                             ? "Pendiente restante enviado a compra desde selector de placas"
                             : false,
-                        overAction,
-                        overReason,
                     ]
                 );
 
@@ -1771,59 +1479,41 @@ export class ToBeAllocated extends Component {
                     ? this._fmtPlain(result.purchase_qty)
                     : "0.00";
 
-                if (!options.silent) {
-                    this.notification.add(
-                        sentToPurchase
-                            ? `Asignación guardada. Asignado: ${assignedQty}${uomName}. Enviado a compra: ${purchaseQty}${uomName}.`
-                            : `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`,
-                        {
-                            type: "success",
-                            sticky: false,
-                        }
-                    );
-                }
+                this.notification.add(
+                    sentToPurchase
+                        ? `Asignación guardada. Asignado: ${assignedQty}${uomName}. Enviado a compra: ${purchaseQty}${uomName}.`
+                        : `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`,
+                    {
+                        type: "success",
+                        sticky: false,
+                    }
+                );
 
-                state.dirty = false;
                 this.destroyAllocationPopup();
                 await this.loadData();
-                return true;
             } catch (error) {
                 console.error("[ToBeAllocated] Error guardando asignación:", error);
                 this.notification.add(
                     "Error guardando asignación: " + (error.message || error),
                     { type: "danger" }
                 );
-                return false;
-            } finally {
-                state.saving = false;
             }
         };
 
-        const doClose = async () => {
-            if (state.dirty && state.pendingIds.size > 0) {
-                await doConfirm(false, { silent: true });
-                return;
-            }
-            this.destroyAllocationPopup();
-        };
-
-        const doCancel = () => this.destroyAllocationPopup();
+        const doClose = () => this.destroyAllocationPopup();
 
         root.querySelector("#sp-close").addEventListener("click", doClose);
-        root.querySelector("#sp-cancel").addEventListener("click", doCancel);
+        root.querySelector("#sp-cancel").addEventListener("click", doClose);
+        root.querySelector("#sp-confirm-top").addEventListener("click", () => doConfirm(false));
         root.querySelector("#sp-confirm-bottom").addEventListener("click", () => doConfirm(false));
+        root.querySelector("#sp-confirm-purchase-top").addEventListener("click", () => doConfirm(true));
         root.querySelector("#sp-confirm-purchase-bottom").addEventListener("click", () => doConfirm(true));
         root.querySelector("#sp-select-all").addEventListener("click", doSelectAll);
         root.querySelector("#sp-clear-all").addEventListener("click", doClearAll);
 
-        root.querySelector("#sp-open-order").addEventListener("click", async (ev) => {
+        root.querySelector("#sp-open-order").addEventListener("click", (ev) => {
             ev.stopPropagation();
-            if (state.dirty && state.pendingIds.size > 0) {
-                const saved = await doConfirm(false, { silent: true });
-                if (!saved) return;
-            } else {
-                this.destroyAllocationPopup();
-            }
+            this.destroyAllocationPopup();
             this.openSaleOrder(config.line.so_id, ev);
         });
 
@@ -1924,8 +1614,16 @@ export class ToBeAllocated extends Component {
 
         if (!line || !line.id) return;
 
-        const decision = await this.askCloseShortDecision(line);
-        if (!decision) return;
+        const reason = window.prompt(
+            `Cerrar el pendiente de ${line.product_name} en ${line.so_name}?\n\n` +
+            `Solicitado: ${this.fmtNum(line.qty_ordered || line.qty_requested)}\n` +
+            `Asignado: ${this.fmtNum(line.qty_assigned)}\n` +
+            `Pendiente: ${this.fmtNum(line.qty_pending)}\n\n` +
+            "Escribe el motivo del cierre:",
+            "Diferencia aceptada por cierre manual"
+        );
+
+        if (reason === null) return;
 
         this.state.closing[line.id] = true;
 
@@ -1933,11 +1631,7 @@ export class ToBeAllocated extends Component {
             const result = await this.orm.call(
                 "sale.allocation.manager.logic",
                 "close_short",
-                [
-                    [line.id],
-                    decision.reason || "Cierre manual desde To Be Allocated",
-                    decision.action || "settle",
-                ]
+                [[line.id], reason || "Cierre manual desde To Be Allocated"]
             );
 
             if (result && result.error) {
@@ -1984,36 +1678,6 @@ export class ToBeAllocated extends Component {
         );
     }
 
-    fmtQtyWithUnit(value, unitLabel) {
-        return `${this.fmtNum(value)} ${unitLabel || ""}`.trim();
-    }
-
-    fmtSplitQty(m2, pieces) {
-        const parts = [];
-
-        if (Number(m2 || 0) > 0) {
-            parts.push(`${this.fmtNum(m2)} m²`);
-        }
-
-        if (Number(pieces || 0) > 0) {
-            parts.push(`${this.fmtNum(pieces)} pzas`);
-        }
-
-        return parts.length ? parts.join(" · ") : "0.00";
-    }
-
-    fmtDays(value) {
-        const n = Number(value || 0);
-        if (n === 1) return "1 día";
-        return `${n} días`;
-    }
-
-    splitPercent(done, requested) {
-        const req = Number(requested || 0);
-        if (req <= 0) return "—";
-        return this.fmtPercent((Number(done || 0) / req) * 100);
-    }
-
     paymentClass(value) {
         const n = Number(value || 0);
 
@@ -2034,13 +1698,6 @@ export class ToBeAllocated extends Component {
             closed_short: "Cerrado corto",
         };
         return labels[value] || value || "";
-    }
-
-    _sum(fieldName) {
-        return this.state.data.reduce(
-            (sum, line) => sum + Number(line[fieldName] || 0),
-            0
-        );
     }
 
     get totalLines() {
@@ -2067,41 +1724,6 @@ export class ToBeAllocated extends Component {
             0
         );
     }
-
-    get totalRequestedM2() {
-        return this._sum("qty_ordered_m2") || this._sum("qty_requested_m2");
-    }
-
-    get totalRequestedPieces() {
-        return this._sum("qty_ordered_pieces") || this._sum("qty_requested_pieces");
-    }
-
-    get totalAssignedM2() {
-        return this._sum("qty_assigned_m2");
-    }
-
-    get totalAssignedPieces() {
-        return this._sum("qty_assigned_pieces");
-    }
-
-    get totalPendingM2() {
-        return this._sum("qty_pending_m2");
-    }
-
-    get totalPendingPieces() {
-        return this._sum("qty_pending_pieces");
-    }
-
-    get totalAssignedPercentM2() {
-        if (this.totalRequestedM2 <= 0) return 0;
-        return (this.totalAssignedM2 / this.totalRequestedM2) * 100;
-    }
-
-    get totalAssignedPercentPieces() {
-        if (this.totalRequestedPieces <= 0) return 0;
-        return (this.totalAssignedPieces / this.totalRequestedPieces) * 100;
-    }
-
 }
 
 ToBeAllocated.template = "stock_transit_allocation.ToBeAllocated";

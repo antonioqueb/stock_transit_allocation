@@ -19,7 +19,7 @@ export class ToBePurchased extends Component {
             // Filtros
             searchQuery: "",
             showOnlyPending: true,
-            groupBy: "product", // product | sale_order | vendor | customer | unit_type
+            groupBy: "product", // product | sale_order | vendor
 
             // Modal state
             showModal: false,
@@ -97,8 +97,6 @@ export class ToBePurchased extends Component {
                     product.category || "",
                     product.group || "",
                     product.type || "",
-                    product.product_type || "",
-                    product.unit_label || "",
                     lineText,
                 ].join(" ").toLowerCase();
 
@@ -118,31 +116,17 @@ export class ToBePurchased extends Component {
                     (sum, line) => sum + Number(line.qty_pending || 0),
                     0
                 );
-                const qtySoM2 = filteredLines.reduce(
-                    (sum, line) => sum + Number(line.qty_pending_m2 || 0),
-                    0
-                );
-                const qtySoPieces = filteredLines.reduce(
-                    (sum, line) => sum + Number(line.qty_pending_pieces || 0),
-                    0
-                );
 
                 // Debe respetar la misma regla del backend:
                 // To Be Purchased NO descuenta stock interno ni tránsito.
                 // Solo descuenta OC abierta.
                 const qtyToBuy = Math.max(0, qtySo - Number(product.qty_p || 0));
-                const qtyToBuyM2 = product.unit_kind === "pieces" ? 0 : qtyToBuy;
-                const qtyToBuyPieces = product.unit_kind === "pieces" ? qtyToBuy : 0;
 
                 return {
                     ...product,
                     so_lines: filteredLines,
                     qty_so: qtySo,
-                    qty_so_m2: qtySoM2,
-                    qty_so_pieces: qtySoPieces,
                     qty_to_buy: qtyToBuy,
-                    qty_to_buy_m2: qtyToBuyM2,
-                    qty_to_buy_pieces: qtyToBuyPieces,
                 };
             }).filter((product) => product !== null);
         }
@@ -153,10 +137,6 @@ export class ToBePurchased extends Component {
             this.state.filteredData = this._groupBySaleOrder(result);
         } else if (this.state.groupBy === "vendor") {
             this.state.filteredData = this._groupByVendor(result);
-        } else if (this.state.groupBy === "customer") {
-            this.state.filteredData = this._groupByCustomer(result);
-        } else if (this.state.groupBy === "unit_type") {
-            this.state.filteredData = this._groupByUnitType(result);
         }
     }
 
@@ -180,9 +160,6 @@ export class ToBePurchased extends Component {
                         note: soLine.note,
                         products: [],
                         total_pending: 0,
-                        total_pending_m2: 0,
-                        total_pending_pieces: 0,
-                        max_days_unassigned: 0,
                     };
                 }
 
@@ -192,27 +169,12 @@ export class ToBePurchased extends Component {
                     product_name: product.name,
                     vendor: product.vendor,
                     vendors: product.vendors,
-                    unit_kind: product.unit_kind,
-                    unit_label: product.unit_label,
-                    product_type: product.product_type,
                     qty_a: product.qty_a,
                     qty_i: product.qty_i,
                     qty_p: product.qty_p,
-                    qty_a_m2: product.qty_a_m2,
-                    qty_i_m2: product.qty_i_m2,
-                    qty_p_m2: product.qty_p_m2,
-                    qty_a_pieces: product.qty_a_pieces,
-                    qty_i_pieces: product.qty_i_pieces,
-                    qty_p_pieces: product.qty_p_pieces,
                 });
 
                 soMap[soKey].total_pending += Number(soLine.qty_pending || 0);
-                soMap[soKey].total_pending_m2 += Number(soLine.qty_pending_m2 || 0);
-                soMap[soKey].total_pending_pieces += Number(soLine.qty_pending_pieces || 0);
-                soMap[soKey].max_days_unassigned = Math.max(
-                    soMap[soKey].max_days_unassigned,
-                    Number(soLine.days_unassigned || 0)
-                );
             }
         }
 
@@ -221,135 +183,43 @@ export class ToBePurchased extends Component {
         );
     }
 
-    _makeOperationalGroup({ id, key, name, subtitle }) {
-        return {
-            id,
-            group_key: key,
-            group_name: name,
-            group_subtitle: subtitle,
-            products: [],
-            total_pending: 0,
-            total_pending_m2: 0,
-            total_pending_pieces: 0,
-            total_to_buy: 0,
-            total_to_buy_m2: 0,
-            total_to_buy_pieces: 0,
-            max_days_unassigned: 0,
-        };
-    }
-
-    _addProductLinesToOperationalGroup(group, product) {
-        for (const soLine of product.so_lines || []) {
-            group.products.push({
-                ...soLine,
-                product_id: product.id,
-                product_name: product.name,
-                vendor: product.vendor,
-                vendors: product.vendors,
-                unit_kind: product.unit_kind,
-                unit_label: product.unit_label,
-                product_type: product.product_type,
-                qty_a: product.qty_a,
-                qty_i: product.qty_i,
-                qty_p: product.qty_p,
-                qty_a_m2: product.qty_a_m2,
-                qty_i_m2: product.qty_i_m2,
-                qty_p_m2: product.qty_p_m2,
-                qty_a_pieces: product.qty_a_pieces,
-                qty_i_pieces: product.qty_i_pieces,
-                qty_p_pieces: product.qty_p_pieces,
-            });
-
-            group.total_pending += Number(soLine.qty_pending || 0);
-            group.total_pending_m2 += Number(soLine.qty_pending_m2 || 0);
-            group.total_pending_pieces += Number(soLine.qty_pending_pieces || 0);
-            group.max_days_unassigned = Math.max(
-                group.max_days_unassigned,
-                Number(soLine.days_unassigned || 0)
-            );
-        }
-
-        group.total_to_buy += Number(product.qty_to_buy || 0);
-        group.total_to_buy_m2 += Number(product.qty_to_buy_m2 || 0);
-        group.total_to_buy_pieces += Number(product.qty_to_buy_pieces || 0);
-    }
-
-    _sortOperationalGroups(groups) {
-        return groups.sort((a, b) => {
-            if (b.max_days_unassigned !== a.max_days_unassigned) {
-                return b.max_days_unassigned - a.max_days_unassigned;
-            }
-            return String(a.group_name || "").localeCompare(String(b.group_name || ""));
-        });
-    }
-
     _groupByVendor(data) {
-        const map = {};
+        const vendorMap = {};
 
         for (const product of data) {
             const vendorName = product.vendor || "SIN PROVEEDOR";
             const vendorId = product.vendors?.[0]?.id || 0;
 
-            if (!map[vendorName]) {
-                map[vendorName] = this._makeOperationalGroup({
+            if (!vendorMap[vendorName]) {
+                vendorMap[vendorName] = {
                     id: vendorId,
-                    key: `vendor_${vendorName}`,
-                    name: vendorName,
-                    subtitle: "Proveedor con líneas pendientes por compra",
-                });
+                    vendor_name: vendorName,
+                    vendor_id: vendorId,
+                    products: [],
+                    total_pending: 0,
+                    total_to_buy: 0,
+                };
             }
 
-            this._addProductLinesToOperationalGroup(map[vendorName], product);
-        }
-
-        return this._sortOperationalGroups(Object.values(map));
-    }
-
-    _groupByCustomer(data) {
-        const map = {};
-
-        for (const product of data) {
             for (const soLine of product.so_lines || []) {
-                const customerKey = soLine.customer_id || soLine.customer || "Sin cliente";
-
-                if (!map[customerKey]) {
-                    map[customerKey] = this._makeOperationalGroup({
-                        id: customerKey,
-                        key: `customer_${customerKey}`,
-                        name: soLine.customer || "Sin cliente",
-                        subtitle: "Cliente con material pendiente por comprar",
-                    });
-                }
-
-                const pseudoProduct = { ...product, so_lines: [soLine] };
-                this._addProductLinesToOperationalGroup(map[customerKey], pseudoProduct);
-            }
-        }
-
-        return this._sortOperationalGroups(Object.values(map));
-    }
-
-    _groupByUnitType(data) {
-        const map = {};
-
-        for (const product of data) {
-            const unitKey = product.unit_kind || "m2";
-            const groupName = unitKey === "pieces" ? "Piezas" : "Metros cuadrados";
-            const subtitle = unitKey === "pieces" ? "Productos vendidos por pieza" : "Productos vendidos por m²";
-
-            if (!map[unitKey]) {
-                map[unitKey] = this._makeOperationalGroup({
-                    id: unitKey,
-                    key: `unit_${unitKey}`,
-                    name: groupName,
-                    subtitle,
+                vendorMap[vendorName].products.push({
+                    ...soLine,
+                    product_id: product.id,
+                    product_name: product.name,
+                    qty_a: product.qty_a,
+                    qty_i: product.qty_i,
+                    qty_p: product.qty_p,
                 });
+
+                vendorMap[vendorName].total_pending += Number(soLine.qty_pending || 0);
             }
 
-            this._addProductLinesToOperationalGroup(map[unitKey], product);
+            vendorMap[vendorName].total_to_buy += Number(product.qty_to_buy || 0);
         }
 
-        return this._sortOperationalGroups(Object.values(map));
+        return Object.values(vendorMap).sort((a, b) =>
+            String(a.vendor_name || "").localeCompare(String(b.vendor_name || ""))
+        );
     }
 
     onSearchInput(ev) {
@@ -549,50 +419,6 @@ export class ToBePurchased extends Component {
             views: [[false, "form"]],
             target: "current",
         });
-    }
-
-    fmtNum(value) {
-        const n = Number(value || 0);
-        return n.toLocaleString("es-MX", {
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2,
-        });
-    }
-
-    fmtQtyWithUnit(value, unitLabel) {
-        return `${this.fmtNum(value)} ${unitLabel || ""}`.trim();
-    }
-
-    fmtSplitQty(m2, pieces) {
-        const parts = [];
-        if (Number(m2 || 0) > 0) parts.push(`${this.fmtNum(m2)} m²`);
-        if (Number(pieces || 0) > 0) parts.push(`${this.fmtNum(pieces)} pzas`);
-        return parts.length ? parts.join(" · ") : "0.00";
-    }
-
-    fmtDays(value) {
-        const n = Number(value || 0);
-        return n === 1 ? "1 día" : `${n} días`;
-    }
-
-    _sum(fieldName) {
-        return this.state.data.reduce((sum, product) => sum + Number(product[fieldName] || 0), 0);
-    }
-
-    get totalDemandM2() {
-        return this._sum("qty_so_m2");
-    }
-
-    get totalDemandPieces() {
-        return this._sum("qty_so_pieces");
-    }
-
-    get totalToBuyM2() {
-        return this._sum("qty_to_buy_m2");
-    }
-
-    get totalToBuyPieces() {
-        return this._sum("qty_to_buy_pieces");
     }
 
     async openSaleOrder(soId, ev) {
