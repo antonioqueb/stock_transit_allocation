@@ -888,6 +888,7 @@ $o-tba-pill: 999px;
 // IMPORTANTE:
 // Estos popups se montan en document.body, no dentro de .o_tba_root.
 // Por eso NO deben depender de .o_tba_root para tomar estilos.
+// También se evita width: min(px, vw), porque Sass/Odoo falla al compilarlo.
 // ============================================================================
 
 .stone-decision-root,
@@ -929,7 +930,8 @@ $o-tba-pill: 999px;
 .stone-overassign-modal {
     position: relative;
     z-index: 2142;
-    width: min(780px, 96vw);
+    width: 780px;
+    max-width: 96vw;
     max-height: 92vh;
     overflow: hidden;
     display: flex;
@@ -944,7 +946,8 @@ $o-tba-pill: 999px;
 
 .stone-close-dialog,
 .stone-close-modal {
-    width: min(820px, 96vw);
+    width: 820px;
+    max-width: 96vw;
 }
 
 .stone-decision-header,
@@ -1123,8 +1126,7 @@ $o-tba-pill: 999px;
 
     &:hover,
     &.active,
-    &.is-active,
-    &:has(input:checked) {
+    &.is-active {
         border-color: rgba(92, 185, 242, 0.62);
         background: rgba(92, 185, 242, 0.10);
         box-shadow: $o-tba-shadow-sm;
@@ -1390,6 +1392,7 @@ $o-tba-pill: 999px;
     .stone-overassign-dialog,
     .stone-overassign-modal {
         width: 100%;
+        max-width: 100%;
         max-height: 96vh;
         border-radius: 18px 18px 0 0;
     }
