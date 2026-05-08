@@ -806,25 +806,19 @@ class SaleOrderLine(models.Model):
                         'auto_transit_assign': False,
                     })
 
-            line.order_id.message_post(body=_(
-                '✅ <b>Asignación aplicada desde To Be Allocated</b><br/>'
-                'Producto: <b>%(product)s</b><br/>'
-                'Solicitado: <b>%(requested).3f</b><br/>'
-                'Asignado anterior: <b>%(old_assigned).3f</b><br/>'
-                'Asignado actual: <b>%(assigned).3f</b><br/>'
-                'Pendiente operativo: <b>%(pending).3f</b><br/>'
-                'Pendiente enviado a compra: <b>%(purchase_qty).3f</b><br/>'
-                'Lotes asignados: <b>%(lots)s</b><br/>'
-                '<small>La cantidad solicitada no fue modificada por la asignación.</small>'
-            ) % {
-                'product': line.product_id.display_name,
-                'requested': requested_qty,
-                'old_assigned': old_assigned_qty,
-                'assigned': assigned_qty,
-                'pending': pending_qty,
-                'purchase_qty': purchase_qty if sent_to_purchase else 0.0,
-                'lots': len(safe_lot_ids),
-            })
+            line._tc_post_plain_message(
+                _('✅ Asignación aplicada desde To Be Allocated'),
+                [
+                    _('Producto: %s') % (line.product_id.display_name or ''),
+                    _('Solicitado: %.3f') % requested_qty,
+                    _('Asignado anterior: %.3f') % old_assigned_qty,
+                    _('Asignado actual: %.3f') % assigned_qty,
+                    _('Pendiente operativo: %.3f') % pending_qty,
+                    _('Pendiente enviado a compra: %.3f') % (purchase_qty if sent_to_purchase else 0.0),
+                    _('Lotes asignados: %s') % len(safe_lot_ids),
+                    _('La cantidad solicitada no fue modificada por la asignación.'),
+                ],
+            )
 
             line_uom = line._tc_get_line_uom()
             result = {
@@ -1118,6 +1112,32 @@ class SaleOrderLine(models.Model):
 
         return res
 
+    def _tc_post_plain_message(self, title, lines=None):
+        """
+        Publica mensajes operativos en texto plano.
+
+        En algunos registros/vistas de Odoo 19 el chatter no renderiza HTML
+        y muestra etiquetas como <b> o <br/> literalmente. Por eso este helper
+        evita HTML en logs operativos.
+        """
+        self.ensure_one()
+
+        clean_lines = []
+        for item in lines or []:
+            if item is None or item is False:
+                continue
+            text = str(item).strip()
+            if text:
+                clean_lines.append(text)
+
+        body = "\n".join([str(title).strip()] + clean_lines)
+
+        self.order_id.message_post(
+            body=body,
+            message_type='comment',
+            subtype_xmlid='mail.mt_note',
+        )
+
     # -------------------------------------------------------------------------
     # ACCIONES HUB
     # -------------------------------------------------------------------------
@@ -1134,9 +1154,17 @@ class SaleOrderLine(models.Model):
                     'La línea "%s" ya no tiene cantidad pendiente para mandar a pedir.'
                 ) % (line.product_id.display_name or line.name or line.id))
 
-            line.write({
+            already_sent_to_purchase = bool(
+                line.tc_stock_rejected
+                and line.auto_transit_assign
+            )
+
+            previous_reason = line.tc_stock_rejected_reason or ''
+            new_reason = reason or previous_reason or ''
+
+            line.with_context(skip_tc_allocation_recovery=True).write({
                 'tc_stock_rejected': True,
-                'tc_stock_rejected_reason': reason or line.tc_stock_rejected_reason or '',
+                'tc_stock_rejected_reason': new_reason,
                 'tc_stock_rejected_by': self.env.user.id,
                 'tc_stock_rejected_at': fields.Datetime.now(),
                 'auto_transit_assign': True,
@@ -1147,15 +1175,19 @@ class SaleOrderLine(models.Model):
                 'tc_closure_at': False,
             })
 
-            line.order_id.message_post(body=_(
-                '📌 <b>Mandar a pedir desde To Be Allocated</b><br/>'
-                'Producto: <b>%(product)s</b><br/>'
-                'Cantidad pendiente: <b>%(qty).3f</b><br/>'
-                'El inventario disponible fue rechazado por el vendedor; compras debe generar/mantener OC.'
-            ) % {
-                'product': line.product_id.display_name,
-                'qty': pending_qty,
-            })
+            # Evita duplicar logs si el botón se ejecuta dos veces o si la línea
+            # ya estaba marcada para compra.
+            if already_sent_to_purchase and new_reason == previous_reason:
+                continue
+
+            line._tc_post_plain_message(
+                _('📌 Mandar a pedir desde To Be Allocated'),
+                [
+                    _('Producto: %s') % (line.product_id.display_name or ''),
+                    _('Cantidad pendiente: %.3f') % pending_qty,
+                    _('El inventario disponible fue rechazado por el vendedor; compras debe generar o mantener la OC.'),
+                ],
+            )
 
         return True
 
@@ -1200,26 +1232,25 @@ class SaleOrderLine(models.Model):
                 'auto_transit_assign': False,
             })
 
-            line.order_id.message_post(body=_(
-                '🔒 <b>Pendiente de asignación cerrado</b><br/>'
-                'Producto: <b>%(product)s</b><br/>'
-                'Solicitado: <b>%(requested).3f</b><br/>'
-                'Asignado: <b>%(assigned).3f</b><br/>'
-                'Diferencia cerrada: <b>%(closed).3f</b><br/>'
-                'Motivo: %(reason)s<br/>'
-                '<small>La cantidad solicitada se mantiene intacta.</small>'
-            ) % {
-                'product': line.product_id.display_name,
-                'requested': line.product_uom_qty or 0.0,
-                'assigned': line._tc_get_assigned_lot_qty(),
-                'closed': raw_pending_qty,
-                'reason': close_reason,
-            })
+            line._tc_post_plain_message(
+                _('🔒 Pendiente de asignación cerrado'),
+                [
+                    _('Producto: %s') % (line.product_id.display_name or ''),
+                    _('Solicitado: %.3f') % (line.product_uom_qty or 0.0),
+                    _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
+                    _('Diferencia cerrada: %.3f') % raw_pending_qty,
+                    _('Motivo: %s') % close_reason,
+                    _('La cantidad solicitada se mantiene intacta.'),
+                ],
+            )
 
         return True
 
     def action_tc_reopen_allocation(self):
         for line in self:
+            if not line.tc_assignment_closed:
+                continue
+
             line.with_context(
                 skip_tc_allocation_recovery=True,
                 skip_tc_qty_manual_reset=True,
@@ -1231,18 +1262,15 @@ class SaleOrderLine(models.Model):
                 'tc_closure_at': False,
             })
 
-            line.order_id.message_post(body=_(
-                '🔓 <b>Asignación reabierta</b><br/>'
-                'Producto: <b>%(product)s</b><br/>'
-                'Solicitado: <b>%(requested).3f</b><br/>'
-                'Asignado: <b>%(assigned).3f</b><br/>'
-                'Pendiente actual: <b>%(pending).3f</b>'
-            ) % {
-                'product': line.product_id.display_name,
-                'requested': line.product_uom_qty or 0.0,
-                'assigned': line._tc_get_assigned_lot_qty(),
-                'pending': line._tc_get_raw_pending_allocation_qty(),
-            })
+            line._tc_post_plain_message(
+                _('🔓 Asignación reabierta'),
+                [
+                    _('Producto: %s') % (line.product_id.display_name or ''),
+                    _('Solicitado: %.3f') % (line.product_uom_qty or 0.0),
+                    _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
+                    _('Pendiente actual: %.3f') % line._tc_get_raw_pending_allocation_qty(),
+                ],
+            )
 
         return True
 
