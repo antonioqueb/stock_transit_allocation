@@ -1473,3 +1473,19 @@ $o-tba-pill: 999px;
         min-width: 1280px;
     }
 }
+
+.stone-decision-root,
+.stone-overassign-root {
+    z-index: 99999 !important;
+}
+
+.stone-decision-overlay,
+.stone-overassign-overlay {
+    z-index: 100000 !important;
+}
+
+.stone-decision-dialog,
+.stone-overassign-dialog,
+.stone-overassign-modal {
+    z-index: 100001 !important;
+}

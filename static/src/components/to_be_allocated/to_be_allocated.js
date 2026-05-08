@@ -1629,16 +1629,28 @@ export class ToBeAllocated extends Component {
         const requestOverAssignmentDecision = (overQty, unitLabel) => {
             return new Promise((resolve) => {
                 const decisionRoot = document.createElement("div");
-                decisionRoot.className = "stone-decision-root";
-                root.appendChild(decisionRoot);
+                decisionRoot.className = "stone-decision-root stone-overassign-root";
+
+                // CRÍTICO:
+                // Este popup NO debe colgar del popup de asignación.
+                // Debe montarse directo en body para evitar stacking contexts.
+                decisionRoot.style.position = "fixed";
+                decisionRoot.style.inset = "0";
+                decisionRoot.style.zIndex = "99999";
+
+                document.body.appendChild(decisionRoot);
 
                 decisionRoot.innerHTML = `
-                    <div class="stone-decision-overlay">
-                        <div class="stone-decision-dialog">
+                    <div class="stone-decision-overlay" style="z-index: 100000;">
+                        <div class="stone-decision-dialog" style="z-index: 100001;">
                             <div class="stone-decision-header">
                                 <div>
                                     <h4>Asignación mayor a lo solicitado</h4>
-                                    <p>Hay un excedente de <strong>${this._fmtPlain(overQty)} ${this._escapeHtml(unitLabel)}</strong>. Selecciona cómo se administrará.</p>
+                                    <p>
+                                        Hay un excedente de
+                                        <strong>${this._fmtPlain(overQty)} ${this._escapeHtml(unitLabel)}</strong>.
+                                        Selecciona cómo se administrará.
+                                    </p>
                                 </div>
                                 <button type="button" class="stone-decision-x" data-action="cancel">
                                     <i class="fa fa-times"></i>
@@ -1648,59 +1660,109 @@ export class ToBeAllocated extends Component {
                             <div class="stone-decision-options">
                                 <label class="stone-decision-option active">
                                     <input type="radio" name="over_action" value="free" checked="checked"/>
-                                    <span class="stone-decision-option-icon"><i class="fa fa-gift"></i></span>
+                                    <span class="stone-decision-option-icon">
+                                        <i class="fa fa-gift"></i>
+                                    </span>
                                     <span>
                                         <strong>Entregar excedente sin cobrar</strong>
-                                        <small>Se ajustará la cantidad de la línea a lo asignado y se aplicará un descuento equivalente al excedente.</small>
+                                        <small>
+                                            El cliente recibe el material extra, pero el sistema aplicará el descuento
+                                            equivalente para que pague únicamente lo solicitado originalmente.
+                                        </small>
                                     </span>
                                 </label>
 
                                 <label class="stone-decision-option">
                                     <input type="radio" name="over_action" value="bill"/>
-                                    <span class="stone-decision-option-icon"><i class="fa fa-money"></i></span>
+                                    <span class="stone-decision-option-icon">
+                                        <i class="fa fa-money"></i>
+                                    </span>
                                     <span>
                                         <strong>Cobrar excedente</strong>
-                                        <small>Se ajustará la cantidad de la línea a lo asignado y el excedente quedará cobrado.</small>
+                                        <small>
+                                            La cantidad solicitada de la línea se ajustará a la cantidad asignada,
+                                            conservando el descuento actual.
+                                        </small>
                                     </span>
                                 </label>
                             </div>
 
                             <div class="stone-decision-note">
                                 <label>Nota administrativa</label>
-                                <textarea id="sp-over-note" rows="3">Sobreasignación autorizada desde To Be Allocated. Aplicar la decisión seleccionada sobre cantidad y descuento.</textarea>
+                                <textarea id="sp-over-note" rows="3">Sobreasignación autorizada desde To Be Allocated.</textarea>
                             </div>
 
                             <div class="stone-decision-footer">
-                                <button type="button" class="stone-btn stone-btn-outline" data-action="cancel">Volver</button>
-                                <button type="button" class="stone-btn stone-btn-primary-dark" data-action="accept">Continuar</button>
+                                <button type="button" class="stone-btn stone-btn-outline" data-action="cancel">
+                                    Volver
+                                </button>
+                                <button type="button" class="stone-btn stone-btn-primary-dark" data-action="accept">
+                                    Continuar
+                                </button>
                             </div>
                         </div>
                     </div>
                 `;
 
-                const cleanup = () => decisionRoot.remove();
+                const cleanup = () => {
+                    if (keyHandler) {
+                        document.removeEventListener("keydown", keyHandler);
+                    }
+                    decisionRoot.remove();
+                };
+
+                const cancel = () => {
+                    cleanup();
+                    resolve(false);
+                };
+
+                const keyHandler = (ev) => {
+                    if (ev.key === "Escape") {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        cancel();
+                    }
+                };
+
+                document.addEventListener("keydown", keyHandler);
 
                 decisionRoot.querySelectorAll(".stone-decision-option").forEach((option) => {
                     option.addEventListener("click", () => {
-                        decisionRoot.querySelectorAll(".stone-decision-option").forEach((el) => el.classList.remove("active"));
+                        decisionRoot
+                            .querySelectorAll(".stone-decision-option")
+                            .forEach((el) => el.classList.remove("active"));
+
                         option.classList.add("active");
+
+                        const input = option.querySelector("input[name='over_action']");
+                        if (input) {
+                            input.checked = true;
+                        }
                     });
                 });
 
                 decisionRoot.querySelectorAll("[data-action='cancel']").forEach((btn) => {
-                    btn.addEventListener("click", () => {
-                        cleanup();
-                        resolve(false);
+                    btn.addEventListener("click", (ev) => {
+                        ev.preventDefault();
+                        ev.stopPropagation();
+                        cancel();
                     });
                 });
 
-                decisionRoot.querySelector("[data-action='accept']").addEventListener("click", () => {
+                decisionRoot.querySelector("[data-action='accept']").addEventListener("click", (ev) => {
+                    ev.preventDefault();
+                    ev.stopPropagation();
+
                     const selected = decisionRoot.querySelector("input[name='over_action']:checked");
                     const note = decisionRoot.querySelector("#sp-over-note");
+
                     const payload = {
                         action: selected ? selected.value : "free",
-                        reason: note ? note.value : "Sobreasignación autorizada desde To Be Allocated. Aplicar la decisión seleccionada sobre cantidad y descuento.",
+                        reason: note && note.value
+                            ? note.value
+                            : "Sobreasignación autorizada desde To Be Allocated.",
                     };
+
                     cleanup();
                     resolve(payload);
                 });
@@ -2122,3 +2184,4 @@ registry.category("actions").add(
     ToBeAllocated,
     { force: true }
 );
+
