@@ -765,7 +765,12 @@ export class ToBeAllocated extends Component {
                             </span>
 
                             <button class="stone-btn stone-btn-accent" id="sp-confirm-top">
-                                <i class="fa fa-check me-1"></i> Confirmar
+                                <i class="fa fa-check me-1"></i> Guardar
+                            </button>
+
+                            <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-purchase-top"
+                                    title="Guarda las placas seleccionadas y manda el pendiente real a To Be Purchased">
+                                <i class="fa fa-shopping-cart me-1"></i> Guardar + pedir restante
                             </button>
 
                             <button class="stone-btn stone-btn-ghost" id="sp-close">
@@ -884,6 +889,11 @@ export class ToBeAllocated extends Component {
 
                             <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-bottom">
                                 <i class="fa fa-check me-1"></i> Guardar asignación
+                            </button>
+
+                            <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-purchase-bottom"
+                                    title="Guarda la asignación y manda el restante a compras">
+                                <i class="fa fa-shopping-cart me-1"></i> Guardar + pedir restante
                             </button>
                         </div>
                     </div>
@@ -1425,7 +1435,7 @@ export class ToBeAllocated extends Component {
             renderTable();
         };
 
-        const doConfirm = async () => {
+        const doConfirm = async (sendPendingToPurchase = false) => {
             const newIds = Array.from(state.pendingIds);
 
             const cleanBreakdown = {};
@@ -1439,7 +1449,15 @@ export class ToBeAllocated extends Component {
                 const result = await this.orm.call(
                     "sale.order.line",
                     "action_tc_apply_allocation_from_hub",
-                    [[config.line.id], newIds, cleanBreakdown]
+                    [
+                        [config.line.id],
+                        newIds,
+                        cleanBreakdown,
+                        sendPendingToPurchase,
+                        sendPendingToPurchase
+                            ? "Pendiente restante enviado a compra desde selector de placas"
+                            : false,
+                    ]
                 );
 
                 const assignedQty = result && result.assigned_qty !== undefined
@@ -1456,8 +1474,15 @@ export class ToBeAllocated extends Component {
 
                 const uomName = result && result.uom_name ? ` ${result.uom_name}` : "";
 
+                const sentToPurchase = !!(result && result.sent_to_purchase);
+                const purchaseQty = result && result.purchase_qty !== undefined
+                    ? this._fmtPlain(result.purchase_qty)
+                    : "0.00";
+
                 this.notification.add(
-                    `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`,
+                    sentToPurchase
+                        ? `Asignación guardada. Asignado: ${assignedQty}${uomName}. Enviado a compra: ${purchaseQty}${uomName}.`
+                        : `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`,
                     {
                         type: "success",
                         sticky: false,
@@ -1479,8 +1504,10 @@ export class ToBeAllocated extends Component {
 
         root.querySelector("#sp-close").addEventListener("click", doClose);
         root.querySelector("#sp-cancel").addEventListener("click", doClose);
-        root.querySelector("#sp-confirm-top").addEventListener("click", doConfirm);
-        root.querySelector("#sp-confirm-bottom").addEventListener("click", doConfirm);
+        root.querySelector("#sp-confirm-top").addEventListener("click", () => doConfirm(false));
+        root.querySelector("#sp-confirm-bottom").addEventListener("click", () => doConfirm(false));
+        root.querySelector("#sp-confirm-purchase-top").addEventListener("click", () => doConfirm(true));
+        root.querySelector("#sp-confirm-purchase-bottom").addEventListener("click", () => doConfirm(true));
         root.querySelector("#sp-select-all").addEventListener("click", doSelectAll);
         root.querySelector("#sp-clear-all").addEventListener("click", doClearAll);
 

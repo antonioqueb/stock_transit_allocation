@@ -438,6 +438,76 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         return vals
 
+    def _float_differs(self, product, qty_a, qty_b):
+        rounding = 0.0001
+        if product and product.uom_id and product.uom_id.rounding:
+            rounding = product.uom_id.rounding
+        return abs((qty_a or 0.0) - (qty_b or 0.0)) > rounding
+
+    def _sync_existing_purchase_allocation(self, sale_line, pending_qty):
+        """
+        Evita duplicar OC/allocation para una línea que ya tiene flujo de compra.
+
+        Regla:
+        - Si la OC está en borrador/enviada, se ajusta la allocation y la línea
+          de compra al pendiente real actual.
+        - Si la OC ya está confirmada, no se duplica; se conserva la trazabilidad
+          y la protección de stock_transit_voyage_allocation_guard ajustará al
+          cargar/recibir si el pendiente real cambió.
+        """
+        alloc_info = self._get_active_allocation_info(sale_line)
+        allocation = alloc_info.get('allocation')
+
+        if not allocation:
+            return False
+
+        po_line = allocation.purchase_line_id
+        po = allocation.purchase_order_id
+
+        if not po or not po.exists() or po.state == 'cancel':
+            return False
+
+        if pending_qty <= 0:
+            return True
+
+        if po.state in ('draft', 'sent') and po_line and po_line.exists():
+            old_qty = allocation.quantity or 0.0
+            new_qty = pending_qty
+
+            if self._float_differs(sale_line.product_id, old_qty, new_qty):
+                allocation.write({'quantity': new_qty})
+
+                active_allocations = po_line.allocation_ids.filtered(
+                    lambda alloc: alloc.state not in ('cancelled', 'done')
+                )
+                total_allocated = sum(active_allocations.mapped('quantity'))
+
+                if self._float_differs(po_line.product_id, po_line.product_qty, total_allocated):
+                    po_line.write({'product_qty': total_allocated})
+
+                po.message_post(body=(
+                    '🔄 <b>Allocation actualizada por pendiente real</b><br/>'
+                    'Pedido: <b>%s</b><br/>'
+                    'Producto: <b>%s</b><br/>'
+                    'Cantidad anterior: <b>%.3f</b><br/>'
+                    'Cantidad actual: <b>%.3f</b>'
+                ) % (
+                    sale_line.order_id.name,
+                    sale_line.product_id.display_name,
+                    old_qty,
+                    new_qty,
+                ))
+
+        sale_line.with_context(skip_tc_allocation_recovery=True).write({
+            'auto_transit_assign': True,
+            'tc_stock_rejected': True,
+            'tc_stock_rejected_reason': sale_line.tc_stock_rejected_reason or 'Pendiente enviado a compra desde To Be Purchased',
+            'tc_stock_rejected_by': sale_line.tc_stock_rejected_by.id or self.env.user.id,
+            'tc_stock_rejected_at': sale_line.tc_stock_rejected_at or fields.Datetime.now(),
+        })
+
+        return True
+
     @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
         sale_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
@@ -451,6 +521,28 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         if not sale_lines:
             return {'error': 'No hay líneas válidas pendientes por comprar'}
+
+        lines_to_create = self.env['sale.order.line']
+
+        for line in sale_lines:
+            qty_pending = line.tc_qty_pending_allocation
+            if self._sync_existing_purchase_allocation(line, qty_pending):
+                continue
+            lines_to_create |= line
+
+        sale_lines = lines_to_create
+
+        if not sale_lines:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': 'To Be Purchased actualizado',
+                    'message': 'Las líneas seleccionadas ya tenían OC/asignación activa. Se actualizó la cantidad pendiente cuando la OC seguía en borrador.',
+                    'type': 'success',
+                    'sticky': False,
+                },
+            }
 
         if not vendor_id:
             return {'error': 'Debe seleccionar un proveedor'}
@@ -538,8 +630,12 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'state': 'pending',
                 })
 
-                sale_line.write({
+                sale_line.with_context(skip_tc_allocation_recovery=True).write({
                     'auto_transit_assign': True,
+                    'tc_stock_rejected': True,
+                    'tc_stock_rejected_reason': sale_line.tc_stock_rejected_reason or 'Pendiente enviado a compra desde To Be Purchased',
+                    'tc_stock_rejected_by': sale_line.tc_stock_rejected_by.id or self.env.user.id,
+                    'tc_stock_rejected_at': sale_line.tc_stock_rejected_at or fields.Datetime.now(),
                 })
 
         return {

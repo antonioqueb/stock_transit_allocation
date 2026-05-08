@@ -490,30 +490,40 @@ class StockPicking(models.Model):
 
     def _tc_sync_sale_line_lots_after_reception(self, sale_line, transit_lines):
         """
-        Reemplaza en la SO únicamente los lotes del producto recibido/asignado.
+        Fusiona en la SO los lotes recibidos/asignados desde tránsito.
 
-        No toca otros productos/materiales del pedido.
+        Flujo mixto:
+        - Conserva placas ya seleccionadas manualmente.
+        - Agrega lotes comprados/recibidos desde tránsito.
+        - Solo limpia Mandar a pedir cuando ya no queda pendiente real.
         """
         if not sale_line or 'lot_ids' not in sale_line._fields:
             return False
 
-        lot_ids = transit_lines.mapped('lot_id').ids
+        transit_lot_ids = transit_lines.mapped('lot_id').ids
+        current_lot_ids = sale_line.lot_ids.ids if sale_line.lot_ids else []
+
+        merged_lot_ids = list(current_lot_ids)
+        for lot_id in transit_lot_ids:
+            if lot_id not in merged_lot_ids:
+                merged_lot_ids.append(lot_id)
 
         vals = {
-            'lot_ids': [(6, 0, lot_ids)],
+            'lot_ids': [(6, 0, merged_lot_ids)],
         }
 
-        # El material ya dejó de ser "Mandar Pedir": ahora tiene placas concretas.
-        # Esto evita romper la restricción auto_transit_assign + lot_ids.
-        if 'auto_transit_assign' in sale_line._fields:
-            vals['auto_transit_assign'] = False
-
         if 'x_lot_breakdown_json' in sale_line._fields:
-            breakdown = self._tc_build_lot_breakdown_from_transit_lines(transit_lines)
-            vals['x_lot_breakdown_json'] = self._tc_prepare_breakdown_value_for_sale_line(
-                sale_line,
-                breakdown,
-            )
+            breakdown = sale_line._tc_read_lot_breakdown() if hasattr(sale_line, '_tc_read_lot_breakdown') else {}
+            transit_breakdown = self._tc_build_lot_breakdown_from_transit_lines(transit_lines)
+            breakdown.update(transit_breakdown)
+
+            if hasattr(sale_line, '_tc_prepare_breakdown_value_for_line'):
+                vals['x_lot_breakdown_json'] = sale_line._tc_prepare_breakdown_value_for_line(breakdown)
+            else:
+                vals['x_lot_breakdown_json'] = self._tc_prepare_breakdown_value_for_sale_line(
+                    sale_line,
+                    breakdown,
+                )
 
         sale_line.with_context(
             skip_stone_sync_picking=True,
@@ -522,6 +532,30 @@ class StockPicking(models.Model):
             skip_picking_clean=True,
             skip_transit_sale_sync=True,
         ).write(vals)
+
+        if hasattr(sale_line, '_tc_get_pending_allocation_qty'):
+            pending_qty = sale_line._tc_get_pending_allocation_qty()
+            if sale_line._tc_float_le_zero(pending_qty):
+                clear_vals = {}
+                if 'auto_transit_assign' in sale_line._fields:
+                    clear_vals['auto_transit_assign'] = False
+                if 'tc_stock_rejected' in sale_line._fields:
+                    clear_vals.update({
+                        'tc_stock_rejected': False,
+                        'tc_stock_rejected_reason': False,
+                        'tc_stock_rejected_by': False,
+                        'tc_stock_rejected_at': False,
+                    })
+                if clear_vals:
+                    sale_line.with_context(skip_tc_allocation_recovery=True).write(clear_vals)
+
+        _logger.info(
+            "[TC_ASSIGN] SO line %s lotes fusionados: actuales=%s tránsito=%s final=%s",
+            sale_line.id,
+            current_lot_ids,
+            transit_lot_ids,
+            merged_lot_ids,
+        )
 
         return True
 
@@ -829,32 +863,39 @@ class StockPicking(models.Model):
             if total_qty <= 0:
                 continue
 
-            # 1) Sincronizar selección oficial en la línea de venta.
+            # 1) Fusionar selección oficial en la línea de venta.
+            #    No reemplaza placas manuales; agrega las compradas/recibidas.
             self._tc_sync_sale_line_lots_after_reception(sale_line, transit_lines)
+
+            assigned_qty = total_qty
+            if hasattr(sale_line, '_tc_get_assigned_lot_qty'):
+                assigned_qty = sale_line._tc_get_assigned_lot_qty()
+
+            requested_qty = sale_line.product_uom_qty or assigned_qty or total_qty
+            target_qty = min(requested_qty, assigned_qty) if assigned_qty else total_qty
 
             # 2) Obtener/crear movimiento de entrega vinculado a la sale_line.
             target_move = self._tc_get_or_create_delivery_move(
                 delivery=delivery,
                 sale_line=sale_line,
                 product=product,
-                qty=total_qty,
+                qty=target_qty,
             )
 
-            # 3) Desreservar y limpiar SOLO el move del mismo producto/línea.
-            if target_move.state in ('assigned', 'partially_available'):
-                try:
-                    target_move.with_context(ctx)._do_unreserve()
-                except Exception as e:
-                    _logger.warning(
-                        "[TC_ASSIGN] No se pudo desreservar move %s: %s",
-                        target_move.id,
-                        e,
-                    )
+            if target_move.product_uom_qty != target_qty:
+                target_move.with_context(ctx).write({'product_uom_qty': target_qty})
 
-            if target_move.move_line_ids:
-                target_move.move_line_ids.with_context(ctx).unlink()
+            # 3) No se llama _do_unreserve() sobre todo el move porque eso puede
+            #    soltar placas manuales ya asignadas. Solo reconstruimos los lotes
+            #    que llegaron desde tránsito para evitar duplicados.
+            transit_lot_ids = transit_lines.mapped('lot_id').ids
+            existing_transit_move_lines = target_move.move_line_ids.filtered(
+                lambda ml: ml.lot_id and ml.lot_id.id in transit_lot_ids
+            )
+            if existing_transit_move_lines:
+                existing_transit_move_lines.with_context(ctx).unlink()
 
-            # 4) Crear move lines exactas desde ubicación interna real.
+            # 4) Crear move lines exactas desde ubicación interna real para los lotes recibidos.
             for transit_line in transit_lines:
                 lot = transit_line.lot_id
                 received_data = received_by_lot.get(lot.id)

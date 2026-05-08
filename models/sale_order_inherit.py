@@ -691,14 +691,24 @@ class SaleOrderLine(models.Model):
     # ASIGNACIÓN DESDE TO BE ALLOCATED
     # -------------------------------------------------------------------------
 
-    def action_tc_apply_allocation_from_hub(self, lot_ids, breakdown=None):
+    def action_tc_apply_allocation_from_hub(
+        self,
+        lot_ids,
+        breakdown=None,
+        send_pending_to_purchase=False,
+        reason=False,
+    ):
         """
         Punto único para guardar asignaciones desde To Be Allocated.
 
-        Regla:
-        - product_uom_qty queda como Solicitado.
+        Reglas centrales:
+        - product_uom_qty queda como Solicitado / demanda comercial.
         - La selección solo actualiza lot_ids/x_lot_breakdown_json.
         - El pendiente se calcula como Solicitado - Cubierto.
+        - Si la línea ya tenía intención de compra, esa intención se conserva
+          mientras siga existiendo pendiente.
+        - Si send_pending_to_purchase=True, el pendiente restante se manda a
+          To Be Purchased en la misma operación.
         """
         result = {}
 
@@ -716,23 +726,21 @@ class SaleOrderLine(models.Model):
                 breakdown=breakdown,
             )
 
+            requested_qty = line.product_uom_qty or 0.0
+            old_assigned_qty = line._tc_get_assigned_lot_qty()
+
+            purchase_intent_before = bool(
+                getattr(line, 'auto_transit_assign', False)
+                or getattr(line, 'tc_stock_rejected', False)
+            )
+            purchase_intent_after = bool(purchase_intent_before or send_pending_to_purchase)
+
             vals = {
                 'lot_ids': [(6, 0, safe_lot_ids)],
             }
 
             if 'x_lot_breakdown_json' in line._fields:
                 vals['x_lot_breakdown_json'] = line._tc_prepare_breakdown_value_for_line(clean_breakdown)
-
-            if 'auto_transit_assign' in line._fields:
-                vals['auto_transit_assign'] = False
-
-            if 'tc_stock_rejected' in line._fields:
-                vals.update({
-                    'tc_stock_rejected': False,
-                    'tc_stock_rejected_reason': False,
-                    'tc_stock_rejected_by': False,
-                    'tc_stock_rejected_at': False,
-                })
 
             if line.tc_assignment_closed:
                 vals.update({
@@ -743,12 +751,60 @@ class SaleOrderLine(models.Model):
                     'tc_closure_at': False,
                 })
 
-            requested_qty = line.product_uom_qty or 0.0
-            old_assigned_qty = line._tc_get_assigned_lot_qty()
+            # Si no había intención de compra y tampoco se pidió mandar el restante,
+            # se limpia cualquier residuo técnico para que el pendiente siga en TBA.
+            if not purchase_intent_after:
+                if 'auto_transit_assign' in line._fields:
+                    vals['auto_transit_assign'] = False
 
-            line.write(vals)
+                if 'tc_stock_rejected' in line._fields:
+                    vals.update({
+                        'tc_stock_rejected': False,
+                        'tc_stock_rejected_reason': False,
+                        'tc_stock_rejected_by': False,
+                        'tc_stock_rejected_at': False,
+                    })
+
+            line.with_context(skip_tc_allocation_recovery=True).write(vals)
 
             pending_qty = line._tc_get_pending_allocation_qty()
+            sent_to_purchase = False
+            purchase_qty = 0.0
+
+            if purchase_intent_after and line._tc_float_gt_zero(pending_qty):
+                purchase_qty = pending_qty
+                sent_to_purchase = True
+
+                purchase_reason = reason or line.tc_stock_rejected_reason or _(
+                    'Pendiente restante enviado a compra por decisión del vendedor.'
+                )
+
+                line.with_context(skip_tc_allocation_recovery=True).write({
+                    'tc_stock_rejected': True,
+                    'tc_stock_rejected_reason': purchase_reason,
+                    'tc_stock_rejected_by': self.env.user.id,
+                    'tc_stock_rejected_at': fields.Datetime.now(),
+                    'auto_transit_assign': True,
+                    'tc_assignment_closed': False,
+                    'tc_closed_short_qty': 0.0,
+                    'tc_closure_reason': False,
+                    'tc_closure_by': False,
+                    'tc_closure_at': False,
+                })
+
+                pending_qty = line._tc_get_pending_allocation_qty()
+
+            elif line._tc_float_le_zero(pending_qty):
+                # Si la línea quedó totalmente cubierta y no hay una OC activa que
+                # deba conservar trazabilidad, se limpia la intención operativa.
+                if not line._tc_has_active_purchase_flow():
+                    line.with_context(skip_tc_allocation_recovery=True).write({
+                        'tc_stock_rejected': False,
+                        'tc_stock_rejected_reason': False,
+                        'tc_stock_rejected_by': False,
+                        'tc_stock_rejected_at': False,
+                        'auto_transit_assign': False,
+                    })
 
             line.order_id.message_post(body=_(
                 '✅ <b>Asignación aplicada desde To Be Allocated</b><br/>'
@@ -756,7 +812,8 @@ class SaleOrderLine(models.Model):
                 'Solicitado: <b>%(requested).3f</b><br/>'
                 'Asignado anterior: <b>%(old_assigned).3f</b><br/>'
                 'Asignado actual: <b>%(assigned).3f</b><br/>'
-                'Pendiente por asignar: <b>%(pending).3f</b><br/>'
+                'Pendiente operativo: <b>%(pending).3f</b><br/>'
+                'Pendiente enviado a compra: <b>%(purchase_qty).3f</b><br/>'
                 'Lotes asignados: <b>%(lots)s</b><br/>'
                 '<small>La cantidad solicitada no fue modificada por la asignación.</small>'
             ) % {
@@ -765,6 +822,7 @@ class SaleOrderLine(models.Model):
                 'old_assigned': old_assigned_qty,
                 'assigned': assigned_qty,
                 'pending': pending_qty,
+                'purchase_qty': purchase_qty if sent_to_purchase else 0.0,
                 'lots': len(safe_lot_ids),
             })
 
@@ -776,9 +834,13 @@ class SaleOrderLine(models.Model):
                 'previous_assigned_qty': old_assigned_qty,
                 'assigned_qty': assigned_qty,
                 'pending_qty': pending_qty,
+                'sent_to_purchase': sent_to_purchase,
+                'purchase_qty': purchase_qty,
                 'lot_ids': safe_lot_ids,
                 'lot_count': len(safe_lot_ids),
                 'uom_name': line_uom.display_name if line_uom else '',
+                'assignment_state': line.tc_assignment_state,
+                'hub_state': line.tc_allocation_hub_state,
             }
 
         return result
@@ -922,6 +984,16 @@ class SaleOrderLine(models.Model):
         self._tc_cancel_removed_lot_holds(removed_lot_ids)
 
     def _tc_prepare_hub_state_for_read(self):
+        """
+        Normalización conservadora antes de leer los hubs.
+
+        Regla de negocio:
+        - auto_transit_assign / tc_stock_rejected son intención explícita de
+          comprar el pendiente aunque exista stock disponible.
+        - Nunca se limpian automáticamente solo porque haya stock.
+        - Solo se limpian cuando ya no queda pendiente real y no hay una OC
+          activa que necesite conservar trazabilidad.
+        """
         for line in self:
             if (
                 line.display_type
@@ -932,14 +1004,11 @@ class SaleOrderLine(models.Model):
                 continue
 
             pending_qty = line._tc_get_pending_allocation_qty()
-            if line._tc_float_le_zero(pending_qty):
+
+            if line._tc_float_gt_zero(pending_qty):
                 continue
 
             if line._tc_has_active_purchase_flow():
-                continue
-
-            available_qty = line._tc_get_free_internal_qty()
-            if line._tc_float_le_zero(available_qty):
                 continue
 
             vals = {}
@@ -978,9 +1047,15 @@ class SaleOrderLine(models.Model):
                 continue
 
             pending_qty = line._tc_get_pending_allocation_qty()
-            if line._tc_float_le_zero(pending_qty):
+
+            # Si aún queda pendiente, se respeta el camino elegido por el vendedor:
+            # - sin intención de compra: TBA si hay stock; TBP si no hay stock.
+            # - con intención de compra: TBP aunque haya stock.
+            if line._tc_float_gt_zero(pending_qty):
                 continue
 
+            # Si ya no queda pendiente, limpiar intención de compra solo si no
+            # existe una OC/allocation activa.
             if line._tc_has_active_purchase_flow():
                 continue
 
