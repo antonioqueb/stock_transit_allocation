@@ -195,7 +195,8 @@ class SaleOrderLine(models.Model):
         readonly=True,
         help=(
             'Decisión administrativa cuando se asigna más cantidad que la solicitada. '
-            'No modifica automáticamente la orden de venta ni genera documentos contables.'
+            'Si se entrega sin cobrar, se ajusta la cantidad y se aplica descuento equivalente al excedente. '
+            'Si se cobra, se ajusta la cantidad solicitada a la cantidad asignada.'
         ),
     )
 
@@ -736,6 +737,161 @@ class SaleOrderLine(models.Model):
                 line.tc_allocation_hub_state = 'to_be_purchased'
 
     # -------------------------------------------------------------------------
+    # AJUSTES COMERCIALES POR DIFERENCIAS DE ASIGNACIÓN
+    # -------------------------------------------------------------------------
+
+    def _tc_get_discount_percent(self):
+        self.ensure_one()
+        if 'discount' not in self._fields:
+            return 0.0
+        try:
+            return float(self.discount or 0.0)
+        except Exception:
+            return 0.0
+
+    def _tc_require_discount_field(self):
+        self.ensure_one()
+        if 'discount' not in self._fields:
+            raise UserError(_(
+                'No se puede aplicar descuento automático porque sale.order.line no tiene el campo discount. '
+                'Active el descuento en ventas o adapte este método al campo de descuento usado por la empresa.'
+            ))
+
+    def _tc_compute_discount_to_charge_qty(self, billing_qty, charged_qty, base_discount=None):
+        """
+        Calcula el descuento total de la línea para que una cantidad facturable
+        mayor conserve el cobro económico de una cantidad menor.
+
+        Ejemplo sin descuento previo:
+        - billing_qty = 7.00
+        - charged_qty = 6.55
+        Resultado: descuento que deja el subtotal equivalente a 6.55 unidades.
+        """
+        self.ensure_one()
+
+        billing_qty = float(billing_qty or 0.0)
+        charged_qty = float(charged_qty or 0.0)
+
+        if billing_qty <= 0:
+            return 0.0
+
+        charged_qty = max(0.0, min(charged_qty, billing_qty))
+
+        if base_discount is None:
+            base_discount = self._tc_get_discount_percent()
+
+        base_discount = max(0.0, min(float(base_discount or 0.0), 100.0))
+        base_factor = 1.0 - (base_discount / 100.0)
+
+        target_factor = (charged_qty / billing_qty) * base_factor
+        new_discount = (1.0 - target_factor) * 100.0
+
+        return max(0.0, min(new_discount, 100.0))
+
+    def _tc_prepare_discount_equivalent_result(self, billing_qty, charged_qty, base_discount=None):
+        self.ensure_one()
+        self._tc_require_discount_field()
+
+        old_discount = self._tc_get_discount_percent() if base_discount is None else float(base_discount or 0.0)
+        new_discount = self._tc_compute_discount_to_charge_qty(
+            billing_qty=billing_qty,
+            charged_qty=charged_qty,
+            base_discount=old_discount,
+        )
+
+        return {
+            'discount_before': old_discount,
+            'discount_after': new_discount,
+            'discount_applied': True,
+        }
+
+    def _tc_apply_over_assignment_admin_action(self, assigned_qty, requested_qty, over_assigned_qty, action, reason=False):
+        """
+        Ejecuta la consecuencia real de una sobreasignación.
+
+        - free: ajusta product_uom_qty a lo asignado y aplica descuento para que
+          el subtotal económico conserve el cobro de la cantidad originalmente solicitada.
+        - bill: ajusta product_uom_qty a lo asignado y conserva el descuento actual,
+          por lo que el excedente queda cobrado.
+        """
+        self.ensure_one()
+
+        assigned_qty = float(assigned_qty or 0.0)
+        requested_qty = float(requested_qty or 0.0)
+        over_assigned_qty = float(over_assigned_qty or 0.0)
+
+        result = {
+            'qty_before': requested_qty,
+            'qty_after': requested_qty,
+            'discount_before': self._tc_get_discount_percent(),
+            'discount_after': self._tc_get_discount_percent(),
+            'discount_applied': False,
+            'qty_updated': False,
+            'action_label': 'No aplica',
+        }
+
+        if over_assigned_qty <= 0:
+            return result
+
+        if action not in ('free', 'bill'):
+            raise UserError(_(
+                'La asignación excede lo solicitado por %.3f. '
+                'Debe indicar si el excedente se entrega sin cobrar o si se cobrará al cliente.'
+            ) % over_assigned_qty)
+
+        vals = {
+            'product_uom_qty': assigned_qty,
+        }
+
+        result.update({
+            'qty_after': assigned_qty,
+            'qty_updated': True,
+            'action_label': dict(self._fields['tc_over_assignment_action'].selection).get(action, action),
+        })
+
+        if action == 'free':
+            discount_result = self._tc_prepare_discount_equivalent_result(
+                billing_qty=assigned_qty,
+                charged_qty=requested_qty,
+                base_discount=result['discount_before'],
+            )
+            vals['discount'] = discount_result['discount_after']
+            result.update(discount_result)
+
+        self.with_context(
+            skip_tc_allocation_recovery=True,
+            skip_tc_qty_manual_reset=True,
+        ).write(vals)
+
+        return result
+
+    def _tc_apply_short_close_discount(self, short_qty):
+        """
+        Aplica descuento equivalente al faltante cerrado, conservando product_uom_qty.
+        El subtotal resultante equivale a cobrar solo la cantidad cubierta/asignada.
+        """
+        self.ensure_one()
+
+        requested_qty = float(self.product_uom_qty or 0.0)
+        short_qty = float(short_qty or 0.0)
+        charged_qty = max(requested_qty - short_qty, 0.0)
+
+        discount_result = self._tc_prepare_discount_equivalent_result(
+            billing_qty=requested_qty,
+            charged_qty=charged_qty,
+            base_discount=self._tc_get_discount_percent(),
+        )
+
+        self.with_context(
+            skip_tc_allocation_recovery=True,
+            skip_tc_qty_manual_reset=True,
+        ).write({
+            'discount': discount_result['discount_after'],
+        })
+
+        return discount_result
+
+    # -------------------------------------------------------------------------
     # ASIGNACIÓN DESDE TO BE ALLOCATED
     # -------------------------------------------------------------------------
 
@@ -752,15 +908,14 @@ class SaleOrderLine(models.Model):
         Punto único para guardar asignaciones desde To Be Allocated.
 
         Reglas centrales:
-        - product_uom_qty queda como Solicitado / demanda comercial.
-        - La selección solo actualiza lot_ids/x_lot_breakdown_json.
-        - El pendiente se calcula como Solicitado - Cubierto.
-        - Si la línea ya tenía intención de compra, esa intención se conserva
-          mientras siga existiendo pendiente.
-        - Si send_pending_to_purchase=True, el pendiente restante se manda a
-          To Be Purchased en la misma operación.
-        - Si la selección excede lo solicitado, exige una decisión administrativa:
-          entregar excedente sin cobrar o cobrar excedente.
+        - La selección actualiza lot_ids/x_lot_breakdown_json.
+        - Si se asigna menos, el pendiente sigue operativo o se manda a compra.
+        - Si se asigna exacto, la línea queda cubierta.
+        - Si se asigna de más, se exige decisión administrativa:
+          * free: entregar excedente sin cobrar. Se sube product_uom_qty a lo asignado
+            y se aplica descuento equivalente al excedente.
+          * bill: cobrar excedente. Se sube product_uom_qty a lo asignado y se conserva
+            el descuento actual.
         """
         result = {}
 
@@ -778,9 +933,9 @@ class SaleOrderLine(models.Model):
                 breakdown=breakdown,
             )
 
-            requested_qty = line.product_uom_qty or 0.0
+            requested_qty_before = line.product_uom_qty or 0.0
             old_assigned_qty = line._tc_get_assigned_lot_qty()
-            over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
+            over_assigned_qty = max(assigned_qty - requested_qty_before, 0.0) if requested_qty_before > 0 else assigned_qty
             has_over_assignment = line._tc_float_gt_zero(over_assigned_qty)
 
             if has_over_assignment and over_assignment_action not in ('free', 'bill'):
@@ -788,6 +943,9 @@ class SaleOrderLine(models.Model):
                     'La asignación excede lo solicitado por %(qty).3f. '
                     'Debe indicar si el excedente se entrega sin cobrar o si se cobrará al cliente.'
                 ) % {'qty': over_assigned_qty})
+
+            if has_over_assignment and over_assignment_action == 'free':
+                line._tc_require_discount_field()
 
             purchase_intent_before = bool(
                 getattr(line, 'auto_transit_assign', False)
@@ -832,6 +990,25 @@ class SaleOrderLine(models.Model):
 
             line.with_context(skip_tc_allocation_recovery=True).write(vals)
 
+            over_admin_result = {
+                'qty_before': requested_qty_before,
+                'qty_after': line.product_uom_qty or 0.0,
+                'discount_before': line._tc_get_discount_percent(),
+                'discount_after': line._tc_get_discount_percent(),
+                'discount_applied': False,
+                'qty_updated': False,
+                'action_label': 'No aplica',
+            }
+
+            if has_over_assignment:
+                over_admin_result = line._tc_apply_over_assignment_admin_action(
+                    assigned_qty=assigned_qty,
+                    requested_qty=requested_qty_before,
+                    over_assigned_qty=over_assigned_qty,
+                    action=over_assignment_action,
+                    reason=over_assignment_reason,
+                )
+
             pending_qty = line._tc_get_pending_allocation_qty()
             sent_to_purchase = False
             purchase_qty = 0.0
@@ -872,22 +1049,37 @@ class SaleOrderLine(models.Model):
                         'auto_transit_assign': False,
                     })
 
+            requested_qty_after = line.product_uom_qty or 0.0
+            discount_after = line._tc_get_discount_percent()
+
+            if has_over_assignment and over_assignment_action == 'free':
+                commercial_note = _(
+                    'Se ajustó la cantidad solicitada a %.3f y se aplicó descuento equivalente al excedente para no cobrarlo.'
+                ) % requested_qty_after
+            elif has_over_assignment and over_assignment_action == 'bill':
+                commercial_note = _(
+                    'Se ajustó la cantidad solicitada a %.3f para cobrar el excedente asignado.'
+                ) % requested_qty_after
+            else:
+                commercial_note = _('La cantidad solicitada no fue modificada por la asignación.')
+
             line._tc_post_plain_message(
                 _('✅ Asignación aplicada desde To Be Allocated'),
                 [
                     _('Producto: %s') % (line.product_id.display_name or ''),
-                    _('Solicitado: %.3f') % requested_qty,
+                    _('Solicitado anterior: %.3f') % requested_qty_before,
+                    _('Solicitado actual: %.3f') % requested_qty_after,
                     _('Asignado anterior: %.3f') % old_assigned_qty,
                     _('Asignado actual: %.3f') % assigned_qty,
                     _('Pendiente operativo: %.3f') % pending_qty,
                     _('Pendiente enviado a compra: %.3f') % (purchase_qty if sent_to_purchase else 0.0),
                     _('Sobreasignado: %.3f') % over_assigned_qty,
-                    _('Acción sobre exceso: %s') % (
-                        dict(line._fields['tc_over_assignment_action'].selection).get(over_assignment_action, 'No aplica')
-                        if has_over_assignment else 'No aplica'
-                    ),
+                    _('Acción sobre exceso: %s') % over_admin_result.get('action_label', 'No aplica'),
+                    _('Descuento anterior: %.4f%%') % over_admin_result.get('discount_before', 0.0),
+                    _('Descuento actual: %.4f%%') % discount_after,
+                    _('Nota administrativa: %s') % (over_assignment_reason or 'N/A'),
                     _('Lotes asignados: %s') % len(safe_lot_ids),
-                    _('La cantidad solicitada no fue modificada por la asignación.'),
+                    commercial_note,
                 ],
             )
 
@@ -895,7 +1087,8 @@ class SaleOrderLine(models.Model):
             result = {
                 'success': True,
                 'sale_line_id': line.id,
-                'requested_qty': requested_qty,
+                'requested_qty': requested_qty_after,
+                'requested_qty_before': requested_qty_before,
                 'previous_assigned_qty': old_assigned_qty,
                 'assigned_qty': assigned_qty,
                 'pending_qty': pending_qty,
@@ -903,6 +1096,10 @@ class SaleOrderLine(models.Model):
                 'purchase_qty': purchase_qty,
                 'over_assigned_qty': over_assigned_qty,
                 'over_assignment_action': over_assignment_action if has_over_assignment else False,
+                'discount_before': over_admin_result.get('discount_before', 0.0),
+                'discount_after': discount_after,
+                'discount_applied': over_admin_result.get('discount_applied', False),
+                'qty_updated': over_admin_result.get('qty_updated', False),
                 'lot_ids': safe_lot_ids,
                 'lot_count': len(safe_lot_ids),
                 'uom_name': line_uom.display_name if line_uom else '',
@@ -1301,6 +1498,17 @@ class SaleOrderLine(models.Model):
 
             close_reason = reason or _('Cierre manual de pendiente')
             action_label = dict(line._fields['tc_closure_action'].selection).get(action_value, action_value)
+            requested_qty = line.product_uom_qty or 0.0
+            assigned_qty = line._tc_get_assigned_lot_qty()
+
+            discount_result = {
+                'discount_before': line._tc_get_discount_percent(),
+                'discount_after': line._tc_get_discount_percent(),
+                'discount_applied': False,
+            }
+
+            if action_value == 'discount':
+                discount_result = line._tc_apply_short_close_discount(raw_pending_qty)
 
             line.with_context(
                 skip_tc_allocation_recovery=True,
@@ -1319,16 +1527,29 @@ class SaleOrderLine(models.Model):
                 'auto_transit_assign': False,
             })
 
+            if action_value == 'discount':
+                commercial_note = _(
+                    'Se aplicó descuento equivalente al faltante cerrado. La cantidad solicitada se mantiene intacta.'
+                )
+            elif action_value == 'credit_note':
+                commercial_note = _(
+                    'Se registró la intención de nota de crédito. La generación contable debe ejecutarse desde el flujo administrativo.'
+                )
+            else:
+                commercial_note = _('La cantidad solicitada se mantiene intacta y no se aplicó descuento.')
+
             line._tc_post_plain_message(
                 _('🔒 Pendiente de asignación cerrado'),
                 [
                     _('Producto: %s') % (line.product_id.display_name or ''),
-                    _('Solicitado: %.3f') % (line.product_uom_qty or 0.0),
-                    _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
+                    _('Solicitado: %.3f') % requested_qty,
+                    _('Asignado: %.3f') % assigned_qty,
                     _('Diferencia cerrada: %.3f') % raw_pending_qty,
                     _('Acción administrativa: %s') % action_label,
+                    _('Descuento anterior: %.4f%%') % discount_result.get('discount_before', 0.0),
+                    _('Descuento actual: %.4f%%') % discount_result.get('discount_after', 0.0),
                     _('Motivo: %s') % close_reason,
-                    _('La cantidad solicitada se mantiene intacta.'),
+                    commercial_note,
                 ],
             )
 

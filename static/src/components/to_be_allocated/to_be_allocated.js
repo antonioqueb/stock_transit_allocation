@@ -1651,7 +1651,7 @@ export class ToBeAllocated extends Component {
                                     <span class="stone-decision-option-icon"><i class="fa fa-gift"></i></span>
                                     <span>
                                         <strong>Entregar excedente sin cobrar</strong>
-                                        <small>El cliente recibe el material extra, pero no se modifica el cobro de la orden.</small>
+                                        <small>Se ajustará la cantidad de la línea a lo asignado y se aplicará un descuento equivalente al excedente.</small>
                                     </span>
                                 </label>
 
@@ -1660,14 +1660,14 @@ export class ToBeAllocated extends Component {
                                     <span class="stone-decision-option-icon"><i class="fa fa-money"></i></span>
                                     <span>
                                         <strong>Cobrar excedente</strong>
-                                        <small>Administración deberá ajustar/cobrar el excedente según el flujo comercial.</small>
+                                        <small>Se ajustará la cantidad de la línea a lo asignado y el excedente quedará cobrado.</small>
                                     </span>
                                 </label>
                             </div>
 
                             <div class="stone-decision-note">
                                 <label>Nota administrativa</label>
-                                <textarea id="sp-over-note" rows="3">Sobreasignación autorizada desde To Be Allocated.</textarea>
+                                <textarea id="sp-over-note" rows="3">Sobreasignación autorizada desde To Be Allocated. Aplicar la decisión seleccionada sobre cantidad y descuento.</textarea>
                             </div>
 
                             <div class="stone-decision-footer">
@@ -1699,7 +1699,7 @@ export class ToBeAllocated extends Component {
                     const note = decisionRoot.querySelector("#sp-over-note");
                     const payload = {
                         action: selected ? selected.value : "free",
-                        reason: note ? note.value : "Sobreasignación autorizada desde To Be Allocated.",
+                        reason: note ? note.value : "Sobreasignación autorizada desde To Be Allocated. Aplicar la decisión seleccionada sobre cantidad y descuento.",
                     };
                     cleanup();
                     resolve(payload);
@@ -1772,15 +1772,26 @@ export class ToBeAllocated extends Component {
                     : "0.00";
 
                 if (!options.silent) {
-                    this.notification.add(
-                        sentToPurchase
-                            ? `Asignación guardada. Asignado: ${assignedQty}${uomName}. Enviado a compra: ${purchaseQty}${uomName}.`
-                            : `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`,
-                        {
-                            type: "success",
-                            sticky: false,
-                        }
-                    );
+                    const discountApplied = !!(result && result.discount_applied);
+                    const qtyUpdated = !!(result && result.qty_updated);
+                    const discountAfter = result && result.discount_after !== undefined
+                        ? this._fmtPct(result.discount_after)
+                        : false;
+
+                    let message = sentToPurchase
+                        ? `Asignación guardada. Asignado: ${assignedQty}${uomName}. Enviado a compra: ${purchaseQty}${uomName}.`
+                        : `Asignación guardada. Asignado: ${assignedQty}${uomName}. Pendiente: ${pendingQty}${uomName}.`;
+
+                    if (qtyUpdated && discountApplied) {
+                        message += ` Cantidad actualizada y descuento aplicado: ${discountAfter}%.`;
+                    } else if (qtyUpdated) {
+                        message += " Cantidad actualizada para cobrar el excedente.";
+                    }
+
+                    this.notification.add(message, {
+                        type: "success",
+                        sticky: false,
+                    });
                 }
 
                 state.dirty = false;
