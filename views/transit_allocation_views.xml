@@ -14,5 +14,6 @@
               name="Transit Allocation"
               action="action_transit_allocation_client"
               groups="stock_transit_allocation.group_transit_user"
+              web_icon="stock_transit_allocation,static/description/transitallocated.png"
               sequence="4"/>
 </odoo>

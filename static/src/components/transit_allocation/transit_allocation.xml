@@ -1,40 +1,54 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="stock_transit_allocation.TransitAllocation" owl="1">
-        <div class="o_tal_root">
-            <div class="o_tal_header">
-                <div class="o_tal_title_box">
-                    <div class="o_tal_icon">
+        <div class="o_tba_root o_tal_root">
+
+            <!-- ============================================================= -->
+            <!-- HEADER: misma estructura visual que To Be Allocated -->
+            <!-- ============================================================= -->
+            <div class="o_tba_header">
+                <div class="o_tba_title_box">
+                    <div class="o_tba_icon">
                         <i class="fa fa-ship"/>
                     </div>
+
                     <div>
-                        <h2 class="o_tal_title">Transit Allocation</h2>
-                        <div class="o_tal_subtitle">
-                            Asignación de inventario físico ubicado en tránsito a pedidos confirmados con demanda pendiente.
+                        <h2 class="o_tba_title">
+                            Transit Allocation
+                        </h2>
+                        <div class="o_tba_subtitle">
+                            Pedidos confirmados con demanda pendiente y material disponible en ubicación de tránsito.
                         </div>
                     </div>
                 </div>
 
-                <div class="o_tal_metrics">
-                    <div class="o_tal_metric">
-                        <span class="o_tal_metric_label">Productos</span>
-                        <span class="o_tal_metric_value"><t t-esc="totalProducts"/></span>
+                <div class="o_tba_metrics">
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Líneas</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="totalLines"/>
+                        </span>
                     </div>
-                    <div class="o_tal_metric">
-                        <span class="o_tal_metric_label">Lotes tránsito</span>
-                        <span class="o_tal_metric_value"><t t-esc="totalTransitLots"/></span>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Pend. m²</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalPendingM2)"/>
+                        </span>
                     </div>
-                    <div class="o_tal_metric">
-                        <span class="o_tal_metric_label">Demanda m²</span>
-                        <span class="o_tal_metric_value"><t t-esc="fmtNum(totalDemandM2)"/></span>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Pend. pzas</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtNum(totalPendingPieces)"/>
+                        </span>
                     </div>
-                    <div class="o_tal_metric">
-                        <span class="o_tal_metric_label">Tránsito m²</span>
-                        <span class="o_tal_metric_value"><t t-esc="fmtNum(totalTransitM2)"/></span>
-                    </div>
-                    <div class="o_tal_metric">
-                        <span class="o_tal_metric_label">Tránsito pzas</span>
-                        <span class="o_tal_metric_value"><t t-esc="fmtNum(totalTransitPieces)"/></span>
+
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Cobertura</span>
+                        <span class="o_tba_metric_value">
+                            <t t-esc="fmtPercent(totalCoveragePercent)"/>
+                        </span>
                     </div>
                 </div>
 
@@ -47,428 +61,279 @@
                 </button>
             </div>
 
-            <div class="o_tal_toolbar">
-                <div class="o_tal_search">
-                    <i class="fa fa-search o_tal_search_icon"/>
+            <!-- ============================================================= -->
+            <!-- TOOLBAR: misma organización que To Be Allocated -->
+            <!-- ============================================================= -->
+            <div class="o_tba_toolbar">
+                <div class="o_tba_search">
+                    <i class="fa fa-search o_tba_search_icon"/>
                     <input type="text"
-                           class="o_tal_search_input"
-                           placeholder="Buscar producto, pedido, cliente, lote, embarque, contenedor u OC..."
+                           class="o_tba_search_input"
+                           placeholder="Buscar por pedido, cliente, producto, vendedor, embarque u OC..."
                            t-att-value="state.searchQuery"
                            t-on-input="onSearchInput"/>
+
                     <button t-if="state.searchQuery"
                             type="button"
-                            class="o_tal_search_clear"
+                            class="o_tba_search_clear"
                             t-on-click="clearSearch">
                         <i class="fa fa-times"/>
                     </button>
                 </div>
 
-                <div class="o_tal_group_buttons">
+                <div class="o_tba_group_buttons">
                     <button type="button"
-                            t-att-class="state.groupBy === 'priority' ? 'o_tal_group_btn active' : 'o_tal_group_btn'"
-                            t-on-click="() => this.setGroupBy('priority')">
-                        <i class="fa fa-bolt me-1"/> Prioridad
-                    </button>
-                    <button type="button"
-                            t-att-class="state.groupBy === 'product' ? 'o_tal_group_btn active' : 'o_tal_group_btn'"
+                            t-att-class="state.groupBy === 'product' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
                             t-on-click="() => this.setGroupBy('product')">
-                        <i class="fa fa-cube me-1"/> Producto
+                        <i class="fa fa-cube me-1"/>
+                        Producto
                     </button>
+
                     <button type="button"
-                            t-att-class="state.groupBy === 'vendor' ? 'o_tal_group_btn active' : 'o_tal_group_btn'"
-                            t-on-click="() => this.setGroupBy('vendor')">
-                        <i class="fa fa-truck me-1"/> Proveedor
+                            t-att-class="state.groupBy === 'sale_order' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
+                            t-on-click="() => this.setGroupBy('sale_order')">
+                        <i class="fa fa-file-text-o me-1"/>
+                        Pedido
                     </button>
+
                     <button type="button"
-                            t-att-class="state.groupBy === 'category' ? 'o_tal_group_btn active' : 'o_tal_group_btn'"
-                            t-on-click="() => this.setGroupBy('category')">
-                        <i class="fa fa-tags me-1"/> Categoría
+                            t-att-class="state.groupBy === 'salesperson' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
+                            t-on-click="() => this.setGroupBy('salesperson')">
+                        <i class="fa fa-user me-1"/>
+                        Vendedor
                     </button>
+
                     <button type="button"
-                            t-att-class="state.groupBy === 'unit_type' ? 'o_tal_group_btn active' : 'o_tal_group_btn'"
+                            t-att-class="state.groupBy === 'customer' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
+                            t-on-click="() => this.setGroupBy('customer')">
+                        <i class="fa fa-users me-1"/>
+                        Cliente
+                    </button>
+
+                    <button type="button"
+                            t-att-class="state.groupBy === 'unit_type' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
                             t-on-click="() => this.setGroupBy('unit_type')">
-                        <i class="fa fa-balance-scale me-1"/> Tipo
+                        <i class="fa fa-balance-scale me-1"/>
+                        Tipo
                     </button>
                 </div>
             </div>
 
-            <div t-if="state.loading" class="o_tal_skeleton" aria-label="Cargando inventario en tránsito">
-                <div class="o_tal_skeleton_notice">
+            <!-- ============================================================= -->
+            <!-- LOADING / EMPTY: mismo skeleton -->
+            <!-- ============================================================= -->
+            <div t-if="state.loading" class="o_tba_skeleton" aria-label="Cargando asignación en tránsito">
+                <div class="o_tba_skeleton_notice">
                     <i class="fa fa-circle-o-notch fa-spin"/>
                     <span>Cargando inventario en tránsito...</span>
                 </div>
+
                 <t t-foreach="[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]" t-as="idx" t-key="idx">
-                    <div class="o_tal_skeleton_group">
-                        <div class="o_tal_skeleton_left">
-                            <span class="o_tal_skeleton_chevron"/>
-                            <div class="o_tal_skeleton_texts">
-                                <span class="o_tal_skeleton_line o_tal_skeleton_line_lg"/>
-                                <span class="o_tal_skeleton_line o_tal_skeleton_line_sm"/>
+                    <div class="o_tba_skeleton_group">
+                        <div class="o_tba_skeleton_left">
+                            <span class="o_tba_skeleton_chevron"/>
+                            <div class="o_tba_skeleton_texts">
+                                <span class="o_tba_skeleton_line o_tba_skeleton_line_lg"/>
+                                <span class="o_tba_skeleton_line o_tba_skeleton_line_sm"/>
                             </div>
                         </div>
-                        <div class="o_tal_skeleton_stats">
-                            <span class="o_tal_skeleton_pill"/>
-                            <span class="o_tal_skeleton_pill"/>
-                            <span class="o_tal_skeleton_pill"/>
-                            <span class="o_tal_skeleton_pill"/>
+                        <div class="o_tba_skeleton_stats">
+                            <span class="o_tba_skeleton_pill"/>
+                            <span class="o_tba_skeleton_pill"/>
+                            <span class="o_tba_skeleton_pill"/>
+                            <span class="o_tba_skeleton_pill"/>
                         </div>
                     </div>
                 </t>
             </div>
 
-            <div t-elif="!state.filteredData.length" class="o_tal_empty">
+            <div t-elif="!state.filteredData.length" class="o_tba_empty">
                 <i class="fa fa-check-circle"/>
-                <h4>Sin inventario en tránsito asignable</h4>
-                <p>No hay combinación de demanda pendiente y lotes disponibles en ubicación de tránsito.</p>
+                <h4>Sin pendientes para asignar en tránsito</h4>
+                <p>No hay líneas con demanda pendiente y material disponible en ubicación de tránsito.</p>
             </div>
 
-            <div t-else="" class="o_tal_groups">
-                <t t-foreach="state.filteredData" t-as="product" t-key="product.id">
-                    <div class="o_tal_group">
-                        <div class="o_tal_group_header" t-on-click="() => this.toggleExpand(product.id)">
-                            <div class="o_tal_group_left">
-                                <div class="o_tal_chevron">
-                                    <i t-attf-class="fa #{isExpanded(product.id) ? 'fa-chevron-down' : 'fa-chevron-right'}"/>
+            <!-- ============================================================= -->
+            <!-- CONTENT: grupos + tabla, sin dividir demanda/lotes en columnas -->
+            <!-- ============================================================= -->
+            <div t-else="" class="o_tba_groups">
+                <t t-foreach="state.filteredData" t-as="group" t-key="group.key">
+                    <div class="o_tba_group">
+
+                        <div class="o_tba_group_header"
+                             t-on-click="() => this.toggleExpand(group.key)">
+
+                            <div class="o_tba_group_left">
+                                <div class="o_tba_chevron">
+                                    <i t-attf-class="fa #{isExpanded(group.key) ? 'fa-chevron-down' : 'fa-chevron-right'}"/>
                                 </div>
+
                                 <div class="min-w-0">
-                                    <div class="o_tal_group_title" t-att-title="product.name">
-                                        <t t-esc="product.name"/>
+                                    <div class="o_tba_group_title" t-att-title="group.label">
+                                        <t t-esc="group.label"/>
                                     </div>
-                                    <div class="o_tal_group_subtitle">
-                                        <t t-esc="product.category || 'Sin categoría'"/> ·
-                                        <t t-esc="product.product_type || 'Material'"/> ·
-                                        <t t-esc="product.vendor || 'Sin proveedor'"/>
+                                    <div class="o_tba_group_subtitle">
+                                        <t t-esc="group.sublabel"/>
                                     </div>
                                 </div>
                             </div>
 
-                            <div class="o_tal_group_stats">
-                                <span class="o_tal_stat">
-                                    SO: <b><t t-esc="product.so_lines.length"/></b>
+                            <div class="o_tba_group_stats">
+                                <span class="o_tba_stat">
+                                    Líneas:
+                                    <b><t t-esc="group.lines.length"/></b>
                                 </span>
-                                <span class="o_tal_stat">
-                                    Lotes tránsito: <b><t t-esc="product.lot_count"/></b>
+
+                                <span class="o_tba_stat o_tba_stat_available">
+                                    Pend. m²:
+                                    <b><t t-esc="fmtNum(group.qty_pending_m2)"/></b>
                                 </span>
-                                <span class="o_tal_stat o_tal_stat_demand">
-                                    Demanda: <b><t t-esc="fmtSplitQty(product.qty_so_m2, product.qty_so_pieces)"/></b>
+
+                                <span class="o_tba_stat o_tba_stat_available">
+                                    Pend. pzas:
+                                    <b><t t-esc="fmtNum(group.qty_pending_pieces)"/></b>
                                 </span>
-                                <span class="o_tal_stat o_tal_stat_transit">
-                                    Tránsito libre: <b><t t-esc="fmtSplitQty(product.qty_transit_available_m2, product.qty_transit_available_pieces)"/></b>
+
+                                <span class="o_tba_stat o_tal_stat_transit">
+                                    Tránsito m²:
+                                    <b><t t-esc="fmtNum(group.qty_available_m2)"/></b>
                                 </span>
-                                <span class="o_tal_stat">
-                                    Embarques: <b><t t-esc="product.voyage_count"/></b>
+
+                                <span class="o_tba_stat o_tal_stat_transit">
+                                    Tránsito pzas:
+                                    <b><t t-esc="fmtNum(group.qty_available_pieces)"/></b>
+                                </span>
+
+                                <span class="o_tba_stat">
+                                    Embarques:
+                                    <b><t t-esc="group.voyage_count || 0"/></b>
                                 </span>
                             </div>
                         </div>
 
-                        <div t-if="isExpanded(product.id)" class="o_tal_group_body">
-                            <div class="o_tal_panel o_tal_panel_demand">
-                                <div class="o_tal_panel_header">
-                                    <div>
-                                        <h3>Pedidos pendientes</h3>
-                                        <p>Selecciona la línea comercial que recibirá el material en tránsito.</p>
-                                    </div>
-                                </div>
-
-                                <div class="o_tal_table_wrap">
-                                    <table class="o_tal_table o_tal_table_demand">
-                                        <thead>
-                                            <tr>
-                                                <th>Pedido</th>
-                                                <th>Cliente</th>
-                                                <th>Vendedor</th>
-                                                <th class="text-end">Pago</th>
-                                                <th class="text-end">Solicitado</th>
-                                                <th class="text-end">Asignado</th>
-                                                <th class="text-end">Pendiente</th>
-                                                <th>OC / Tránsito</th>
-                                                <th class="text-end">Acción</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <t t-foreach="product.so_lines" t-as="line" t-key="line.id">
-                                                <tr>
-                                                    <td>
-                                                        <button type="button"
-                                                                class="btn btn-link p-0 o_tal_link"
-                                                                t-on-click="(ev) => this.openSaleOrder(line.so_id, ev)">
-                                                            <i class="fa fa-external-link"/>
-                                                            <t t-esc="line.so_name"/>
-                                                        </button>
-                                                        <div class="o_tal_cell_sub">
-                                                            <i class="fa fa-calendar-o me-1"/>
-                                                            <t t-esc="line.commitment_date || 'N/A'"/>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <div class="o_tal_cell_main" t-att-title="line.customer">
-                                                            <t t-esc="line.customer || '-'"/>
-                                                        </div>
-                                                    </td>
-                                                    <td><t t-esc="line.salesperson || '-'"/></td>
-                                                    <td class="text-end">
-                                                        <span t-att-class="'o_tal_payment_badge ' + paymentClass(line.payment_percent)">
-                                                            <t t-esc="fmtPercent(line.payment_percent)"/>
-                                                        </span>
-                                                    </td>
-                                                    <td class="text-end"><t t-esc="fmtQtyWithUnit(line.qty_requested, line.unit_label)"/></td>
-                                                    <td class="text-end"><t t-esc="fmtQtyWithUnit(line.qty_assigned, line.unit_label)"/></td>
-                                                    <td class="text-end o_tal_pending_qty">
-                                                        <t t-esc="fmtQtyWithUnit(line.qty_pending, line.unit_label)"/>
-                                                    </td>
-                                                    <td>
-                                                        <div t-if="line.po_name" class="o_tal_cell_main" t-att-title="line.po_name">
-                                                            <t t-esc="line.po_name"/>
-                                                        </div>
-                                                        <div t-if="line.transit_voyage_name" class="o_tal_cell_sub" t-att-title="line.transit_voyage_name">
-                                                            <i class="fa fa-ship me-1"/>
-                                                            <t t-esc="line.transit_voyage_name"/>
-                                                            <t t-if="line.transit_eta"> · ETA <t t-esc="line.transit_eta"/></t>
-                                                        </div>
-                                                        <div t-if="line.purchase_intent" class="o_tal_badge_intent">
-                                                            Mandado a pedir
-                                                        </div>
-                                                    </td>
-                                                    <td class="text-end">
-                                                        <button type="button"
-                                                                class="btn btn-sm btn-primary"
-                                                                t-on-click="(ev) => this.openAllocationModal(product, line, ev)">
-                                                            <i class="fa fa-link me-1"/>
-                                                            Asignar tránsito
-                                                        </button>
-                                                    </td>
-                                                </tr>
-                                            </t>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <div class="o_tal_panel o_tal_panel_transit">
-                                <div class="o_tal_panel_header">
-                                    <div>
-                                        <h3>Lotes disponibles en tránsito</h3>
-                                        <p>Fuente operativa: stock.transit.line disponible, con quant positivo en ubicación de tránsito.</p>
-                                    </div>
-                                </div>
-
-                                <div class="o_tal_table_wrap">
-                                    <table class="o_tal_table o_tal_table_transit">
-                                        <thead>
-                                            <tr>
-                                                <th>Lote</th>
-                                                <th>Embarque</th>
-                                                <th>Contenedor</th>
-                                                <th>OC</th>
-                                                <th>Proveedor</th>
-                                                <th>Bloque</th>
-                                                <th>Atado</th>
-                                                <th class="text-end">Medidas</th>
-                                                <th class="text-end">Cantidad</th>
-                                                <th>Estado</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
-                                            <t t-foreach="product.transit_lines" t-as="tline" t-key="tline.id">
-                                                <tr>
-                                                    <td>
-                                                        <div class="o_tal_cell_main" t-att-title="tline.lot_name">
-                                                            <t t-esc="tline.lot_name || '-'"/>
-                                                        </div>
-                                                        <div t-if="tline.location" class="o_tal_cell_sub" t-att-title="tline.location">
-                                                            <i class="fa fa-map-marker me-1"/>
-                                                            <t t-esc="tline.location"/>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <button type="button"
-                                                                class="btn btn-link p-0 o_tal_link"
-                                                                t-on-click="(ev) => this.openVoyage(tline.voyage_id, ev)">
-                                                            <i class="fa fa-external-link"/>
-                                                            <t t-esc="tline.voyage_name || '-'"/>
-                                                        </button>
-                                                        <div class="o_tal_cell_sub">
-                                                            ETA <t t-esc="tline.eta || 'N/A'"/>
-                                                        </div>
-                                                    </td>
-                                                    <td><t t-esc="tline.container_number || '-'"/></td>
-                                                    <td>
-                                                        <button t-if="tline.purchase_id"
-                                                                type="button"
-                                                                class="btn btn-link p-0 o_tal_link"
-                                                                t-on-click="(ev) => this.openPurchaseOrder(tline.purchase_id, ev)">
-                                                            <i class="fa fa-external-link"/>
-                                                            <t t-esc="tline.purchase_name"/>
-                                                        </button>
-                                                        <span t-else="">-</span>
-                                                    </td>
-                                                    <td><t t-esc="tline.vendor || '-'"/></td>
-                                                    <td><t t-esc="tline.x_bloque || '-'"/></td>
-                                                    <td><t t-esc="tline.x_atado || '-'"/></td>
-                                                    <td class="text-end">
-                                                        <t t-esc="fmtNum(tline.x_alto)"/> × <t t-esc="fmtNum(tline.x_ancho)"/>
-                                                    </td>
-                                                    <td class="text-end o_tal_transit_qty">
-                                                        <t t-esc="fmtQtyWithUnit(tline.qty, tline.unit_label)"/>
-                                                    </td>
-                                                    <td>
-                                                        <span class="o_tal_status_chip">
-                                                            <t t-esc="tline.voyage_status_label || 'En tránsito'"/>
-                                                        </span>
-                                                    </td>
-                                                </tr>
-                                            </t>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </t>
-            </div>
-
-            <t t-if="state.modal.open">
-                <div class="o_tal_modal_backdrop">
-                    <div class="o_tal_modal">
-                        <div class="o_tal_modal_header">
-                            <div>
-                                <h3>Asignar inventario en tránsito</h3>
-                                <p>
-                                    <strong><t t-esc="state.modal.line.so_name"/></strong> ·
-                                    <t t-esc="state.modal.line.customer"/> ·
-                                    <t t-esc="state.modal.product.name"/>
-                                </p>
-                            </div>
-                            <button type="button" class="o_tal_modal_x" t-on-click="closeModal">
-                                <i class="fa fa-times"/>
-                            </button>
-                        </div>
-
-                        <div class="o_tal_modal_summary">
-                            <div>
-                                <span>Pendiente</span>
-                                <strong><t t-esc="fmtQtyWithUnit(modalPendingQty(), state.modal.line.unit_label)"/></strong>
-                            </div>
-                            <div>
-                                <span>Seleccionado</span>
-                                <strong><t t-esc="fmtQtyWithUnit(modalSelectedQty(), state.modal.line.unit_label)"/></strong>
-                            </div>
-                            <div t-att-class="modalIsOver() ? 'is-over' : ''">
-                                <span>Resultado</span>
-                                <strong>
-                                    <t t-if="modalRemainingQty() >= 0">
-                                        Pend. <t t-esc="fmtQtyWithUnit(modalRemainingQty(), state.modal.line.unit_label)"/>
-                                    </t>
-                                    <t t-else="">
-                                        Excede <t t-esc="fmtQtyWithUnit(modalOverQty(), state.modal.line.unit_label)"/>
-                                    </t>
-                                </strong>
-                            </div>
-                        </div>
-
-                        <div class="o_tal_modal_tools">
-                            <button type="button" class="btn btn-light" t-on-click="selectSuggestedTransitLines">
-                                <i class="fa fa-magic me-1"/> Selección sugerida
-                            </button>
-                            <button type="button" class="btn btn-light" t-on-click="clearTransitSelection">
-                                <i class="fa fa-eraser me-1"/> Limpiar
-                            </button>
-                        </div>
-
-                        <div class="o_tal_modal_body">
-                            <table class="o_tal_table o_tal_modal_table">
+                        <div t-if="isExpanded(group.key)" class="o_tba_table_wrap">
+                            <table class="o_tba_table o_tal_table">
                                 <thead>
                                     <tr>
-                                        <th>Sel.</th>
-                                        <th>Lote</th>
-                                        <th>Embarque</th>
-                                        <th>Contenedor</th>
-                                        <th>Bloque</th>
-                                        <th>Atado</th>
-                                        <th class="text-end">Cantidad</th>
+                                        <th>Pedido</th>
+                                        <th>Cliente</th>
+                                        <th>Producto</th>
+                                        <th>Vendedor</th>
+                                        <th class="text-end">Pago</th>
+                                        <th class="text-end">Pendiente</th>
+                                        <th class="text-end">Tránsito libre</th>
+                                        <th>Embarque / OC</th>
+                                        <th>ETA / ETD</th>
+                                        <th>Estado</th>
+                                        <th class="text-end">Acciones</th>
                                     </tr>
                                 </thead>
+
                                 <tbody>
-                                    <t t-foreach="state.modal.transitLines" t-as="tline" t-key="tline.id">
-                                        <tr t-att-class="isTransitSelected(tline.id) ? 'is-selected' : ''">
-                                            <td class="text-center">
-                                                <input type="checkbox"
-                                                       t-att-checked="isTransitSelected(tline.id)"
-                                                       t-on-change="(ev) => this.toggleTransitSelection(tline.id, ev)"/>
-                                            </td>
-                                            <td>
-                                                <div class="o_tal_cell_main"><t t-esc="tline.lot_name || '-'"/></div>
-                                                <div class="o_tal_cell_sub"><t t-esc="tline.location || ''"/></div>
-                                            </td>
+                                    <t t-foreach="group.lines" t-as="line" t-key="line.id">
+                                        <tr>
                                             <td>
                                                 <button type="button"
-                                                        class="btn btn-link p-0 o_tal_link"
-                                                        t-on-click="(ev) => this.openVoyage(tline.voyage_id, ev)">
+                                                        class="btn btn-link p-0 o_tba_so_link"
+                                                        t-on-click="(ev) => this.openSaleOrder(line.so_id, ev)">
                                                     <i class="fa fa-external-link"/>
-                                                    <t t-esc="tline.voyage_name || '-'"/>
+                                                    <t t-esc="line.so_name"/>
                                                 </button>
-                                                <div class="o_tal_cell_sub">ETA <t t-esc="tline.eta || 'N/A'"/></div>
+
+                                                <div class="o_tba_cell_sub">
+                                                    <i class="fa fa-calendar-o me-1"/>
+                                                    <t t-esc="line.commitment_date || 'N/A'"/>
+                                                </div>
                                             </td>
-                                            <td><t t-esc="tline.container_number || '-'"/></td>
-                                            <td><t t-esc="tline.x_bloque || '-'"/></td>
-                                            <td><t t-esc="tline.x_atado || '-'"/></td>
+
+                                            <td>
+                                                <div class="o_tba_cell_main" t-att-title="line.customer">
+                                                    <t t-esc="line.customer || '-'"/>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="o_tba_cell_main" t-att-title="line.product_name">
+                                                    <t t-esc="line.product_name || '-'"/>
+                                                </div>
+
+                                                <div t-if="line.description" class="o_tba_cell_sub" t-att-title="line.description">
+                                                    <t t-esc="line.description"/>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="o_tba_cell_main" t-att-title="line.salesperson || '-'">
+                                                    <t t-esc="line.salesperson || '-'"/>
+                                                </div>
+                                            </td>
+
+                                            <td class="text-end">
+                                                <span t-att-class="'o_tba_payment_badge ' + paymentClass(line.payment_percent)">
+                                                    <t t-esc="fmtPercent(line.payment_percent)"/>
+                                                </span>
+                                            </td>
+
+                                            <td class="text-end o_tba_pending_qty">
+                                                <t t-esc="fmtQtyWithUnit(line.qty_pending || 0, line.unit_label)"/>
+                                            </td>
+
                                             <td class="text-end o_tal_transit_qty">
-                                                <t t-esc="fmtQtyWithUnit(tline.qty, tline.unit_label)"/>
+                                                <t t-esc="fmtQtyWithUnit(line.qty_available || 0, line.unit_label)"/>
+                                            </td>
+
+                                            <td>
+                                                <div class="o_tba_cell_main" t-att-title="line.transit_summary">
+                                                    <i class="fa fa-ship me-1"/>
+                                                    <t t-esc="line.voyage_names.length ? line.voyage_names.slice(0, 2).join(', ') : 'En tránsito'"/>
+                                                </div>
+                                                <div class="o_tba_cell_sub" t-att-title="line.purchase_names.join(', ')">
+                                                    <i class="fa fa-shopping-cart me-1"/>
+                                                    <t t-esc="line.purchase_names.length ? line.purchase_names.slice(0, 2).join(', ') : 'Sin OC'"/>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <div class="o_tba_cell_main">
+                                                    ETA: <t t-esc="line.transit_eta || 'N/A'"/>
+                                                </div>
+                                                <div class="o_tba_cell_sub">
+                                                    ETD: <t t-esc="line.transit_etd || 'N/A'"/>
+                                                </div>
+                                            </td>
+
+                                            <td>
+                                                <span t-attf-class="badge rounded-pill #{line.assignment_state === 'partial' ? 'text-bg-warning' : line.assignment_state === 'open' ? 'text-bg-secondary' : line.assignment_state === 'over_assigned' ? 'text-bg-danger' : line.assignment_state === 'to_purchase' ? 'text-bg-info' : 'text-bg-light'}">
+                                                    <t t-esc="assignmentStateLabel(line.assignment_state)"/>
+                                                </span>
+                                            </td>
+
+                                            <td class="text-end">
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-primary me-1"
+                                                        t-att-disabled="state.assigning[line.id]"
+                                                        t-on-click="(ev) => this.openTransitPopup(line, ev)"
+                                                        title="Abrir selector de lotes en tránsito para esta línea">
+                                                    <i t-attf-class="fa #{state.assigning[line.id] ? 'fa-spinner fa-spin' : 'fa-ship'} me-1"/>
+                                                    Asignar
+                                                </button>
+
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-secondary"
+                                                        t-on-click="(ev) => this.openSaleOrder(line.so_id, ev)"
+                                                        title="Abrir pedido de venta">
+                                                    <i class="fa fa-external-link me-1"/>
+                                                    Pedido
+                                                </button>
                                             </td>
                                         </tr>
                                     </t>
                                 </tbody>
                             </table>
                         </div>
-
-                        <div t-if="modalIsOver()" class="o_tal_over_box">
-                            <div class="o_tal_over_title">
-                                <i class="fa fa-exclamation-triangle me-1"/>
-                                La selección excede lo solicitado.
-                            </div>
-                            <label>
-                                <input type="radio"
-                                       name="tal_over_action"
-                                       value="free"
-                                       t-att-checked="state.modal.overAction === 'free'"
-                                       t-on-change="setOverAction"/>
-                                Entregar excedente sin cobrar, aplicando descuento equivalente.
-                            </label>
-                            <label>
-                                <input type="radio"
-                                       name="tal_over_action"
-                                       value="bill"
-                                       t-att-checked="state.modal.overAction === 'bill'"
-                                       t-on-change="setOverAction"/>
-                                Cobrar excedente, ajustando la cantidad solicitada.
-                            </label>
-                            <textarea rows="2"
-                                      t-att-value="state.modal.overReason"
-                                      t-on-input="setOverReason"/>
-                        </div>
-
-                        <div class="o_tal_reason_box">
-                            <label>Motivo operativo</label>
-                            <textarea rows="2"
-                                      t-att-value="state.modal.reason"
-                                      t-on-input="setModalReason"/>
-                        </div>
-
-                        <div class="o_tal_modal_footer">
-                            <button type="button" class="btn btn-light" t-on-click="closeModal">
-                                Cancelar
-                            </button>
-                            <button type="button"
-                                    class="btn btn-primary"
-                                    t-att-disabled="state.assigning || !state.modal.selectedTransitLineIds.length"
-                                    t-on-click="confirmAllocation">
-                                <i t-attf-class="fa #{state.assigning ? 'fa-spinner fa-spin' : 'fa-check'} me-1"/>
-                                Asignar a pedido
-                            </button>
-                        </div>
                     </div>
-                </div>
-            </t>
+                </t>
+            </div>
         </div>
     </t>
 </templates>

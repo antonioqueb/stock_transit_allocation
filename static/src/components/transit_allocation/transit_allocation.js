@@ -1,6 +1,6 @@
 /** @odoo-module **/
 import { registry } from "@web/core/registry";
-import { Component, useState, onMounted } from "@odoo/owl";
+import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 export class TransitAllocation extends Component {
@@ -9,134 +9,437 @@ export class TransitAllocation extends Component {
         this.action = useService("action");
         this.notification = useService("notification");
 
+        this._transitPopupRoot = null;
+        this._transitPopupKeyHandler = null;
+        this._overAssignRoot = null;
+        this._overAssignKeyHandler = null;
+
         this.state = useState({
+            sourceData: [],
             data: [],
             filteredData: [],
             loading: true,
             expanded: {},
             searchQuery: "",
-            groupBy: "priority", // priority | product | vendor | category | unit_type
-            assigning: false,
-            modal: {
-                open: false,
-                product: null,
-                line: null,
-                transitLines: [],
-                selectedTransitLineIds: [],
-                reason: "Asignación operativa desde Transit Allocation.",
-                overAction: "free",
-                overReason: "Sobreasignación autorizada desde Transit Allocation.",
-            },
+            groupBy: "product", // product | sale_order | salesperson | customer | unit_type
+            assigning: {},
         });
 
-        onMounted(() => this.loadData());
+        onMounted(() => {
+            this.loadData();
+        });
+
+        onWillUnmount(() => {
+            this.destroyTransitPopup();
+            this.destroyOverAssignPopup();
+        });
     }
 
-    // ---------------------------------------------------------------------
-    // Data
-    // ---------------------------------------------------------------------
+    // =========================================================================
+    // DATA
+    // =========================================================================
 
     async loadData() {
         this.state.loading = true;
+
         try {
-            this.state.data = await this.orm.call(
+            const rawData = await this.orm.call(
                 "transit.allocation.manager.logic",
                 "get_data",
                 []
             );
+
+            const hydratedData = await this._hydrateTransitDates(rawData || []);
+
+            this.state.sourceData = hydratedData || [];
+            this.state.data = this._normalizeRows(hydratedData || []);
             this.applyFilters();
         } catch (error) {
             console.error("[TransitAllocation] Error cargando datos:", error);
-            this.state.data = [];
-            this.state.filteredData = [];
-            this.notification.add(
-                "Error al cargar Transit Allocation: " + (error.message || error),
-                { type: "danger" }
-            );
+            this.notification.add("Error al cargar Transit Allocation", {
+                type: "danger",
+            });
         } finally {
             this.state.loading = false;
         }
     }
 
+
+    async _hydrateTransitDates(products) {
+        const ids = [];
+
+        for (const product of products || []) {
+            for (const line of product.transit_lines || []) {
+                if (line.id && !ids.includes(line.id)) {
+                    ids.push(line.id);
+                }
+            }
+        }
+
+        if (!ids.length) return products || [];
+
+        try {
+            const fresh = await this.orm.read(
+                "stock.transit.line",
+                ids,
+                ["id", "eta", "etd", "voyage_id", "purchase_id", "vendor_id"]
+            );
+            const byId = {};
+
+            for (const row of fresh || []) {
+                byId[row.id] = row;
+            }
+
+            return (products || []).map((product) => ({
+                ...product,
+                transit_lines: (product.transit_lines || []).map((line) => {
+                    const freshLine = byId[line.id] || {};
+                    return {
+                        ...line,
+                        eta: freshLine.eta || line.eta || "",
+                        etd: freshLine.etd || line.etd || "",
+                        voyage_id: this._m2oId(freshLine.voyage_id) || line.voyage_id || false,
+                        voyage_name: this._m2oName(freshLine.voyage_id) || line.voyage_name || "",
+                        purchase_id: this._m2oId(freshLine.purchase_id) || line.purchase_id || false,
+                        purchase_name: this._m2oName(freshLine.purchase_id) || line.purchase_name || "",
+                        vendor: this._m2oName(freshLine.vendor_id) || line.vendor || "",
+                    };
+                }),
+            }));
+        } catch (error) {
+            console.warn("[TransitAllocation] No se pudieron hidratar ETA/ETD; usando payload base:", error);
+            return products || [];
+        }
+    }
+
+    _normalizeRows(products) {
+        const rows = [];
+
+        for (const product of products || []) {
+            const transitLines = Array.isArray(product.transit_lines) ? product.transit_lines : [];
+            const soLines = Array.isArray(product.so_lines) ? product.so_lines : [];
+            const meta = this._getTransitMeta(product, transitLines);
+
+            for (const line of soLines) {
+                rows.push({
+                    ...line,
+                    product_id: product.id || line.product_id,
+                    product_name: product.name || line.product_name || "Sin producto",
+                    product_type: product.product_type || line.product_type || "Material",
+                    category: product.category || "Sin categoría",
+                    vendor: product.vendor || meta.vendor || "SIN PROVEEDOR",
+                    unit_kind: line.unit_kind || product.unit_kind || "m2",
+                    unit_label: line.unit_label || product.unit_label || "m²",
+                    group: product.group || "N/A",
+                    transit_lines: transitLines,
+                    lot_count: product.lot_count || transitLines.length || 0,
+                    voyage_count: product.voyage_count || meta.voyageCount || 0,
+                    voyage_names: meta.voyageNames,
+                    purchase_names: meta.purchaseNames,
+                    transit_summary: meta.summary,
+                    transit_eta: meta.eta,
+                    transit_etd: meta.etd,
+                    qty_transit_available: product.qty_transit_available || meta.qtyTransit || 0,
+                    qty_transit_available_m2: product.qty_transit_available_m2 || meta.qtyTransitM2 || 0,
+                    qty_transit_available_pieces: product.qty_transit_available_pieces || meta.qtyTransitPieces || 0,
+                    qty_available: product.qty_transit_available || meta.qtyTransit || 0,
+                    qty_available_m2: product.qty_transit_available_m2 || meta.qtyTransitM2 || 0,
+                    qty_available_pieces: product.qty_transit_available_pieces || meta.qtyTransitPieces || 0,
+                    qty_pending: line.qty_pending || line.qty_transit_pending || 0,
+                    qty_pending_m2: line.qty_pending_m2 || line.qty_transit_pending_m2 || 0,
+                    qty_pending_pieces: line.qty_pending_pieces || line.qty_transit_pending_pieces || 0,
+                    _productPayload: product,
+                });
+            }
+        }
+
+        rows.sort((a, b) => {
+            if ((b.payment_percent || 0) !== (a.payment_percent || 0)) {
+                return (b.payment_percent || 0) - (a.payment_percent || 0);
+            }
+            return String(a.product_name || "").localeCompare(String(b.product_name || ""));
+        });
+
+        return rows;
+    }
+
+    _getTransitMeta(product, transitLines) {
+        const voyageNames = [];
+        const purchaseNames = [];
+        const vendors = [];
+        const etas = [];
+        const etds = [];
+        let qtyTransit = 0;
+        let qtyTransitM2 = 0;
+        let qtyTransitPieces = 0;
+
+        for (const line of transitLines || []) {
+            const qty = Number(line.qty || line.product_uom_qty || 0);
+            qtyTransit += qty;
+
+            const unitKind = line.unit_kind || product.unit_kind || "m2";
+            if (unitKind === "pieces") {
+                qtyTransitPieces += Number(line.qty_pieces || qty || 0);
+            } else {
+                qtyTransitM2 += Number(line.qty_m2 || qty || 0);
+            }
+
+            if (line.voyage_name && !voyageNames.includes(line.voyage_name)) {
+                voyageNames.push(line.voyage_name);
+            }
+            if (line.purchase_name && !purchaseNames.includes(line.purchase_name)) {
+                purchaseNames.push(line.purchase_name);
+            }
+            if (line.vendor && !vendors.includes(line.vendor)) {
+                vendors.push(line.vendor);
+            }
+            if (line.eta) {
+                etas.push(line.eta);
+            }
+            if (line.etd) {
+                etds.push(line.etd);
+            }
+        }
+
+        etas.sort();
+        etds.sort();
+
+        const summaryParts = [];
+        if (voyageNames.length) {
+            summaryParts.push(voyageNames.slice(0, 2).join(", ") + (voyageNames.length > 2 ? ` +${voyageNames.length - 2}` : ""));
+        }
+        if (purchaseNames.length) {
+            summaryParts.push(purchaseNames.slice(0, 2).join(", ") + (purchaseNames.length > 2 ? ` +${purchaseNames.length - 2}` : ""));
+        }
+        if (etas.length) {
+            summaryParts.push(`ETA ${etas[0]}`);
+        }
+
+        return {
+            voyageNames,
+            purchaseNames,
+            vendor: vendors[0] || "",
+            voyageCount: voyageNames.length,
+            eta: etas[0] || "",
+            etd: etds[0] || "",
+            qtyTransit,
+            qtyTransitM2,
+            qtyTransitPieces,
+            summary: summaryParts.join(" · ") || "Inventario en tránsito disponible",
+        };
+    }
+
     applyFilters() {
-        let result = [...this.state.data];
+        let rows = [...this.state.data];
         const query = (this.state.searchQuery || "").trim().toLowerCase();
 
         if (query) {
-            result = result.filter((product) => {
-                const soText = (product.so_lines || []).map((line) => [
+            rows = rows.filter((line) => {
+                const haystack = [
                     line.so_name || "",
                     line.customer || "",
+                    line.product_name || "",
                     line.salesperson || "",
                     line.description || "",
-                    line.po_name || "",
-                    line.transit_voyage_name || "",
-                ].join(" ")).join(" ");
-
-                const transitText = (product.transit_lines || []).map((line) => [
-                    line.lot_name || "",
-                    line.voyage_name || "",
-                    line.container_number || "",
-                    line.purchase_name || "",
+                    line.product_type || "",
+                    line.unit_label || "",
                     line.vendor || "",
-                    line.x_bloque || "",
-                    line.x_atado || "",
-                ].join(" ")).join(" ");
-
-                const haystack = [
-                    product.name || "",
-                    product.vendor || "",
-                    product.category || "",
-                    product.group || "",
-                    product.type || "",
-                    product.product_type || "",
-                    product.unit_label || "",
-                    soText,
-                    transitText,
+                    line.transit_summary || "",
+                    (line.voyage_names || []).join(" "),
+                    (line.purchase_names || []).join(" "),
                 ].join(" ").toLowerCase();
 
                 return haystack.includes(query);
             });
         }
 
-        result.sort((a, b) => this._sortProducts(a, b));
-        this.state.filteredData = result;
-    }
-
-    _sortProducts(a, b) {
-        if (this.state.groupBy === "vendor") {
-            return String(a.vendor || "").localeCompare(String(b.vendor || "")) ||
-                String(a.name || "").localeCompare(String(b.name || ""));
-        }
-        if (this.state.groupBy === "category") {
-            return String(a.category || "").localeCompare(String(b.category || "")) ||
-                String(a.name || "").localeCompare(String(b.name || ""));
-        }
-        if (this.state.groupBy === "unit_type") {
-            return String(a.product_type || "").localeCompare(String(b.product_type || "")) ||
-                String(a.name || "").localeCompare(String(b.name || ""));
-        }
         if (this.state.groupBy === "product") {
-            return String(a.name || "").localeCompare(String(b.name || ""));
+            this.state.filteredData = this._groupByProduct(rows);
+        } else if (this.state.groupBy === "sale_order") {
+            this.state.filteredData = this._groupBySaleOrder(rows);
+        } else if (this.state.groupBy === "salesperson") {
+            this.state.filteredData = this._groupBySalesperson(rows);
+        } else if (this.state.groupBy === "customer") {
+            this.state.filteredData = this._groupByCustomer(rows);
+        } else if (this.state.groupBy === "unit_type") {
+            this.state.filteredData = this._groupByUnitType(rows);
         }
-
-        const maxPayA = Math.max(...(a.so_lines || []).map((line) => line.payment_percent || 0), 0);
-        const maxPayB = Math.max(...(b.so_lines || []).map((line) => line.payment_percent || 0), 0);
-        if (maxPayB !== maxPayA) return maxPayB - maxPayA;
-
-        const diff = Number(b.qty_to_allocate || 0) - Number(a.qty_to_allocate || 0);
-        if (diff) return diff;
-
-        return String(a.name || "").localeCompare(String(b.name || ""));
     }
 
-    async refresh() {
-        await this.loadData();
-        this.notification.add("Transit Allocation actualizado", {
-            type: "success",
-            sticky: false,
+    _makeGroup({ id, key, label, sublabel }) {
+        return {
+            id,
+            key,
+            label,
+            sublabel,
+            lines: [],
+            qty_requested: 0,
+            qty_ordered: 0,
+            qty_assigned: 0,
+            qty_pending: 0,
+            qty_available: 0,
+            qty_requested_m2: 0,
+            qty_requested_pieces: 0,
+            qty_ordered_m2: 0,
+            qty_ordered_pieces: 0,
+            qty_assigned_m2: 0,
+            qty_assigned_pieces: 0,
+            qty_pending_m2: 0,
+            qty_pending_pieces: 0,
+            qty_available_m2: 0,
+            qty_available_pieces: 0,
+            max_days_unassigned: 0,
+            max_payment_percent: 0,
+            voyage_count: 0,
+            lot_count: 0,
+            voyage_names: [],
+            purchase_names: [],
+        };
+    }
+
+    _addLineToGroup(group, line, { availableMode = "sum" } = {}) {
+        group.lines.push(line);
+
+        group.qty_requested += line.qty_requested || line.qty_ordered || 0;
+        group.qty_ordered += line.qty_ordered || line.qty_requested || 0;
+        group.qty_assigned += line.qty_assigned || 0;
+        group.qty_pending += line.qty_pending || 0;
+
+        if (availableMode === "max") {
+            group.qty_available = Math.max(group.qty_available, line.qty_available || 0);
+            group.qty_available_m2 = Math.max(group.qty_available_m2, line.qty_available_m2 || 0);
+            group.qty_available_pieces = Math.max(group.qty_available_pieces, line.qty_available_pieces || 0);
+        } else {
+            group.qty_available += line.qty_available || 0;
+            group.qty_available_m2 += line.qty_available_m2 || 0;
+            group.qty_available_pieces += line.qty_available_pieces || 0;
+        }
+
+        group.qty_requested_m2 += line.qty_requested_m2 || line.qty_ordered_m2 || 0;
+        group.qty_requested_pieces += line.qty_requested_pieces || line.qty_ordered_pieces || 0;
+        group.qty_ordered_m2 += line.qty_ordered_m2 || line.qty_requested_m2 || 0;
+        group.qty_ordered_pieces += line.qty_ordered_pieces || line.qty_requested_pieces || 0;
+        group.qty_assigned_m2 += line.qty_assigned_m2 || 0;
+        group.qty_assigned_pieces += line.qty_assigned_pieces || 0;
+        group.qty_pending_m2 += line.qty_pending_m2 || 0;
+        group.qty_pending_pieces += line.qty_pending_pieces || 0;
+
+        group.max_days_unassigned = Math.max(group.max_days_unassigned, line.days_unassigned || 0);
+        group.max_payment_percent = Math.max(group.max_payment_percent, line.payment_percent || 0);
+
+        group.lot_count = Math.max(group.lot_count, line.lot_count || 0);
+        group.voyage_count = Math.max(group.voyage_count, line.voyage_count || 0);
+
+        for (const name of line.voyage_names || []) {
+            if (name && !group.voyage_names.includes(name)) group.voyage_names.push(name);
+        }
+        for (const name of line.purchase_names || []) {
+            if (name && !group.purchase_names.includes(name)) group.purchase_names.push(name);
+        }
+    }
+
+    _sortGroups(groups) {
+        return groups.sort((a, b) => {
+            if (b.max_payment_percent !== a.max_payment_percent) {
+                return b.max_payment_percent - a.max_payment_percent;
+            }
+            if (b.max_days_unassigned !== a.max_days_unassigned) {
+                return b.max_days_unassigned - a.max_days_unassigned;
+            }
+            return String(a.label || "").localeCompare(String(b.label || ""));
         });
     }
+
+    _groupByProduct(rows) {
+        const map = {};
+        for (const line of rows) {
+            const key = line.product_id || 0;
+            if (!map[key]) {
+                map[key] = this._makeGroup({
+                    id: key,
+                    key: `product_${key}`,
+                    label: line.product_name || "Sin producto",
+                    sublabel: `${line.product_type || "Material"} · Inventario en tránsito`,
+                });
+            }
+            this._addLineToGroup(map[key], line, { availableMode: "max" });
+        }
+        return this._sortGroups(Object.values(map));
+    }
+
+    _groupBySaleOrder(rows) {
+        const map = {};
+        for (const line of rows) {
+            const key = line.so_id || 0;
+            if (!map[key]) {
+                map[key] = this._makeGroup({
+                    id: key,
+                    key: `so_${key}`,
+                    label: line.so_name || "Sin SO",
+                    sublabel: line.customer || "Sin cliente",
+                });
+            }
+            this._addLineToGroup(map[key], line);
+        }
+        return this._sortGroups(Object.values(map));
+    }
+
+    _groupBySalesperson(rows) {
+        const map = {};
+        for (const line of rows) {
+            const key = line.salesperson || "Sin vendedor";
+            if (!map[key]) {
+                map[key] = this._makeGroup({
+                    id: key,
+                    key: `salesperson_${key}`,
+                    label: key,
+                    sublabel: "Vendedor",
+                });
+            }
+            this._addLineToGroup(map[key], line);
+        }
+        return this._sortGroups(Object.values(map));
+    }
+
+    _groupByCustomer(rows) {
+        const map = {};
+        for (const line of rows) {
+            const key = line.customer_id || line.customer || "Sin cliente";
+            if (!map[key]) {
+                map[key] = this._makeGroup({
+                    id: key,
+                    key: `customer_${key}`,
+                    label: line.customer || "Sin cliente",
+                    sublabel: "Cliente",
+                });
+            }
+            this._addLineToGroup(map[key], line);
+        }
+        return this._sortGroups(Object.values(map));
+    }
+
+    _groupByUnitType(rows) {
+        const map = {};
+        for (const line of rows) {
+            const key = line.unit_kind || "m2";
+            const label = key === "pieces" ? "Piezas" : "Metros cuadrados";
+            const sublabel = key === "pieces" ? "Productos vendidos por pieza" : "Productos vendidos por m²";
+            if (!map[key]) {
+                map[key] = this._makeGroup({
+                    id: key,
+                    key: `unit_${key}`,
+                    label,
+                    sublabel,
+                });
+            }
+            this._addLineToGroup(map[key], line);
+        }
+        return this._sortGroups(Object.values(map));
+    }
+
+    // =========================================================================
+    // HANDLERS UI
+    // =========================================================================
 
     onSearchInput(ev) {
         this.state.searchQuery = ev.target.value;
@@ -150,202 +453,33 @@ export class TransitAllocation extends Component {
 
     setGroupBy(mode) {
         this.state.groupBy = mode;
+        this.state.expanded = {};
         this.applyFilters();
     }
 
-    toggleExpand(productId) {
-        this.state.expanded[productId] = !this.state.expanded[productId];
+    toggleExpand(key) {
+        this.state.expanded[key] = !this.state.expanded[key];
     }
 
-    isExpanded(productId) {
-        return !!this.state.expanded[productId];
+    isExpanded(key) {
+        return !!this.state.expanded[key];
     }
 
-    // ---------------------------------------------------------------------
-    // Modal
-    // ---------------------------------------------------------------------
-
-    openAllocationModal(product, line, ev) {
-        if (ev) {
-            ev.stopPropagation();
-            ev.preventDefault();
-        }
-
-        this.state.modal = {
-            open: true,
-            product,
-            line,
-            transitLines: product.transit_lines || [],
-            selectedTransitLineIds: [],
-            reason: "Asignación operativa desde Transit Allocation.",
-            overAction: "free",
-            overReason: "Sobreasignación autorizada desde Transit Allocation.",
-        };
+    async refresh() {
+        await this.loadData();
+        this.notification.add("Transit Allocation actualizado", {
+            type: "success",
+            sticky: false,
+        });
     }
 
-    closeModal() {
-        this.state.modal = {
-            open: false,
-            product: null,
-            line: null,
-            transitLines: [],
-            selectedTransitLineIds: [],
-            reason: "Asignación operativa desde Transit Allocation.",
-            overAction: "free",
-            overReason: "Sobreasignación autorizada desde Transit Allocation.",
-        };
-    }
-
-    isTransitSelected(transitLineId) {
-        return (this.state.modal.selectedTransitLineIds || []).includes(transitLineId);
-    }
-
-    toggleTransitSelection(transitLineId, ev) {
-        const ids = this.state.modal.selectedTransitLineIds || [];
-        const checked = ev.target.checked;
-
-        if (checked && !ids.includes(transitLineId)) {
-            ids.push(transitLineId);
-        }
-        if (!checked) {
-            this.state.modal.selectedTransitLineIds = ids.filter((id) => id !== transitLineId);
-        }
-    }
-
-    selectSuggestedTransitLines() {
-        const modal = this.state.modal;
-        const target = Number(modal.line?.qty_pending || 0);
-        const selected = [];
-        let total = 0;
-
-        for (const transitLine of modal.transitLines || []) {
-            if (total >= target && target > 0) break;
-            selected.push(transitLine.id);
-            total += Number(transitLine.qty || 0);
-        }
-
-        modal.selectedTransitLineIds = selected;
-    }
-
-    clearTransitSelection() {
-        this.state.modal.selectedTransitLineIds = [];
-    }
-
-    selectedTransitLines() {
-        const ids = new Set(this.state.modal.selectedTransitLineIds || []);
-        return (this.state.modal.transitLines || []).filter((line) => ids.has(line.id));
-    }
-
-    modalSelectedQty() {
-        return this.selectedTransitLines().reduce((sum, line) => sum + Number(line.qty || 0), 0);
-    }
-
-    modalPendingQty() {
-        return Number(this.state.modal.line?.qty_pending || 0);
-    }
-
-    modalRemainingQty() {
-        return this.modalPendingQty() - this.modalSelectedQty();
-    }
-
-    modalIsOver() {
-        return this.modalRemainingQty() < -0.0001;
-    }
-
-    modalOverQty() {
-        return Math.max(Math.abs(this.modalRemainingQty()), 0);
-    }
-
-    async confirmAllocation() {
-        const modal = this.state.modal;
-        const selectedIds = modal.selectedTransitLineIds || [];
-
-        if (!modal.line || !modal.line.id || selectedIds.length === 0) {
-            this.notification.add("Seleccione al menos un lote en tránsito.", { type: "warning" });
-            return;
-        }
-
-        this.state.assigning = true;
-
-        try {
-            const result = await this.orm.call(
-                "transit.allocation.manager.logic",
-                "assign_transit_lines",
-                [
-                    selectedIds,
-                    modal.line.id,
-                    modal.reason || "Asignación operativa desde Transit Allocation.",
-                    this.modalIsOver() ? modal.overAction : false,
-                    this.modalIsOver() ? modal.overReason : false,
-                ]
-            );
-
-            if (result && result.need_over_assignment_decision) {
-                this.notification.add(result.message || "Debe indicar acción sobre excedente.", {
-                    type: "warning",
-                    sticky: false,
-                });
-                return;
-            }
-
-            if (result && result.success === false) {
-                this.notification.add(result.message || "No se pudo completar la asignación.", {
-                    type: "danger",
-                });
-                return;
-            }
-
-            const selectedQty = result?.selected_qty !== undefined
-                ? this.fmtNum(result.selected_qty)
-                : this.fmtNum(this.modalSelectedQty());
-            const pendingAfter = result?.pending_qty_after !== undefined
-                ? this.fmtNum(result.pending_qty_after)
-                : "0.00";
-            const unit = result?.uom_name || modal.line.unit_label || "";
-
-            let msg = `Inventario en tránsito asignado: ${selectedQty} ${unit}. Pendiente actual: ${pendingAfter} ${unit}.`;
-            if (result?.discount_applied) {
-                msg += ` Descuento aplicado: ${this.fmtPercent(result.discount_after)}.`;
-            } else if (result?.qty_updated) {
-                msg += " Cantidad solicitada actualizada por excedente cobrado.";
-            }
-
-            this.notification.add(msg, { type: "success", sticky: false });
-            this.closeModal();
-            await this.loadData();
-        } catch (error) {
-            console.error("[TransitAllocation] Error asignando tránsito:", error);
-            this.notification.add(
-                "Error al asignar tránsito: " + (error.message || error),
-                { type: "danger" }
-            );
-        } finally {
-            this.state.assigning = false;
-        }
-    }
-
-    setModalReason(ev) {
-        this.state.modal.reason = ev.target.value;
-    }
-
-    setOverAction(ev) {
-        this.state.modal.overAction = ev.target.value;
-    }
-
-    setOverReason(ev) {
-        this.state.modal.overReason = ev.target.value;
-    }
-
-    // ---------------------------------------------------------------------
-    // Navigation
-    // ---------------------------------------------------------------------
-
-    openSaleOrder(soId, ev) {
+    async openSaleOrder(soId, ev) {
         if (ev) {
             ev.stopPropagation();
             ev.preventDefault();
         }
         if (!soId) return;
+
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "sale.order",
@@ -355,27 +489,13 @@ export class TransitAllocation extends Component {
         });
     }
 
-    openVoyage(voyageId, ev) {
-        if (ev) {
-            ev.stopPropagation();
-            ev.preventDefault();
-        }
-        if (!voyageId) return;
-        this.action.doAction({
-            type: "ir.actions.act_window",
-            res_model: "stock.transit.voyage",
-            res_id: voyageId,
-            views: [[false, "form"]],
-            target: "current",
-        });
-    }
-
-    openPurchaseOrder(poId, ev) {
+    async openPurchaseOrder(poId, ev) {
         if (ev) {
             ev.stopPropagation();
             ev.preventDefault();
         }
         if (!poId) return;
+
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "purchase.order",
@@ -385,9 +505,749 @@ export class TransitAllocation extends Component {
         });
     }
 
-    // ---------------------------------------------------------------------
-    // Formatting
-    // ---------------------------------------------------------------------
+    async openVoyage(voyageId, ev) {
+        if (ev) {
+            ev.stopPropagation();
+            ev.preventDefault();
+        }
+        if (!voyageId) return;
+
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "stock.transit.voyage",
+            res_id: voyageId,
+            views: [[false, "form"]],
+            target: "current",
+        });
+    }
+
+    // =========================================================================
+    // POPUP DE ASIGNACIÓN EN TRÁNSITO
+    // =========================================================================
+
+    async openTransitPopup(line, ev) {
+        if (ev) {
+            ev.stopPropagation();
+            ev.preventDefault();
+        }
+
+        if (!line || !line.id || !line.product_id) {
+            this.notification.add("No se encontró la línea o producto para asignar.", {
+                type: "warning",
+            });
+            return;
+        }
+
+        this.destroyTransitPopup();
+        this.state.assigning[line.id] = true;
+
+        try {
+            const transitLines = await this._getFreshTransitLines(line);
+
+            if (!transitLines.length) {
+                this.notification.add("No hay lotes en tránsito disponibles para esta línea.", {
+                    type: "warning",
+                });
+                return;
+            }
+
+            this._transitPopupRoot = document.createElement("div");
+            this._transitPopupRoot.className = "stone-popup-root stone-transit-popup-root";
+            document.body.appendChild(this._transitPopupRoot);
+
+            this._renderTransitPopupDOM({
+                line,
+                transitLines,
+                productId: line.product_id,
+                productName: line.product_name || "",
+                soName: line.so_name || "",
+                customer: line.customer || "",
+                qtyRequested: line.qty_ordered || line.qty_requested || 0,
+                qtyAssigned: line.qty_assigned || 0,
+                qtyPending: line.qty_pending || 0,
+                unitLabel: line.unit_label || "m²",
+            });
+        } catch (error) {
+            console.error("[TransitAllocation] Error abriendo popup de asignación:", error);
+            this.notification.add(
+                "Error al abrir asignación en tránsito: " + (error.message || error),
+                { type: "danger" }
+            );
+        } finally {
+            this.state.assigning[line.id] = false;
+        }
+    }
+
+    async _getFreshTransitLines(line) {
+        const rawLines = Array.isArray(line.transit_lines) ? line.transit_lines : [];
+        const ids = rawLines.map((item) => item.id).filter(Boolean);
+        const rawById = {};
+
+        for (const item of rawLines) {
+            if (item.id) rawById[item.id] = item;
+        }
+
+        if (!ids.length) return [];
+
+        try {
+            const fresh = await this.orm.read(
+                "stock.transit.line",
+                ids,
+                [
+                    "id",
+                    "product_id",
+                    "lot_id",
+                    "product_uom_qty",
+                    "container_number",
+                    "voyage_id",
+                    "purchase_id",
+                    "vendor_id",
+                    "eta",
+                    "etd",
+                    "allocation_status",
+                    "partner_id",
+                    "order_id",
+                    "x_bloque",
+                    "x_atado",
+                    "x_grosor",
+                    "x_alto",
+                    "x_ancho",
+                ]
+            );
+
+            return fresh
+                .filter((item) => item.allocation_status === "available" && !item.partner_id && !item.order_id)
+                .map((item) => this._normalizeTransitLineRow(item, rawById[item.id] || {}, line));
+        } catch (error) {
+            console.warn("[TransitAllocation] No se pudo refrescar stock.transit.line; usando payload del hub:", error);
+            return rawLines.map((item) => this._normalizeTransitLineRow(item, item, line));
+        }
+    }
+
+    _normalizeTransitLineRow(item, fallback, saleLine) {
+        const qty = Number(item.qty || item.product_uom_qty || fallback.qty || fallback.product_uom_qty || 0);
+        const unitKind = saleLine.unit_kind || fallback.unit_kind || "m2";
+
+        return {
+            id: item.id || fallback.id,
+            product_id: this._m2oId(item.product_id) || fallback.product_id || saleLine.product_id,
+            product_name: this._m2oName(item.product_id) || fallback.product_name || saleLine.product_name || "",
+            lot_id: this._m2oId(item.lot_id) || fallback.lot_id || false,
+            lot_name: this._m2oName(item.lot_id) || fallback.lot_name || "",
+            qty,
+            qty_m2: unitKind === "pieces" ? 0 : qty,
+            qty_pieces: unitKind === "pieces" ? qty : 0,
+            unit_kind: unitKind,
+            unit_label: saleLine.unit_label || fallback.unit_label || (unitKind === "pieces" ? "pzas" : "m²"),
+            container_number: item.container_number || fallback.container_number || "",
+            voyage_id: this._m2oId(item.voyage_id) || fallback.voyage_id || false,
+            voyage_name: this._m2oName(item.voyage_id) || fallback.voyage_name || "",
+            purchase_id: this._m2oId(item.purchase_id) || fallback.purchase_id || false,
+            purchase_name: this._m2oName(item.purchase_id) || fallback.purchase_name || "",
+            vendor: this._m2oName(item.vendor_id) || fallback.vendor || "",
+            eta: item.eta || fallback.eta || "",
+            etd: item.etd || fallback.etd || "",
+            x_bloque: item.x_bloque || fallback.x_bloque || "-",
+            x_atado: item.x_atado || fallback.x_atado || "-",
+            x_grosor: item.x_grosor || fallback.x_grosor || "-",
+            x_alto: item.x_alto || fallback.x_alto || 0,
+            x_ancho: item.x_ancho || fallback.x_ancho || 0,
+            x_color: fallback.x_color || "-",
+            location: fallback.location || "Tránsito",
+        };
+    }
+
+    _m2oId(value) {
+        return Array.isArray(value) ? value[0] : value || false;
+    }
+
+    _m2oName(value) {
+        return Array.isArray(value) ? value[1] : "";
+    }
+
+    destroyTransitPopup() {
+        if (this._transitPopupKeyHandler) {
+            document.removeEventListener("keydown", this._transitPopupKeyHandler);
+            this._transitPopupKeyHandler = null;
+        }
+        if (this._transitPopupRoot) {
+            this._transitPopupRoot.remove();
+            this._transitPopupRoot = null;
+        }
+    }
+
+    destroyOverAssignPopup() {
+        if (this._overAssignKeyHandler) {
+            document.removeEventListener("keydown", this._overAssignKeyHandler);
+            this._overAssignKeyHandler = null;
+        }
+        if (this._overAssignRoot) {
+            this._overAssignRoot.remove();
+            this._overAssignRoot = null;
+        }
+    }
+
+    _renderTransitPopupDOM(config) {
+        const root = this._transitPopupRoot;
+        const state = {
+            allLines: config.transitLines || [],
+            filteredLines: config.transitLines || [],
+            selectedIds: new Set(),
+            saving: false,
+            filters: {
+                lot_name: "",
+                bloque: "",
+                atado: "",
+                voyage: "",
+                purchase: "",
+            },
+        };
+
+        root.innerHTML = `
+            <div class="stone-popup-overlay" id="stone-overlay">
+                <div class="stone-popup-container stone-transit-popup-container">
+                    <div class="stone-popup-header">
+                        <div class="stone-popup-title">
+                            <i class="fa fa-ship me-2"></i>
+                            Asignar tránsito
+                            <span class="stone-popup-subtitle">— ${this._escapeHtml(config.productName)}</span>
+                        </div>
+
+                        <div class="stone-popup-header-actions">
+                            <span class="stone-badge-selected" title="${this._escapeHtml(config.soName)}">
+                                <i class="fa fa-file-text-o me-1"></i>${this._escapeHtml(config.soName)}
+                            </span>
+                            <span class="stone-badge-selected" title="${this._escapeHtml(config.customer)}">
+                                <i class="fa fa-user me-1"></i>${this._escapeHtml(config.customer)}
+                            </span>
+                            <span class="stone-badge-requested">
+                                <i class="fa fa-bullseye me-1"></i>
+                                Pendiente <span>${this._fmtPlain(config.qtyPending)}</span> ${this._escapeHtml(config.unitLabel)}
+                            </span>
+                            <span class="stone-badge-selected">
+                                <i class="fa fa-check-circle me-1"></i>
+                                <span id="sp-badge-count">0</span> selec.
+                            </span>
+                            <span class="stone-badge-qty-total">
+                                <i class="fa fa-balance-scale me-1"></i>
+                                <span id="sp-badge-qty">0.00</span>
+                                <span id="sp-badge-unit">${this._escapeHtml(config.unitLabel)}</span>
+                            </span>
+                            <button class="stone-btn stone-btn-ghost" id="sp-close">
+                                <i class="fa fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="stone-popup-allocation-summary" id="sp-allocation-summary">
+                        <div class="stone-allocation-card stone-allocation-target">
+                            <span class="stone-allocation-label">Solicitado</span>
+                            <strong>${this._fmtPlain(config.qtyRequested)} ${this._escapeHtml(config.unitLabel)}</strong>
+                        </div>
+                        <div class="stone-allocation-card stone-allocation-selected">
+                            <span class="stone-allocation-label">Ya asignado</span>
+                            <strong>${this._fmtPlain(config.qtyAssigned)} ${this._escapeHtml(config.unitLabel)}</strong>
+                        </div>
+                        <div class="stone-allocation-card stone-allocation-remaining">
+                            <span class="stone-allocation-label">Pendiente</span>
+                            <strong>${this._fmtPlain(config.qtyPending)} ${this._escapeHtml(config.unitLabel)}</strong>
+                        </div>
+                        <div class="stone-allocation-progress-box">
+                            <div class="stone-allocation-progress-head">
+                                <span id="sp-allocation-progress-text">0.00 de ${this._fmtPlain(config.qtyPending)} ${this._escapeHtml(config.unitLabel)}</span>
+                                <strong id="sp-allocation-progress-label">0%</strong>
+                            </div>
+                            <div class="stone-allocation-progress-track">
+                                <div class="stone-allocation-progress-fill" id="sp-allocation-progress-fill"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="stone-popup-filters">
+                        <div class="stone-filter-group">
+                            <label>Lote</label>
+                            <input type="text" class="stone-filter-input" id="sf-lot" placeholder="Buscar lote..."/>
+                        </div>
+                        <div class="stone-filter-group">
+                            <label>Bloque</label>
+                            <input type="text" class="stone-filter-input" id="sf-bloque" placeholder="Bloque..."/>
+                        </div>
+                        <div class="stone-filter-group">
+                            <label>Atado</label>
+                            <input type="text" class="stone-filter-input" id="sf-atado" placeholder="Atado..."/>
+                        </div>
+                        <div class="stone-filter-group">
+                            <label>Embarque</label>
+                            <input type="text" class="stone-filter-input" id="sf-voyage" placeholder="Embarque..."/>
+                        </div>
+                        <div class="stone-filter-group">
+                            <label>OC</label>
+                            <input type="text" class="stone-filter-input" id="sf-purchase" placeholder="OC..."/>
+                        </div>
+
+                        <div class="stone-filter-actions">
+                            <button class="stone-btn stone-btn-select-all" id="sp-select-all" title="Seleccionar visibles">
+                                <i class="fa fa-check-square-o me-1"></i> Todo
+                            </button>
+                            <button class="stone-btn stone-btn-clear-all" id="sp-clear-all" title="Borrar selección">
+                                <i class="fa fa-square-o me-1"></i> Limpiar
+                            </button>
+                        </div>
+
+                        <div class="stone-filter-spacer"></div>
+                        <div class="stone-filter-stats">
+                            <span id="sp-stat" class="stone-filter-stat-count ms-2">${state.filteredLines.length} lotes</span>
+                        </div>
+                    </div>
+
+                    <div class="stone-popup-body" id="sp-body"></div>
+
+                    <div class="stone-popup-footer">
+                        <span class="stone-footer-info" id="sp-footer-info">—</span>
+                        <div class="stone-footer-qty-summary" id="sp-footer-qty">
+                            <span id="sp-footer-qty-text">0.00 ${this._escapeHtml(config.unitLabel)}</span>
+                        </div>
+                        <div class="stone-footer-actions">
+                            <button class="stone-btn stone-btn-outline" id="sp-cancel">Cancelar</button>
+                            <button class="stone-btn stone-btn-primary-dark" id="sp-open-order">
+                                <i class="fa fa-external-link me-1"></i> Abrir pedido
+                            </button>
+                            <button class="stone-btn stone-btn-primary-dark" id="sp-confirm-bottom">
+                                <i class="fa fa-check me-1"></i> Guardar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        const overlay = root.querySelector("#stone-overlay");
+        const body = root.querySelector("#sp-body");
+        const stat = root.querySelector("#sp-stat");
+        const footerInfo = root.querySelector("#sp-footer-info");
+        const badgeCount = root.querySelector("#sp-badge-count");
+        const badgeQty = root.querySelector("#sp-badge-qty");
+        const badgeUnit = root.querySelector("#sp-badge-unit");
+        const footerQtyText = root.querySelector("#sp-footer-qty-text");
+        const allocationSummary = root.querySelector("#sp-allocation-summary");
+        const allocationProgressText = root.querySelector("#sp-allocation-progress-text");
+        const allocationProgressLabel = root.querySelector("#sp-allocation-progress-label");
+        const allocationProgressFill = root.querySelector("#sp-allocation-progress-fill");
+
+        const computeSelectedTotals = () => {
+            let total = 0;
+            for (const line of state.allLines) {
+                if (state.selectedIds.has(line.id)) {
+                    total += Number(line.qty || 0);
+                }
+            }
+            return total;
+        };
+
+        const updateSelectionDisplay = () => {
+            const selectedQty = computeSelectedTotals();
+            const pendingQty = Number(config.qtyPending || 0);
+            const percent = pendingQty > 0 ? (selectedQty / pendingQty) * 100 : 0;
+            const barPercent = Math.max(0, Math.min(percent, 100));
+
+            badgeCount.textContent = state.selectedIds.size;
+            badgeQty.textContent = this._fmtPlain(selectedQty);
+            badgeUnit.textContent = config.unitLabel || "";
+            footerQtyText.textContent = `${this._fmtPlain(selectedQty)} ${config.unitLabel || ""}`;
+
+            allocationProgressText.textContent = `${this._fmtPlain(selectedQty)} de ${this._fmtPlain(pendingQty)} ${config.unitLabel || ""}`;
+            allocationProgressLabel.textContent = `${this._fmtPct(percent)}%`;
+            allocationProgressFill.style.width = `${barPercent}%`;
+
+            allocationSummary.classList.toggle("is-under", pendingQty > 0 && percent < 99.995);
+            allocationSummary.classList.toggle("is-ok", pendingQty > 0 && percent >= 99.995 && percent <= 100.005);
+            allocationSummary.classList.toggle("is-over", pendingQty > 0 && percent > 100.005);
+        };
+
+        const applyPopupFilters = () => {
+            const lot = state.filters.lot_name.toLowerCase();
+            const bloque = state.filters.bloque.toLowerCase();
+            const atado = state.filters.atado.toLowerCase();
+            const voyage = state.filters.voyage.toLowerCase();
+            const purchase = state.filters.purchase.toLowerCase();
+
+            state.filteredLines = state.allLines.filter((line) => {
+                if (lot && !String(line.lot_name || "").toLowerCase().includes(lot)) return false;
+                if (bloque && !String(line.x_bloque || "").toLowerCase().includes(bloque)) return false;
+                if (atado && !String(line.x_atado || "").toLowerCase().includes(atado)) return false;
+                if (voyage && !String(line.voyage_name || "").toLowerCase().includes(voyage)) return false;
+                if (purchase && !String(line.purchase_name || "").toLowerCase().includes(purchase)) return false;
+                return true;
+            });
+
+            renderTable();
+        };
+
+        const renderTable = () => {
+            if (!state.filteredLines.length) {
+                body.innerHTML = `
+                    <div class="stone-empty-state">
+                        <i class="fa fa-inbox fa-3x text-muted"></i>
+                        <div class="stone-empty-text mt-2">No hay lotes en tránsito con estos filtros</div>
+                    </div>
+                `;
+                stat.textContent = "0 lotes";
+                footerInfo.innerHTML = "Sin resultados visibles";
+                updateSelectionDisplay();
+                return;
+            }
+
+            let rows = "";
+
+            for (const line of state.filteredLines) {
+                const selected = state.selectedIds.has(line.id);
+                rows += `
+                    <tr class="${selected ? "row-sel" : ""}" data-transit-line-id="${line.id}">
+                        <td class="col-chk">
+                            <div class="stone-chkbox ${selected ? "checked" : ""}">
+                                ${selected ? '<i class="fa fa-check"></i>' : ""}
+                            </div>
+                        </td>
+                        <td class="cell-lot">
+                            <div class="stone-transit-lot-name">${this._escapeHtml(line.lot_name || "-")}</div>
+                            <div class="stone-transit-lot-sub">${this._escapeHtml(line.container_number || "Sin contenedor")}</div>
+                        </td>
+                        <td>${this._escapeHtml(line.x_bloque || "-")}</td>
+                        <td>${this._escapeHtml(line.x_atado || "-")}</td>
+                        <td class="col-num">${this._fmtDim(line.x_alto)}</td>
+                        <td class="col-num">${this._fmtDim(line.x_ancho)}</td>
+                        <td class="col-num">${this._escapeHtml(line.x_grosor || "-")}</td>
+                        <td class="col-num fw-semibold">${this._fmtPlain(line.qty)} ${this._escapeHtml(line.unit_label || "")}</td>
+                        <td>
+                            <button type="button" class="btn btn-link p-0 stone-transit-link" data-open-voyage="${line.voyage_id || ""}">
+                                <i class="fa fa-external-link"></i>
+                                ${this._escapeHtml(line.voyage_name || "-")}
+                            </button>
+                        </td>
+                        <td>
+                            <button type="button" class="btn btn-link p-0 stone-transit-link" data-open-po="${line.purchase_id || ""}">
+                                <i class="fa fa-external-link"></i>
+                                ${this._escapeHtml(line.purchase_name || "-")}
+                            </button>
+                        </td>
+                        <td>${this._escapeHtml(line.vendor || "-")}</td>
+                        <td class="text-center">${this._escapeHtml(line.etd || "N/A")}</td>
+                        <td class="text-center">${this._escapeHtml(line.eta || "N/A")}</td>
+                    </tr>
+                `;
+            }
+
+            body.innerHTML = `
+                <table class="stone-popup-table stone-transit-popup-table">
+                    <thead>
+                        <tr>
+                            <th class="col-chk">✓</th>
+                            <th>Lote / contenedor</th>
+                            <th>Bloque</th>
+                            <th>Atado</th>
+                            <th class="col-num">Alto</th>
+                            <th class="col-num">Ancho</th>
+                            <th class="col-num">Esp.</th>
+                            <th class="col-num">Disponible</th>
+                            <th>Embarque</th>
+                            <th>OC</th>
+                            <th>Proveedor</th>
+                            <th class="text-center">ETD</th>
+                            <th class="text-center">ETA</th>
+                        </tr>
+                    </thead>
+                    <tbody>${rows}</tbody>
+                </table>
+            `;
+
+            body.querySelectorAll("tr[data-transit-line-id]").forEach((tr) => {
+                tr.addEventListener("click", (ev) => {
+                    if (ev.target.closest("[data-open-voyage]")) return;
+                    if (ev.target.closest("[data-open-po]")) return;
+
+                    const id = parseInt(tr.dataset.transitLineId, 10);
+                    if (!id) return;
+
+                    if (state.selectedIds.has(id)) {
+                        state.selectedIds.delete(id);
+                    } else {
+                        state.selectedIds.add(id);
+                    }
+
+                    renderTable();
+                });
+            });
+
+            body.querySelectorAll("[data-open-voyage]").forEach((btn) => {
+                btn.addEventListener("click", (ev) => {
+                    const id = parseInt(btn.dataset.openVoyage, 10);
+                    if (id) this.openVoyage(id, ev);
+                });
+            });
+
+            body.querySelectorAll("[data-open-po]").forEach((btn) => {
+                btn.addEventListener("click", (ev) => {
+                    const id = parseInt(btn.dataset.openPo, 10);
+                    if (id) this.openPurchaseOrder(id, ev);
+                });
+            });
+
+            stat.textContent = `${state.filteredLines.length} lotes`;
+            footerInfo.innerHTML = `<strong>${state.filteredLines.length}</strong> de <strong>${state.allLines.length}</strong> lotes visibles`;
+            updateSelectionDisplay();
+        };
+
+        const doSelectAll = () => {
+            for (const line of state.filteredLines) {
+                state.selectedIds.add(line.id);
+            }
+            renderTable();
+        };
+
+        const doClearAll = () => {
+            state.selectedIds.clear();
+            renderTable();
+        };
+
+        const doConfirm = async (overAction = false, overReason = false) => {
+            if (state.saving) return false;
+
+            const selectedIds = Array.from(state.selectedIds);
+            if (!selectedIds.length) {
+                this.notification.add("Seleccione al menos un lote en tránsito.", {
+                    type: "warning",
+                });
+                return false;
+            }
+
+            const selectedQty = computeSelectedTotals();
+            const projectedAssigned = Number(config.qtyAssigned || 0) + selectedQty;
+            const requestedQty = Number(config.qtyRequested || 0);
+            const overQty = requestedQty > 0 ? projectedAssigned - requestedQty : 0;
+
+            if (overQty > 0.0001 && !overAction) {
+                const decision = await this.requestOverAssignmentDecision(overQty, config.unitLabel || "");
+                if (!decision) return false;
+                return doConfirm(decision.action, decision.reason);
+            }
+
+            state.saving = true;
+
+            try {
+                const result = await this.orm.call(
+                    "transit.allocation.manager.logic",
+                    "assign_transit_lines",
+                    [
+                        selectedIds,
+                        config.line.id,
+                        "Asignación operativa desde Transit Allocation.",
+                        overAction,
+                        overReason,
+                    ]
+                );
+
+                if (result && result.need_over_assignment_decision) {
+                    const decision = await this.requestOverAssignmentDecision(
+                        result.over_assigned_qty || 0,
+                        config.unitLabel || ""
+                    );
+                    if (!decision) return false;
+                    return doConfirm(decision.action, decision.reason);
+                }
+
+                if (result && result.success === false) {
+                    this.notification.add(result.message || "No se pudo aplicar la asignación.", {
+                        type: "danger",
+                    });
+                    return false;
+                }
+
+                const selectedLabel = this._fmtPlain(result?.selected_qty || selectedQty);
+                const pendingLabel = this._fmtPlain(result?.pending_qty_after || 0);
+                const uom = result?.uom_name ? ` ${result.uom_name}` : ` ${config.unitLabel || ""}`;
+
+                this.notification.add(
+                    `Asignación en tránsito guardada. Asignado: ${selectedLabel}${uom}. Pendiente: ${pendingLabel}${uom}.`,
+                    { type: "success", sticky: false }
+                );
+
+                this.destroyTransitPopup();
+                await this.loadData();
+                return true;
+            } catch (error) {
+                console.error("[TransitAllocation] Error guardando asignación:", error);
+                this.notification.add(
+                    "Error guardando asignación en tránsito: " + (error.message || error),
+                    { type: "danger" }
+                );
+                return false;
+            } finally {
+                state.saving = false;
+            }
+        };
+
+        const bindFilter = (id, key) => {
+            const input = root.querySelector(`#${id}`);
+            if (!input) return;
+            input.addEventListener("input", (ev) => {
+                state.filters[key] = ev.target.value || "";
+                applyPopupFilters();
+            });
+        };
+
+        bindFilter("sf-lot", "lot_name");
+        bindFilter("sf-bloque", "bloque");
+        bindFilter("sf-atado", "atado");
+        bindFilter("sf-voyage", "voyage");
+        bindFilter("sf-purchase", "purchase");
+
+        root.querySelector("#sp-close").addEventListener("click", () => this.destroyTransitPopup());
+        root.querySelector("#sp-cancel").addEventListener("click", () => this.destroyTransitPopup());
+        root.querySelector("#sp-select-all").addEventListener("click", doSelectAll);
+        root.querySelector("#sp-clear-all").addEventListener("click", doClearAll);
+        root.querySelector("#sp-confirm-bottom").addEventListener("click", () => doConfirm(false, false));
+        root.querySelector("#sp-open-order").addEventListener("click", (ev) => {
+            this.destroyTransitPopup();
+            this.openSaleOrder(config.line.so_id, ev);
+        });
+
+        overlay.addEventListener("click", (ev) => {
+            if (ev.target === overlay) this.destroyTransitPopup();
+        });
+
+        const keyHandler = (ev) => {
+            if (ev.key === "Escape") this.destroyTransitPopup();
+        };
+        document.addEventListener("keydown", keyHandler);
+        this._transitPopupKeyHandler = keyHandler;
+
+        renderTable();
+    }
+
+    requestOverAssignmentDecision(overQty, unitLabel) {
+        this.destroyOverAssignPopup();
+
+        return new Promise((resolve) => {
+            const root = document.createElement("div");
+            root.className = "stone-decision-root stone-overassign-root";
+            root.style.position = "fixed";
+            root.style.inset = "0";
+            root.style.zIndex = "99999";
+            document.body.appendChild(root);
+            this._overAssignRoot = root;
+
+            root.innerHTML = `
+                <div class="stone-decision-overlay" style="z-index: 100000;">
+                    <div class="stone-decision-dialog" style="z-index: 100001;">
+                        <div class="stone-decision-header">
+                            <div>
+                                <h4>Asignación mayor a lo solicitado</h4>
+                                <p>
+                                    Hay un excedente de
+                                    <strong>${this._fmtPlain(overQty)} ${this._escapeHtml(unitLabel)}</strong>.
+                                    Selecciona cómo se administrará.
+                                </p>
+                            </div>
+                            <button type="button" class="stone-decision-x" data-action="cancel">
+                                <i class="fa fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div class="stone-decision-options">
+                            <label class="stone-decision-option active">
+                                <input type="radio" name="over_action" value="free" checked="checked"/>
+                                <span class="stone-decision-option-icon"><i class="fa fa-gift"></i></span>
+                                <span>
+                                    <strong>Entregar excedente sin cobrar</strong>
+                                    <small>El cliente recibe el material extra, pero se aplica el descuento equivalente.</small>
+                                </span>
+                            </label>
+
+                            <label class="stone-decision-option">
+                                <input type="radio" name="over_action" value="bill"/>
+                                <span class="stone-decision-option-icon"><i class="fa fa-money"></i></span>
+                                <span>
+                                    <strong>Cobrar excedente</strong>
+                                    <small>La cantidad solicitada se ajustará para cobrar el excedente asignado.</small>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="stone-decision-note">
+                            <label>Nota administrativa</label>
+                            <textarea id="sp-over-note" rows="3">Sobreasignación autorizada desde Transit Allocation.</textarea>
+                        </div>
+
+                        <div class="stone-decision-footer">
+                            <button type="button" class="stone-btn stone-btn-outline" data-action="cancel">Volver</button>
+                            <button type="button" class="stone-btn stone-btn-primary-dark" data-action="accept">Continuar</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const cleanup = () => this.destroyOverAssignPopup();
+            const cancel = () => {
+                cleanup();
+                resolve(false);
+            };
+
+            root.querySelectorAll(".stone-decision-option").forEach((option) => {
+                option.addEventListener("click", () => {
+                    root.querySelectorAll(".stone-decision-option").forEach((el) => el.classList.remove("active"));
+                    option.classList.add("active");
+                    const input = option.querySelector("input[name='over_action']");
+                    if (input) input.checked = true;
+                });
+            });
+
+            root.querySelectorAll("[data-action='cancel']").forEach((btn) => btn.addEventListener("click", cancel));
+            root.querySelector("[data-action='accept']").addEventListener("click", () => {
+                const selected = root.querySelector("input[name='over_action']:checked");
+                const note = root.querySelector("#sp-over-note");
+                const payload = {
+                    action: selected ? selected.value : "free",
+                    reason: note && note.value ? note.value : "Sobreasignación autorizada desde Transit Allocation.",
+                };
+                cleanup();
+                resolve(payload);
+            });
+
+            const keyHandler = (ev) => {
+                if (ev.key === "Escape") cancel();
+            };
+            document.addEventListener("keydown", keyHandler);
+            this._overAssignKeyHandler = keyHandler;
+        });
+    }
+
+    // =========================================================================
+    // FORMATO
+    // =========================================================================
+
+    _escapeHtml(value) {
+        const div = document.createElement("div");
+        div.textContent = value === null || value === undefined ? "" : String(value);
+        return div.innerHTML;
+    }
+
+    _fmtPlain(num) {
+        if (num === null || num === undefined || isNaN(num)) return "0.00";
+        return parseFloat(num || 0).toFixed(2);
+    }
+
+    _fmtDim(num) {
+        if (!num) return "-";
+        const v = parseFloat(num);
+        if (isNaN(v)) return "-";
+        return v % 1 === 0 ? v.toFixed(0) : v.toFixed(2);
+    }
+
+    _fmtPct(num) {
+        if (num === null || num === undefined || isNaN(num)) return "0";
+        const v = parseFloat(num);
+        return v % 1 === 0 ? v.toFixed(0) : v.toFixed(1);
+    }
 
     fmtNum(value) {
         const n = Number(value || 0);
@@ -399,10 +1259,12 @@ export class TransitAllocation extends Component {
 
     fmtPercent(value) {
         const n = Number(value || 0);
-        return n.toLocaleString("es-MX", {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0,
-        }) + "%";
+        return (
+            n.toLocaleString("es-MX", {
+                minimumFractionDigits: 0,
+                maximumFractionDigits: 0,
+            }) + "%"
+        );
     }
 
     fmtQtyWithUnit(value, unitLabel) {
@@ -416,43 +1278,83 @@ export class TransitAllocation extends Component {
         return parts.length ? parts.join(" · ") : "0.00";
     }
 
+    fmtDays(value) {
+        const n = Number(value || 0);
+        if (n === 1) return "1 día";
+        return `${n} días`;
+    }
+
+    splitPercent(done, requested) {
+        const req = Number(requested || 0);
+        if (req <= 0) return "—";
+        return this.fmtPercent((Number(done || 0) / req) * 100);
+    }
+
     paymentClass(value) {
         const n = Number(value || 0);
-        if (n >= 80) return "o_tal_pay_high";
-        if (n >= 30) return "o_tal_pay_mid";
-        return "o_tal_pay_low";
+        if (n >= 80) return "o_tba_pay_high";
+        if (n >= 30) return "o_tba_pay_mid";
+        return "o_tba_pay_low";
+    }
+
+    assignmentStateLabel(value) {
+        const labels = {
+            no_demand: "Sin demanda",
+            open: "Pendiente",
+            partial: "Parcial",
+            complete: "Completo",
+            over_assigned: "Sobreasignado",
+            to_purchase: "Mandado a pedir",
+            closed_short: "Cerrado corto",
+        };
+        return labels[value] || value || "";
     }
 
     _sum(fieldName) {
-        return this.state.data.reduce((sum, product) => sum + Number(product[fieldName] || 0), 0);
+        return this.state.data.reduce((sum, line) => sum + Number(line[fieldName] || 0), 0);
     }
 
-    get totalProducts() {
+    get totalLines() {
         return this.state.data.length;
     }
 
-    get totalSaleLines() {
-        return this.state.data.reduce((sum, product) => sum + (product.so_lines || []).length, 0);
+    get totalPendingM2() {
+        return this._sum("qty_pending_m2");
     }
 
-    get totalTransitLots() {
-        return this.state.data.reduce((sum, product) => sum + (product.transit_lines || []).length, 0);
+    get totalPendingPieces() {
+        return this._sum("qty_pending_pieces");
     }
 
-    get totalDemandM2() {
-        return this._sum("qty_so_m2");
+    get totalTransitAvailableM2() {
+        const seen = new Set();
+        let total = 0;
+        for (const row of this.state.data) {
+            const key = row.product_id || row.product_name;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            total += Number(row.qty_available_m2 || 0);
+        }
+        return total;
     }
 
-    get totalDemandPieces() {
-        return this._sum("qty_so_pieces");
+    get totalTransitAvailablePieces() {
+        const seen = new Set();
+        let total = 0;
+        for (const row of this.state.data) {
+            const key = row.product_id || row.product_name;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            total += Number(row.qty_available_pieces || 0);
+        }
+        return total;
     }
 
-    get totalTransitM2() {
-        return this._sum("qty_transit_available_m2");
-    }
-
-    get totalTransitPieces() {
-        return this._sum("qty_transit_available_pieces");
+    get totalCoveragePercent() {
+        const pending = this.totalPendingM2 + this.totalPendingPieces;
+        const available = this.totalTransitAvailableM2 + this.totalTransitAvailablePieces;
+        if (pending <= 0) return 0;
+        return Math.min(100, (available / pending) * 100);
     }
 }
 
