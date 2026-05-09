@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.13.0.0',
+    'version': '19.0.13.1.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
+
+        Novedades v13.1:
+        - Hotfix de assets para registrar correctamente action_transit_allocation.
+        - Manifest limpio sin contenido pegado accidentalmente.
+        - __init__.py limpio importando transit_allocation.
 
         Novedades v13.0:
         - Nuevo hub raíz Transit Allocation para asignar inventario ubicado en tránsito.
@@ -25,27 +30,6 @@
         - El material recibido en tránsito no aparece como disponible hasta publicar inventario.
         - El inventario en tránsito se clasifica como Disponible o Committed desde Torre de Control.
         - On Hold ya no aplica para material en tránsito.
-
-        Novedades v10.0:
-        - Correcciones de recepción física, PL físico y Worksheet físico.
-
-        Novedades v9.0 (Portal Embarques):
-        - Nuevos modelos: supplier.proforma.header, supplier.shipment,
-          supplier.shipment.invoice, supplier.shipment.packing, supplier.shipment.container
-        - Estructura jerárquica: Proforma → N Embarques → Invoices/PL/Contenedores
-        - Integración con Torre de Control (voyage_id en shipment)
-        - Retrocompatible con datos existentes
-
-        Novedades v8.0 (Folium Map):
-        - Mapa generado server-side con Folium (Python), sin dependencia de CDN JS.
-
-        Novedades v7.0 (ShipsGo Integration):
-        - Integración con API ShipsGo v2.
-        - Sincronización automática de progreso y ubicación.
-
-        Novedades v6.0:
-        - FORMULARIO REDISEÑADO: Hero header con métricas KPI, panel de datos 3 columnas.
-        - LISTA AGRUPADA POR PRODUCTO: Vista de lotes agrupada, con campos Bloque y Atado.
     """,
     'author': 'Alphaqueb Consulting',
     'website': 'https://alphaqueb.com',
@@ -101,6 +85,7 @@
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.scss',
 
+            # Debe estar en el bundle backend porque el menú usa tag=action_transit_allocation.
             'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.js',
             'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.xml',
             'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.scss',
