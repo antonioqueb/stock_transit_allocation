@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ========================================================= -->
+    <!-- ACCIÓN CLIENTE: TRANSIT ALLOCATION                       -->
+    <!-- ========================================================= -->
+
+    <record id="action_transit_allocation_client" model="ir.actions.client">
+        <field name="name">Transit Allocation</field>
+        <field name="tag">action_transit_allocation</field>
+    </record>
+
+    <!-- Menú raíz independiente -->
+    <menuitem id="menu_app_transit_allocation_root"
+              name="Transit Allocation"
+              action="action_transit_allocation_client"
+              groups="stock_transit_allocation.group_transit_user"
+              sequence="4"/>
+</odoo>

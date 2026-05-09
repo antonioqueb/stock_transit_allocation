@@ -1,0 +1,206 @@
+// ============================================================================
+// Transit Allocation — Control Hub
+// Archivo: static/src/components/transit_allocation/transit_allocation.scss
+// ============================================================================
+
+$o-tal-bg: #eef8fe;
+$o-tal-panel: #ffffff;
+$o-tal-panel-soft: #f8fcff;
+$o-tal-panel-muted: #edf7fd;
+$o-tal-text: #0f172a;
+$o-tal-text-2: #284256;
+$o-tal-muted: #60798c;
+$o-tal-muted-2: #91a9b8;
+$o-tal-border: #d7e8f2;
+$o-tal-border-strong: #bdd7e8;
+$o-tal-blue: #5CB9F2;
+$o-tal-blue-2: #4BA4F2;
+$o-tal-blue-dark: #247fbd;
+$o-tal-blue-deep: #155f94;
+$o-tal-blue-soft: rgba(92, 185, 242, 0.14);
+$o-tal-green: #04D94F;
+$o-tal-green-dark: #047a31;
+$o-tal-green-soft: rgba(4, 217, 79, 0.12);
+$o-tal-amber: #F2B705;
+$o-tal-amber-dark: #8f6500;
+$o-tal-amber-soft: rgba(242, 183, 5, 0.15);
+$o-tal-red: #dc2626;
+$o-tal-red-dark: #991b1b;
+$o-tal-red-soft: #fef2f2;
+$o-tal-head: #0f172a;
+$o-tal-head-2: #111827;
+$o-tal-radius: 16px;
+$o-tal-pill: 999px;
+$o-tal-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+$o-tal-shadow-sm: 0 4px 14px rgba(75, 164, 242, 0.09);
+$o-tal-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
+
+.o_tal_root {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    background:
+        radial-gradient(circle at top left, rgba(92, 185, 242, 0.24), transparent 31%),
+        radial-gradient(circle at top right, rgba(75, 164, 242, 0.16), transparent 30%),
+        linear-gradient(180deg, #fbfdff 0%, $o-tal-bg 48%, #e6f4fc 100%);
+    color: $o-tal-text;
+    font-family: "Inter", "SF Pro Display", "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 12px;
+    letter-spacing: -0.01em;
+}
+
+.o_tal_root * { box-sizing: border-box; }
+.o_tal_root .fa { line-height: 1; }
+
+.o_tal_header {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    padding: 18px 22px;
+    border-bottom: 1px solid rgba(215, 232, 242, 0.96);
+    background:
+        linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(248, 252, 255, 0.94)),
+        linear-gradient(90deg, rgba(92, 185, 242, 0.12), rgba(220, 234, 242, 0.40));
+    box-shadow: 0 12px 32px rgba(92, 185, 242, 0.08);
+    flex-shrink: 0;
+    z-index: 4;
+}
+
+.o_tal_title_box { display: flex; align-items: center; gap: 13px; min-width: 0; flex: 1; }
+.o_tal_icon {
+    width: 48px; height: 48px; border-radius: 17px;
+    background: linear-gradient(145deg, rgba(92, 185, 242, 0.30), rgba(220, 234, 242, 0.62)), #fff;
+    color: $o-tal-blue-dark; display: flex; align-items: center; justify-content: center;
+    font-size: 19px; border: 1px solid rgba(92, 185, 242, 0.42);
+    box-shadow: 0 12px 26px rgba(92, 185, 242, 0.18);
+}
+.o_tal_title { margin: 0; font-size: 20px; line-height: 1.1; font-weight: 850; color: $o-tal-text; letter-spacing: -0.035em; }
+.o_tal_subtitle { color: $o-tal-muted; font-size: 12px; line-height: 1.45; margin-top: 4px; max-width: 760px; }
+.o_tal_metrics { display: flex; align-items: stretch; gap: 10px; flex-shrink: 0; }
+.o_tal_metric {
+    min-width: 88px; padding: 10px 12px; border: 1px solid rgba(215, 232, 242, 0.98);
+    border-radius: 15px; background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(248,252,255,.90));
+    box-shadow: $o-tal-shadow-xs;
+}
+.o_tal_metric_label { display: block; color: $o-tal-muted; font-size: 9px; line-height: 1; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; }
+.o_tal_metric_value { display: block; font-size: 17px; line-height: 1.1; font-weight: 850; color: $o-tal-text; margin-top: 6px; font-variant-numeric: tabular-nums; }
+
+.o_tal_toolbar {
+    display: flex; align-items: center; gap: 12px; padding: 12px 22px;
+    border-bottom: 1px solid rgba(215, 232, 242, 0.92);
+    background: rgba(255, 255, 255, 0.88); flex-wrap: wrap; flex-shrink: 0; z-index: 3;
+}
+.o_tal_search { position: relative; width: 520px; max-width: 100%; }
+.o_tal_search_icon { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: $o-tal-muted-2; pointer-events: none; font-size: 12px; }
+.o_tal_search_input {
+    width: 100%; min-height: 38px; border: 1px solid $o-tal-border-strong; border-radius: 13px;
+    padding: 8px 38px 8px 36px; outline: none; background: rgba(255,255,255,.98);
+    color: $o-tal-text; font-size: 12px; font-weight: 550; box-shadow: $o-tal-shadow-xs;
+    transition: all .16s ease;
+    &:focus { border-color: $o-tal-blue; box-shadow: 0 0 0 4px rgba(92,185,242,.18); }
+}
+.o_tal_search_clear {
+    position: absolute; right: 9px; top: 50%; transform: translateY(-50%); width: 24px; height: 24px;
+    border: 0; border-radius: 999px; background: transparent; color: $o-tal-muted-2; cursor: pointer;
+    &:hover { color: $o-tal-text; background: $o-tal-panel-muted; }
+}
+.o_tal_group_buttons { display: flex; align-items: center; gap: 7px; padding: 4px; border-radius: $o-tal-pill; background: rgba(220,234,242,.44); border: 1px solid rgba(215,232,242,.94); }
+.o_tal_group_btn {
+    border: 1px solid transparent; background: transparent; color: $o-tal-muted; border-radius: $o-tal-pill;
+    padding: 7px 13px; font-size: 11px; font-weight: 750; cursor: pointer; white-space: nowrap;
+    &:hover { background: #fff; color: $o-tal-text-2; box-shadow: $o-tal-shadow-xs; }
+    &.active { border-color: rgba(92,185,242,.42); background: #fff; color: $o-tal-blue-deep; box-shadow: 0 6px 14px rgba(92,185,242,.16); }
+}
+
+.o_tal_groups { flex: 1; min-height: 0; overflow: auto; padding: 18px 22px 28px; }
+.o_tal_group {
+    border: 1px solid rgba(215,232,242,.96); background: rgba(255,255,255,.96); border-radius: 19px;
+    margin-bottom: 13px; overflow: hidden; box-shadow: $o-tal-shadow-sm; transition: all .16s ease;
+    &:hover { border-color: rgba(92,185,242,.62); box-shadow: $o-tal-shadow-md; }
+}
+.o_tal_group_header {
+    display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 14px 16px; cursor: pointer;
+    background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(248,252,255,.94));
+}
+.o_tal_group_left { display: flex; align-items: center; gap: 11px; min-width: 0; }
+.o_tal_chevron { width: 26px; height: 26px; border-radius: 10px; color: $o-tal-blue-deep; background: $o-tal-blue-soft; border: 1px solid rgba(92,185,242,.42); display: flex; align-items: center; justify-content: center; flex: 0 0 auto; font-size: 11px; }
+.o_tal_group_title { font-weight: 850; color: $o-tal-text; font-size: 13.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.02em; }
+.o_tal_group_subtitle { color: $o-tal-muted; font-size: 11px; line-height: 1.25; margin-top: 3px; font-weight: 600; }
+.o_tal_group_stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.o_tal_stat { border: 1px solid rgba(215,232,242,.96); background: rgba(255,255,255,.92); color: $o-tal-text-2; border-radius: $o-tal-pill; padding: 5px 10px; font-size: 10.5px; line-height: 1.35; font-weight: 700; white-space: nowrap; box-shadow: $o-tal-shadow-xs; b { color: $o-tal-text; font-weight: 850; font-variant-numeric: tabular-nums; } }
+.o_tal_stat_demand { border-color: rgba(242,183,5,.34); background: linear-gradient(180deg, #fff, rgba(242,183,5,.12)); b { color: $o-tal-amber-dark; } }
+.o_tal_stat_transit { border-color: rgba(4,217,79,.32); background: linear-gradient(180deg, #fff, rgba(4,217,79,.11)); b { color: $o-tal-green-dark; } }
+
+.o_tal_group_body { border-top: 1px solid rgba(215,232,242,.98); display: grid; grid-template-columns: 1.25fr 1fr; gap: 0; background: #fff; }
+.o_tal_panel { min-width: 0; border-right: 1px solid rgba(215,232,242,.90); }
+.o_tal_panel:last-child { border-right: 0; }
+.o_tal_panel_header { display: flex; justify-content: space-between; align-items: flex-start; padding: 12px 14px; background: rgba(248,252,255,.86); border-bottom: 1px solid rgba(215,232,242,.90); h3 { margin: 0; font-size: 13px; font-weight: 850; color: $o-tal-text; } p { margin: 3px 0 0; color: $o-tal-muted; font-size: 11px; } }
+
+.o_tal_table_wrap { overflow: auto; background: #fff; }
+.o_tal_table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 980px; font-size: 11px; }
+.o_tal_table_transit { min-width: 920px; }
+.o_tal_table th, .o_tal_table td { padding: 9px 10px; border-bottom: 1px solid rgba(215,232,242,.94); vertical-align: middle; }
+.o_tal_table th { position: sticky; top: 0; z-index: 2; background: linear-gradient(180deg, $o-tal-head-2 0%, $o-tal-head 100%); color: rgba(255,255,255,.96); font-weight: 850; text-align: left; white-space: nowrap; text-transform: uppercase; font-size: 9px; letter-spacing: .06em; }
+.o_tal_table tbody tr:nth-child(even) { background: rgba(248,252,255,.72); }
+.o_tal_table tbody tr:hover { background: rgba(92,185,242,.13); }
+.o_tal_table tr.is-selected { background: rgba(4,217,79,.12) !important; }
+.o_tal_table .text-end { text-align: right; }
+.o_tal_table .text-center { text-align: center; }
+
+.o_tal_link { display: inline-flex; align-items: center; gap: 5px; font-weight: 850; color: $o-tal-blue-deep; text-decoration: none; border-radius: 9px; padding: 2px 5px; margin-left: -5px; &:hover { background: rgba(92,185,242,.17); color: $o-tal-blue-dark; text-decoration: none; } }
+.o_tal_cell_main { font-weight: 780; color: $o-tal-text; max-width: 265px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.28; }
+.o_tal_cell_sub { color: $o-tal-muted; max-width: 310px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; line-height: 1.25; font-size: 10.5px; font-weight: 550; }
+.o_tal_pending_qty { color: $o-tal-blue-deep !important; font-weight: 900 !important; font-variant-numeric: tabular-nums; }
+.o_tal_transit_qty { color: $o-tal-green-dark !important; font-weight: 900 !important; font-variant-numeric: tabular-nums; }
+.o_tal_badge_intent, .o_tal_status_chip { display: inline-flex; align-items: center; margin-top: 4px; border-radius: $o-tal-pill; padding: 3px 8px; font-size: 10px; font-weight: 800; border: 1px solid rgba(242,183,5,.38); background: $o-tal-amber-soft; color: $o-tal-amber-dark; }
+.o_tal_status_chip { margin-top: 0; background: $o-tal-blue-soft; color: $o-tal-blue-deep; border-color: rgba(92,185,242,.38); }
+.o_tal_payment_badge { display: inline-flex; align-items: center; justify-content: center; border-radius: $o-tal-pill; padding: 5px 10px; font-weight: 850; font-size: 10px; line-height: 1.3; white-space: nowrap; border: 1px solid transparent; box-shadow: $o-tal-shadow-xs; }
+.o_tal_pay_high { background: linear-gradient(180deg, #f9fffb, rgba(4,217,79,.16)); color: $o-tal-green-dark; border-color: rgba(4,217,79,.34); }
+.o_tal_pay_mid { background: linear-gradient(180deg, #fffdf3, rgba(242,183,5,.18)); color: $o-tal-amber-dark; border-color: rgba(242,183,5,.38); }
+.o_tal_pay_low { background: linear-gradient(180deg, #fff7f7, #fee2e2); color: $o-tal-red-dark; border-color: #fecaca; }
+
+.o_tal_empty, .o_tal_skeleton { flex: 1; min-height: 0; overflow: auto; padding: 18px 22px 28px; }
+.o_tal_empty { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 12px; text-align: center; color: $o-tal-muted; i { font-size: 44px; color: $o-tal-green-dark; } h4 { margin: 0; font-size: 18px; font-weight: 850; color: $o-tal-text; } p { margin: 0; font-size: 12.5px; } }
+.o_tal_skeleton_notice { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 13px; padding: 9px 12px; border: 1px solid rgba(215,232,242,.96); border-radius: $o-tal-pill; background: rgba(255,255,255,.86); color: $o-tal-text-2; font-size: 12px; font-weight: 750; box-shadow: $o-tal-shadow-xs; }
+.o_tal_skeleton_group { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 13px; padding: 15px 16px; border: 1px solid rgba(215,232,242,.96); border-radius: 19px; background: rgba(255,255,255,.96); box-shadow: $o-tal-shadow-sm; }
+.o_tal_skeleton_left { display: flex; align-items: center; gap: 11px; min-width: 0; flex: 1; }
+.o_tal_skeleton_texts { min-width: 0; width: 100%; display: grid; gap: 8px; }
+.o_tal_skeleton_stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.o_tal_skeleton_line, .o_tal_skeleton_pill, .o_tal_skeleton_chevron { display: inline-block; background: linear-gradient(90deg, rgba(220,234,242,.72), rgba(255,255,255,.96), rgba(220,234,242,.72)); background-size: 240% 100%; animation: o_tal_skeleton_shimmer 1.2s ease-in-out infinite; }
+.o_tal_skeleton_chevron { width: 26px; height: 26px; border-radius: 10px; flex: 0 0 auto; }
+.o_tal_skeleton_line { height: 12px; border-radius: $o-tal-pill; }
+.o_tal_skeleton_line_lg { width: 52%; max-width: 480px; }
+.o_tal_skeleton_line_sm { width: 32%; max-width: 260px; }
+.o_tal_skeleton_pill { width: 110px; height: 26px; border-radius: $o-tal-pill; }
+@keyframes o_tal_skeleton_shimmer { 0% { background-position: 120% 0; } 100% { background-position: -120% 0; } }
+
+.o_tal_modal_backdrop { position: fixed; inset: 0; z-index: 99980; display: flex; align-items: center; justify-content: center; padding: 24px; background: rgba(15,23,42,.62); backdrop-filter: blur(7px); }
+.o_tal_modal { width: 1120px; max-width: 96vw; max-height: 92vh; display: flex; flex-direction: column; overflow: hidden; background: #fff; border-radius: 22px; border: 1px solid rgba(215,232,242,.98); box-shadow: 0 28px 90px rgba(15,23,42,.34); }
+.o_tal_modal_header { display: flex; justify-content: space-between; gap: 16px; padding: 20px 22px; border-bottom: 1px solid rgba(215,232,242,.98); background: linear-gradient(135deg, rgba(255,255,255,.98), rgba(248,252,255,.94)); h3 { margin: 0; color: $o-tal-text; font-size: 18px; font-weight: 850; letter-spacing: -.03em; } p { margin: 6px 0 0; color: $o-tal-muted; font-size: 12.5px; } }
+.o_tal_modal_x { width: 34px; height: 34px; border: 1px solid rgba(215,232,242,.98); border-radius: 999px; background: rgba(255,255,255,.88); color: $o-tal-muted; cursor: pointer; &:hover { color: $o-tal-blue-deep; background: $o-tal-blue-soft; } }
+.o_tal_modal_summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 14px 22px; border-bottom: 1px solid rgba(215,232,242,.72); background: rgba(248,252,255,.86); div { min-width: 0; padding: 10px; border: 1px solid rgba(215,232,242,.94); border-radius: 14px; background: #fff; box-shadow: $o-tal-shadow-xs; &.is-over { border-color: rgba(220,38,38,.32); background: $o-tal-red-soft; strong { color: $o-tal-red-dark; } } } span { display: block; color: $o-tal-muted; font-size: 9px; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; } strong { display: block; margin-top: 6px; color: $o-tal-text; font-size: 13px; font-weight: 850; } }
+.o_tal_modal_tools { display: flex; gap: 8px; padding: 12px 22px; border-bottom: 1px solid rgba(215,232,242,.72); }
+.o_tal_modal_body { overflow: auto; min-height: 260px; }
+.o_tal_modal_table { min-width: 920px; }
+.o_tal_over_box, .o_tal_reason_box { padding: 12px 22px; border-top: 1px solid rgba(215,232,242,.90); background: #fff; label { display: block; margin-top: 7px; font-weight: 650; color: $o-tal-text-2; } textarea { width: 100%; margin-top: 8px; border: 1px solid $o-tal-border-strong; border-radius: 12px; padding: 8px 10px; font-family: inherit; font-size: 12px; outline: none; &:focus { border-color: $o-tal-blue; box-shadow: 0 0 0 4px rgba(92,185,242,.18); } } }
+.o_tal_over_box { background: #fffdf3; }
+.o_tal_over_title { color: $o-tal-amber-dark; font-weight: 850; }
+.o_tal_reason_box label { display: block; margin-bottom: 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; font-weight: 850; color: $o-tal-text; }
+.o_tal_modal_footer { display: flex; justify-content: flex-end; gap: 10px; padding: 16px 22px; border-top: 1px solid rgba(215,232,242,.96); background: #fff; }
+
+@media (max-width: 1200px) {
+    .o_tal_header { flex-wrap: wrap; align-items: flex-start; }
+    .o_tal_metrics { order: 3; width: 100%; }
+    .o_tal_metric { flex: 1; min-width: 0; }
+    .o_tal_group_body { grid-template-columns: 1fr; }
+    .o_tal_panel { border-right: 0; border-bottom: 1px solid rgba(215,232,242,.90); }
+}
+
+@media (max-width: 760px) {
+    .o_tal_modal_backdrop { padding: 10px; align-items: flex-end; }
+    .o_tal_modal { width: 100%; max-width: 100%; max-height: 96vh; border-radius: 18px 18px 0 0; }
+    .o_tal_modal_summary { grid-template-columns: 1fr; }
+    .o_tal_modal_footer { flex-direction: column-reverse; .btn { width: 100%; } }
+}

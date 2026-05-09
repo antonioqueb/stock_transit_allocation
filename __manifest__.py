@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.12.0.0',
+    'version': '19.0.13.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
+
+        Novedades v13.0:
+        - Nuevo hub raíz Transit Allocation para asignar inventario ubicado en tránsito.
+        - Integración directa con stock.transit.line y stock.transit.voyage sin duplicar reservas.
+        - Asignación desde tránsito hacia pedidos confirmados con demanda pendiente.
 
         Novedades v12.0:
         - Nuevo hub To Be Allocated para pedidos con requerimiento pendiente y stock disponible.
@@ -71,6 +76,7 @@
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
         'views/to_be_purchased_views.xml',
+        'views/transit_allocation_views.xml',
         'views/supplier_proforma_views.xml',
         'views/supplier_shipment_views.xml',
         'views/purchase_order_proforma_views.xml',
@@ -94,6 +100,10 @@
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.js',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.scss',
+
+            'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.js',
+            'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.xml',
+            'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.scss',
 
             'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.js',
             'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.xml',
