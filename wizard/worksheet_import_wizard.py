@@ -15,6 +15,24 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
     #  ENTRYPOINT
     # -------------------------------------------------------------------------
 
+    def _tc_reception_guard_context(self):
+        ctx = dict(self.env.context or {})
+        ctx.update({
+            "tc_physical_reception_prepare": True,
+            "tc_no_auto_validate": True,
+            "skip_procurement": True,
+            "skip_immediate_transfer": True,
+            "skip_backorder": True,
+            "skip_whole_lot": True,
+            "skip_whole_lot_removal": True,
+            "skip_whole_lot_reservation": True,
+            "skip_whole_lot_strategy": True,
+            "skip_auto_assign": True,
+            "skip_auto_reserve": True,
+            "tracking_disable": True,
+        })
+        return ctx
+
     def action_import_worksheet(self):
         self.ensure_one()
 
@@ -111,8 +129,7 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
             vals["picked"] = False
 
         move_line.with_context(
-            tc_physical_reception_prepare=True,
-            tc_no_auto_validate=True,
+            self._tc_reception_guard_context()
         ).write(vals)
 
     def _tc_effective_real_qty(self, product, lot, alto_real, ancho_real, fallback_qty):
@@ -181,6 +198,7 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_recompute_moves_from_move_lines(self):
         picking = self.picking_id
+        ctx = self._tc_reception_guard_context()
 
         product_totals = {}
         for ml in picking.move_line_ids:
@@ -192,9 +210,9 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
         for move in picking.move_ids.filtered(lambda m: m.state not in ("done", "cancel")):
             qty = product_totals.get(move.product_id.id, 0.0)
             if self._tc_is_zero(move.product_id, qty):
-                move.unlink()
+                move.with_context(ctx).unlink()
             else:
-                move.write({
+                move.with_context(ctx).write({
                     "product_uom_qty": qty,
                     "location_id": picking.location_id.id,
                     "location_dest_id": picking.location_dest_id.id,
@@ -206,6 +224,7 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_apply_physical_worksheet(self, rows_data):
         picking = self.picking_id
+        ctx = self._tc_reception_guard_context()
         voyage = self._tc_get_physical_voyage()
 
         if not voyage:
@@ -257,7 +276,7 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
                         "notes": notes.strip(),
                     })
 
-                move_line.unlink()
+                move_line.with_context(ctx).unlink()
                 missing += 1
                 continue
 
@@ -306,7 +325,7 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
 
         self._tc_recompute_moves_from_move_lines()
 
-        picking.write({
+        picking.with_context(ctx).write({
             "worksheet_imported": True,
         })
 

@@ -17,6 +17,24 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
     #  ENTRYPOINT
     # -------------------------------------------------------------------------
 
+    def _tc_reception_guard_context(self):
+        ctx = dict(self.env.context or {})
+        ctx.update({
+            "tc_physical_reception_prepare": True,
+            "tc_no_auto_validate": True,
+            "skip_procurement": True,
+            "skip_immediate_transfer": True,
+            "skip_backorder": True,
+            "skip_whole_lot": True,
+            "skip_whole_lot_removal": True,
+            "skip_whole_lot_reservation": True,
+            "skip_whole_lot_strategy": True,
+            "skip_auto_assign": True,
+            "skip_auto_reserve": True,
+            "tracking_disable": True,
+        })
+        return ctx
+
     def action_import_excel(self):
         self.ensure_one()
 
@@ -498,15 +516,27 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_prepare_moves(self, product_totals):
         picking = self.picking_id
+        ctx = self._tc_reception_guard_context()
         move_map = {}
 
         existing_moves = picking.move_ids.filtered(lambda move: move.state not in ("done", "cancel"))
 
         for move in existing_moves:
+            if move.state in ("assigned", "partially_available") and hasattr(move, "_do_unreserve"):
+                move.with_context(
+                    tc_physical_reception_prepare=True,
+                    tc_no_auto_validate=True,
+                    skip_procurement=True,
+                )._do_unreserve()
+
             total_qty = product_totals.get(move.product_id.id, 0.0)
 
             if self._tc_float_is_zero(move.product_id, total_qty):
-                move.unlink()
+                move.with_context(
+                    tc_physical_reception_prepare=True,
+                    tc_no_auto_validate=True,
+                    skip_procurement=True,
+                ).unlink()
                 continue
 
             vals = {}
@@ -521,7 +551,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 vals["location_dest_id"] = picking.location_dest_id.id
 
             if vals:
-                move.write(vals)
+                move.with_context(
+                    tc_physical_reception_prepare=True,
+                    tc_no_auto_validate=True,
+                    skip_procurement=True,
+                ).write(vals)
 
             move_map[move.product_id.id] = move
 
@@ -531,7 +565,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             if product_id in move_map:
                 continue
 
-            move = self.env["stock.move"].create({
+            move = self.env["stock.move"].with_context(
+                tc_physical_reception_prepare=True,
+                tc_no_auto_validate=True,
+                skip_procurement=True,
+            ).create({
                 "picking_id": picking.id,
                 "product_id": product.id,
                 "product_uom": product.uom_id.id,
@@ -542,14 +580,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             })
             move_map[product_id] = move
 
-        draft_moves = picking.move_ids.filtered(lambda move: move.state == "draft")
-        if draft_moves:
-            draft_moves.with_context(
-                tc_physical_reception_prepare=True,
-                tc_no_auto_validate=True,
-                skip_procurement=True,
-            )._action_confirm()
-
+        # No se confirma ni reserva desde PL físico.
+        # Confirmar aquí dispara stock_whole_lot_removal/_action_assign antes
+        # del Worksheet y puede reconstruir líneas automáticas. La validación
+        # manual de la recepción confirmará el traslado al final del flujo.
         if picking.state == "done":
             raise UserError(_(
                 "Control Tower detuvo el flujo porque la recepción física %(picking)s "
@@ -580,8 +614,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             vals["picked"] = False
 
         return MoveLine.with_context(
-            tc_physical_reception_prepare=True,
-            tc_no_auto_validate=True,
+            self._tc_reception_guard_context()
         ).create(vals)
 
     # -------------------------------------------------------------------------
@@ -693,6 +726,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_apply_physical_reception_pl(self, rows):
         picking = self.picking_id
+        ctx = self._tc_reception_guard_context()
         voyage = self._tc_get_physical_voyage()
 
         if not voyage:
@@ -802,7 +836,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         # Reconstruir únicamente las líneas de la recepción física.
         if picking.move_line_ids:
-            picking.move_line_ids.unlink()
+            picking.move_line_ids.with_context(
+                tc_physical_reception_prepare=True,
+                tc_no_auto_validate=True,
+                skip_procurement=True,
+            ).unlink()
 
         move_map = self._tc_prepare_moves(product_totals)
 
@@ -824,7 +862,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         if picking.ws_spreadsheet_id:
             picking.ws_spreadsheet_id.sudo().unlink()
 
-        picking.write({
+        picking.with_context(ctx).write({
             "packing_list_imported": True,
             "worksheet_imported": False,
             "ws_spreadsheet_id": False,

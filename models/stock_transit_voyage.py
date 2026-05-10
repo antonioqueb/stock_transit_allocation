@@ -1874,6 +1874,19 @@ class StockTransitVoyage(models.Model):
             'tc_no_auto_validate': True,
             'skip_immediate_transfer': True,
             'skip_backorder': True,
+
+            # Defensas para módulos de reserva/validación automática. El botón
+            # Recibir/Abrir Recepción nunca debe reservar por estrategia de
+            # remoción ni ejecutar transferencias.
+            'skip_action_assign': True,
+            'skip_stock_reservation': True,
+            'skip_stock_whole_lot_removal': True,
+            'skip_whole_lot': True,
+            'skip_whole_lot_removal': True,
+            'skip_whole_lot_reservation': True,
+            'skip_whole_lot_strategy': True,
+            'skip_auto_assign': True,
+            'skip_auto_reserve': True,
         })
         return ctx
 
@@ -1951,6 +1964,15 @@ class StockTransitVoyage(models.Model):
             })
 
         return True
+
+    def _tc_reception_has_locked_physical_work(self, picking):
+        self.ensure_one()
+        picking.ensure_one()
+
+        return bool(
+            ('packing_list_imported' in picking._fields and picking.packing_list_imported)
+            or ('worksheet_imported' in picking._fields and picking.worksheet_imported)
+        )
 
     def _tc_open_reception_action(self, picking):
         self.ensure_one()
@@ -2122,7 +2144,7 @@ class StockTransitVoyage(models.Model):
         for move in existing_moves:
             try:
                 if move.state in ('assigned', 'partially_available') and hasattr(move, '_do_unreserve'):
-                    move._do_unreserve()
+                    move.with_context(ctx)._do_unreserve()
             except Exception as e:
                 _logger.warning(
                     "[TC_RECEPTION_WARNING] No se pudo desreservar move %s antes de limpiar recepción física: %s",
@@ -2175,33 +2197,23 @@ class StockTransitVoyage(models.Model):
 
             moves_created += 1
 
-        draft_moves = picking.move_ids.filtered(lambda move: move.state == 'draft')
-        if draft_moves:
-            try:
-                draft_moves.with_context(ctx)._action_confirm()
-            except Exception as e:
-                _logger.exception(
-                    "[TC_RECEPTION_ERROR][MOVE_CONFIRM] No se pudo confirmar la demanda de recepción | "
-                    "voyage=%s | picking=%s | error=%s",
-                    self.name,
-                    picking.name,
-                    str(e),
-                )
-                raise UserError(_(
-                    "La recepción física fue creada, pero no se pudo dejar en espera/lista para trabajar.\n\n"
-                    "Recepción: %(picking)s\n"
-                    "Error técnico: %(error)s"
-                ) % {
-                    'picking': picking.name,
-                    'error': str(e),
-                })
-
-        # Defensa adicional: si algún hook generó líneas operativas marcadas como picked
-        # durante la preparación, se desmarca. La validación real queda reservada al botón Validar.
-        if picking.move_line_ids and 'picked' in self.env['stock.move.line']._fields:
-            picked_lines = picking.move_line_ids.filtered(lambda move_line: move_line.picked)
-            if picked_lines:
-                picked_lines.with_context(ctx).write({'picked': False})
+        # CRÍTICO:
+        # No se confirma la demanda aquí. Confirmar el stock.move dispara
+        # _action_assign() y, en esta instancia, stock_whole_lot_removal puede
+        # reservar lotes automáticamente desde SOM/Transit. Ese intento de
+        # reserva fue el origen del flujo que terminó dejando la recepción en
+        # HECHO. El botón Recibir/Abrir Recepción debe crear demanda en borrador
+        # y abrir el documento; el Packing List físico y el Worksheet son los
+        # únicos pasos que deben construir las líneas operativas reales.
+        if picking.move_line_ids:
+            raise UserError(_(
+                "Control Tower detuvo el flujo porque la recepción física %(picking)s "
+                "generó líneas operativas durante la preparación.\n\n"
+                "El botón Recibir/Abrir Recepción no debe reservar, asignar ni validar stock. "
+                "Debe dejar la recepción abierta para procesar Packing List físico y Worksheet."
+            ) % {
+                'picking': picking.name or picking.display_name,
+            })
 
         self._tc_assert_reception_can_stay_open(
             picking,
@@ -2216,32 +2228,49 @@ class StockTransitVoyage(models.Model):
                 "<b>Productos:</b> %s<br/>"
                 "<b>Total esperado:</b> %.3f<br/>"
                 "<b>Estado:</b> %s<br/><br/>"
-                "La recepción quedó abierta para Packing List físico y Worksheet. "
-                "No fue validada ni marcada como hecha."
+                "La recepción quedó abierta sin confirmar, sin reservar y sin validar. "
+                "Las líneas físicas se construirán únicamente al procesar el Packing List físico "
+                "y el Worksheet."
             ) % (self.name, moves_created, total_qty, picking.state)
         )
 
         return picking
+
     def action_generate_reception(self):
         self.ensure_one()
 
         picking = self.reception_picking_id
+        origin = f"{self.name} (Recepción Física)"
 
-        # Si la recepción ya existe, este botón solo debe abrirla.
-        # No se re-sincroniza aquí porque eso puede borrar el PL/Worksheet ya trabajado.
+        # Si la recepción ya existe y todavía no se procesó PL/Worksheet,
+        # se puede sanear de forma segura. Esto corrige recepciones creadas por
+        # versiones anteriores que quedaron confirmadas/asignadas o con líneas
+        # automáticas al presionar Recibir. Si ya hay trabajo físico, solo se abre.
         if picking and picking.state != 'cancel':
             self._tc_assert_reception_can_stay_open(
                 picking,
                 operation_label=_("abrir la recepción física"),
             )
+
+            if not self._tc_reception_has_locked_physical_work(picking):
+                needs_rebuild = bool(
+                    not picking.move_ids
+                    or picking.move_line_ids
+                    or picking.state != 'draft'
+                )
+                if needs_rebuild:
+                    resolved_lines, _source_location = self._get_reception_candidate_lines()
+                    self._sync_reception_picking_lines(
+                        picking,
+                        resolved_lines=resolved_lines,
+                    )
+
             if self.custom_status != 'reception_pending':
                 self.write({'custom_status': 'reception_pending'})
             return self._tc_open_reception_action(picking)
 
         resolved_lines, source_location = self._get_reception_candidate_lines()
         picking_type, dest_location = self._get_reception_operation_defaults(source_location)
-
-        origin = f"{self.name} (Recepción Física)"
 
         picking = self.env['stock.picking'].search([
             ('origin', '=', origin),
@@ -2256,11 +2285,17 @@ class StockTransitVoyage(models.Model):
                 'custom_status': 'reception_pending',
             })
 
-            if not picking.move_ids and not picking.move_line_ids:
-                self._sync_reception_picking_lines(
-                    picking,
-                    resolved_lines=resolved_lines,
+            if not self._tc_reception_has_locked_physical_work(picking):
+                needs_rebuild = bool(
+                    not picking.move_ids
+                    or picking.move_line_ids
+                    or picking.state != 'draft'
                 )
+                if needs_rebuild:
+                    self._sync_reception_picking_lines(
+                        picking,
+                        resolved_lines=resolved_lines,
+                    )
 
             return self._tc_open_reception_action(picking)
 

@@ -249,6 +249,26 @@ class StockPicking(models.Model):
                 "No se encontró un Viaje de Tránsito vinculado a esta recepción para sincronizar."
             ))
 
+        if (
+            self.picking_type_code == 'internal'
+            and voyage.reception_picking_id
+            and voyage.reception_picking_id.id == self.id
+        ):
+            voyage._sync_reception_picking_lines(self)
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Recepción física saneada'),
+                    'message': _(
+                        'La recepción quedó abierta sin reservar ni validar. '
+                        'Procese el Packing List físico y el Worksheet antes de validar.'
+                    ),
+                    'type': 'success',
+                    'sticky': False,
+                },
+            }
+
         if self.state == 'done':
             raise UserError(_("No puede sincronizar una recepción ya validada."))
 
@@ -366,6 +386,43 @@ class StockPicking(models.Model):
             )
             return False
 
+    def _tc_context_allows_physical_reception_done(self):
+        return bool(self.env.context.get('tc_allow_physical_reception_done'))
+
+    def _tc_block_physical_reception_auto_done(self, operation_label=False):
+        if self._tc_context_allows_physical_reception_done():
+            return True
+
+        blocked = []
+        for pick in self:
+            voyage = pick._tc_get_physical_reception_voyage_for_validation()
+            if voyage:
+                blocked.append((pick, voyage))
+
+        if not blocked:
+            return True
+
+        detail = []
+        for pick, voyage in blocked:
+            detail.append('%s / %s' % (pick.name or pick.display_name, voyage.name or voyage.display_name))
+
+        raise UserError(_(
+            "Control Tower bloqueó una validación automática de recepción física.\n\n"
+            "Operación detectada: %(operation)s\n"
+            "Recepción(es):\n- %(pickings)s\n\n"
+            "Estas recepciones solo pueden quedar en HECHO mediante el botón Validar, "
+            "después de procesar Packing List físico y Worksheet."
+        ) % {
+            'operation': operation_label or _('marcar como hecho'),
+            'pickings': '\n- '.join(detail),
+        })
+
+    def _action_done(self, *args, **kwargs):
+        self._tc_block_physical_reception_auto_done(
+            operation_label=_("_action_done"),
+        )
+        return super(StockPicking, self)._action_done(*args, **kwargs)
+
     def _tc_assert_physical_reception_can_validate(self, voyage=False):
         self.ensure_one()
 
@@ -397,8 +454,24 @@ class StockPicking(models.Model):
         elif not self.worksheet_imported:
             missing_steps.append(_("Procesar el Worksheet físico."))
 
+        positive_physical_lines = self.move_line_ids.filtered(
+            lambda move_line: move_line.product_id
+            and move_line.lot_id
+            and self._tc_move_line_qty(move_line) > 0
+        )
+
         if not self.move_line_ids:
             missing_steps.append(_("Cargar líneas físicas con lote y cantidad real."))
+        elif not positive_physical_lines:
+            missing_steps.append(_("Cargar al menos una línea física con lote y cantidad real positiva."))
+        else:
+            lines_without_lot = self.move_line_ids.filtered(
+                lambda move_line: move_line.product_id
+                and self._tc_move_line_qty(move_line) > 0
+                and not move_line.lot_id
+            )
+            if lines_without_lot:
+                missing_steps.append(_("Todas las líneas físicas con cantidad positiva deben tener lote/placa."))
 
         if missing_steps:
             raise UserError(_(
@@ -417,6 +490,33 @@ class StockPicking(models.Model):
             })
 
         return True
+
+    def _tc_assert_no_forced_done_during_physical_reception(self, operation_label=False):
+        """
+        Guarda dura para cualquier camino que intente cerrar la recepción física.
+
+        Solo se permite cerrar con el contexto tc_allow_physical_reception_done,
+        que se inyecta exclusivamente desde button_validate() después de validar
+        Packing List físico, Worksheet y líneas reales. Aunque PL/Worksheet ya
+        estén procesados, una automatización externa no debe marcar HECHO.
+        """
+        if self._tc_context_allows_physical_reception_done():
+            return True
+
+        self._tc_block_physical_reception_auto_done(
+            operation_label=operation_label or _('_action_done/write(state=done)'),
+        )
+        return True
+
+    def write(self, vals):
+        vals = dict(vals or {})
+
+        if vals.get('state') == 'done' and not self._tc_context_allows_physical_reception_done():
+            self._tc_assert_no_forced_done_during_physical_reception(
+                operation_label=_("write(state=done)"),
+            )
+
+        return super(StockPicking, self).write(vals)
 
     def button_validate(self):
         """
@@ -443,7 +543,7 @@ class StockPicking(models.Model):
             self.ids,
         )
 
-        res = super(StockPicking, self).button_validate()
+        res = super(StockPicking, self.with_context(tc_allow_physical_reception_done=True)).button_validate()
 
         for pick in self:
             voyage = physical_voyage_by_pick.get(pick.id)
@@ -1081,3 +1181,53 @@ class StockPicking(models.Model):
             'domain': [('picking_id', '=', self.id)],
             'context': {'default_picking_id': self.id},
         }
+
+
+
+class StockMove(models.Model):
+    _inherit = 'stock.move'
+
+    def _tc_guarded_physical_reception_pickings(self):
+        return self.mapped('picking_id').filtered(
+            lambda picking: picking
+            and picking.exists()
+            and hasattr(picking, '_tc_get_physical_reception_voyage_for_validation')
+            and picking._tc_get_physical_reception_voyage_for_validation()
+        )
+
+    def _tc_assert_physical_reception_moves_can_be_done(self):
+        """Bloquea _action_done() sobre recepciones físicas no autorizadas."""
+        pickings = self._tc_guarded_physical_reception_pickings()
+
+        for picking in pickings:
+            if hasattr(picking, '_tc_assert_no_forced_done_during_physical_reception'):
+                picking._tc_assert_no_forced_done_during_physical_reception(
+                    operation_label=_("stock.move._action_done"),
+                )
+
+        return True
+
+    def _action_assign(self, *args, **kwargs):
+        if self.env.context.get('tc_physical_reception_prepare') or self.env.context.get('tc_no_auto_validate'):
+            guarded_moves = self.filtered(
+                lambda move: move.picking_id in self._tc_guarded_physical_reception_pickings()
+            )
+            other_moves = self - guarded_moves
+
+            if guarded_moves:
+                _logger.info(
+                    "[TC_RECEPTION_GUARD] Se omitió _action_assign durante preparación de recepción física. moves=%s pickings=%s",
+                    guarded_moves.ids,
+                    guarded_moves.mapped('picking_id.name'),
+                )
+
+            if other_moves:
+                return super(StockMove, other_moves)._action_assign(*args, **kwargs)
+
+            return True
+
+        return super(StockMove, self)._action_assign(*args, **kwargs)
+
+    def _action_done(self, *args, **kwargs):
+        self._tc_assert_physical_reception_moves_can_be_done()
+        return super(StockMove, self)._action_done(*args, **kwargs)
