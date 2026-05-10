@@ -544,7 +544,19 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         draft_moves = picking.move_ids.filtered(lambda move: move.state == "draft")
         if draft_moves:
-            draft_moves._action_confirm()
+            draft_moves.with_context(
+                tc_physical_reception_prepare=True,
+                tc_no_auto_validate=True,
+                skip_procurement=True,
+            )._action_confirm()
+
+        if picking.state == "done":
+            raise UserError(_(
+                "Control Tower detuvo el flujo porque la recepción física %(picking)s "
+                "quedó en HECHO al preparar movimientos desde el Packing List físico."
+            ) % {
+                "picking": picking.name or picking.display_name,
+            })
 
         return move_map
 
@@ -563,7 +575,14 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             qty_field: qty,
         }
 
-        return self.env["stock.move.line"].create(vals)
+        MoveLine = self.env["stock.move.line"]
+        if "picked" in MoveLine._fields:
+            vals["picked"] = False
+
+        return MoveLine.with_context(
+            tc_physical_reception_prepare=True,
+            tc_no_auto_validate=True,
+        ).create(vals)
 
     # -------------------------------------------------------------------------
     #  RENOMBRADO FINAL DE LOTES
@@ -810,6 +829,15 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             "worksheet_imported": False,
             "ws_spreadsheet_id": False,
         })
+
+        if picking.state == "done":
+            raise UserError(_(
+                "Control Tower detuvo el flujo porque la recepción física %(picking)s "
+                "se marcó como HECHO al procesar el Packing List físico. "
+                "La validación solo puede ejecutarse después del Worksheet y mediante Validar."
+            ) % {
+                "picking": picking.name or picking.display_name,
+            })
 
         picking.message_post(body=_(
             "📋 PL físico conciliado desde Torre de Control. "

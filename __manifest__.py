@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.13.1.0',
+    'version': '19.0.13.2.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
+
+        Novedades v13.2:
+        - Protección estricta para que Recibir/Abrir Recepción prepare la recepción física sin validarla.
+        - Bloqueo de auto-validación en recepción física hasta procesar Packing List y Worksheet.
+        - Reabrir recepción existente ya no reconstruye ni borra PL/Worksheet trabajados.
 
         Novedades v13.1:
         - Hotfix de assets para registrar correctamente action_transit_allocation.

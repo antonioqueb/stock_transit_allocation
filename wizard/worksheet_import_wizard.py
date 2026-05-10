@@ -103,9 +103,17 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
         )
 
     def _tc_set_move_line_qty(self, move_line, qty):
-        move_line.write({
+        vals = {
             self._tc_qty_field(): qty,
-        })
+        }
+
+        if "picked" in move_line._fields:
+            vals["picked"] = False
+
+        move_line.with_context(
+            tc_physical_reception_prepare=True,
+            tc_no_auto_validate=True,
+        ).write(vals)
 
     def _tc_effective_real_qty(self, product, lot, alto_real, ancho_real, fallback_qty):
         unit_type = product.product_tmpl_id.x_unidad_del_producto or getattr(lot, "x_tipo", "Placa") or "Placa"
@@ -301,6 +309,15 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
         picking.write({
             "worksheet_imported": True,
         })
+
+        if picking.state == "done":
+            raise UserError(_(
+                "Control Tower detuvo el flujo porque la recepción física %(picking)s "
+                "se marcó como HECHO al procesar el Worksheet. "
+                "Después del Worksheet debe quedar lista para validación manual, no validada automáticamente."
+            ) % {
+                "picking": picking.name or picking.display_name,
+            })
 
         picking.message_post(body=_(
             "📐 Worksheet físico procesado. "

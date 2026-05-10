@@ -349,6 +349,75 @@ class StockPicking(models.Model):
             "No se encontraron líneas válidas con lote y cantidad mayor a cero en el viaje para sincronizar."
         ))
 
+    def _tc_get_physical_reception_voyage_for_validation(self):
+        self.ensure_one()
+
+        if self.picking_type_code != 'internal':
+            return False
+
+        try:
+            return self._get_linked_reception_voyage()
+        except Exception as e:
+            _logger.warning(
+                "[TC_RECEPTION_GUARD] No se pudo resolver viaje de recepción para picking %s: %s",
+                self.id,
+                e,
+                exc_info=True,
+            )
+            return False
+
+    def _tc_assert_physical_reception_can_validate(self, voyage=False):
+        self.ensure_one()
+
+        voyage = voyage or self._tc_get_physical_reception_voyage_for_validation()
+        if not voyage:
+            return True
+
+        if self.env.context.get('tc_physical_reception_prepare') or self.env.context.get('tc_no_auto_validate'):
+            raise UserError(_(
+                "La recepción física %(picking)s está en preparación desde Torre de Control.\n\n"
+                "El botón Recibir/Abrir Recepción no puede validar ni marcar la operación como hecha. "
+                "Primero debe trabajar el Packing List físico y el Worksheet."
+            ) % {
+                'picking': self.name or self.display_name,
+            })
+
+        if self.state == 'cancel':
+            raise UserError(_("No puede validar una recepción física cancelada."))
+
+        missing_steps = []
+
+        if 'packing_list_imported' not in self._fields:
+            missing_steps.append(_("El módulo no expone el control packing_list_imported."))
+        elif not self.packing_list_imported:
+            missing_steps.append(_("Procesar o reprocesar el Packing List físico."))
+
+        if 'worksheet_imported' not in self._fields:
+            missing_steps.append(_("El módulo no expone el control worksheet_imported."))
+        elif not self.worksheet_imported:
+            missing_steps.append(_("Procesar el Worksheet físico."))
+
+        if not self.move_line_ids:
+            missing_steps.append(_("Cargar líneas físicas con lote y cantidad real."))
+
+        if missing_steps:
+            raise UserError(_(
+                "No puede validar la recepción física %(picking)s del embarque %(voyage)s todavía.\n\n"
+                "Pendiente:\n- %(steps)s\n\n"
+                "Flujo requerido:\n"
+                "1. Abrir la recepción.\n"
+                "2. Corregir o confirmar el Packing List físico.\n"
+                "3. Procesar/reprocesar el Packing List físico.\n"
+                "4. Generar y procesar el Worksheet.\n"
+                "5. Validar manualmente la recepción física."
+            ) % {
+                'picking': self.name or self.display_name,
+                'voyage': voyage.name if voyage else '',
+                'steps': '\n- '.join(missing_steps),
+            })
+
+        return True
+
     def button_validate(self):
         """
         Validación protegida para recepción física.
@@ -360,25 +429,14 @@ class StockPicking(models.Model):
         Además, cuando la recepción física se valida, se pasan los lotes
         preasignados desde Torre de Control hacia la entrega del pedido.
         """
-        for pick in self:
-            voyage = pick._get_linked_reception_voyage()
+        physical_voyage_by_pick = {}
 
-            if (
-                voyage
-                and pick.picking_type_code == 'internal'
-                and pick.state not in ('done', 'cancel')
-                and 'worksheet_imported' in pick._fields
-                and not pick.worksheet_imported
-            ):
-                raise UserError(_(
-                    "Debe procesar el Worksheet físico antes de validar la recepción.\n\n"
-                    "Flujo requerido:\n"
-                    "1. Corregir o confirmar el Packing List físico.\n"
-                    "2. Reprocesar el Packing List físico.\n"
-                    "3. Generar o abrir el Worksheet.\n"
-                    "4. Capturar/procesar medidas reales.\n"
-                    "5. Validar la recepción física."
-                ))
+        for pick in self:
+            voyage = pick._tc_get_physical_reception_voyage_for_validation()
+            if voyage:
+                physical_voyage_by_pick[pick.id] = voyage
+                if pick.state != 'done':
+                    pick._tc_assert_physical_reception_can_validate(voyage=voyage)
 
         _logger.info(
             "=== [TC_DEBUG] VALIDATE BUTTON CLICKED - Picking IDs: %s ===",
@@ -386,6 +444,11 @@ class StockPicking(models.Model):
         )
 
         res = super(StockPicking, self).button_validate()
+
+        for pick in self:
+            voyage = physical_voyage_by_pick.get(pick.id)
+            if voyage and pick.state == 'done':
+                pick._tc_assert_physical_reception_can_validate(voyage=voyage)
 
         for pick in self:
             is_transit_loc = False
