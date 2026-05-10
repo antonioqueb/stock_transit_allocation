@@ -154,7 +154,7 @@ class TransitAllocationLogic(models.AbstractModel):
 
         lot = transit_line.lot_id
 
-        row = {
+        return {
             'id': transit_line.id,
             'product_id': product.id,
             'product_name': product.display_name,
@@ -182,7 +182,6 @@ class TransitAllocationLogic(models.AbstractModel):
             'x_ancho': getattr(lot, 'x_ancho', 0.0) or 0.0,
             'x_color': getattr(lot, 'x_color', '') or '',
         }
-        return row
 
     def _tal_make_sale_line_row(self, sale_line, metrics, payment_percent, allocation_info):
         row = self._hub_make_sale_line_row(
@@ -617,6 +616,15 @@ class StockTransitLineTransitAllocationSync(models.Model):
             'lot_ids': [(6, 0, merged_lot_ids)],
         }
 
+        # CRÍTICO:
+        # Al asignar lotes de tránsito a una línea que venía de "Mandar a pedir",
+        # Odoo evalúa la restricción _check_transit_vs_lots en el mismo write().
+        # Si auto_transit_assign sigue activo y la línea queda cubierta, se dispara:
+        # "No puede marcarse como Mandar a pedir si no queda cantidad pendiente".
+        # Por eso se limpia auto_transit_assign EN EL MISMO write que agrega lot_ids.
+        if merged_lot_ids and 'auto_transit_assign' in sale_line._fields:
+            vals['auto_transit_assign'] = False
+
         if 'x_lot_breakdown_json' in sale_line._fields:
             vals['x_lot_breakdown_json'] = self._tal_build_breakdown_from_transit_lines(
                 sale_line,
@@ -631,8 +639,7 @@ class StockTransitLineTransitAllocationSync(models.Model):
             skip_transit_sale_sync=True,
         ).write(vals)
 
-        # Si la línea ya quedó cubierta, limpia intención de compra. Si aún queda
-        # pendiente, se conserva para que siga apareciendo en compra/tránsito según aplique.
+        # Si la línea ya quedó cubierta, limpia intención de compra.
         if hasattr(sale_line, '_tc_get_pending_allocation_qty'):
             pending_qty = sale_line._tc_get_pending_allocation_qty()
             rounding = sale_line._tc_get_qty_rounding() if hasattr(sale_line, '_tc_get_qty_rounding') else 0.0001
