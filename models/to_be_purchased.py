@@ -471,13 +471,16 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
     def _hub_get_free_transit_info_by_product(self, product_ids):
         """
-        Contexto de inventario EN TRÁNSITO LIBRE por producto.
+        Contexto resumido de inventario EN TRÁNSITO LIBRE por producto.
 
-        A diferencia de _hub_get_transit_qty_by_product(), que lee quants en
-        ubicación tránsito, este helper usa stock.transit.line como fuente
-        funcional para respetar la clasificación comercial de Torre de Control:
+        Usa stock.transit.line como fuente funcional para respetar la
+        clasificación comercial de Torre de Control:
         libre = allocation_status available, sin cliente, sin SO y con viaje
         activo. Además valida que exista quant positivo en ubicación tránsito.
+
+        La respuesta NO devuelve el detalle por lote. Solo agrega cantidad libre
+        por ETA para que To Be Purchased muestre un indicador manejable aunque
+        existan miles de placas/líneas en tránsito.
         """
         if not product_ids:
             return {}
@@ -549,7 +552,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             'qty_m2': 0.0,
             'qty_pieces': 0.0,
             'count': 0,
-            'lines': [],
+            '_eta_summary_map': {},
         })
 
         for line in transit_lines:
@@ -563,49 +566,49 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
             product = line.product_id
             voyage = line.voyage_id
-            lot = line.lot_id
             qty_m2, qty_pieces = self._split_qty_by_unit(product, qty)
-            status_label = ''
-
-            if voyage:
-                status_label = dict(voyage._fields['custom_status'].selection).get(
-                    voyage.custom_status,
-                    voyage.custom_status,
-                )
+            eta_key = voyage.eta.strftime('%Y-%m-%d') if voyage and voyage.eta else ''
 
             product_bucket = result[product.id]
             product_bucket['qty'] += qty
             product_bucket['qty_m2'] += qty_m2
             product_bucket['qty_pieces'] += qty_pieces
             product_bucket['count'] += 1
-            product_bucket['lines'].append({
-                'id': line.id,
-                'product_id': product.id,
-                'lot_id': lot.id if lot else False,
-                'lot_name': lot.name if lot else '',
-                'qty': qty,
-                'qty_m2': qty_m2,
-                'qty_pieces': qty_pieces,
-                'unit_label': self._get_product_unit_label(product),
-                'voyage_id': voyage.id if voyage else False,
-                'voyage_name': voyage.name if voyage else '',
-                'voyage_status': voyage.custom_status if voyage else '',
-                'voyage_status_label': status_label,
-                'eta': voyage.eta.strftime('%Y-%m-%d') if voyage and voyage.eta else '',
-                'container_number': line.container_number or (voyage.container_number if voyage else '') or '',
-                'purchase_id': line.purchase_id.id if line.purchase_id else False,
-                'purchase_name': line.purchase_id.name if line.purchase_id else '',
-                'vendor': line.vendor_id.name if line.vendor_id else '',
-                'location': quant.location_id.complete_name if quant.location_id else '',
-                'x_bloque': getattr(lot, 'x_bloque', '') or '',
-                'x_atado': getattr(lot, 'x_atado', '') or '',
-                'x_grosor': getattr(lot, 'x_grosor', '') or '',
-                'x_alto': getattr(lot, 'x_alto', 0.0) or 0.0,
-                'x_ancho': getattr(lot, 'x_ancho', 0.0) or 0.0,
-                'x_color': getattr(lot, 'x_color', '') or '',
-            })
 
-        return dict(result)
+            eta_summary = product_bucket['_eta_summary_map']
+            if eta_key not in eta_summary:
+                eta_summary[eta_key] = {
+                    'eta': eta_key,
+                    'eta_label': eta_key or 'Sin ETA',
+                    'qty': 0.0,
+                    'qty_m2': 0.0,
+                    'qty_pieces': 0.0,
+                    'count': 0,
+                }
+
+            eta_summary[eta_key]['qty'] += qty
+            eta_summary[eta_key]['qty_m2'] += qty_m2
+            eta_summary[eta_key]['qty_pieces'] += qty_pieces
+            eta_summary[eta_key]['count'] += 1
+
+        clean_result = {}
+
+        for product_id, bucket in result.items():
+            eta_summary = list(bucket.pop('_eta_summary_map').values())
+            eta_summary.sort(key=lambda item: item.get('eta') or '9999-12-31')
+            bucket['eta_summary'] = eta_summary
+            bucket['eta_count'] = len(eta_summary)
+
+            next_eta = eta_summary[0] if eta_summary else {}
+            bucket['next_eta'] = next_eta.get('eta', '')
+            bucket['next_eta_label'] = next_eta.get('eta_label', '')
+            bucket['next_eta_qty'] = next_eta.get('qty', 0.0)
+            bucket['next_eta_qty_m2'] = next_eta.get('qty_m2', 0.0)
+            bucket['next_eta_qty_pieces'] = next_eta.get('qty_pieces', 0.0)
+
+            clean_result[product_id] = bucket
+
+        return clean_result
 
     def _hub_get_open_po_qty_by_product(self, product_ids):
         if not product_ids:
@@ -1046,8 +1049,9 @@ class ToBePurchasedLogic(models.AbstractModel):
             qty_i = transit_info.get('qty', 0.0)
             qty_i_m2 = transit_info.get('qty_m2', 0.0)
             qty_i_pieces = transit_info.get('qty_pieces', 0.0)
-            transit_free_lines = transit_info.get('lines', [])
-            transit_free_count = transit_info.get('count', len(transit_free_lines))
+            transit_free_count = transit_info.get('count', 0)
+            transit_free_eta_summary = transit_info.get('eta_summary', [])
+            transit_free_eta_count = transit_info.get('eta_count', len(transit_free_eta_summary))
             qty_p = open_po_qty_by_product.get(product.id, 0.0)
             # total_demanded ya viene neto de allocations/OC activas vinculadas a SO.
             # No se resta qty_p aquí porque eso descontaría de nuevo la OC ya ligada
@@ -1074,7 +1078,13 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'qty_i_free_m2': qty_i_m2,
                 'qty_i_free_pieces': qty_i_pieces,
                 'transit_free_count': transit_free_count,
-                'transit_free_lines': transit_free_lines,
+                'transit_free_eta_summary': transit_free_eta_summary,
+                'transit_free_eta_count': transit_free_eta_count,
+                'transit_free_next_eta': transit_info.get('next_eta', ''),
+                'transit_free_next_eta_label': transit_info.get('next_eta_label', ''),
+                'transit_free_next_eta_qty': transit_info.get('next_eta_qty', 0.0),
+                'transit_free_next_eta_qty_m2': transit_info.get('next_eta_qty_m2', 0.0),
+                'transit_free_next_eta_qty_pieces': transit_info.get('next_eta_qty_pieces', 0.0),
                 'qty_p': qty_p,
                 'qty_total': qty_a + qty_i + qty_p,
                 'qty_so': total_demanded,

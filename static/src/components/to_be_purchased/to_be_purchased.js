@@ -99,16 +99,14 @@ export class ToBePurchased extends Component {
                     line.po_name || "",
                 ].join(" ")).join(" ");
 
-                const transitText = (product.transit_free_lines || []).map((line) => [
-                    line.lot_name || "",
-                    line.voyage_name || "",
-                    line.container_number || "",
-                    line.purchase_name || "",
-                    line.vendor || "",
-                    line.x_bloque || "",
-                    line.x_atado || "",
-                    line.x_color || "",
+                const transitText = (product.transit_free_eta_summary || []).map((etaRow) => [
+                    etaRow.eta || "",
+                    etaRow.eta_label || "",
+                    etaRow.qty || "",
+                    etaRow.qty_m2 || "",
+                    etaRow.qty_pieces || "",
                 ].join(" ")).join(" ");
+
 
                 const haystack = [
                     product.name || "",
@@ -250,7 +248,13 @@ export class ToBePurchased extends Component {
                     qty_i_free_pieces: product.qty_i_free_pieces,
                     qty_p_pieces: product.qty_p_pieces,
                     transit_free_count: product.transit_free_count,
-                    transit_free_lines: product.transit_free_lines,
+                    transit_free_eta_summary: product.transit_free_eta_summary,
+                    transit_free_eta_count: product.transit_free_eta_count,
+                    transit_free_next_eta: product.transit_free_next_eta,
+                    transit_free_next_eta_label: product.transit_free_next_eta_label,
+                    transit_free_next_eta_qty: product.transit_free_next_eta_qty,
+                    transit_free_next_eta_qty_m2: product.transit_free_next_eta_qty_m2,
+                    transit_free_next_eta_qty_pieces: product.transit_free_next_eta_qty_pieces,
                 });
 
                 soMap[soKey].total_pending += Number(soLine.qty_pending || 0);
@@ -313,7 +317,13 @@ export class ToBePurchased extends Component {
                 qty_i_free_pieces: product.qty_i_free_pieces,
                 qty_p_pieces: product.qty_p_pieces,
                 transit_free_count: product.transit_free_count,
-                transit_free_lines: product.transit_free_lines,
+                transit_free_eta_summary: product.transit_free_eta_summary,
+                transit_free_eta_count: product.transit_free_eta_count,
+                transit_free_next_eta: product.transit_free_next_eta,
+                transit_free_next_eta_label: product.transit_free_next_eta_label,
+                transit_free_next_eta_qty: product.transit_free_next_eta_qty,
+                transit_free_next_eta_qty_m2: product.transit_free_next_eta_qty_m2,
+                transit_free_next_eta_qty_pieces: product.transit_free_next_eta_qty_pieces,
             });
 
             group.total_pending += Number(soLine.qty_pending || 0);
@@ -902,9 +912,28 @@ export class ToBePurchased extends Component {
         );
     }
 
-    fmtTransitFreeLine(line) {
-        if (!line) return "0.00";
-        return this.fmtSplitQty(line.qty_m2, line.qty_pieces);
+    fmtTransitFreeEtaSummary(product) {
+        const rows = (product && product.transit_free_eta_summary) || [];
+        if (!rows.length) {
+            return "Sin tránsito libre";
+        }
+
+        return rows.map((row) => {
+            const eta = row.eta_label || row.eta || "Sin ETA";
+            const qty = this.fmtSplitQty(row.qty_m2, row.qty_pieces);
+            return `ETA ${eta}: ${qty}`;
+        }).join(" · ");
+    }
+
+    fmtTransitFreeCell(product) {
+        const qty = this.fmtTransitFree(product);
+        const etaSummary = this.fmtTransitFreeEtaSummary(product);
+
+        if (!product || !product.transit_free_count) {
+            return qty;
+        }
+
+        return `${qty} · ${etaSummary}`;
     }
 
     fmtDays(value) {
