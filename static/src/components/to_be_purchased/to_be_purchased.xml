@@ -197,7 +197,17 @@
                                                     <tr>
                                                         <td>
                                                             <div class="o_tbp_cell_main" t-att-title="shipment.shipment_name || shipment.voyage_name">
-                                                                <t t-esc="shipment.shipment_name || shipment.voyage_name || 'Sin embarque'"/>
+                                                                <a t-if="shipment.shipment_res_id || shipment.voyage_id || shipment.shipment_id"
+                                                                   class="o_tbp_link"
+                                                                   t-att-href="transitShipmentUrl(shipment)"
+                                                                   target="_blank"
+                                                                   rel="noopener noreferrer">
+                                                                    <t t-esc="shipment.shipment_name || shipment.voyage_name || 'Sin embarque'"/>
+                                                                    <i class="fa fa-external-link ms-1"/>
+                                                                </a>
+                                                                <span t-else="">
+                                                                    <t t-esc="shipment.shipment_name || shipment.voyage_name || 'Sin embarque'"/>
+                                                                </span>
                                                             </div>
                                                             <div t-if="shipment.bl_number" class="o_tbp_cell_sub" t-att-title="shipment.bl_number">
                                                                 BL <t t-esc="shipment.bl_number"/>
@@ -217,7 +227,24 @@
                                                         <td><t t-esc="shipment.status_label || 'Sin estado'"/></td>
                                                         <td>
                                                             <div class="o_tbp_cell_sub" t-att-title="shipment.purchase_names">
-                                                                <t t-esc="shipment.purchase_names || 'Sin OC'"/>
+                                                                <t t-if="getTransitPurchaseRefs(shipment).length">
+                                                                    <t t-foreach="getTransitPurchaseRefs(shipment)" t-as="purchase" t-key="purchase.id">
+                                                                        <a class="o_tbp_link me-1"
+                                                                           t-att-href="purchaseOrderUrl(purchase.id)"
+                                                                           target="_blank"
+                                                                           rel="noopener noreferrer">
+                                                                            <t t-esc="purchase.name"/>
+                                                                            <i class="fa fa-external-link ms-1"/>
+                                                                        </a>
+                                                                    </t>
+                                                                    <span t-if="getTransitPurchaseMoreCount(shipment)">
+                                                                        +<t t-esc="getTransitPurchaseMoreCount(shipment)"/>
+                                                                    </span>
+                                                                </t>
+                                                                <t t-elif="shipment.purchase_names">
+                                                                    <t t-esc="shipment.purchase_names"/>
+                                                                </t>
+                                                                <t t-else="">Sin OC</t>
                                                             </div>
                                                         </td>
                                                         <td class="text-end o_tbp_transit_qty">

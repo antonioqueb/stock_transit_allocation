@@ -865,6 +865,46 @@ export class ToBePurchased extends Component {
         }
     }
 
+    recordUrl(model, resId) {
+        if (!model || !resId) {
+            return "#";
+        }
+
+        return `/web#id=${encodeURIComponent(resId)}&model=${encodeURIComponent(model)}&view_type=form`;
+    }
+
+    transitShipmentUrl(shipment) {
+        if (!shipment) {
+            return "#";
+        }
+
+        const model = shipment.shipment_model || (shipment.voyage_id ? "stock.transit.voyage" : "supplier.shipment");
+        const resId = shipment.shipment_res_id || shipment.voyage_id || shipment.shipment_id;
+        return this.recordUrl(model, resId);
+    }
+
+    purchaseOrderUrl(poId) {
+        return this.recordUrl("purchase.order", poId);
+    }
+
+    getTransitPurchaseRefs(shipment) {
+        if (!shipment || !Array.isArray(shipment.purchase_refs)) {
+            return [];
+        }
+
+        return shipment.purchase_refs.filter((purchase) => purchase && purchase.id && purchase.name);
+    }
+
+    getTransitPurchaseMoreCount(shipment) {
+        if (!shipment) {
+            return 0;
+        }
+
+        const refs = this.getTransitPurchaseRefs(shipment);
+        const total = Number(shipment.purchase_count || refs.length || 0);
+        return Math.max(total - refs.length, Number(shipment.purchase_more_count || 0), 0);
+    }
+
     async openPurchaseOrder(poId, ev) {
         if (ev) {
             ev.stopPropagation();

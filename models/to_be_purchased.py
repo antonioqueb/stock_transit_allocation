@@ -634,6 +634,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                     'key': shipment_key,
                     'shipment_id': shipment.id if shipment else False,
                     'shipment_name': shipment_name,
+                    'shipment_model': 'supplier.shipment' if shipment else ('stock.transit.voyage' if voyage else ''),
+                    'shipment_res_id': shipment.id if shipment else (voyage.id if voyage else False),
                     'voyage_id': voyage.id if voyage else False,
                     'voyage_name': voyage.name if voyage else '',
                     'eta': eta_key if eta_date else '',
@@ -649,12 +651,14 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                     'vendor_names': '',
                     'purchase_count': 0,
                     'purchase_names': '',
+                    'purchase_refs': [],
                     'status': voyage.custom_status if voyage else '',
                     'status_label': _voyage_status_label(voyage) or _shipment_status_label(shipment),
                     'bl_number': (shipment.bl_number if shipment and 'bl_number' in shipment._fields else '') or (voyage.bl_number if voyage else '') or '',
                     '_container_numbers': set(),
                     '_vendor_names': set(),
                     '_purchase_names': set(),
+                    '_purchase_refs': {},
                 }
 
             shipment_group = shipment_group_map[shipment_key]
@@ -674,12 +678,12 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             )
             _add_limited_name(shipment_group['_vendor_names'], vendor_name)
 
-            purchase_name = (
-                (line.purchase_id.name if line.purchase_id else '')
-                or (voyage.purchase_id.name if voyage and voyage.purchase_id else '')
-                or (shipment.purchase_id.name if shipment and shipment.purchase_id else '')
-            )
+            purchase = line.purchase_id or (voyage.purchase_id if voyage else False) or (shipment.purchase_id if shipment else False)
+            purchase_name = purchase.name if purchase else ''
             _add_limited_name(shipment_group['_purchase_names'], purchase_name)
+
+            if purchase and purchase.exists() and purchase.name:
+                shipment_group['_purchase_refs'][purchase.id] = purchase.name
 
             # Grupo secundario por ETA para conservar compatibilidad y tooltip.
             eta_group_map = product_bucket['_eta_group_map']
@@ -722,6 +726,14 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 container_numbers = sorted(group.pop('_container_numbers', set()))
                 vendor_names = sorted(group.pop('_vendor_names', set()))
                 purchase_names = sorted(group.pop('_purchase_names', set()))
+                purchase_refs_map = group.pop('_purchase_refs', {})
+                purchase_refs = [
+                    {'id': purchase_id, 'name': purchase_name}
+                    for purchase_id, purchase_name in sorted(
+                        purchase_refs_map.items(),
+                        key=lambda item: item[1] or '',
+                    )
+                ]
 
                 group['container_count'] = len(container_numbers)
                 group['vendor_count'] = len(vendor_names)
@@ -729,6 +741,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 group['container_numbers'] = ', '.join(container_numbers[:3])
                 group['vendor_names'] = ', '.join(vendor_names[:3])
                 group['purchase_names'] = ', '.join(purchase_names[:3])
+                group['purchase_refs'] = purchase_refs[:3]
+                group['purchase_more_count'] = max(len(purchase_refs) - 3, 0)
 
                 if len(container_numbers) > 3:
                     group['container_numbers'] += ' +%s' % (len(container_numbers) - 3)
