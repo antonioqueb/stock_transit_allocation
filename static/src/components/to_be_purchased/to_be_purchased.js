@@ -99,6 +99,17 @@ export class ToBePurchased extends Component {
                     line.po_name || "",
                 ].join(" ")).join(" ");
 
+                const transitText = (product.transit_free_lines || []).map((line) => [
+                    line.lot_name || "",
+                    line.voyage_name || "",
+                    line.container_number || "",
+                    line.purchase_name || "",
+                    line.vendor || "",
+                    line.x_bloque || "",
+                    line.x_atado || "",
+                    line.x_color || "",
+                ].join(" ")).join(" ");
+
                 const haystack = [
                     product.name || "",
                     product.vendor || "",
@@ -108,6 +119,7 @@ export class ToBePurchased extends Component {
                     product.product_type || "",
                     product.unit_label || "",
                     lineText,
+                    transitText,
                 ].join(" ").toLowerCase();
 
                 return haystack.includes(query);
@@ -227,13 +239,18 @@ export class ToBePurchased extends Component {
                     product_type: product.product_type,
                     qty_a: product.qty_a,
                     qty_i: product.qty_i,
+                    qty_i_free: product.qty_i_free,
                     qty_p: product.qty_p,
                     qty_a_m2: product.qty_a_m2,
                     qty_i_m2: product.qty_i_m2,
+                    qty_i_free_m2: product.qty_i_free_m2,
                     qty_p_m2: product.qty_p_m2,
                     qty_a_pieces: product.qty_a_pieces,
                     qty_i_pieces: product.qty_i_pieces,
+                    qty_i_free_pieces: product.qty_i_free_pieces,
                     qty_p_pieces: product.qty_p_pieces,
+                    transit_free_count: product.transit_free_count,
+                    transit_free_lines: product.transit_free_lines,
                 });
 
                 soMap[soKey].total_pending += Number(soLine.qty_pending || 0);
@@ -285,13 +302,18 @@ export class ToBePurchased extends Component {
                 product_type: product.product_type,
                 qty_a: product.qty_a,
                 qty_i: product.qty_i,
+                qty_i_free: product.qty_i_free,
                 qty_p: product.qty_p,
                 qty_a_m2: product.qty_a_m2,
                 qty_i_m2: product.qty_i_m2,
+                qty_i_free_m2: product.qty_i_free_m2,
                 qty_p_m2: product.qty_p_m2,
                 qty_a_pieces: product.qty_a_pieces,
                 qty_i_pieces: product.qty_i_pieces,
+                qty_i_free_pieces: product.qty_i_free_pieces,
                 qty_p_pieces: product.qty_p_pieces,
+                transit_free_count: product.transit_free_count,
+                transit_free_lines: product.transit_free_lines,
             });
 
             group.total_pending += Number(soLine.qty_pending || 0);
@@ -870,6 +892,19 @@ export class ToBePurchased extends Component {
         if (Number(m2 || 0) > 0) parts.push(`${this.fmtNum(m2)} m²`);
         if (Number(pieces || 0) > 0) parts.push(`${this.fmtNum(pieces)} pzas`);
         return parts.length ? parts.join(" · ") : "0.00";
+    }
+
+    fmtTransitFree(product) {
+        if (!product) return "0.00";
+        return this.fmtSplitQty(
+            product.qty_i_free_m2 !== undefined ? product.qty_i_free_m2 : product.qty_i_m2,
+            product.qty_i_free_pieces !== undefined ? product.qty_i_free_pieces : product.qty_i_pieces
+        );
+    }
+
+    fmtTransitFreeLine(line) {
+        if (!line) return "0.00";
+        return this.fmtSplitQty(line.qty_m2, line.qty_pieces);
     }
 
     fmtDays(value) {

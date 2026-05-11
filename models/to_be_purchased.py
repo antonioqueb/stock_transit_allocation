@@ -469,6 +469,144 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
         return dict(qty_map)
 
+    def _hub_get_free_transit_info_by_product(self, product_ids):
+        """
+        Contexto de inventario EN TRÁNSITO LIBRE por producto.
+
+        A diferencia de _hub_get_transit_qty_by_product(), que lee quants en
+        ubicación tránsito, este helper usa stock.transit.line como fuente
+        funcional para respetar la clasificación comercial de Torre de Control:
+        libre = allocation_status available, sin cliente, sin SO y con viaje
+        activo. Además valida que exista quant positivo en ubicación tránsito.
+        """
+        if not product_ids:
+            return {}
+
+        TransitLine = self.env['stock.transit.line'].sudo()
+        Quant = self.env['stock.quant'].sudo()
+
+        transit_lines = TransitLine.search([
+            ('product_id', 'in', list(product_ids)),
+            ('lot_id', '!=', False),
+            ('product_uom_qty', '>', 0),
+            ('allocation_status', '=', 'available'),
+            ('partner_id', '=', False),
+            ('order_id', '=', False),
+            ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+        ], order='eta asc, voyage_id asc, product_id asc, id asc')
+
+        if not transit_lines:
+            return {}
+
+        def _is_valid_transit_quant(line, quant):
+            return bool(
+                quant
+                and quant.exists()
+                and quant.product_id.id == line.product_id.id
+                and quant.lot_id.id == line.lot_id.id
+                and quant.quantity > 0
+                and quant.location_id.usage == 'transit'
+                and (
+                    not quant.company_id
+                    or not line.company_id
+                    or quant.company_id.id == line.company_id.id
+                )
+            )
+
+        valid_quant_by_line = {}
+        missing_lines = self.env['stock.transit.line'].sudo()
+
+        for line in transit_lines:
+            if _is_valid_transit_quant(line, line.quant_id):
+                valid_quant_by_line[line.id] = line.quant_id
+            else:
+                missing_lines |= line
+
+        if missing_lines:
+            quant_domain = [
+                ('product_id', 'in', missing_lines.mapped('product_id').ids),
+                ('lot_id', 'in', missing_lines.mapped('lot_id').ids),
+                ('quantity', '>', 0),
+                ('location_id.usage', '=', 'transit'),
+            ]
+
+            if 'company_id' in Quant._fields and self.env.company:
+                quant_domain.append(('company_id', 'in', [False, self.env.company.id]))
+
+            quant_map = {}
+            for quant in Quant.search(quant_domain, order='id desc'):
+                key = (quant.product_id.id, quant.lot_id.id)
+                if key not in quant_map:
+                    quant_map[key] = quant
+
+            for line in missing_lines:
+                quant = quant_map.get((line.product_id.id, line.lot_id.id))
+                if quant and _is_valid_transit_quant(line, quant):
+                    valid_quant_by_line[line.id] = quant
+
+        result = defaultdict(lambda: {
+            'qty': 0.0,
+            'qty_m2': 0.0,
+            'qty_pieces': 0.0,
+            'count': 0,
+            'lines': [],
+        })
+
+        for line in transit_lines:
+            quant = valid_quant_by_line.get(line.id)
+            if not quant:
+                continue
+
+            qty = min(line.product_uom_qty or 0.0, quant.quantity or 0.0)
+            if not self._hub_float_gt_zero(qty):
+                continue
+
+            product = line.product_id
+            voyage = line.voyage_id
+            lot = line.lot_id
+            qty_m2, qty_pieces = self._split_qty_by_unit(product, qty)
+            status_label = ''
+
+            if voyage:
+                status_label = dict(voyage._fields['custom_status'].selection).get(
+                    voyage.custom_status,
+                    voyage.custom_status,
+                )
+
+            product_bucket = result[product.id]
+            product_bucket['qty'] += qty
+            product_bucket['qty_m2'] += qty_m2
+            product_bucket['qty_pieces'] += qty_pieces
+            product_bucket['count'] += 1
+            product_bucket['lines'].append({
+                'id': line.id,
+                'product_id': product.id,
+                'lot_id': lot.id if lot else False,
+                'lot_name': lot.name if lot else '',
+                'qty': qty,
+                'qty_m2': qty_m2,
+                'qty_pieces': qty_pieces,
+                'unit_label': self._get_product_unit_label(product),
+                'voyage_id': voyage.id if voyage else False,
+                'voyage_name': voyage.name if voyage else '',
+                'voyage_status': voyage.custom_status if voyage else '',
+                'voyage_status_label': status_label,
+                'eta': voyage.eta.strftime('%Y-%m-%d') if voyage and voyage.eta else '',
+                'container_number': line.container_number or (voyage.container_number if voyage else '') or '',
+                'purchase_id': line.purchase_id.id if line.purchase_id else False,
+                'purchase_name': line.purchase_id.name if line.purchase_id else '',
+                'vendor': line.vendor_id.name if line.vendor_id else '',
+                'location': quant.location_id.complete_name if quant.location_id else '',
+                'x_bloque': getattr(lot, 'x_bloque', '') or '',
+                'x_atado': getattr(lot, 'x_atado', '') or '',
+                'x_grosor': getattr(lot, 'x_grosor', '') or '',
+                'x_alto': getattr(lot, 'x_alto', 0.0) or 0.0,
+                'x_ancho': getattr(lot, 'x_ancho', 0.0) or 0.0,
+                'x_color': getattr(lot, 'x_color', '') or '',
+            })
+
+        return dict(result)
+
     def _hub_get_open_po_qty_by_product(self, product_ids):
         if not product_ids:
             return {}
@@ -834,7 +972,7 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         product_ids = set(sale_lines.mapped('product_id').ids)
         products = self.env['product.product'].browse(list(product_ids))
-        transit_qty_by_product = self._hub_get_transit_qty_by_product(product_ids)
+        free_transit_info_by_product = self._hub_get_free_transit_info_by_product(product_ids)
         open_po_qty_by_product = self._hub_get_open_po_qty_by_product(product_ids)
         allocation_info_by_line = self._hub_get_active_allocation_info_map(sale_lines.ids)
 
@@ -903,8 +1041,13 @@ class ToBePurchasedLogic(models.AbstractModel):
                 })
 
             vendor_name = vendors[0]['name'] if vendors else 'SIN PROVEEDOR'
+            transit_info = free_transit_info_by_product.get(product.id, {})
             qty_a = free_qty_by_product.get(product.id, 0.0)
-            qty_i = transit_qty_by_product.get(product.id, 0.0)
+            qty_i = transit_info.get('qty', 0.0)
+            qty_i_m2 = transit_info.get('qty_m2', 0.0)
+            qty_i_pieces = transit_info.get('qty_pieces', 0.0)
+            transit_free_lines = transit_info.get('lines', [])
+            transit_free_count = transit_info.get('count', len(transit_free_lines))
             qty_p = open_po_qty_by_product.get(product.id, 0.0)
             # total_demanded ya viene neto de allocations/OC activas vinculadas a SO.
             # No se resta qty_p aquí porque eso descontaría de nuevo la OC ya ligada
@@ -927,6 +1070,11 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'vendors': vendors,
                 'qty_a': qty_a,
                 'qty_i': qty_i,
+                'qty_i_free': qty_i,
+                'qty_i_free_m2': qty_i_m2,
+                'qty_i_free_pieces': qty_i_pieces,
+                'transit_free_count': transit_free_count,
+                'transit_free_lines': transit_free_lines,
                 'qty_p': qty_p,
                 'qty_total': qty_a + qty_i + qty_p,
                 'qty_so': total_demanded,
@@ -935,7 +1083,10 @@ class ToBePurchasedLogic(models.AbstractModel):
             }
 
             row.update(self._split_qty_fields(product, 'qty_a', qty_a))
-            row.update(self._split_qty_fields(product, 'qty_i', qty_i))
+            row.update({
+                'qty_i_m2': qty_i_m2,
+                'qty_i_pieces': qty_i_pieces,
+            })
             row.update(self._split_qty_fields(product, 'qty_p', qty_p))
             row.update(self._split_qty_fields(product, 'qty_total', qty_a + qty_i + qty_p))
             row.update(self._split_qty_fields(product, 'qty_so', total_demanded))

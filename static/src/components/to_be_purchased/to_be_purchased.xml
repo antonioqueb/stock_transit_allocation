@@ -159,6 +159,10 @@
                                     <span class="o_tbp_stat o_tbp_stat_buy is-positive">
                                         Pend. pzas <b><t t-esc="fmtNum(product.qty_so_pieces)"/></b>
                                     </span>
+                                    <span t-attf-class="o_tbp_stat o_tbp_stat_transit #{product.transit_free_count ? 'is-positive' : ''}"
+                                          t-att-title="'Lotes libres en tránsito: ' + (product.transit_free_count || 0)">
+                                        T. libre <b><t t-esc="fmtTransitFree(product)"/></b>
+                                    </span>
                                     <span class="o_tbp_stat">
                                         % global <b><t t-esc="fmtPercent(linesAssignmentPercent(product.so_lines))"/></b>
                                     </span>
@@ -166,6 +170,65 @@
                             </div>
 
                             <div t-if="state.expanded[product.id]" class="o_tbp_table_wrap">
+                                <div class="o_tbp_transit_context">
+                                    <div class="o_tbp_transit_context_header">
+                                        <div>
+                                            <strong>
+                                                <i class="fa fa-ship me-1"/>
+                                                Tránsito libre de este producto
+                                            </strong>
+                                            <span class="o_tbp_transit_context_sub">
+                                                <t t-esc="product.transit_free_count || 0"/> lote(s) ·
+                                                <t t-esc="fmtTransitFree(product)"/>
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <t t-if="product.transit_free_count">
+                                        <table class="o_tbp_transit_table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Lote</th>
+                                                    <th>Viaje</th>
+                                                    <th>ETA</th>
+                                                    <th>Contenedor</th>
+                                                    <th>Proveedor</th>
+                                                    <th>OC</th>
+                                                    <th>Bloque</th>
+                                                    <th>Atado</th>
+                                                    <th class="text-end">Libre</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <t t-foreach="product.transit_free_lines || []" t-as="line" t-key="line.id">
+                                                    <tr>
+                                                        <td><t t-esc="line.lot_name || 'Sin lote'"/></td>
+                                                        <td>
+                                                            <span t-att-title="line.voyage_status_label || ''">
+                                                                <t t-esc="line.voyage_name || '—'"/>
+                                                            </span>
+                                                        </td>
+                                                        <td><t t-esc="line.eta || '—'"/></td>
+                                                        <td><t t-esc="line.container_number || '—'"/></td>
+                                                        <td><t t-esc="line.vendor || '—'"/></td>
+                                                        <td><t t-esc="line.purchase_name || '—'"/></td>
+                                                        <td><t t-esc="line.x_bloque || '—'"/></td>
+                                                        <td><t t-esc="line.x_atado || '—'"/></td>
+                                                        <td class="text-end o_tbp_transit_qty">
+                                                            <t t-esc="fmtTransitFreeLine(line)"/>
+                                                        </td>
+                                                    </tr>
+                                                </t>
+                                            </tbody>
+                                        </table>
+                                    </t>
+                                    <t t-else="">
+                                        <div class="o_tbp_transit_empty">
+                                            No hay inventario libre en tránsito para este producto.
+                                        </div>
+                                    </t>
+                                </div>
+
                                 <table class="o_tbp_table">
                                     <thead>
                                         <tr>
@@ -312,6 +375,7 @@
                                             <th class="text-center" style="width: 42px;">Sel</th>
                                             <th>Producto</th>
                                             <th>Proveedor</th>
+                                            <th class="text-end" style="width: 118px;">T. libre</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 160px;">OC vinculada</th>
@@ -337,6 +401,9 @@
                                                     <div class="o_tbp_cell_sub" t-att-title="prod.vendor">
                                                         <t t-esc="prod.vendor"/>
                                                     </div>
+                                                </td>
+                                                <td class="text-end o_tbp_transit_qty">
+                                                    <t t-esc="fmtTransitFree(prod)"/>
                                                 </td>
                                                 <td class="text-end"><t t-esc="fmtDays(prod.days_unassigned || 0)"/></td>
                                                 <td class="text-end o_tbp_pending_qty"><t t-esc="fmtNum(prod.qty_pending)"/></td>
@@ -420,6 +487,7 @@
                                             <th style="width: 90px;">SO</th>
                                             <th>Cliente</th>
                                             <th style="width: 88px;">Fecha</th>
+                                            <th class="text-end" style="width: 118px;">T. libre</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
                                             <th style="width: 160px;">OC vinculada</th>
@@ -454,6 +522,9 @@
                                                     </div>
                                                 </td>
                                                 <td><t t-esc="prod.date"/></td>
+                                                <td class="text-end o_tbp_transit_qty">
+                                                    <t t-esc="fmtTransitFree(prod)"/>
+                                                </td>
                                                 <td class="text-end"><t t-esc="fmtDays(prod.days_unassigned || 0)"/></td>
                                                 <td class="text-end o_tbp_pending_qty"><t t-esc="fmtNum(prod.qty_pending)"/></td>
                                                 <td>
