@@ -1747,52 +1747,66 @@ $o-tbp-pill: 999px;
 }
 
 // ============================================================================
-// Tránsito libre — indicador resumido por ETA
+// Tránsito libre — indicador resumido dentro de To Be Purchased
 // ============================================================================
 
 .o_tbp_stat_transit {
     border-color: rgba(92, 185, 242, 0.38);
     background: linear-gradient(180deg, #ffffff, rgba(92, 185, 242, 0.12));
     color: $o-tbp-blue-deep;
-    white-space: normal;
-    max-width: 390px;
-    display: inline-flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-    line-height: 1.25;
 
     b {
         color: $o-tbp-blue-deep;
     }
 }
 
-.o_tbp_transit_eta_inline {
-    display: block;
-    max-width: 360px;
-    margin-top: 1px;
-    color: $o-tbp-muted;
-    font-size: 9.5px;
-    line-height: 1.25;
-    font-weight: 750;
-    white-space: normal;
-    overflow-wrap: anywhere;
-}
-
 .o_tbp_transit_qty {
     color: $o-tbp-blue-deep !important;
     font-weight: 900 !important;
     font-variant-numeric: tabular-nums;
-    white-space: normal;
-    line-height: 1.25;
+    white-space: nowrap;
+}
+
+.o_tbp_transit_empty {
+    border: 1px dashed rgba(145, 169, 184, 0.52);
+    border-radius: 13px;
+    padding: 10px 12px;
+    color: $o-tbp-muted;
+    background: rgba(255, 255, 255, 0.72);
+    font-size: 11.5px;
+    font-weight: 650;
+}
+
+
+// ============================================================================
+// Tránsito libre resumido por ETA — To Be Purchased
+// ============================================================================
+
+.o_tbp_transit_eta_inline {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+    max-width: 620px;
+    color: $o-tbp-blue-deep;
+    background: rgba(92, 185, 242, 0.10);
+    border: 1px solid rgba(92, 185, 242, 0.26);
+    border-radius: $o-tbp-pill;
+    padding: 2px 8px;
+    font-size: 10.5px;
+    line-height: 1.35;
+    font-weight: 750;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .o_tbp_transit_eta_cell {
-    margin-top: 3px;
+    margin-top: 2px;
     color: $o-tbp-muted;
-    font-size: 10px;
-    line-height: 1.28;
+    font-size: 9.5px;
+    line-height: 1.25;
     font-weight: 700;
     white-space: normal;
-    overflow-wrap: anywhere;
+    max-width: 210px;
+    margin-left: auto;
 }
