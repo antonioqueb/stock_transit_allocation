@@ -141,7 +141,7 @@
                 }
 
                 .pl-table th {
-                    padding: 2px 2px;
+                    padding: 3px 3px;
                     line-height: 1;
                     color: #ffffff !important;
                     background-color: #111827 !important;
@@ -158,7 +158,7 @@
                 }
 
                 .pl-table td {
-                    padding: 2px 2px;
+                    padding: 2px 3px;
                     line-height: 1;
                     border: 1px solid #d1d5db;
                     vertical-align: middle;
@@ -180,10 +180,6 @@
 
                 .pl-muted {
                     color: #6b7280;
-                }
-
-                .pl-mono {
-                    font-family: monospace;
                 }
 
                 .pl-total-row td {
@@ -354,9 +350,9 @@
                                     </td>
                                 </tr>
                                 <tr>
-                                    <td>Peso total:</td>
+                                    <td>Total:</td>
                                     <td class="text-end">
-                                        <t t-esc="'%.2f kg' % (totals.get('total_weight') or 0.0)"/>
+                                        <t t-esc="'%.3f' % (totals.get('total_qty') or 0.0)"/>
                                     </td>
                                 </tr>
                             </table>
@@ -368,30 +364,22 @@
                 <!-- DETALLE -->
                 <!-- ===================================================== -->
                 <div class="pl-detail-title">
-                    Detalle completo del Packing List
+                    Detalle del Packing List
                 </div>
 
                 <t t-if="rows">
                     <table class="table table-sm table-striped pl-table">
                         <thead>
                             <tr>
-                                <th style="width: 2.8%;">#</th>
-                                <th style="width: 5%;">PL</th>
-                                <th style="width: 6%;">CONT.</th>
-                                <th style="width: 7%;">REF. INT.</th>
-                                <th style="width: 9%;">BLOQUE</th>
-                                <th style="width: 4.5%;">PLACA</th>
-                                <th style="width: 5.5%;">ATADO</th>
-                                <th style="width: 8.5%;">DUEÑO</th>
-                                <th style="width: 5%;">GRUPO</th>
-                                <th style="width: 6.5%;">PEDIMENTO</th>
-                                <th style="width: 7%;">REF. PROV.</th>
-                                <th style="width: 4%;">GROSOR</th>
-                                <th style="width: 4%;">ALTO</th>
-                                <th style="width: 4%;">ANCHO</th>
-                                <th style="width: 5.5%;">CANT. / M²</th>
-                                <th style="width: 4.5%;">PESO</th>
-                                <th style="width: 10%;">NOTAS / COLOR</th>
+                                <th style="width: 4%;">#</th>
+                                <th style="width: 17%;">CONTENEDOR</th>
+                                <th style="width: 36%;">BLOQUE</th>
+                                <th style="width: 15%;">PLACA</th>
+                                <th style="width: 11%;">ATADO</th>
+                                <th style="width: 11%;">PEDIMENTO</th>
+                                <th style="width: 7%;">ALTO</th>
+                                <th style="width: 7%;">ANCHO</th>
+                                <th style="width: 10%;">CANT. / M²</th>
                             </tr>
                         </thead>
 
@@ -399,13 +387,12 @@
                             <t t-set="idx" t-value="0"/>
                             <t t-set="last_product_key" t-value="False"/>
                             <t t-set="grand_total_qty" t-value="0.0"/>
-                            <t t-set="grand_total_weight" t-value="0.0"/>
 
                             <t t-foreach="rows" t-as="row">
 
                                 <t t-if="last_product_key != row.get('product_key')">
                                     <tr class="pl-product-row">
-                                        <td colspan="17">
+                                        <td colspan="9">
                                             <span t-esc="row.get('product_name') or '-'"/>
                                             <span t-if="row.get('product_code')" style="font-size: 8px; color: #d1d5db;">
                                                 —
@@ -418,7 +405,6 @@
 
                                 <t t-set="idx" t-value="idx + 1"/>
                                 <t t-set="grand_total_qty" t-value="grand_total_qty + (row.get('qty') or 0.0)"/>
-                                <t t-set="grand_total_weight" t-value="grand_total_weight + (row.get('peso') or 0.0)"/>
 
                                 <tr>
                                     <td class="text-center">
@@ -426,15 +412,7 @@
                                     </td>
 
                                     <td class="text-center">
-                                        <t t-esc="row.get('packing_name') or '-'"/>
-                                    </td>
-
-                                    <td class="text-center">
                                         <t t-esc="row.get('container') or '-'"/>
-                                    </td>
-
-                                    <td class="pl-mono">
-                                        <t t-esc="row.get('ref_interna') or '-'"/>
                                     </td>
 
                                     <td>
@@ -450,23 +428,7 @@
                                     </td>
 
                                     <td>
-                                        <t t-esc="row.get('owner') or '-'"/>
-                                    </td>
-
-                                    <td>
-                                        <t t-esc="row.get('grupo') or '-'"/>
-                                    </td>
-
-                                    <td>
                                         <t t-esc="row.get('pedimento') or '-'"/>
-                                    </td>
-
-                                    <td>
-                                        <t t-esc="row.get('ref_proveedor') or '-'"/>
-                                    </td>
-
-                                    <td class="text-center">
-                                        <t t-esc="row.get('grosor') or '-'"/>
                                     </td>
 
                                     <td class="text-center">
@@ -489,33 +451,18 @@
                                             <t t-esc="row.get('uom')"/>
                                         </span>
                                     </td>
-
-                                    <td class="text-center">
-                                        <t t-if="row.get('peso')">
-                                            <t t-esc="'%.2f' % row.get('peso')"/>
-                                        </t>
-                                        <t t-else="">-</t>
-                                    </td>
-
-                                    <td>
-                                        <t t-esc="row.get('color') or '-'"/>
-                                    </td>
                                 </tr>
                             </t>
                         </tbody>
 
                         <tfoot>
                             <tr class="pl-total-row">
-                                <td colspan="14" class="text-end">
+                                <td colspan="8" class="text-end">
                                     TOTAL GENERAL:
                                 </td>
                                 <td class="text-center">
                                     <t t-esc="'%.3f' % (grand_total_qty or 0.0)"/>
                                 </td>
-                                <td class="text-center">
-                                    <t t-esc="'%.2f' % (grand_total_weight or 0.0)"/>
-                                </td>
-                                <td></td>
                             </tr>
                         </tfoot>
                     </table>
