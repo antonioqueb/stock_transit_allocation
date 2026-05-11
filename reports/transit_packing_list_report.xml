@@ -278,12 +278,12 @@
                 /* Subtotal por producto */
                 .pl-product-subtotal td {
                     padding: 1.5px 4px !important;
-                    background-color: #fde68a !important;
+                    background-color: #6f4e37 !important;
                     font-weight: 800 !important;
                     font-size: 9px;
-                    border-top: 1px solid #92400e !important;
-                    border-bottom: 1px solid #92400e !important;
-                    color: #78350f;
+                    border-top: 1px solid #3e2723 !important;
+                    border-bottom: 1px solid #3e2723 !important;
+                    color: #ffffff !important;
                     text-transform: uppercase;
                     letter-spacing: .02em;
                 }
@@ -291,6 +291,12 @@
                 .pl-muted {
                     color: #6b7280;
                     margin-left: 2px;
+                }
+
+                .pl-product-subtotal .pl-subtotal-uom {
+                    color: #f5e6d3 !important;
+                    margin-left: 3px;
+                    font-weight: 700;
                 }
 
                 .pl-total-row td {
@@ -471,9 +477,9 @@
                     <table class="pl-table">
                         <thead>
                             <tr>
-                                <th style="width: 3%;">#</th>
-                                <th style="width: 13%;">CONTENEDOR</th>
-                                <th style="width: 22%;">BLOQUE</th>
+                                <th style="width: 5%;">#</th>
+                                <th style="width: 12%;">CONTENEDOR</th>
+                                <th style="width: 21%;">BLOQUE</th>
                                 <th style="width: 13%;">PLACA</th>
                                 <th style="width: 9%;">ATADO</th>
                                 <th style="width: 19%;">PEDIMENTO</th>
@@ -502,7 +508,7 @@
                                         </td>
                                         <td class="text-center">
                                             <t t-esc="'%.3f' % (product_subtotals.get(last_product_key, 0.0))"/>
-                                            <span class="pl-muted">
+                                            <span class="pl-subtotal-uom">
                                                 <t t-esc="product_uom.get(last_product_key, '')"/>
                                             </span>
                                         </td>
@@ -557,7 +563,7 @@
                                         </td>
                                         <td class="text-center">
                                             <t t-esc="'%.3f' % (product_subtotals.get(cur_pk, 0.0))"/>
-                                            <span class="pl-muted">
+                                            <span class="pl-subtotal-uom">
                                                 <t t-esc="product_uom.get(cur_pk, '')"/>
                                             </span>
                                         </td>
