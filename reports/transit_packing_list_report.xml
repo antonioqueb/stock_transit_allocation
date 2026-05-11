@@ -60,80 +60,164 @@
             <style>
                 @page {
                     size: A4 landscape;
-                    margin: 8mm 7mm 9mm 7mm;
+                    margin: 7mm 7mm 8mm 7mm;
                 }
 
                 .pl-page {
                     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                    font-size: 11px;
+                    font-size: 10px;
                     color: #111827;
+                }
+
+                /* ============ ENCABEZADO ============ */
+                .pl-header {
+                    border-bottom: 2px solid #111827;
+                    padding-bottom: 5px;
+                    margin-bottom: 6px;
                 }
 
                 .pl-title {
                     margin: 0;
-                    font-size: 30px;
+                    font-size: 22px;
                     font-weight: 900;
-                    letter-spacing: .05em;
+                    letter-spacing: .04em;
                     color: #4b362d;
                     line-height: 1;
                 }
 
+                .pl-subtitle {
+                    font-size: 9px;
+                    color: #6b7280;
+                    margin-top: 1px;
+                }
+
+                .pl-doc-label {
+                    font-size: 9px;
+                    color: #6b7280;
+                    font-weight: 700;
+                    text-transform: uppercase;
+                    letter-spacing: .03em;
+                }
+
                 .pl-doc-number {
-                    font-size: 24px;
+                    font-size: 18px;
                     font-weight: 900;
                     color: #111827;
-                    line-height: 1.05;
+                    line-height: 1;
                 }
 
-                .pl-box {
-                    border: 1px solid #d1d5db;
-                    border-radius: 5px;
-                    padding: 7px;
-                    min-height: 102px;
+                .pl-print-stamp {
+                    font-size: 7.5px;
+                    color: #9ca3af;
+                    margin-top: 1px;
                 }
 
-                .pl-box-title {
-                    font-weight: 800;
-                    font-size: 11px;
-                    text-transform: uppercase;
-                    color: #374151;
-                    border-bottom: 1px solid #e5e7eb;
-                    padding-bottom: 4px;
-                    margin-bottom: 5px;
-                }
-
-                .pl-info-table {
-                    margin: 0;
+                /* ============ BLOQUE DE INFO COMPACTO ============ */
+                .pl-info-grid {
                     width: 100%;
-                    font-size: 10px;
-                    line-height: 1.12;
+                    border: 1px solid #d1d5db;
+                    border-radius: 4px;
+                    border-collapse: separate;
+                    border-spacing: 0;
+                    margin-bottom: 7px;
+                    font-size: 9.5px;
+                    table-layout: fixed;
                 }
 
-                .pl-info-table td {
-                    padding: 1px 2px;
-                    vertical-align: top;
+                .pl-info-grid td {
+                    padding: 3px 6px;
+                    border-bottom: 1px solid #e5e7eb;
+                    border-right: 1px solid #e5e7eb;
+                    line-height: 1.15;
+                    vertical-align: middle;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
                 }
 
-                .pl-info-table td:first-child {
+                .pl-info-grid tr:last-child td {
+                    border-bottom: none;
+                }
+
+                .pl-info-grid td.pl-lbl {
                     font-weight: 800;
-                    width: 40%;
+                    text-transform: uppercase;
+                    font-size: 8px;
+                    color: #4b5563;
+                    background: #f9fafb;
+                    width: 11%;
+                    letter-spacing: .02em;
                 }
 
+                .pl-info-grid td.pl-val {
+                    width: 22%;
+                    color: #111827;
+                    font-weight: 600;
+                }
+
+                .pl-info-grid td.pl-val-strong {
+                    font-weight: 800;
+                    text-transform: uppercase;
+                }
+
+                .pl-info-grid td:last-child {
+                    border-right: none;
+                }
+
+                /* ============ KPIs COMPACTOS ============ */
+                .pl-kpi-row {
+                    display: table;
+                    width: 100%;
+                    table-layout: fixed;
+                    margin-bottom: 7px;
+                    border-collapse: separate;
+                    border-spacing: 4px 0;
+                }
+
+                .pl-kpi {
+                    display: table-cell;
+                    border: 1px solid #d1d5db;
+                    border-radius: 4px;
+                    background: #f9fafb;
+                    padding: 4px 8px;
+                    text-align: center;
+                    vertical-align: middle;
+                }
+
+                .pl-kpi-label {
+                    font-size: 8px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    color: #6b7280;
+                    letter-spacing: .04em;
+                    line-height: 1;
+                }
+
+                .pl-kpi-value {
+                    font-size: 14px;
+                    font-weight: 900;
+                    color: #111827;
+                    line-height: 1.1;
+                    margin-top: 1px;
+                }
+
+                /* ============ DETALLE ============ */
                 .pl-detail-title {
                     font-weight: 800;
-                    font-size: 11px;
+                    font-size: 10px;
                     text-transform: uppercase;
-                    margin: 8px 0 4px;
+                    margin: 2px 0 4px;
                     color: #111827;
+                    letter-spacing: .03em;
                 }
 
                 .pl-table {
                     width: 100%;
-                    font-size: 9px;
+                    font-size: 8.5px;
                     border-collapse: collapse;
                     border: 1px solid #9ca3af;
                     table-layout: fixed;
-                    margin-bottom: 6px;
+                    margin-bottom: 5px;
                 }
 
                 .pl-table thead tr {
@@ -141,7 +225,7 @@
                 }
 
                 .pl-table th {
-                    padding: 3px 3px;
+                    padding: 2.5px 3px;
                     line-height: 1;
                     color: #ffffff !important;
                     background-color: #111827 !important;
@@ -149,26 +233,28 @@
                     border: 1px solid #111827;
                     vertical-align: middle;
                     text-align: center;
+                    font-size: 8.5px;
+                    letter-spacing: .02em;
                 }
 
                 .pl-table tbody {
-                    font-size: 9px;
+                    font-size: 8.5px;
                     line-height: 1;
-                    border-bottom: 1px solid #111827;
                 }
 
                 .pl-table td {
-                    padding: 2px 3px;
-                    line-height: 1;
-                    border: 1px solid #d1d5db;
+                    padding: 1.5px 3px;
+                    line-height: 1.05;
+                    border: 1px solid #e5e7eb;
                     vertical-align: middle;
                     font-weight: 400;
                     word-wrap: break-word;
                     overflow-wrap: anywhere;
                 }
 
+                /* Encabezado de producto */
                 .pl-product-row td {
-                    padding: 3px 4px !important;
+                    padding: 2.5px 5px !important;
                     line-height: 1;
                     font-weight: 800 !important;
                     font-size: 9px;
@@ -176,27 +262,87 @@
                     color: #ffffff !important;
                     background-color: #2f2f2f !important;
                     border-color: #2f2f2f !important;
+                    letter-spacing: .02em;
+                }
+
+                .pl-product-row .pl-product-meta {
+                    font-size: 8px;
+                    color: #d1d5db !important;
+                    font-weight: 700;
+                    margin-left: 6px;
+                }
+
+                /* Subtotal por bloque */
+                .pl-block-subtotal td {
+                    padding: 1.5px 3px !important;
+                    background-color: #eef2f7 !important;
+                    font-weight: 800 !important;
+                    font-size: 8.5px;
+                    border-top: 1px solid #6b7280 !important;
+                    border-bottom: 1px solid #6b7280 !important;
+                    color: #1f2937;
+                }
+
+                /* Subtotal por producto */
+                .pl-product-subtotal td {
+                    padding: 2px 4px !important;
+                    background-color: #fde68a !important;
+                    font-weight: 800 !important;
+                    font-size: 9px;
+                    border-top: 1px solid #92400e !important;
+                    border-bottom: 1px solid #92400e !important;
+                    color: #78350f;
+                    text-transform: uppercase;
+                    letter-spacing: .02em;
                 }
 
                 .pl-muted {
                     color: #6b7280;
+                    margin-left: 2px;
                 }
 
                 .pl-total-row td {
                     border-top: 2px solid #111827 !important;
-                    background-color: #f3f4f6;
-                    font-weight: 800 !important;
-                    font-size: 9px;
+                    background-color: #111827 !important;
+                    color: #ffffff !important;
+                    font-weight: 900 !important;
+                    font-size: 10px;
+                    padding: 4px 6px !important;
+                    text-transform: uppercase;
+                    letter-spacing: .03em;
                 }
 
                 .pl-note {
                     border: 1px solid #d1d5db;
                     background: #f9fafb;
-                    border-radius: 4px;
-                    padding: 6px 8px;
-                    margin-top: 8px;
-                    font-size: 10px;
-                    line-height: 1.15;
+                    border-radius: 3px;
+                    padding: 4px 7px;
+                    margin-top: 5px;
+                    font-size: 8.5px;
+                    line-height: 1.2;
+                    color: #4b5563;
+                }
+
+                .pl-sign-line {
+                    border-top: 1px solid #111827;
+                    margin-top: 26px;
+                    padding-top: 3px;
+                    font-size: 9.5px;
+                    font-weight: 800;
+                }
+
+                .pl-sign-sub {
+                    font-size: 8.5px;
+                    color: #6b7280;
+                }
+
+                .pl-foot {
+                    margin-top: 5px;
+                    font-size: 7.5px;
+                    color: #9ca3af;
+                    text-align: center;
+                    border-top: 1px solid #e5e7eb;
+                    padding-top: 3px;
                 }
             </style>
 
@@ -206,245 +352,226 @@
             <t t-set="supplier" t-value="purchase.partner_id if purchase else False"/>
             <t t-set="status_label" t-value="dict(doc._fields['custom_status'].selection).get(doc.custom_status) or doc.custom_status or '-'"/>
 
+            <!-- Pre-cálculo: subtotales por producto y por bloque -->
+            <t t-set="product_subtotals" t-value="{}"/>
+            <t t-set="product_counts" t-value="{}"/>
+            <t t-set="block_subtotals" t-value="{}"/>
+            <t t-set="block_counts" t-value="{}"/>
+            <t t-foreach="rows" t-as="r">
+                <t t-set="pk" t-value="r.get('product_key')"/>
+                <t t-set="bk" t-value="(r.get('product_key'), r.get('bloque') or '-')"/>
+                <t t-set="q" t-value="r.get('qty') or 0.0"/>
+                <t t-set="_" t-value="product_subtotals.update({pk: product_subtotals.get(pk, 0.0) + q})"/>
+                <t t-set="_" t-value="product_counts.update({pk: product_counts.get(pk, 0) + 1})"/>
+                <t t-set="_" t-value="block_subtotals.update({bk: block_subtotals.get(bk, 0.0) + q})"/>
+                <t t-set="_" t-value="block_counts.update({bk: block_counts.get(bk, 0) + 1})"/>
+            </t>
+
             <div class="page pl-page">
 
                 <!-- ===================================================== -->
                 <!-- ENCABEZADO -->
                 <!-- ===================================================== -->
-                <div style="border-bottom: 2px solid #111827; padding-bottom: 9px; margin-bottom: 10px;">
+                <div class="pl-header">
                     <div class="row" style="align-items: center;">
                         <div class="col-7">
                             <h2 class="pl-title">PACKING LIST</h2>
-                            <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
-                                Detalle logístico de material cargado en embarque.
-                            </div>
+                            <div class="pl-subtitle">Detalle logístico de material cargado en embarque</div>
                         </div>
-
                         <div class="col-5 text-end">
-                            <div style="font-size: 12px; color: #6b7280; font-weight: 700;">No. Embarque</div>
+                            <div class="pl-doc-label">No. Embarque</div>
                             <div class="pl-doc-number">
                                 <t t-esc="doc.name or '-'"/>
                             </div>
-                            <div style="font-size: 8px; color: #6b7280; margin-top: 3px;">
-                                Impreso:
-                                <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
+                            <div class="pl-print-stamp">
+                                Impreso: <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- ===================================================== -->
-                <!-- INFORMACIÓN GENERAL -->
+                <!-- INFO COMPACTA (grid denso 3 columnas de pares) -->
                 <!-- ===================================================== -->
-                <div class="row mb-2">
-                    <div class="col-4">
-                        <div class="pl-box">
-                            <div class="pl-box-title">Proveedor / Compra</div>
+                <table class="pl-info-grid">
+                    <tr>
+                        <td class="pl-lbl">Proveedor</td>
+                        <td class="pl-val" colspan="3">
+                            <t t-esc="supplier.display_name if supplier else '-'"/>
+                        </td>
+                        <td class="pl-lbl">Estado</td>
+                        <td class="pl-val pl-val-strong">
+                            <t t-esc="status_label"/>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="pl-lbl">Orden compra</td>
+                        <td class="pl-val">
+                            <t t-esc="purchase.name if purchase else '-'"/>
+                        </td>
+                        <td class="pl-lbl">Ref. prov.</td>
+                        <td class="pl-val">
+                            <t t-esc="purchase.partner_ref if purchase else '-'"/>
+                        </td>
+                        <td class="pl-lbl">Fecha OC</td>
+                        <td class="pl-val">
+                            <t t-if="purchase and purchase.date_order"><span t-field="purchase.date_order"/></t>
+                            <t t-else="">-</t>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="pl-lbl">Naviera</td>
+                        <td class="pl-val">
+                            <t t-esc="doc.shipping_line or '-'"/>
+                        </td>
+                        <td class="pl-lbl">Buque</td>
+                        <td class="pl-val">
+                            <t t-esc="doc.vessel_name or '-'"/>
+                        </td>
+                        <td class="pl-lbl">BL / Folio</td>
+                        <td class="pl-val">
+                            <t t-esc="doc.bl_number or '-'"/>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="pl-lbl">Contenedor(es)</td>
+                        <td class="pl-val" colspan="3">
+                            <t t-esc="doc.container_number or '-'"/>
+                        </td>
+                        <td class="pl-lbl">ETD / ETA</td>
+                        <td class="pl-val">
+                            <t t-if="doc.etd"><span t-field="doc.etd"/></t><t t-else="">-</t>
+                            &#160;/&#160;
+                            <t t-if="doc.eta"><span t-field="doc.eta"/></t><t t-else="">-</t>
+                        </td>
+                    </tr>
+                </table>
 
-                            <table class="table table-sm table-borderless pl-info-table">
-                                <tr>
-                                    <td>Proveedor:</td>
-                                    <td class="text-end">
-                                        <t t-esc="supplier.display_name if supplier else '-'"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Orden de compra:</td>
-                                    <td class="text-end">
-                                        <t t-esc="purchase.name if purchase else '-'"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Referencia proveedor:</td>
-                                    <td class="text-end">
-                                        <t t-esc="purchase.partner_ref if purchase else '-'"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Fecha OC:</td>
-                                    <td class="text-end">
-                                        <t t-if="purchase and purchase.date_order">
-                                            <span t-field="purchase.date_order"/>
-                                        </t>
-                                        <t t-else="">-</t>
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
+                <!-- ===================================================== -->
+                <!-- KPIs RESUMEN -->
+                <!-- ===================================================== -->
+                <div class="pl-kpi-row">
+                    <div class="pl-kpi">
+                        <div class="pl-kpi-label">Productos</div>
+                        <div class="pl-kpi-value"><t t-esc="totals.get('product_count') or 0"/></div>
                     </div>
-
-                    <div class="col-4">
-                        <div class="pl-box">
-                            <div class="pl-box-title">Embarque</div>
-
-                            <table class="table table-sm table-borderless pl-info-table">
-                                <tr>
-                                    <td>Estado:</td>
-                                    <td class="text-end">
-                                        <span style="font-weight: 800; text-transform: uppercase;">
-                                            <t t-esc="status_label"/>
-                                        </span>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Contenedor(es):</td>
-                                    <td class="text-end">
-                                        <t t-esc="doc.container_number or '-'"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>BL / Folio:</td>
-                                    <td class="text-end">
-                                        <t t-esc="doc.bl_number or '-'"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Naviera:</td>
-                                    <td class="text-end">
-                                        <t t-esc="doc.shipping_line or '-'"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Buque:</td>
-                                    <td class="text-end">
-                                        <t t-esc="doc.vessel_name or '-'"/>
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
+                    <div class="pl-kpi">
+                        <div class="pl-kpi-label">Líneas</div>
+                        <div class="pl-kpi-value"><t t-esc="totals.get('total_lines') or 0"/></div>
                     </div>
-
-                    <div class="col-4">
-                        <div class="pl-box">
-                            <div class="pl-box-title">Fechas / Totales</div>
-
-                            <table class="table table-sm table-borderless pl-info-table">
-                                <tr>
-                                    <td>ETD:</td>
-                                    <td class="text-end">
-                                        <t t-if="doc.etd">
-                                            <span t-field="doc.etd"/>
-                                        </t>
-                                        <t t-else="">-</t>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>ETA:</td>
-                                    <td class="text-end">
-                                        <t t-if="doc.eta">
-                                            <span t-field="doc.eta"/>
-                                        </t>
-                                        <t t-else="">-</t>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Líneas:</td>
-                                    <td class="text-end">
-                                        <t t-esc="totals.get('total_lines') or 0"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Productos:</td>
-                                    <td class="text-end">
-                                        <t t-esc="totals.get('product_count') or 0"/>
-                                    </td>
-                                </tr>
-                                <tr>
-                                    <td>Total:</td>
-                                    <td class="text-end">
-                                        <t t-esc="'%.3f' % (totals.get('total_qty') or 0.0)"/>
-                                    </td>
-                                </tr>
-                            </table>
-                        </div>
+                    <div class="pl-kpi">
+                        <div class="pl-kpi-label">Bloques</div>
+                        <div class="pl-kpi-value"><t t-esc="len(block_subtotals)"/></div>
+                    </div>
+                    <div class="pl-kpi">
+                        <div class="pl-kpi-label">Total general</div>
+                        <div class="pl-kpi-value"><t t-esc="'%.3f' % (totals.get('total_qty') or 0.0)"/></div>
                     </div>
                 </div>
 
                 <!-- ===================================================== -->
                 <!-- DETALLE -->
                 <!-- ===================================================== -->
-                <div class="pl-detail-title">
-                    Detalle del Packing List
-                </div>
+                <div class="pl-detail-title">Detalle del Packing List</div>
 
                 <t t-if="rows">
-                    <table class="table table-sm table-striped pl-table">
+                    <table class="pl-table">
                         <thead>
                             <tr>
-                                <th style="width: 4%;">#</th>
-                                <th style="width: 17%;">CONTENEDOR</th>
-                                <th style="width: 36%;">BLOQUE</th>
+                                <th style="width: 3%;">#</th>
+                                <th style="width: 16%;">CONTENEDOR</th>
+                                <th style="width: 20%;">BLOQUE</th>
                                 <th style="width: 15%;">PLACA</th>
                                 <th style="width: 11%;">ATADO</th>
-                                <th style="width: 11%;">PEDIMENTO</th>
+                                <th style="width: 14%;">PEDIMENTO</th>
                                 <th style="width: 7%;">ALTO</th>
                                 <th style="width: 7%;">ANCHO</th>
-                                <th style="width: 10%;">CANT. / M²</th>
+                                <th style="width: 7%;">CANT.</th>
                             </tr>
                         </thead>
 
                         <tbody>
                             <t t-set="idx" t-value="0"/>
                             <t t-set="last_product_key" t-value="False"/>
+                            <t t-set="last_block_key" t-value="False"/>
                             <t t-set="grand_total_qty" t-value="0.0"/>
+                            <t t-set="row_index" t-value="0"/>
+                            <t t-set="total_rows" t-value="len(rows)"/>
 
                             <t t-foreach="rows" t-as="row">
+                                <t t-set="row_index" t-value="row_index + 1"/>
+                                <t t-set="cur_pk" t-value="row.get('product_key')"/>
+                                <t t-set="cur_bk" t-value="(row.get('product_key'), row.get('bloque') or '-')"/>
 
-                                <t t-if="last_product_key != row.get('product_key')">
+                                <!-- Cierre de bloque anterior (cuando cambia bloque y NO cambia producto) -->
+                                <t t-if="last_block_key and last_block_key != cur_bk and last_product_key == cur_pk">
+                                    <tr class="pl-block-subtotal">
+                                        <td colspan="8" class="text-end">
+                                            Subtotal bloque «<t t-esc="last_block_key[1]"/>»
+                                            (<t t-esc="block_counts.get(last_block_key, 0)"/> pzs)
+                                        </td>
+                                        <td class="text-center">
+                                            <t t-esc="'%.3f' % (block_subtotals.get(last_block_key, 0.0))"/>
+                                        </td>
+                                    </tr>
+                                </t>
+
+                                <!-- Cierre de producto anterior (cuando cambia producto) -->
+                                <t t-if="last_product_key and last_product_key != cur_pk">
+                                    <!-- Cierra primero el último bloque del producto previo -->
+                                    <tr class="pl-block-subtotal">
+                                        <td colspan="8" class="text-end">
+                                            Subtotal bloque «<t t-esc="last_block_key[1]"/>»
+                                            (<t t-esc="block_counts.get(last_block_key, 0)"/> pzs)
+                                        </td>
+                                        <td class="text-center">
+                                            <t t-esc="'%.3f' % (block_subtotals.get(last_block_key, 0.0))"/>
+                                        </td>
+                                    </tr>
+                                    <tr class="pl-product-subtotal">
+                                        <td colspan="8" class="text-end">
+                                            Subtotal producto
+                                            (<t t-esc="product_counts.get(last_product_key, 0)"/> líneas)
+                                        </td>
+                                        <td class="text-center">
+                                            <t t-esc="'%.3f' % (product_subtotals.get(last_product_key, 0.0))"/>
+                                        </td>
+                                    </tr>
+                                </t>
+
+                                <!-- Encabezado de producto -->
+                                <t t-if="last_product_key != cur_pk">
                                     <tr class="pl-product-row">
                                         <td colspan="9">
                                             <span t-esc="row.get('product_name') or '-'"/>
-                                            <span t-if="row.get('product_code')" style="font-size: 8px; color: #d1d5db;">
-                                                —
-                                                <t t-esc="row.get('product_code')"/>
+                                            <span t-if="row.get('product_code')" class="pl-product-meta">
+                                                — <t t-esc="row.get('product_code')"/>
                                             </span>
                                         </td>
                                     </tr>
-                                    <t t-set="last_product_key" t-value="row.get('product_key')"/>
                                 </t>
+
+                                <t t-set="last_product_key" t-value="cur_pk"/>
+                                <t t-set="last_block_key" t-value="cur_bk"/>
 
                                 <t t-set="idx" t-value="idx + 1"/>
                                 <t t-set="grand_total_qty" t-value="grand_total_qty + (row.get('qty') or 0.0)"/>
 
                                 <tr>
+                                    <td class="text-center"><t t-esc="idx"/></td>
+                                    <td class="text-center"><t t-esc="row.get('container') or '-'"/></td>
+                                    <td><t t-esc="row.get('bloque') or '-'"/></td>
+                                    <td class="text-center"><t t-esc="row.get('numero_placa') or '-'"/></td>
+                                    <td class="text-center"><t t-esc="row.get('atado') or '-'"/></td>
+                                    <td><t t-esc="row.get('pedimento') or '-'"/></td>
                                     <td class="text-center">
-                                        <t t-esc="idx"/>
-                                    </td>
-
-                                    <td class="text-center">
-                                        <t t-esc="row.get('container') or '-'"/>
-                                    </td>
-
-                                    <td>
-                                        <t t-esc="row.get('bloque') or '-'"/>
-                                    </td>
-
-                                    <td class="text-center">
-                                        <t t-esc="row.get('numero_placa') or '-'"/>
-                                    </td>
-
-                                    <td class="text-center">
-                                        <t t-esc="row.get('atado') or '-'"/>
-                                    </td>
-
-                                    <td>
-                                        <t t-esc="row.get('pedimento') or '-'"/>
-                                    </td>
-
-                                    <td class="text-center">
-                                        <t t-if="row.get('alto')">
-                                            <t t-esc="'%.3f' % row.get('alto')"/>
-                                        </t>
+                                        <t t-if="row.get('alto')"><t t-esc="'%.3f' % row.get('alto')"/></t>
                                         <t t-else="">-</t>
                                     </td>
-
                                     <td class="text-center">
-                                        <t t-if="row.get('ancho')">
-                                            <t t-esc="'%.3f' % row.get('ancho')"/>
-                                        </t>
+                                        <t t-if="row.get('ancho')"><t t-esc="'%.3f' % row.get('ancho')"/></t>
                                         <t t-else="">-</t>
                                     </td>
-
                                     <td class="text-center" style="font-weight: 800;">
                                         <t t-esc="'%.3f' % (row.get('qty') or 0.0)"/>
                                         <span t-if="row.get('uom')" class="pl-muted">
@@ -452,14 +579,34 @@
                                         </span>
                                     </td>
                                 </tr>
+
+                                <!-- Cierre final tras la última fila -->
+                                <t t-if="row_index == total_rows">
+                                    <tr class="pl-block-subtotal">
+                                        <td colspan="8" class="text-end">
+                                            Subtotal bloque «<t t-esc="cur_bk[1]"/>»
+                                            (<t t-esc="block_counts.get(cur_bk, 0)"/> pzs)
+                                        </td>
+                                        <td class="text-center">
+                                            <t t-esc="'%.3f' % (block_subtotals.get(cur_bk, 0.0))"/>
+                                        </td>
+                                    </tr>
+                                    <tr class="pl-product-subtotal">
+                                        <td colspan="8" class="text-end">
+                                            Subtotal producto
+                                            (<t t-esc="product_counts.get(cur_pk, 0)"/> líneas)
+                                        </td>
+                                        <td class="text-center">
+                                            <t t-esc="'%.3f' % (product_subtotals.get(cur_pk, 0.0))"/>
+                                        </td>
+                                    </tr>
+                                </t>
                             </t>
                         </tbody>
 
                         <tfoot>
                             <tr class="pl-total-row">
-                                <td colspan="8" class="text-end">
-                                    TOTAL GENERAL:
-                                </td>
+                                <td colspan="8" class="text-end">TOTAL GENERAL</td>
                                 <td class="text-center">
                                     <t t-esc="'%.3f' % (grand_total_qty or 0.0)"/>
                                 </td>
@@ -469,7 +616,7 @@
                 </t>
 
                 <t t-else="">
-                    <div style="border: 1px solid #d1d5db; padding: 8px; color: #6b7280; font-size: 11px; font-style: italic; text-align: center;">
+                    <div style="border: 1px solid #d1d5db; padding: 6px; color: #6b7280; font-size: 10px; font-style: italic; text-align: center; border-radius: 3px;">
                         Sin líneas de Packing List para imprimir.
                     </div>
                 </t>
@@ -486,39 +633,25 @@
                 <!-- ===================================================== -->
                 <!-- FIRMAS -->
                 <!-- ===================================================== -->
-                <div class="row mt-3" style="page-break-inside: avoid;">
+                <div class="row mt-2" style="page-break-inside: avoid;">
                     <div class="col-4 text-center">
-                        <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 11px; font-weight: 800;">
-                            Revisó
-                        </div>
-                        <div style="font-size: 10px; color: #6b7280;">
-                            Nombre y firma
-                        </div>
+                        <div class="pl-sign-line">Revisó</div>
+                        <div class="pl-sign-sub">Nombre y firma</div>
                     </div>
-
                     <div class="col-4 text-center">
-                        <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 11px; font-weight: 800;">
-                            Validó almacén
-                        </div>
-                        <div style="font-size: 10px; color: #6b7280;">
-                            Nombre y firma
-                        </div>
+                        <div class="pl-sign-line">Validó almacén</div>
+                        <div class="pl-sign-sub">Nombre y firma</div>
                     </div>
-
                     <div class="col-4 text-center">
-                        <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 11px; font-weight: 800;">
-                            Autorizó
-                        </div>
-                        <div style="font-size: 10px; color: #6b7280;">
-                            Nombre y firma
-                        </div>
+                        <div class="pl-sign-line">Autorizó</div>
+                        <div class="pl-sign-sub">Nombre y firma</div>
                     </div>
                 </div>
 
                 <!-- ===================================================== -->
                 <!-- PIE -->
                 <!-- ===================================================== -->
-                <div style="margin-top: 8px; font-size: 8px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 5px;">
+                <div class="pl-foot">
                     Packing List generado desde Odoo. Documento logístico sin precios. Página <span class="page"/>.
                 </div>
 
