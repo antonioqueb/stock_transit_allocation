@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================= -->
+    <!-- BOTÓN EN EMBARQUE / STOCK.TRANSIT.VOYAGE -->
+    <!-- ============================================================= -->
+
+    <record id="view_stock_transit_voyage_form_inherit_packing_list_report" model="ir.ui.view">
+        <field name="name">stock.transit.voyage.form.inherit.packing.list.report</field>
+        <field name="model">stock.transit.voyage</field>
+        <field name="inherit_id" ref="stock_transit_allocation.view_stock_transit_voyage_form"/>
+        <field name="priority">80</field>
+        <field name="arch" type="xml">
+
+            <xpath expr="//header/button[@name='action_load_from_picking']" position="after">
+                <button name="action_print_transit_packing_list"
+                        string="📄 Packing List"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not tc_has_packing_list"/>
+            </xpath>
+
+            <xpath expr="//sheet" position="inside">
+                <field name="tc_has_packing_list" invisible="1"/>
+                <field name="tc_packing_list_count" invisible="1"/>
+            </xpath>
+
+        </field>
+    </record>
+
+
+
+    <record id="view_purchase_order_form_inherit_transit_packing_list_report" model="ir.ui.view">
+        <field name="name">purchase.order.form.inherit.transit.packing.list.report</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="priority">80</field>
+        <field name="arch" type="xml">
+
+            <xpath expr="//header" position="inside">
+                <button name="action_print_transit_packing_list"
+                        string="📄 Packing List Embarque"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not tc_has_transit_packing_list"/>
+            </xpath>
+
+            <xpath expr="//sheet" position="inside">
+                <field name="tc_has_transit_packing_list" invisible="1"/>
+                <field name="tc_transit_packing_list_count" invisible="1"/>
+            </xpath>
+
+        </field>
+    </record>
+
+</odoo>

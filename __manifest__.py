@@ -1,11 +1,17 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.13.2.0',
+    'version': '19.0.13.3.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
+
+        Novedades v13.3:
+        - Reporte PDF Packing List de Embarque.
+        - Botón de impresión en embarque.
+        - Botón de impresión en orden de compra, visible solo si hay embarque con Packing List cargado.
+        - Detalle logístico en 9px con todos los campos relevantes del embarque/packing.
 
         Novedades v13.2:
         - Protección estricta para que Recibir/Abrir Recepción prepare la recepción física sin validarla.
@@ -55,9 +61,13 @@
     'data': [
         'security/transit_security.xml',
         'security/ir.model.access.csv',
+
         'data/ir_sequence_data.xml',
         'data/ir_config_parameter_data.xml',
         'data/ir_cron_data.xml',
+
+        'reports/transit_packing_list_report.xml',
+
         'views/stock_transit_sheet_action.xml',
         'views/stock_transit_voyage_views.xml',
         'views/stock_transit_publication_views.xml',
@@ -69,6 +79,8 @@
         'views/supplier_proforma_views.xml',
         'views/supplier_shipment_views.xml',
         'views/purchase_order_proforma_views.xml',
+        'views/transit_packing_list_buttons.xml',
+
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
         'wizard/transit_status_change_wizard_views.xml',
@@ -90,7 +102,6 @@
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.xml',
             'stock_transit_allocation/static/src/components/to_be_purchased/to_be_purchased.scss',
 
-            # Debe estar en el bundle backend porque el menú usa tag=action_transit_allocation.
             'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.js',
             'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.xml',
             'stock_transit_allocation/static/src/components/transit_allocation/transit_allocation.scss',

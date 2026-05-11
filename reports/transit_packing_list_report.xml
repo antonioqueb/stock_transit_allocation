@@ -1,0 +1,581 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================= -->
+    <!-- ACCIONES DE REPORTE -->
+    <!-- ============================================================= -->
+
+    <record id="action_report_transit_packing_list_voyage" model="ir.actions.report">
+        <field name="name">Packing List de Embarque</field>
+        <field name="model">stock.transit.voyage</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">stock_transit_allocation.report_transit_packing_list_voyage</field>
+        <field name="report_file">stock_transit_allocation.report_transit_packing_list_voyage</field>
+        <field name="print_report_name">'Packing List - %s' % (object.name or '')</field>
+    </record>
+
+    <record id="action_report_transit_packing_list_purchase" model="ir.actions.report">
+        <field name="name">Packing List de Embarque</field>
+        <field name="model">purchase.order</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">stock_transit_allocation.report_transit_packing_list_purchase</field>
+        <field name="report_file">stock_transit_allocation.report_transit_packing_list_purchase</field>
+        <field name="print_report_name">'Packing List - %s' % (object.name or '')</field>
+    </record>
+
+    <!-- ============================================================= -->
+    <!-- WRAPPER: DESDE EMBARQUE -->
+    <!-- ============================================================= -->
+
+    <template id="report_transit_packing_list_voyage">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="doc">
+                <t t-call="stock_transit_allocation.report_transit_packing_list_document"/>
+            </t>
+        </t>
+    </template>
+
+    <!-- ============================================================= -->
+    <!-- WRAPPER: DESDE ORDEN DE COMPRA -->
+    <!-- ============================================================= -->
+
+    <template id="report_transit_packing_list_purchase">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="purchase">
+                <t t-set="voyages" t-value="purchase._tc_get_packing_report_voyages()"/>
+                <t t-foreach="voyages" t-as="doc">
+                    <t t-call="stock_transit_allocation.report_transit_packing_list_document"/>
+                </t>
+            </t>
+        </t>
+    </template>
+
+    <!-- ============================================================= -->
+    <!-- DOCUMENTO PRINCIPAL -->
+    <!-- ============================================================= -->
+
+    <template id="report_transit_packing_list_document">
+        <t t-call="web.external_layout">
+
+            <style>
+                @page {
+                    size: A4 landscape;
+                    margin: 8mm 7mm 9mm 7mm;
+                }
+
+                .pl-page {
+                    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                    font-size: 11px;
+                    color: #111827;
+                }
+
+                .pl-title {
+                    margin: 0;
+                    font-size: 30px;
+                    font-weight: 900;
+                    letter-spacing: .05em;
+                    color: #4b362d;
+                    line-height: 1;
+                }
+
+                .pl-doc-number {
+                    font-size: 24px;
+                    font-weight: 900;
+                    color: #111827;
+                    line-height: 1.05;
+                }
+
+                .pl-box {
+                    border: 1px solid #d1d5db;
+                    border-radius: 5px;
+                    padding: 7px;
+                    min-height: 102px;
+                }
+
+                .pl-box-title {
+                    font-weight: 800;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                    color: #374151;
+                    border-bottom: 1px solid #e5e7eb;
+                    padding-bottom: 4px;
+                    margin-bottom: 5px;
+                }
+
+                .pl-info-table {
+                    margin: 0;
+                    width: 100%;
+                    font-size: 10px;
+                    line-height: 1.12;
+                }
+
+                .pl-info-table td {
+                    padding: 1px 2px;
+                    vertical-align: top;
+                }
+
+                .pl-info-table td:first-child {
+                    font-weight: 800;
+                    width: 40%;
+                }
+
+                .pl-detail-title {
+                    font-weight: 800;
+                    font-size: 11px;
+                    text-transform: uppercase;
+                    margin: 8px 0 4px;
+                    color: #111827;
+                }
+
+                .pl-table {
+                    width: 100%;
+                    font-size: 9px;
+                    border-collapse: collapse;
+                    border: 1px solid #9ca3af;
+                    table-layout: fixed;
+                    margin-bottom: 6px;
+                }
+
+                .pl-table thead tr {
+                    background-color: #111827;
+                }
+
+                .pl-table th {
+                    padding: 2px 2px;
+                    line-height: 1;
+                    color: #ffffff !important;
+                    background-color: #111827 !important;
+                    font-weight: 800;
+                    border: 1px solid #111827;
+                    vertical-align: middle;
+                    text-align: center;
+                }
+
+                .pl-table tbody {
+                    font-size: 9px;
+                    line-height: 1;
+                    border-bottom: 1px solid #111827;
+                }
+
+                .pl-table td {
+                    padding: 2px 2px;
+                    line-height: 1;
+                    border: 1px solid #d1d5db;
+                    vertical-align: middle;
+                    font-weight: 400;
+                    word-wrap: break-word;
+                    overflow-wrap: anywhere;
+                }
+
+                .pl-product-row td {
+                    padding: 3px 4px !important;
+                    line-height: 1;
+                    font-weight: 800 !important;
+                    font-size: 9px;
+                    text-transform: uppercase;
+                    color: #ffffff !important;
+                    background-color: #2f2f2f !important;
+                    border-color: #2f2f2f !important;
+                }
+
+                .pl-muted {
+                    color: #6b7280;
+                }
+
+                .pl-mono {
+                    font-family: monospace;
+                }
+
+                .pl-total-row td {
+                    border-top: 2px solid #111827 !important;
+                    background-color: #f3f4f6;
+                    font-weight: 800 !important;
+                    font-size: 9px;
+                }
+
+                .pl-note {
+                    border: 1px solid #d1d5db;
+                    background: #f9fafb;
+                    border-radius: 4px;
+                    padding: 6px 8px;
+                    margin-top: 8px;
+                    font-size: 10px;
+                    line-height: 1.15;
+                }
+            </style>
+
+            <t t-set="rows" t-value="doc._tc_get_packing_report_rows()"/>
+            <t t-set="totals" t-value="doc._tc_get_packing_report_totals()"/>
+            <t t-set="purchase" t-value="doc.purchase_id"/>
+            <t t-set="supplier" t-value="purchase.partner_id if purchase else False"/>
+            <t t-set="status_label" t-value="dict(doc._fields['custom_status'].selection).get(doc.custom_status) or doc.custom_status or '-'"/>
+
+            <div class="page pl-page">
+
+                <!-- ===================================================== -->
+                <!-- ENCABEZADO -->
+                <!-- ===================================================== -->
+                <div style="border-bottom: 2px solid #111827; padding-bottom: 9px; margin-bottom: 10px;">
+                    <div class="row" style="align-items: center;">
+                        <div class="col-7">
+                            <h2 class="pl-title">PACKING LIST</h2>
+                            <div style="font-size: 12px; color: #6b7280; margin-top: 4px;">
+                                Detalle logístico de material cargado en embarque.
+                            </div>
+                        </div>
+
+                        <div class="col-5 text-end">
+                            <div style="font-size: 12px; color: #6b7280; font-weight: 700;">No. Embarque</div>
+                            <div class="pl-doc-number">
+                                <t t-esc="doc.name or '-'"/>
+                            </div>
+                            <div style="font-size: 8px; color: #6b7280; margin-top: 3px;">
+                                Impreso:
+                                <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===================================================== -->
+                <!-- INFORMACIÓN GENERAL -->
+                <!-- ===================================================== -->
+                <div class="row mb-2">
+                    <div class="col-4">
+                        <div class="pl-box">
+                            <div class="pl-box-title">Proveedor / Compra</div>
+
+                            <table class="table table-sm table-borderless pl-info-table">
+                                <tr>
+                                    <td>Proveedor:</td>
+                                    <td class="text-end">
+                                        <t t-esc="supplier.display_name if supplier else '-'"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Orden de compra:</td>
+                                    <td class="text-end">
+                                        <t t-esc="purchase.name if purchase else '-'"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Referencia proveedor:</td>
+                                    <td class="text-end">
+                                        <t t-esc="purchase.partner_ref if purchase else '-'"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Fecha OC:</td>
+                                    <td class="text-end">
+                                        <t t-if="purchase and purchase.date_order">
+                                            <span t-field="purchase.date_order"/>
+                                        </t>
+                                        <t t-else="">-</t>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="col-4">
+                        <div class="pl-box">
+                            <div class="pl-box-title">Embarque</div>
+
+                            <table class="table table-sm table-borderless pl-info-table">
+                                <tr>
+                                    <td>Estado:</td>
+                                    <td class="text-end">
+                                        <span style="font-weight: 800; text-transform: uppercase;">
+                                            <t t-esc="status_label"/>
+                                        </span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Contenedor(es):</td>
+                                    <td class="text-end">
+                                        <t t-esc="doc.container_number or '-'"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>BL / Folio:</td>
+                                    <td class="text-end">
+                                        <t t-esc="doc.bl_number or '-'"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Naviera:</td>
+                                    <td class="text-end">
+                                        <t t-esc="doc.shipping_line or '-'"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Buque:</td>
+                                    <td class="text-end">
+                                        <t t-esc="doc.vessel_name or '-'"/>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="col-4">
+                        <div class="pl-box">
+                            <div class="pl-box-title">Fechas / Totales</div>
+
+                            <table class="table table-sm table-borderless pl-info-table">
+                                <tr>
+                                    <td>ETD:</td>
+                                    <td class="text-end">
+                                        <t t-if="doc.etd">
+                                            <span t-field="doc.etd"/>
+                                        </t>
+                                        <t t-else="">-</t>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>ETA:</td>
+                                    <td class="text-end">
+                                        <t t-if="doc.eta">
+                                            <span t-field="doc.eta"/>
+                                        </t>
+                                        <t t-else="">-</t>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Líneas:</td>
+                                    <td class="text-end">
+                                        <t t-esc="totals.get('total_lines') or 0"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Productos:</td>
+                                    <td class="text-end">
+                                        <t t-esc="totals.get('product_count') or 0"/>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td>Peso total:</td>
+                                    <td class="text-end">
+                                        <t t-esc="'%.2f kg' % (totals.get('total_weight') or 0.0)"/>
+                                    </td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===================================================== -->
+                <!-- DETALLE -->
+                <!-- ===================================================== -->
+                <div class="pl-detail-title">
+                    Detalle completo del Packing List
+                </div>
+
+                <t t-if="rows">
+                    <table class="table table-sm table-striped pl-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 2.8%;">#</th>
+                                <th style="width: 5%;">PL</th>
+                                <th style="width: 6%;">CONT.</th>
+                                <th style="width: 7%;">REF. INT.</th>
+                                <th style="width: 9%;">BLOQUE</th>
+                                <th style="width: 4.5%;">PLACA</th>
+                                <th style="width: 5.5%;">ATADO</th>
+                                <th style="width: 8.5%;">DUEÑO</th>
+                                <th style="width: 5%;">GRUPO</th>
+                                <th style="width: 6.5%;">PEDIMENTO</th>
+                                <th style="width: 7%;">REF. PROV.</th>
+                                <th style="width: 4%;">GROSOR</th>
+                                <th style="width: 4%;">ALTO</th>
+                                <th style="width: 4%;">ANCHO</th>
+                                <th style="width: 5.5%;">CANT. / M²</th>
+                                <th style="width: 4.5%;">PESO</th>
+                                <th style="width: 10%;">NOTAS / COLOR</th>
+                            </tr>
+                        </thead>
+
+                        <tbody>
+                            <t t-set="idx" t-value="0"/>
+                            <t t-set="last_product_key" t-value="False"/>
+                            <t t-set="grand_total_qty" t-value="0.0"/>
+                            <t t-set="grand_total_weight" t-value="0.0"/>
+
+                            <t t-foreach="rows" t-as="row">
+
+                                <t t-if="last_product_key != row.get('product_key')">
+                                    <tr class="pl-product-row">
+                                        <td colspan="17">
+                                            <span t-esc="row.get('product_name') or '-'"/>
+                                            <span t-if="row.get('product_code')" style="font-size: 8px; color: #d1d5db;">
+                                                —
+                                                <t t-esc="row.get('product_code')"/>
+                                            </span>
+                                        </td>
+                                    </tr>
+                                    <t t-set="last_product_key" t-value="row.get('product_key')"/>
+                                </t>
+
+                                <t t-set="idx" t-value="idx + 1"/>
+                                <t t-set="grand_total_qty" t-value="grand_total_qty + (row.get('qty') or 0.0)"/>
+                                <t t-set="grand_total_weight" t-value="grand_total_weight + (row.get('peso') or 0.0)"/>
+
+                                <tr>
+                                    <td class="text-center">
+                                        <t t-esc="idx"/>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-esc="row.get('packing_name') or '-'"/>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-esc="row.get('container') or '-'"/>
+                                    </td>
+
+                                    <td class="pl-mono">
+                                        <t t-esc="row.get('ref_interna') or '-'"/>
+                                    </td>
+
+                                    <td>
+                                        <t t-esc="row.get('bloque') or '-'"/>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-esc="row.get('numero_placa') or '-'"/>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-esc="row.get('atado') or '-'"/>
+                                    </td>
+
+                                    <td>
+                                        <t t-esc="row.get('owner') or '-'"/>
+                                    </td>
+
+                                    <td>
+                                        <t t-esc="row.get('grupo') or '-'"/>
+                                    </td>
+
+                                    <td>
+                                        <t t-esc="row.get('pedimento') or '-'"/>
+                                    </td>
+
+                                    <td>
+                                        <t t-esc="row.get('ref_proveedor') or '-'"/>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-esc="row.get('grosor') or '-'"/>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-if="row.get('alto')">
+                                            <t t-esc="'%.3f' % row.get('alto')"/>
+                                        </t>
+                                        <t t-else="">-</t>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-if="row.get('ancho')">
+                                            <t t-esc="'%.3f' % row.get('ancho')"/>
+                                        </t>
+                                        <t t-else="">-</t>
+                                    </td>
+
+                                    <td class="text-center" style="font-weight: 800;">
+                                        <t t-esc="'%.3f' % (row.get('qty') or 0.0)"/>
+                                        <span t-if="row.get('uom')" class="pl-muted">
+                                            <t t-esc="row.get('uom')"/>
+                                        </span>
+                                    </td>
+
+                                    <td class="text-center">
+                                        <t t-if="row.get('peso')">
+                                            <t t-esc="'%.2f' % row.get('peso')"/>
+                                        </t>
+                                        <t t-else="">-</t>
+                                    </td>
+
+                                    <td>
+                                        <t t-esc="row.get('color') or '-'"/>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+
+                        <tfoot>
+                            <tr class="pl-total-row">
+                                <td colspan="14" class="text-end">
+                                    TOTAL GENERAL:
+                                </td>
+                                <td class="text-center">
+                                    <t t-esc="'%.3f' % (grand_total_qty or 0.0)"/>
+                                </td>
+                                <td class="text-center">
+                                    <t t-esc="'%.2f' % (grand_total_weight or 0.0)"/>
+                                </td>
+                                <td></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </t>
+
+                <t t-else="">
+                    <div style="border: 1px solid #d1d5db; padding: 8px; color: #6b7280; font-size: 11px; font-style: italic; text-align: center;">
+                        Sin líneas de Packing List para imprimir.
+                    </div>
+                </t>
+
+                <!-- ===================================================== -->
+                <!-- OBSERVACIÓN -->
+                <!-- ===================================================== -->
+                <div class="pl-note">
+                    <strong>Observación:</strong>
+                    Este documento muestra el detalle logístico cargado desde el embarque y/o el Packing List del proveedor.
+                    No sustituye la recepción física ni valida diferencias de almacén; cualquier ajuste debe confirmarse contra el Packing List físico y el Worksheet.
+                </div>
+
+                <!-- ===================================================== -->
+                <!-- FIRMAS -->
+                <!-- ===================================================== -->
+                <div class="row mt-3" style="page-break-inside: avoid;">
+                    <div class="col-4 text-center">
+                        <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 11px; font-weight: 800;">
+                            Revisó
+                        </div>
+                        <div style="font-size: 10px; color: #6b7280;">
+                            Nombre y firma
+                        </div>
+                    </div>
+
+                    <div class="col-4 text-center">
+                        <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 11px; font-weight: 800;">
+                            Validó almacén
+                        </div>
+                        <div style="font-size: 10px; color: #6b7280;">
+                            Nombre y firma
+                        </div>
+                    </div>
+
+                    <div class="col-4 text-center">
+                        <div style="border-top: 1px solid #111827; margin-top: 38px; padding-top: 5px; font-size: 11px; font-weight: 800;">
+                            Autorizó
+                        </div>
+                        <div style="font-size: 10px; color: #6b7280;">
+                            Nombre y firma
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===================================================== -->
+                <!-- PIE -->
+                <!-- ===================================================== -->
+                <div style="margin-top: 8px; font-size: 8px; color: #6b7280; text-align: center; border-top: 1px solid #e5e7eb; padding-top: 5px;">
+                    Packing List generado desde Odoo. Documento logístico sin precios. Página <span class="page"/>.
+                </div>
+
+            </div>
+        </t>
+    </template>
+</odoo>
