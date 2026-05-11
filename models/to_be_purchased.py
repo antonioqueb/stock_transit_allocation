@@ -479,8 +479,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         - se valida quant positivo en ubicación tránsito;
         - NO se devuelve una línea por lote/placa para evitar payloads y tablas
           inmanejables cuando hay miles de metros/lotes libres;
-        - la salida queda agregada por ETA para responder: cuánto viene libre y
-          cuándo llega.
+        - la salida queda agregada por embarque para responder: cuánto viene
+          libre, en qué embarque y cuándo llega.
         """
         if not product_ids:
             return {}
@@ -547,15 +547,53 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 if quant and _is_valid_transit_quant(line, quant):
                     valid_quant_by_line[line.id] = quant
 
+        voyage_ids = transit_lines.mapped('voyage_id').ids
+        shipment_by_voyage_id = {}
+
+        if voyage_ids and 'supplier.shipment' in self.env.registry.models:
+            shipments = self.env['supplier.shipment'].sudo().search([
+                ('voyage_id', 'in', voyage_ids),
+            ], order='id asc')
+            for shipment in shipments:
+                if shipment.voyage_id and shipment.voyage_id.id not in shipment_by_voyage_id:
+                    shipment_by_voyage_id[shipment.voyage_id.id] = shipment
+
         result = defaultdict(lambda: {
             'qty': 0.0,
             'qty_m2': 0.0,
             'qty_pieces': 0.0,
             'count': 0,
+            'shipment_count': 0,
+            'shipment_groups': [],
             'eta_count': 0,
             'eta_groups': [],
+            '_shipment_group_map': {},
             '_eta_group_map': {},
         })
+
+        status_labels_cache = {}
+
+        def _voyage_status_label(voyage):
+            if not voyage:
+                return ''
+            model_name = voyage._name
+            if model_name not in status_labels_cache:
+                status_labels_cache[model_name] = dict(voyage._fields['custom_status'].selection)
+            return status_labels_cache[model_name].get(voyage.custom_status, voyage.custom_status or '')
+
+        def _shipment_status_label(shipment):
+            if not shipment or 'status' not in shipment._fields:
+                return ''
+            labels = dict(shipment._fields['status'].selection)
+            return labels.get(shipment.status, shipment.status or '')
+
+        def _add_limited_name(target_set, value):
+            if not value:
+                return
+            for part in str(value).split(','):
+                clean = part.strip()
+                if clean and clean not in ('PENDIENTE', 'SN', 'False'):
+                    target_set.add(clean)
 
         for line in transit_lines:
             quant = valid_quant_by_line.get(line.id)
@@ -568,6 +606,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
             product = line.product_id
             voyage = line.voyage_id
+            shipment = shipment_by_voyage_id.get(voyage.id) if voyage else False
             qty_m2, qty_pieces = self._split_qty_by_unit(product, qty)
 
             eta_date = voyage.eta if voyage else False
@@ -575,12 +614,74 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             eta_label = eta_date.strftime('%d/%m/%Y') if eta_date else 'Sin ETA'
             sort_key = eta_key if eta_date else '9999-12-31'
 
+            shipment_key = 'voyage_%s' % voyage.id if voyage else 'line_%s' % line.id
+            shipment_name = (
+                (shipment.name if shipment else '')
+                or (voyage.name if voyage else '')
+                or 'Sin embarque'
+            )
+
             product_bucket = result[product.id]
             product_bucket['qty'] += qty
             product_bucket['qty_m2'] += qty_m2
             product_bucket['qty_pieces'] += qty_pieces
             product_bucket['count'] += 1
 
+            # Grupo principal: embarque/voyage.
+            shipment_group_map = product_bucket['_shipment_group_map']
+            if shipment_key not in shipment_group_map:
+                shipment_group_map[shipment_key] = {
+                    'key': shipment_key,
+                    'shipment_id': shipment.id if shipment else False,
+                    'shipment_name': shipment_name,
+                    'voyage_id': voyage.id if voyage else False,
+                    'voyage_name': voyage.name if voyage else '',
+                    'eta': eta_key if eta_date else '',
+                    'eta_label': eta_label,
+                    'sort_key': sort_key,
+                    'qty': 0.0,
+                    'qty_m2': 0.0,
+                    'qty_pieces': 0.0,
+                    'lot_count': 0,
+                    'container_count': 0,
+                    'container_numbers': '',
+                    'vendor_count': 0,
+                    'vendor_names': '',
+                    'purchase_count': 0,
+                    'purchase_names': '',
+                    'status': voyage.custom_status if voyage else '',
+                    'status_label': _voyage_status_label(voyage) or _shipment_status_label(shipment),
+                    'bl_number': (shipment.bl_number if shipment and 'bl_number' in shipment._fields else '') or (voyage.bl_number if voyage else '') or '',
+                    '_container_numbers': set(),
+                    '_vendor_names': set(),
+                    '_purchase_names': set(),
+                }
+
+            shipment_group = shipment_group_map[shipment_key]
+            shipment_group['qty'] += qty
+            shipment_group['qty_m2'] += qty_m2
+            shipment_group['qty_pieces'] += qty_pieces
+            shipment_group['lot_count'] += 1
+
+            container_number = line.container_number or (voyage.container_number if voyage else '') or ''
+            _add_limited_name(shipment_group['_container_numbers'], container_number)
+
+            vendor_name = (
+                (line.vendor_id.name if line.vendor_id else '')
+                or (line.purchase_id.partner_id.name if line.purchase_id and line.purchase_id.partner_id else '')
+                or (voyage.purchase_id.partner_id.name if voyage and voyage.purchase_id and voyage.purchase_id.partner_id else '')
+                or (shipment.purchase_id.partner_id.name if shipment and shipment.purchase_id and shipment.purchase_id.partner_id else '')
+            )
+            _add_limited_name(shipment_group['_vendor_names'], vendor_name)
+
+            purchase_name = (
+                (line.purchase_id.name if line.purchase_id else '')
+                or (voyage.purchase_id.name if voyage and voyage.purchase_id else '')
+                or (shipment.purchase_id.name if shipment and shipment.purchase_id else '')
+            )
+            _add_limited_name(shipment_group['_purchase_names'], purchase_name)
+
+            # Grupo secundario por ETA para conservar compatibilidad y tooltip.
             eta_group_map = product_bucket['_eta_group_map']
             if eta_key not in eta_group_map:
                 eta_group_map[eta_key] = {
@@ -608,28 +709,33 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             eta_group['qty_m2'] += qty_m2
             eta_group['qty_pieces'] += qty_pieces
             eta_group['lot_count'] += 1
-
-            if voyage and voyage.name:
-                eta_group['_voyage_names'].add(voyage.name)
-
-            container_number = line.container_number or (voyage.container_number if voyage else '') or ''
-            if container_number:
-                for container_ref in str(container_number).split(','):
-                    container_ref = container_ref.strip()
-                    if container_ref and container_ref not in ('PENDIENTE', 'SN', 'False'):
-                        eta_group['_container_numbers'].add(container_ref)
-
-            vendor_name = (
-                (line.vendor_id.name if line.vendor_id else '')
-                or (line.purchase_id.partner_id.name if line.purchase_id and line.purchase_id.partner_id else '')
-                or (voyage.purchase_id.partner_id.name if voyage and voyage.purchase_id and voyage.purchase_id.partner_id else '')
-            )
-            if vendor_name:
-                eta_group['_vendor_names'].add(vendor_name)
+            _add_limited_name(eta_group['_voyage_names'], shipment_name)
+            _add_limited_name(eta_group['_container_numbers'], container_number)
+            _add_limited_name(eta_group['_vendor_names'], vendor_name)
 
         final_result = {}
         for product_id, bucket in result.items():
+            shipment_groups = list(bucket.pop('_shipment_group_map', {}).values())
             eta_groups = list(bucket.pop('_eta_group_map', {}).values())
+
+            for group in shipment_groups:
+                container_numbers = sorted(group.pop('_container_numbers', set()))
+                vendor_names = sorted(group.pop('_vendor_names', set()))
+                purchase_names = sorted(group.pop('_purchase_names', set()))
+
+                group['container_count'] = len(container_numbers)
+                group['vendor_count'] = len(vendor_names)
+                group['purchase_count'] = len(purchase_names)
+                group['container_numbers'] = ', '.join(container_numbers[:3])
+                group['vendor_names'] = ', '.join(vendor_names[:3])
+                group['purchase_names'] = ', '.join(purchase_names[:3])
+
+                if len(container_numbers) > 3:
+                    group['container_numbers'] += ' +%s' % (len(container_numbers) - 3)
+                if len(vendor_names) > 3:
+                    group['vendor_names'] += ' +%s' % (len(vendor_names) - 3)
+                if len(purchase_names) > 3:
+                    group['purchase_names'] += ' +%s' % (len(purchase_names) - 3)
 
             for group in eta_groups:
                 voyage_names = sorted(group.pop('_voyage_names', set()))
@@ -650,14 +756,21 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 if len(vendor_names) > 3:
                     group['vendor_names'] += ' +%s' % (len(vendor_names) - 3)
 
+            shipment_groups.sort(key=lambda item: (
+                item.get('sort_key') or '9999-12-31',
+                item.get('shipment_name') or '',
+                item.get('key') or '',
+            ))
             eta_groups.sort(key=lambda item: (item.get('sort_key') or '9999-12-31', item.get('key') or ''))
 
+            bucket['shipment_groups'] = shipment_groups
+            bucket['shipment_count'] = len(shipment_groups)
             bucket['eta_groups'] = eta_groups
             bucket['eta_count'] = len(eta_groups)
             bucket['lines'] = []  # compatibilidad frontend; no se envían lotes individuales.
 
-            if eta_groups:
-                next_group = eta_groups[0]
+            if shipment_groups:
+                next_group = shipment_groups[0]
                 bucket['next_eta'] = next_group.get('eta') or ''
                 bucket['next_eta_label'] = next_group.get('eta_label') or ''
                 bucket['next_eta_qty'] = next_group.get('qty') or 0.0
@@ -1113,8 +1226,10 @@ class ToBePurchasedLogic(models.AbstractModel):
             qty_i = transit_info.get('qty', 0.0)
             qty_i_m2 = transit_info.get('qty_m2', 0.0)
             qty_i_pieces = transit_info.get('qty_pieces', 0.0)
+            transit_free_shipment_groups = transit_info.get('shipment_groups', [])
             transit_free_eta_groups = transit_info.get('eta_groups', [])
             transit_free_count = transit_info.get('count', 0)
+            transit_free_shipment_count = transit_info.get('shipment_count', len(transit_free_shipment_groups))
             transit_free_eta_count = transit_info.get('eta_count', len(transit_free_eta_groups))
             qty_p = open_po_qty_by_product.get(product.id, 0.0)
             # total_demanded ya viene neto de allocations/OC activas vinculadas a SO.
@@ -1142,6 +1257,8 @@ class ToBePurchasedLogic(models.AbstractModel):
                 'qty_i_free_m2': qty_i_m2,
                 'qty_i_free_pieces': qty_i_pieces,
                 'transit_free_count': transit_free_count,
+                'transit_free_shipment_count': transit_free_shipment_count,
+                'transit_free_shipment_groups': transit_free_shipment_groups,
                 'transit_free_eta_count': transit_free_eta_count,
                 'transit_free_eta_groups': transit_free_eta_groups,
                 'transit_free_next_eta': transit_info.get('next_eta', ''),

@@ -1810,3 +1810,160 @@ $o-tbp-pill: 999px;
     max-width: 210px;
     margin-left: auto;
 }
+
+
+// ============================================================================
+// Tránsito libre por embarque — tabla compacta en To Be Purchased
+// ============================================================================
+
+.o_tbp_metric_wide {
+    min-width: 136px;
+}
+
+.o_tbp_product_detail {
+    border-top: 1px solid rgba(215, 232, 242, 0.98);
+    background: #ffffff;
+}
+
+.o_tbp_product_detail > .o_tbp_table_wrap {
+    border-top: 1px solid rgba(215, 232, 242, 0.98);
+}
+
+.o_tbp_transit_shipments_panel {
+    padding: 12px 14px 14px;
+    background:
+        linear-gradient(180deg, rgba(248, 252, 255, 0.96), rgba(255, 255, 255, 0.98));
+}
+
+.o_tbp_transit_shipments_header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 10px;
+}
+
+.o_tbp_transit_shipments_title {
+    color: $o-tbp-text;
+    font-size: 12.5px;
+    line-height: 1.25;
+    font-weight: 850;
+    letter-spacing: -0.02em;
+
+    i {
+        color: $o-tbp-blue-deep;
+    }
+}
+
+.o_tbp_transit_shipments_subtitle {
+    margin-top: 2px;
+    color: $o-tbp-muted;
+    font-size: 10.5px;
+    line-height: 1.35;
+    font-weight: 650;
+}
+
+.o_tbp_transit_shipments_total {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    color: $o-tbp-blue-deep;
+    font-size: 11px;
+    font-weight: 800;
+    white-space: nowrap;
+
+    span {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid rgba(92, 185, 242, 0.30);
+        background: rgba(92, 185, 242, 0.10);
+        border-radius: $o-tbp-pill;
+        padding: 4px 9px;
+    }
+
+    strong {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid rgba(4, 217, 79, 0.28);
+        background: rgba(4, 217, 79, 0.10);
+        color: $o-tbp-green-dark;
+        border-radius: $o-tbp-pill;
+        padding: 4px 9px;
+        font-variant-numeric: tabular-nums;
+    }
+}
+
+.o_tbp_transit_shipments_table_wrap {
+    max-height: 260px;
+    overflow: auto;
+    border: 1px solid rgba(215, 232, 242, 0.96);
+    border-radius: 14px;
+    background: #ffffff;
+
+    &::-webkit-scrollbar {
+        width: 9px;
+        height: 9px;
+    }
+
+    &::-webkit-scrollbar-track {
+        background: rgba(220, 234, 242, 0.58);
+        border-radius: 999px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+        background: rgba(92, 185, 242, 0.58);
+        border: 2px solid rgba(238, 248, 254, 0.96);
+        border-radius: 999px;
+    }
+}
+
+.o_tbp_transit_shipments_table {
+    width: 100%;
+    min-width: 880px;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 10.8px;
+
+    thead {
+        background: rgba(220, 234, 242, 0.70);
+        color: $o-tbp-text-2;
+    }
+
+    th,
+    td {
+        padding: 8px 10px;
+        border-bottom: 1px solid rgba(215, 232, 242, 0.82);
+        vertical-align: middle;
+    }
+
+    th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        background: rgba(220, 234, 242, 0.96);
+        color: $o-tbp-text-2;
+        font-size: 9px;
+        font-weight: 850;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        white-space: nowrap;
+    }
+
+    tbody tr {
+        background: #ffffff;
+
+        &:nth-child(even) {
+            background: rgba(248, 252, 255, 0.70);
+        }
+
+        &:hover {
+            background: rgba(92, 185, 242, 0.10);
+        }
+    }
+
+    tbody tr:last-child td {
+        border-bottom: 0;
+    }
+}
