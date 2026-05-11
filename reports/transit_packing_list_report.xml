@@ -60,7 +60,7 @@
             <style>
                 @page {
                     size: A4 landscape;
-                    margin: 6mm 7mm 7mm 7mm;
+                    margin: 5mm 7mm 6mm 7mm;
                 }
 
                 .pl-page {
@@ -72,8 +72,8 @@
                 /* ============ ENCABEZADO ============ */
                 .pl-header {
                     border-bottom: 2px solid #111827;
-                    padding-bottom: 3px;
-                    margin-bottom: 4px;
+                    padding-bottom: 2px;
+                    margin-bottom: 3px;
                 }
 
                 .pl-title {
@@ -122,16 +122,16 @@
                     border-radius: 4px;
                     border-collapse: separate;
                     border-spacing: 0;
-                    margin-bottom: 5px;
+                    margin-bottom: 4px;
                     font-size: 9.5px;
                     table-layout: fixed;
                 }
 
                 .pl-info-grid td {
-                    padding: 2px 6px;
+                    padding: 1.5px 6px;
                     border-bottom: 1px solid #e5e7eb;
                     border-right: 1px solid #e5e7eb;
-                    line-height: 1.1;
+                    line-height: 1;
                     vertical-align: middle;
                     overflow: hidden;
                     text-overflow: ellipsis;
@@ -172,7 +172,7 @@
                     display: table;
                     width: 100%;
                     table-layout: fixed;
-                    margin-bottom: 5px;
+                    margin-bottom: 4px;
                     border-collapse: separate;
                     border-spacing: 4px 0;
                 }
@@ -182,7 +182,7 @@
                     border: 1px solid #d1d5db;
                     border-radius: 4px;
                     background: #f9fafb;
-                    padding: 3px 6px;
+                    padding: 2px 6px;
                     text-align: center;
                     vertical-align: middle;
                 }
@@ -197,10 +197,10 @@
                 }
 
                 .pl-kpi-value {
-                    font-size: 13px;
+                    font-size: 12px;
                     font-weight: 900;
                     color: #111827;
-                    line-height: 1.05;
+                    line-height: 1;
                     margin-top: 1px;
                 }
 
@@ -209,7 +209,7 @@
                     font-weight: 800;
                     font-size: 9.5px;
                     text-transform: uppercase;
-                    margin: 1px 0 3px;
+                    margin: 0 0 2px;
                     color: #111827;
                     letter-spacing: .03em;
                 }
@@ -220,7 +220,7 @@
                     border-collapse: collapse;
                     border: 1px solid #9ca3af;
                     table-layout: fixed;
-                    margin-bottom: 4px;
+                    margin-bottom: 3px;
                 }
 
                 .pl-table thead tr {
@@ -228,7 +228,7 @@
                 }
 
                 .pl-table th {
-                    padding: 2px 3px;
+                    padding: 1.5px 3px;
                     line-height: 1;
                     color: #ffffff !important;
                     background-color: #111827 !important;
@@ -246,8 +246,8 @@
                 }
 
                 .pl-table td {
-                    padding: 1px 3px;
-                    line-height: 1.05;
+                    padding: 0.5px 3px;
+                    line-height: 1;
                     border: 1px solid #e5e7eb;
                     vertical-align: middle;
                     font-weight: 400;
@@ -257,7 +257,7 @@
 
                 /* Encabezado de producto */
                 .pl-product-row td {
-                    padding: 2px 5px !important;
+                    padding: 1.5px 5px !important;
                     line-height: 1;
                     font-weight: 800 !important;
                     font-size: 9px;
@@ -277,7 +277,7 @@
 
                 /* Subtotal por producto */
                 .pl-product-subtotal td {
-                    padding: 1.5px 4px !important;
+                    padding: 1px 4px !important;
                     background-color: #6f4e37 !important;
                     font-weight: 800 !important;
                     font-size: 9px;
@@ -305,7 +305,7 @@
                     color: #ffffff !important;
                     font-weight: 900 !important;
                     font-size: 9.5px;
-                    padding: 3px 6px !important;
+                    padding: 2px 6px !important;
                     text-transform: uppercase;
                     letter-spacing: .03em;
                 }
@@ -314,16 +314,16 @@
                     border: 1px solid #d1d5db;
                     background: #f9fafb;
                     border-radius: 3px;
-                    padding: 3px 7px;
-                    margin-top: 4px;
+                    padding: 2px 7px;
+                    margin-top: 3px;
                     font-size: 8.5px;
-                    line-height: 1.15;
+                    line-height: 1.1;
                     color: #4b5563;
                 }
 
                 .pl-sign-line {
                     border-top: 1px solid #111827;
-                    margin-top: 18px;
+                    margin-top: 14px;
                     padding-top: 2px;
                     font-size: 9.5px;
                     font-weight: 800;
@@ -336,12 +336,12 @@
                 }
 
                 .pl-foot {
-                    margin-top: 4px;
+                    margin-top: 3px;
                     font-size: 7.5px;
                     color: #9ca3af;
                     text-align: center;
                     border-top: 1px solid #e5e7eb;
-                    padding-top: 2px;
+                    padding-top: 1px;
                 }
             </style>
 
@@ -479,13 +479,13 @@
                             <tr>
                                 <th style="width: 5%;">#</th>
                                 <th style="width: 12%;">CONTENEDOR</th>
-                                <th style="width: 21%;">BLOQUE</th>
-                                <th style="width: 13%;">PLACA</th>
-                                <th style="width: 9%;">ATADO</th>
+                                <th style="width: 20%;">BLOQUE</th>
+                                <th style="width: 12%;">PLACA</th>
+                                <th style="width: 8%;">ATADO</th>
                                 <th style="width: 19%;">PEDIMENTO</th>
                                 <th style="width: 7%;">ALTO</th>
                                 <th style="width: 7%;">ANCHO</th>
-                                <th style="width: 7%;">CANT.</th>
+                                <th style="width: 10%;">CANT.</th>
                             </tr>
                         </thead>
 
@@ -546,7 +546,7 @@
                                         <t t-if="row.get('ancho')"><t t-esc="'%.3f' % row.get('ancho')"/></t>
                                         <t t-else="">-</t>
                                     </td>
-                                    <td class="text-center" style="font-weight: 800;">
+                                    <td class="text-center" style="font-weight: 800; white-space: nowrap;">
                                         <t t-esc="'%.3f' % (row.get('qty') or 0.0)"/>
                                         <span t-if="row.get('uom')" class="pl-muted">
                                             <t t-esc="row.get('uom')"/>
