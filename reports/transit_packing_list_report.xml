@@ -225,11 +225,13 @@
 
                 .pl-table thead tr {
                     background-color: #111827;
+                    height: auto !important;
                 }
 
                 .pl-table th {
-                    padding: 1.5px 3px;
-                    line-height: 1;
+                    padding: 1.5px 3px !important;
+                    line-height: 1 !important;
+                    height: auto !important;
                     color: #ffffff !important;
                     background-color: #111827 !important;
                     font-weight: 800;
@@ -245,9 +247,14 @@
                     line-height: 1;
                 }
 
+                .pl-table tbody tr {
+                    height: auto !important;
+                }
+
                 .pl-table td {
-                    padding: 0.5px 3px;
-                    line-height: 1;
+                    padding: 0.5px 3px !important;
+                    line-height: 1 !important;
+                    height: auto !important;
                     border: 1px solid #e5e7eb;
                     vertical-align: middle;
                     font-weight: 400;
@@ -258,7 +265,8 @@
                 /* Encabezado de producto */
                 .pl-product-row td {
                     padding: 1.5px 5px !important;
-                    line-height: 1;
+                    line-height: 1 !important;
+                    height: auto !important;
                     font-weight: 800 !important;
                     font-size: 9px;
                     text-transform: uppercase;
@@ -278,6 +286,8 @@
                 /* Subtotal por producto */
                 .pl-product-subtotal td {
                     padding: 1px 4px !important;
+                    line-height: 1 !important;
+                    height: auto !important;
                     background-color: #6f4e37 !important;
                     font-weight: 800 !important;
                     font-size: 9px;
@@ -306,6 +316,8 @@
                     font-weight: 900 !important;
                     font-size: 9.5px;
                     padding: 2px 6px !important;
+                    line-height: 1 !important;
+                    height: auto !important;
                     text-transform: uppercase;
                     letter-spacing: .03em;
                 }
