@@ -62,7 +62,6 @@
     'data': [
         'security/transit_security.xml',
         'security/ir.model.access.csv',
-        'security/ir.model.access_transit_label.csv',
 
         'data/ir_sequence_data.xml',
         'data/ir_config_parameter_data.xml',
