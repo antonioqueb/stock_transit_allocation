@@ -67,9 +67,11 @@ class StockPicking(models.Model):
             'skip_stone_sync_so': True,
             'skip_stone_sync_picking': True,
             'skip_hold_validation': True,
+            'skip_duplicate_lot_validation': True,
             'skip_picking_clean': True,
             'skip_transit_sale_sync': True,
             'skip_procurement': True,
+            'skip_tc_allocation_recovery': True,
         })
         return ctx
 
@@ -84,7 +86,7 @@ class StockPicking(models.Model):
         """
         Crea valores seguros para stock.move en Odoo 18/19.
 
-        En tu Odoo 19 ya se detectó que stock.move puede no aceptar 'name',
+        En Odoo 19 ya se detectó que stock.move puede no aceptar 'name',
         por eso todos los campos se validan contra _fields antes de crear.
         """
         self.ensure_one()
@@ -692,8 +694,10 @@ class StockPicking(models.Model):
             skip_stone_sync_picking=True,
             skip_stone_sync_so=True,
             skip_hold_validation=True,
+            skip_duplicate_lot_validation=True,
             skip_picking_clean=True,
             skip_transit_sale_sync=True,
+            skip_tc_allocation_recovery=True,
         ).write(vals)
 
         if hasattr(sale_line, '_tc_get_pending_allocation_qty'):
@@ -710,7 +714,10 @@ class StockPicking(models.Model):
                         'tc_stock_rejected_at': False,
                     })
                 if clear_vals:
-                    sale_line.with_context(skip_tc_allocation_recovery=True).write(clear_vals)
+                    sale_line.with_context(
+                        skip_tc_allocation_recovery=True,
+                        skip_duplicate_lot_validation=True,
+                    ).write(clear_vals)
 
         _logger.info(
             "[TC_ASSIGN] SO line %s lotes fusionados: actuales=%s tránsito=%s final=%s",
@@ -759,7 +766,7 @@ class StockPicking(models.Model):
 
         # CRÍTICO:
         # outgoing = entrega directa / salida final
-        # internal = picking/preparación en rutas multi-step, ej. SOM/PICK/00039
+        # internal = picking/preparación en rutas multi-step, ej. SOM/PICK/00039.
         sale_operation_codes = ['outgoing', 'internal']
 
         base_domain = [
@@ -903,6 +910,131 @@ class StockPicking(models.Model):
 
         return move
 
+    def _tc_get_sale_order_from_move_line(self, move_line):
+        """
+        Resuelve la venta de una stock.move.line de forma defensiva.
+
+        Orden:
+        1. move_id.sale_line_id.order_id
+        2. picking.sale_id, si existe
+        3. picking.origin exacto contra sale.order.name
+        """
+        SaleOrder = self.env['sale.order'].sudo()
+
+        if (
+            move_line.move_id
+            and move_line.move_id.sale_line_id
+            and move_line.move_id.sale_line_id.order_id
+        ):
+            return move_line.move_id.sale_line_id.order_id.sudo()
+
+        picking = move_line.picking_id
+
+        if picking and 'sale_id' in picking._fields and picking.sale_id:
+            return picking.sale_id.sudo()
+
+        if picking and picking.origin:
+            sale_order = SaleOrder.search([('name', '=', picking.origin)], limit=1)
+            if sale_order:
+                return sale_order
+
+        return SaleOrder.browse()
+
+    def _tc_release_conflicting_auto_assignments(
+        self,
+        lot,
+        product,
+        current_order,
+        source_location_id,
+    ):
+        """
+        Libera autoasignaciones conflictivas generadas en la misma transacción.
+
+        Caso cubierto:
+        - Al validar Transit -> Stock, Odoo/sale_stone_selection puede intentar
+          reservar automáticamente el lote para otra venta pendiente.
+        - Control Tower es la fuente de verdad para lotes reservados en tránsito.
+        - Antes de crear la línea exacta para la venta destino, se eliminan solo
+          las move lines pendientes de otra venta para el mismo lote/producto/origen.
+
+        No toca operaciones done/cancel.
+        No libera líneas del pedido actual.
+        No borra demanda comercial; solo quita la línea detallada de lote incorrecta.
+        """
+        self.ensure_one()
+
+        if not (
+            lot
+            and lot.exists()
+            and product
+            and product.exists()
+            and current_order
+            and current_order.exists()
+            and source_location_id
+        ):
+            return self.env['stock.move.line']
+
+        MoveLine = self.env['stock.move.line'].sudo()
+        qty_field = 'quantity' if 'quantity' in MoveLine._fields else 'qty_done'
+
+        blockers = MoveLine.search([
+            ('product_id', '=', product.id),
+            ('lot_id', '=', lot.id),
+            ('location_id', '=', source_location_id),
+            ('picking_id', '!=', False),
+            ('picking_id.state', 'not in', ['done', 'cancel']),
+            ('state', 'not in', ['done', 'cancel']),
+            (qty_field, '>', 0),
+        ])
+
+        if not blockers:
+            return blockers
+
+        blockers = blockers.filtered(
+            lambda ml:
+                self._tc_get_sale_order_from_move_line(ml)
+                and self._tc_get_sale_order_from_move_line(ml).id != current_order.id
+        )
+
+        if not blockers:
+            return blockers
+
+        ctx = self._tc_assignment_context()
+
+        _logger.warning(
+            "[TC_ASSIGN_RELEASE] Liberando autoasignaciones conflictivas | "
+            "Recepción=%s | Lote=%s | Producto=%s | Venta destino=%s | Líneas=%s",
+            self.name,
+            lot.name,
+            product.display_name,
+            current_order.name,
+            blockers.ids,
+        )
+
+        for move_line in blockers:
+            sale_order = self._tc_get_sale_order_from_move_line(move_line)
+            sale_line = move_line.move_id.sale_line_id if move_line.move_id else False
+
+            _logger.warning(
+                "[TC_ASSIGN_RELEASE] Línea conflictiva removida | "
+                "ML=%s | Picking=%s | Venta=%s | Lote=%s | Qty=%.4f",
+                move_line.id,
+                move_line.picking_id.name if move_line.picking_id else False,
+                sale_order.name if sale_order else False,
+                lot.name,
+                float(getattr(move_line, qty_field, 0.0) or 0.0),
+            )
+
+            if move_line.exists():
+                move_line.with_context(ctx).unlink()
+
+            if sale_line and 'lot_ids' in sale_line._fields and lot in sale_line.lot_ids:
+                sale_line.with_context(ctx).write({
+                    'lot_ids': [(3, lot.id)],
+                })
+
+        return blockers
+
     def _assign_lots_to_delivery_orders(self):
         """
         Al validar la recepción física Transit → Stock:
@@ -911,7 +1043,8 @@ class StockPicking(models.Model):
         2. Solo procesa líneas allocation_status = reserved.
         3. Solo procesa lotes realmente recibidos en este picking.
         4. Reemplaza en la SO únicamente los lotes del mismo producto.
-        5. Crea/actualiza la entrega con sale_line_id y lotes exactos.
+        5. Libera autoasignaciones conflictivas de otras ventas.
+        6. Crea/actualiza la entrega con sale_line_id y lotes exactos.
         """
         self.ensure_one()
         _logger.info("[TC_ASSIGN] START recepción física %s", self.name)
@@ -1084,6 +1217,17 @@ class StockPicking(models.Model):
                 if qty_to_assign <= 0:
                     continue
 
+                # Corrección crítica:
+                # Antes de crear la línea exacta para la venta definida por Torre
+                # de Control, se liberan autoasignaciones transaccionales del mismo
+                # lote hechas por Odoo u otros módulos a ventas distintas.
+                self._tc_release_conflicting_auto_assignments(
+                    lot=lot,
+                    product=product,
+                    current_order=order,
+                    source_location_id=source_location_id,
+                )
+
                 move_line_vals = self._tc_prepare_stock_move_line_vals(
                     picking=delivery,
                     move=target_move,
@@ -1181,7 +1325,6 @@ class StockPicking(models.Model):
             'domain': [('picking_id', '=', self.id)],
             'context': {'default_picking_id': self.id},
         }
-
 
 
 class StockMove(models.Model):
