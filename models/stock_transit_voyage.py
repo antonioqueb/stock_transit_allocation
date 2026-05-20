@@ -1,9 +1,3 @@
-Aquí tienes los archivos completos con las actualizaciones aplicadas. He
-integrado la lógica para el nuevo Wizard de impresión de etiquetas ZPL para las
-recepciones y los embarques de tránsito.
-
-./manifest.py
-
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
