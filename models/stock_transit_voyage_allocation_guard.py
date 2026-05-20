@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 
-from odoo import models, fields
+from odoo import models
 
 _logger = logging.getLogger(__name__)
 
@@ -60,6 +60,12 @@ class StockTransitVoyageAllocationGuard(models.Model):
         - Si la línea de venta ya no tiene pendiente real, se cancela la allocation.
         - Si aún tiene pendiente parcial, la allocation se reduce al pendiente real.
         - La diferencia queda como stock disponible del viaje.
+
+        Nota:
+        - Esta carga desde OC puede conservar líneas esperadas sin lote como
+          referencia comercial de la compra.
+        - La asignación de LOTES reales se controla exclusivamente cuando Compras
+          selecciona manualmente líneas de stock.transit.line.
         """
         self.ensure_one()
 
@@ -182,11 +188,39 @@ class StockTransitVoyageAllocationGuard(models.Model):
     # PROTECCIÓN AL CARGAR DESDE PICKING
     # -------------------------------------------------------------------------
 
+    def _tc_get_move_line_quantity_for_transit_load(self, move_line):
+        """Compatibilidad Odoo 17/18/19 para leer cantidad hecha de la recepción."""
+        if 'quantity' in move_line._fields:
+            return move_line.quantity or 0.0
+        return move_line.qty_done or 0.0
+
+    def _tc_get_lot_container_for_transit_load(self, lot):
+        """Obtiene contenedor desde el lote sin asumir campos personalizados."""
+        if not lot:
+            return ''
+
+        if hasattr(lot, 'x_contenedor') and lot.x_contenedor:
+            return lot.x_contenedor
+
+        if lot.ref:
+            return lot.ref
+
+        return ''
+
     def action_load_from_picking(self):
         """
-        Override completo del método original para agregar una protección:
-        si una allocation de OC ya no tiene pendiente real en su sale.order.line,
-        se cancela la allocation y el material entra como stock libre.
+        Carga los lotes reales recibidos en la ubicación de tránsito.
+
+        Cambio funcional:
+        - Antes: el método consumía allocations de la OC, elegía lotes por producto,
+          asignaba cliente/pedido y generaba reservas automáticamente.
+        - Ahora: los lotes reales entran como DISPONIBLES en tránsito.
+
+        Regla de negocio:
+        Compras debe seleccionar manualmente qué lote de stock.transit.line se
+        asigna a qué pedido. La selección manual se hace desde Transit Allocation
+        o desde el embarque, y solo entonces stock.transit.line.write() marcará
+        la línea como reserved/committed.
         """
         self.ensure_one()
 
@@ -204,108 +238,41 @@ class StockTransitVoyageAllocationGuard(models.Model):
             if line.lot_id
         }
 
-        from .utils.transit_manager import TransitManager
-
-        purchase = self.picking_id.purchase_id
-        allocations_map = {}
-        allocation_consumed = {}
-
-        if purchase:
-            allocations = self.env['purchase.order.line.allocation'].search([
-                ('purchase_order_id', '=', purchase.id),
-                ('state', 'not in', ['done', 'cancelled']),
-            ], order='id asc')
-
-            for alloc in allocations:
-                allocations_map.setdefault(alloc.product_id.id, []).append(alloc)
-                allocation_consumed[alloc.id] = 0.0
-
         lines_to_create = []
-        hold_orders_map = {}
+        created_count = 0
+        updated_count = 0
 
         for move_line in self.picking_id.move_line_ids:
             if not move_line.lot_id:
                 continue
 
-            lot_id = move_line.lot_id.id
-            product_id = move_line.product_id.id
+            lot = move_line.lot_id
+            product = move_line.product_id
+            lot_id = lot.id
 
             found_quant = self.env['stock.quant'].search([
-                ('lot_id', '=', move_line.lot_id.id),
-                ('product_id', '=', move_line.product_id.id),
+                ('lot_id', '=', lot.id),
+                ('product_id', '=', product.id),
                 ('quantity', '>', 0),
                 ('location_id', '=', move_line.location_dest_id.id),
             ], limit=1)
 
-            raw_qty_done = move_line.quantity
+            raw_qty_done = self._tc_get_move_line_quantity_for_transit_load(move_line)
             qty_done = self._normalize_product_qty(
-                move_line.product_id,
+                product,
                 found_quant.quantity if found_quant else raw_qty_done,
             )
 
-            partner_to_assign = False
-            order_to_assign = False
-            allocation_to_use = False
+            if qty_done <= 0:
+                continue
 
-            if product_id in allocations_map:
-                for alloc in allocations_map[product_id]:
-                    already_received = alloc.qty_received
-                    consumed_this_load = allocation_consumed.get(alloc.id, 0.0)
-                    remaining = alloc.quantity - (already_received + consumed_this_load)
-
-                    if remaining <= 0:
-                        continue
-
-                    pending_qty = self._tc_get_pending_qty_for_allocation(alloc)
-
-                    if pending_qty <= 0:
-                        alloc.write({'state': 'cancelled'})
-                        _logger.info(
-                            "[TC_ALLOC_GUARD][PICKING] Allocation %s cancelada: "
-                            "la SO %s / línea %s ya no tiene pendiente real.",
-                            alloc.id,
-                            alloc.sale_order_id.name if alloc.sale_order_id else 'N/A',
-                            alloc.sale_line_id.id if alloc.sale_line_id else 'N/A',
-                        )
-                        continue
-
-                    if pending_qty < remaining:
-                        alloc.write({'quantity': already_received + pending_qty})
-                        remaining = pending_qty
-                        _logger.info(
-                            "[TC_ALLOC_GUARD][PICKING] Allocation %s reducida por pendiente real %.4f.",
-                            alloc.id,
-                            pending_qty,
-                        )
-
-                    allocation_to_use = alloc
-                    partner_to_assign = alloc.partner_id
-                    order_to_assign = alloc.sale_order_id
-
-                    if alloc.sale_line_id:
-                        auto_assign = getattr(alloc.sale_line_id, 'auto_transit_assign', True)
-
-                        if not auto_assign:
-                            partner_to_assign = False
-                            order_to_assign = False
-                            allocation_to_use = False
-                            continue
-
-                    allocation_consumed[alloc.id] = consumed_this_load + min(qty_done, remaining)
-                    break
-
-            lot_container = ''
-
-            if hasattr(move_line.lot_id, 'x_contenedor') and move_line.lot_id.x_contenedor:
-                lot_container = move_line.lot_id.x_contenedor
-            elif move_line.lot_id.ref:
-                lot_container = move_line.lot_id.ref
+            lot_container = self._tc_get_lot_container_for_transit_load(lot)
 
             if lot_id in existing_by_lot:
                 existing_line = existing_by_lot[lot_id]
                 update_vals = {}
 
-                if self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done):
+                if self._qty_differs(product, existing_line.product_uom_qty, qty_done):
                     update_vals['product_uom_qty'] = qty_done
 
                 if found_quant and existing_line.quant_id.id != found_quant.id:
@@ -314,107 +281,49 @@ class StockTransitVoyageAllocationGuard(models.Model):
                 if lot_container and existing_line.container_number != lot_container:
                     update_vals['container_number'] = lot_container
 
-                if allocation_to_use and not existing_line.allocation_id:
-                    update_vals['allocation_id'] = allocation_to_use.id
-
-                if not existing_line.partner_id and partner_to_assign:
-                    update_vals['partner_id'] = partner_to_assign.id
-                    update_vals['order_id'] = order_to_assign.id if order_to_assign else False
-                    update_vals['allocation_status'] = 'reserved'
-
-                if not partner_to_assign and not order_to_assign and existing_line.allocation_status != 'available':
-                    update_vals['partner_id'] = False
-                    update_vals['order_id'] = False
-                    update_vals['allocation_id'] = False
-                    update_vals['allocation_status'] = 'available'
-
+                # Importante: no se toca partner_id/order_id/allocation_id aquí.
+                # Si Compras ya seleccionó manualmente este lote para un pedido,
+                # esa asignación debe sobrevivir a una recarga del picking.
                 if update_vals:
                     existing_line.with_context(skip_reservation_logic=True).write(update_vals)
+                    updated_count += 1
 
                 continue
 
-            line_vals = {
+            lines_to_create.append({
                 'voyage_id': self.id,
-                'product_id': move_line.product_id.id,
-                'lot_id': move_line.lot_id.id,
+                'product_id': product.id,
+                'lot_id': lot.id,
                 'quant_id': found_quant.id if found_quant else False,
                 'product_uom_qty': qty_done,
-                'partner_id': partner_to_assign.id if partner_to_assign else False,
-                'order_id': order_to_assign.id if order_to_assign else False,
-                'allocation_status': 'reserved' if partner_to_assign else 'available',
+                'partner_id': False,
+                'order_id': False,
+                'allocation_id': False,
+                'allocation_status': 'available',
                 'container_number': lot_container,
-                'allocation_id': allocation_to_use.id if allocation_to_use else False,
-            }
-
-            lines_to_create.append(line_vals)
-
-            if partner_to_assign and order_to_assign:
-                key = (partner_to_assign.id, order_to_assign.id)
-
-                hold_orders_map.setdefault(key, {
-                    'partner': partner_to_assign,
-                    'order': order_to_assign,
-                    'line_vals_indices': [],
-                })
-                hold_orders_map[key]['line_vals_indices'].append(len(lines_to_create) - 1)
-
-        created_lines = self.env['stock.transit.line']
+                'notes': 'Disponible para asignación manual desde Compras. No autoasignado a pedido.',
+            })
 
         if lines_to_create:
-            created_lines = self.env['stock.transit.line'].create(lines_to_create)
+            created = self.env['stock.transit.line'].with_context(
+                skip_reservation_logic=True,
+            ).create(lines_to_create)
+            created_count = len(created)
 
-        for alloc_id, qty_consumed in allocation_consumed.items():
-            if qty_consumed > 0:
-                alloc = self.env['purchase.order.line.allocation'].browse(alloc_id)
+        if created_count or updated_count:
+            self.message_post(body=(
+                'Control Tower: lotes cargados desde recepción a tránsito.\n'
+                'Lotes nuevos: %s\n'
+                'Lotes actualizados: %s\n'
+                'Regla aplicada: todos los lotes nuevos quedan disponibles; '
+                'Compras debe seleccionar manualmente qué lote se asigna a cada pedido.'
+            ) % (created_count, updated_count))
 
-                if not alloc.exists() or alloc.state == 'cancelled':
-                    continue
-
-                new_received = alloc.qty_received + qty_consumed
-                alloc.write({
-                    'qty_received': min(new_received, alloc.quantity),
-                    'state': 'in_transit',
-                })
-
-        for key, data in hold_orders_map.items():
-            partner = data['partner']
-            order = data['order']
-            indices = data['line_vals_indices']
-
-            relevant_lines = [
-                created_lines[index]
-                for index in indices
-                if index < len(created_lines)
-            ]
-
-            if not relevant_lines:
-                continue
-
-            hold_vals = {
-                'partner_id': partner.id,
-                'user_id': self.env.user.id,
-                'company_id': self.env.company.id,
-                'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
-            }
-
-            HoldOrder = self.env['stock.lot.hold.order']
-
-            if 'fecha_orden' in HoldOrder._fields:
-                hold_vals['fecha_orden'] = fields.Datetime.now()
-
-            hold_order = HoldOrder.create(hold_vals)
-
-            for line in relevant_lines:
-                TransitManager.reassign_lot(
-                    self.env,
-                    line,
-                    partner,
-                    order,
-                    notes=False,
-                    hold_order_obj=hold_order,
-                )
-
-            if hold_order.hold_line_ids:
-                hold_order.action_confirm()
-            else:
-                hold_order.unlink()
+        _logger.info(
+            '[TC_ALLOC_GUARD][PICKING] Viaje %s cargado desde picking %s sin autoasignar lotes. '
+            'Nuevos=%s Actualizados=%s',
+            self.name,
+            self.picking_id.name,
+            created_count,
+            updated_count,
+        )

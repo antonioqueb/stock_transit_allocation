@@ -8,6 +8,7 @@
         Módulo optimizado para la gestión de contenedores y asignación de stock en tránsito.
 
         Novedades v13.3:
+        - Botón para imprimir etiquetas ZPL de los lotes recepcionados.
         - Reporte PDF Packing List de Embarque.
         - Botón de impresión en embarque.
         - Botón de impresión en orden de compra, visible solo si hay embarque con Packing List cargado.
@@ -61,6 +62,7 @@
     'data': [
         'security/transit_security.xml',
         'security/ir.model.access.csv',
+        'security/ir.model.access_transit_label.csv',
 
         'data/ir_sequence_data.xml',
         'data/ir_config_parameter_data.xml',
@@ -84,6 +86,7 @@
         'wizard/transit_reassign_wizard_views.xml',
         'wizard/sale_order_consolidate_purchase_views.xml',
         'wizard/transit_status_change_wizard_views.xml',
+        'wizard/transit_label_print_wizard_views.xml',
     ],
     'assets': {
         'web.assets_backend': [

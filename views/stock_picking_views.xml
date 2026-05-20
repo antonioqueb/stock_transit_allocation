@@ -33,6 +33,12 @@
                         class="btn-primary"
                         groups="stock.group_stock_user"
                         invisible="not tc_is_physical_reception or state in ('done', 'cancel')"/>
+
+                <button name="action_print_reception_labels"
+                        string="🏷️ Imprimir Etiquetas"
+                        type="object"
+                        class="btn-secondary"
+                        invisible="not tc_is_physical_reception"/>
             </xpath>
 
             <div name="button_box" position="inside">

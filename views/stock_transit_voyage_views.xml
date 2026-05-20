@@ -90,6 +90,12 @@
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
+                    <button name="action_print_reception_labels"
+                            string="🏷️ Etiquetas"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="custom_status in ['solicitud', 'production', 'booking', 'puerto_origen']"/>
+
                     <button name="action_arrive"
                             string="🏁 Cerrar Viaje"
                             type="object"

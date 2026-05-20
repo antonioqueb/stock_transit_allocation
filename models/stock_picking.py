@@ -603,6 +603,19 @@ class StockPicking(models.Model):
         )
         return res
 
+    def action_print_reception_labels(self):
+        self.ensure_one()
+        return {
+            'name': _('Imprimir Etiquetas'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'transit.label.print.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': {
+                'default_picking_id': self.id,
+            }
+        }
+
     # -------------------------------------------------------------------------
     # HELPERS: PASAR ASIGNACIÓN DE TRÁNSITO A ENTREGA
     # -------------------------------------------------------------------------

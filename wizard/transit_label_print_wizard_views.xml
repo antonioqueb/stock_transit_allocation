@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_transit_label_print_wizard_form" model="ir.ui.view">
+        <field name="name">transit.label.print.wizard.form</field>
+        <field name="model">transit.label.print.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Imprimir Etiquetas">
+                <group>
+                    <div class="alert alert-info" role="alert" style="margin-bottom: 0px;">
+                        Seleccione el formato para descargar el archivo ZPL con las etiquetas de los lotes recepcionados.
+                    </div>
+                </group>
+                <group>
+                    <field name="label_format" widget="radio"/>
+                    <field name="voyage_id" invisible="1"/>
+                    <field name="picking_id" invisible="1"/>
+                </group>
+                <footer>
+                    <button name="action_print" string="Descargar ZPL" type="object" class="btn-primary" icon="fa-download"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

@@ -329,6 +329,113 @@ class StockTransitLine(models.Model):
 
         return True
 
+    def _tc_get_purchase_for_manual_assignment(self):
+        """
+        Resuelve la OC de referencia para vincular una asignación manual de lote.
+
+        La asignación de lotes NO debe hacerse automáticamente al cargar el
+        picking; sin embargo, cuando Compras selecciona manualmente un lote para
+        un pedido, sí conviene vincular la allocation de la OC si existe. Esto
+        mantiene trazabilidad PO/SO y permite cerrar la allocation al recibir.
+        """
+        self.ensure_one()
+
+        purchase = self.purchase_id
+
+        if not purchase and self.voyage_id:
+            purchase = self.voyage_id.purchase_id or self.voyage_id.picking_id.purchase_id
+
+        return purchase
+
+    def _tc_get_matching_allocation_for_manual_assignment(self, order=False):
+        """
+        Busca una allocation compatible con la selección manual del comprador.
+
+        No decide qué lote asignar; eso ya lo hizo el usuario al seleccionar la
+        línea de tránsito. Este helper solo enlaza, de forma contable/operativa,
+        la línea seleccionada con la allocation activa de la misma OC/SO/producto.
+        """
+        self.ensure_one()
+
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+
+        order = order or self.order_id
+        purchase = self._tc_get_purchase_for_manual_assignment()
+
+        if not order or not purchase or not self.product_id:
+            return Allocation
+
+        sale_line = self._tc_get_sale_line_for_assignment(
+            order=order,
+            product=self.product_id,
+        )
+
+        if not sale_line:
+            return Allocation
+
+        allocations = Allocation.search([
+            ('purchase_order_id', '=', purchase.id),
+            ('sale_line_id', '=', sale_line.id),
+            ('product_id', '=', self.product_id.id),
+            ('state', 'not in', ['done', 'cancelled']),
+        ], order='id asc')
+
+        if not allocations:
+            return Allocation
+
+        TransitLine = self.env['stock.transit.line'].sudo()
+
+        for allocation in allocations:
+            linked_lines = TransitLine.search([
+                ('allocation_id', '=', allocation.id),
+                ('id', '!=', self.id),
+                ('voyage_id.custom_status', '!=', 'cancel'),
+            ])
+            linked_qty = sum(linked_lines.mapped('product_uom_qty'))
+            remaining_qty = (allocation.quantity or 0.0) - linked_qty
+
+            if remaining_qty > 0:
+                return allocation
+
+        return Allocation
+
+    def _tc_link_allocation_after_manual_assignment(self, order=False):
+        """
+        Vincula allocation_id después de una asignación manual de Compras.
+
+        Se ejecuta solo cuando ya existe order_id/partner_id en la línea de
+        tránsito. No crea ni cambia la asignación comercial; únicamente conserva
+        trazabilidad contra la OC que originó la necesidad.
+        """
+        self.ensure_one()
+
+        if self.allocation_id or not self.order_id or not self.product_id:
+            return False
+
+        allocation = self._tc_get_matching_allocation_for_manual_assignment(
+            order=order or self.order_id,
+        )
+
+        if not allocation:
+            return False
+
+        self.with_context(
+            skip_reservation_logic=True,
+            skip_transit_publication_sync=False,
+        ).write({
+            'allocation_id': allocation.id,
+        })
+
+        _logger.info(
+            '[TC_MANUAL_ASSIGN] Línea de tránsito %s vinculada a allocation %s por selección manual. Lote=%s Pedido=%s',
+            self.id,
+            allocation.id,
+            self.lot_id.name if self.lot_id else 'N/A',
+            self.order_id.name if self.order_id else 'N/A',
+        )
+
+        return allocation
+
     def _tc_get_assigned_transit_lines_for_order_product(self, order, product):
         """
         Devuelve las líneas reservadas de ESTE viaje para un pedido/producto.
@@ -421,6 +528,9 @@ class StockTransitLine(models.Model):
             if vals.get('partner_id') is False and 'order_id' not in vals:
                 vals['order_id'] = False
 
+            if 'order_id' in vals and 'allocation_id' not in vals:
+                vals['allocation_id'] = False
+
             if vals.get('order_id') and 'partner_id' not in vals:
                 order = self.env['sale.order'].browse(vals['order_id'])
                 if order.exists():
@@ -484,8 +594,13 @@ class StockTransitLine(models.Model):
                     # En ubicación de tránsito, stock_transit_publication intercepta
                     # esta llamada y evita crear hold físico.
                     line._execute_reservation_logic(new_partner, new_order)
+                    line._tc_link_allocation_after_manual_assignment(order=new_order)
                     sync_targets.add((line.id, new_order.id, line.product_id.id))
                 else:
+                    if line.allocation_id:
+                        super(StockTransitLine, line).write({
+                            'allocation_id': False,
+                        })
                     line._execute_release_logic()
                     if old_order_id and old_product_id:
                         sync_targets.add((line.id, old_order_id, old_product_id))
