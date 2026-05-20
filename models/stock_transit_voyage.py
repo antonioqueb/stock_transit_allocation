@@ -1105,7 +1105,16 @@ class StockTransitVoyage(models.Model):
             if vals.get('eta') and not vals.get('eta_original'):
                 vals['eta_original'] = vals['eta']
 
-        return super(StockTransitVoyage, self).create(vals_list)
+        records = super(StockTransitVoyage, self).create(vals_list)
+        
+        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR
+        if not self.env.context.get('skip_date_sync'):
+            for record in records:
+                sync_fields = {'bl_number', 'eta', 'etd'}
+                if any(field in self.env.context.get('default_vals', {}) or field in record for field in sync_fields):
+                    record._sync_dates_to_others({'bl_number': record.bl_number, 'eta': record.eta, 'etd': record.etd})
+
+        return records
 
     def write(self, vals):
         if 'eta' in vals:
@@ -1126,6 +1135,16 @@ class StockTransitVoyage(models.Model):
                     })
 
         res = super().write(vals)
+
+        # ---------------------------------------------------------
+        # SINCRONIZACIÓN BIDIRECCIONAL A OC Y PORTAL
+        # ---------------------------------------------------------
+        if not self.env.context.get('skip_date_sync'):
+            sync_fields = {'bl_number', 'eta', 'etd'}
+            if sync_fields.intersection(vals.keys()):
+                for voyage in self:
+                    voyage._sync_dates_to_others(vals)
+
 
         if 'custom_status' in vals or 'eta' in vals:
             transit_lines = self.mapped('line_ids')
@@ -1148,6 +1167,27 @@ class StockTransitVoyage(models.Model):
             self._check_eta_alerts()
 
         return res
+
+    def _sync_dates_to_others(self, vals):
+        """Helper para sincronizar fechas logísticas con Orden de Compra y Portal Proveedor"""
+        for voyage in self:
+            # Sincronizar hacia Orden de Compra
+            if voyage.purchase_id:
+                po_vals = {}
+                if 'bl_number' in vals: po_vals['bl_number'] = vals['bl_number']
+                if 'eta' in vals: po_vals['eta_date'] = vals['eta']
+                if po_vals:
+                    voyage.purchase_id.with_context(skip_date_sync=True).write(po_vals)
+
+            # Sincronizar hacia Portal (Embarque)
+            if 'supplier.shipment' in self.env.registry:
+                shipments = self.env['supplier.shipment'].sudo().search([('voyage_id', '=', voyage.id)])
+                s_vals = {}
+                if 'bl_number' in vals: s_vals['bl_number'] = vals['bl_number']
+                if 'eta' in vals: s_vals['eta'] = vals['eta']
+                if 'etd' in vals: s_vals['etd'] = vals['etd']
+                if s_vals:
+                    shipments.with_context(skip_date_sync=True).write(s_vals)
 
     # =========================================================================
     # NOTIFICACIONES
