@@ -112,7 +112,58 @@ class SupplierShipment(models.Model):
                 existing = self.search_count([('proforma_id', '=', vals.get('proforma_id'))])
                 po_name = proforma.purchase_id.name if proforma.purchase_id else 'X'
                 vals['name'] = f"EMB-{po_name}-{existing + 1:03d}"
-        return super().create(vals_list)
+        
+        records = super(SupplierShipment, self).create(vals_list)
+        
+        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR
+        if not self.env.context.get('skip_date_sync'):
+            for record in records:
+                sync_fields = {'bl_number', 'bl_date', 'eta', 'etd'}
+                if any(field in self.env.context.get('default_vals', {}) or field in record for field in sync_fields):
+                    record._sync_dates_to_others({
+                        'bl_number': record.bl_number, 
+                        'bl_date': record.bl_date, 
+                        'eta': record.eta, 
+                        'etd': record.etd
+                    })
+
+        return records
+
+    def write(self, vals):
+        res = super().write(vals)
+
+        # ---------------------------------------------------------
+        # SINCRONIZACIÓN BIDIRECCIONAL A OC Y TORRE DE CONTROL
+        # ---------------------------------------------------------
+        if not self.env.context.get('skip_date_sync'):
+            sync_fields = {'bl_number', 'bl_date', 'eta', 'etd'}
+            if sync_fields.intersection(vals.keys()):
+                for shipment in self:
+                    shipment._sync_dates_to_others(vals)
+
+        return res
+
+    def _sync_dates_to_others(self, vals):
+        """Helper para sincronizar fechas logísticas con Orden de Compra y Viaje en Tránsito"""
+        for shipment in self:
+            # Sincronizar hacia Orden de Compra
+            if shipment.purchase_id:
+                po_vals = {}
+                if 'bl_number' in vals: po_vals['bl_number'] = vals['bl_number']
+                if 'bl_date' in vals: po_vals['bl_date'] = vals['bl_date']
+                if 'eta' in vals: po_vals['eta_date'] = vals['eta']
+                if po_vals:
+                    shipment.purchase_id.with_context(skip_date_sync=True).write(po_vals)
+
+            # Sincronizar hacia Torre de Control (Viaje)
+            if shipment.voyage_id:
+                v_vals = {}
+                if 'bl_number' in vals: v_vals['bl_number'] = vals['bl_number']
+                if 'eta' in vals: v_vals['eta'] = vals['eta']
+                if 'etd' in vals: v_vals['etd'] = vals['etd']
+                if v_vals:
+                    shipment.voyage_id.with_context(skip_date_sync=True).write(v_vals)
+
 
     def name_get(self):
         return [(r.id, r.name or f"EMB-{r.id}") for r in self]
@@ -136,7 +187,9 @@ class SupplierShipment(models.Model):
             vals['eta'] = self.eta
 
         if self.voyage_id:
-            self.voyage_id.write(vals)
+            # Importante: al llamar a write pasamos el contexto skip_date_sync 
+            # para no generar bucles infinitos, ya que esta acción manual ya es un sync en sí mismo.
+            self.voyage_id.with_context(skip_date_sync=True).write(vals)
             voyage = self.voyage_id
             _logger.info(f"[SHIPMENT] Voyage {voyage.name} actualizado desde embarque {self.name}")
         else:
@@ -144,7 +197,7 @@ class SupplierShipment(models.Model):
                 'purchase_id': self.purchase_id.id,
                 'custom_status': 'solicitud',
             })
-            voyage = Voyage.create(vals)
+            voyage = Voyage.with_context(skip_date_sync=True).create(vals)
             self.write({'voyage_id': voyage.id})
             _logger.info(f"[SHIPMENT] Voyage {voyage.name} creado desde embarque {self.name}")
 
