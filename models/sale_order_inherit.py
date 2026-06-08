@@ -969,8 +969,24 @@ class SaleOrderLine(models.Model):
 
             requested_qty_before = line.product_uom_qty or 0.0
             old_assigned_qty = line._tc_get_assigned_lot_qty()
+
+            purchase_intent_before = bool(
+                getattr(line, 'auto_transit_assign', False)
+                or getattr(line, 'tc_stock_rejected', False)
+            )
+            purchase_intent_after = bool(purchase_intent_before or send_pending_to_purchase)
+
+            # La sobreasignación solo tiene sentido en modo compra ('Mandar a pedir'),
+            # donde existe una demanda manual independiente de las placas.
+            # Sin 'Mandar a pedir' la cantidad SIGUE a las placas (Solicitado = Asignado),
+            # por lo que no hay excedente que cobrar/regalar: la derivación de cantidad
+            # en write() ajustará product_uom_qty a lo asignado.
             over_assigned_qty = max(assigned_qty - requested_qty_before, 0.0) if requested_qty_before > 0 else assigned_qty
-            has_over_assignment = line._tc_float_gt_zero(over_assigned_qty)
+            has_over_assignment = purchase_intent_after and line._tc_float_gt_zero(over_assigned_qty)
+
+            # Sin modo compra el excedente no aplica: la cantidad seguirá a las placas.
+            if not has_over_assignment:
+                over_assigned_qty = 0.0
 
             if has_over_assignment and over_assignment_action not in ('free', 'bill'):
                 raise UserError(_(
@@ -981,12 +997,6 @@ class SaleOrderLine(models.Model):
             if has_over_assignment and over_assignment_action == 'free':
                 line._tc_require_discount_field()
 
-            purchase_intent_before = bool(
-                getattr(line, 'auto_transit_assign', False)
-                or getattr(line, 'tc_stock_rejected', False)
-            )
-            purchase_intent_after = bool(purchase_intent_before or send_pending_to_purchase)
-
             vals = {
                 'lot_ids': [(6, 0, safe_lot_ids)],
                 'tc_over_assignment_action': over_assignment_action if has_over_assignment else False,
@@ -994,6 +1004,12 @@ class SaleOrderLine(models.Model):
                 'tc_over_assignment_by': self.env.user.id if has_over_assignment else False,
                 'tc_over_assignment_at': fields.Datetime.now() if has_over_assignment else False,
             }
+
+            # En modo compra, fijar la intención JUNTO con las placas para que la
+            # derivación de cantidad respete la demanda manual y conserve el pendiente
+            # que debe irse a compra. Sin modo compra, la cantidad seguirá a las placas.
+            if purchase_intent_after:
+                vals['auto_transit_assign'] = True
 
             if 'x_lot_breakdown_json' in line._fields:
                 vals['x_lot_breakdown_json'] = line._tc_prepare_breakdown_value_for_line(clean_breakdown)
@@ -1400,6 +1416,28 @@ class SaleOrderLine(models.Model):
                     else set()
                 )
 
+        # ---------------------------------------------------------------------
+        # REGLA DE MODO (Mandar a pedir):
+        # Cuando 'Mandar a pedir' está apagado, la cantidad vendible se fija por
+        # las placas. Por eso, tras escribir, hay que igualar product_uom_qty a
+        # la suma asignada en las líneas SIN intención de compra cuando:
+        #   - cambian las placas/desglose (lot_ids / x_lot_breakdown_json), o
+        #   - se APAGA 'Mandar a pedir' (se deja de pedir el restante).
+        # El propio sync se reentra con tc_qty_sync_from_lots para no recursar.
+        # ---------------------------------------------------------------------
+        is_qty_sync = self.env.context.get('tc_qty_sync_from_lots')
+        lots_in_vals = ('lot_ids' in vals) or ('x_lot_breakdown_json' in vals)
+        unchecking_purchase = (
+            'auto_transit_assign' in vals and not vals.get('auto_transit_assign')
+        )
+
+        qty_derive_line_ids = set()
+        if not is_qty_sync and (lots_in_vals or unchecking_purchase):
+            for line in self:
+                if line.display_type or not line.product_id:
+                    continue
+                qty_derive_line_ids.add(line.id)
+
         if 'product_uom_qty' in vals and not self.env.context.get('skip_tc_qty_manual_reset'):
             vals.update({
                 'tc_assignment_closed': False,
@@ -1419,7 +1457,46 @@ class SaleOrderLine(models.Model):
         if must_recover:
             self._tc_after_lot_assignment_change(old_lots_by_line)
 
+        if qty_derive_line_ids:
+            self.browse(qty_derive_line_ids).exists()._tc_sync_requested_qty_from_lots()
+
         return res
+
+    def _tc_sync_requested_qty_from_lots(self):
+        """
+        Iguala product_uom_qty (Solicitado) a la cantidad asignada por placas
+        para las líneas SIN 'Mandar a pedir'.
+
+        Modelo:
+        - 'Mandar a pedir' ON  => la cantidad es manual (pedido a proveedor);
+          no se toca aquí.
+        - 'Mandar a pedir' OFF => la única forma de fijar cantidad vendible es
+          seleccionar placas, por lo que product_uom_qty = suma asignada.
+          Si no hay placas, queda en 0 (no se vende nada sin selección).
+        """
+        for line in self:
+            if line.display_type or not line.product_id:
+                continue
+
+            # En modo compra la cantidad es manual: respetar la demanda capturada.
+            if line.auto_transit_assign:
+                continue
+
+            assigned_qty = line._tc_get_assigned_lot_qty()
+            rounding = line._tc_get_qty_rounding()
+
+            if float_compare(
+                line.product_uom_qty or 0.0,
+                assigned_qty,
+                precision_rounding=rounding,
+            ) == 0:
+                continue
+
+            line.with_context(
+                tc_qty_sync_from_lots=True,
+                skip_tc_qty_manual_reset=True,
+                skip_tc_allocation_recovery=True,
+            ).write({'product_uom_qty': assigned_qty})
 
     def _tc_post_plain_message(self, title, lines=None):
         """
@@ -1855,31 +1932,26 @@ class SaleOrderLine(models.Model):
 
     @api.onchange('auto_transit_assign')
     def _onchange_auto_transit_assign(self):
-        if self.auto_transit_assign and self.lot_ids:
-            pending_qty = self._tc_get_pending_allocation_qty()
+        """
+        'Mandar a pedir' es el interruptor de modo y es libremente activable:
+        - Al ACTIVARLO, la cantidad pasa a ser manual; no se modifica el valor
+          actual (el usuario podrá editarlo).
+        - Al DESACTIVARLO, la cantidad vuelve a seguir a las placas, por lo que se
+          iguala a la suma asignada (feedback inmediato en el formulario; el write
+          en backend aplica la misma regla al persistir).
+        """
+        if self.auto_transit_assign:
+            return
 
-            if self._tc_float_le_zero(pending_qty):
-                self.auto_transit_assign = False
-                return {
-                    'warning': {
-                        'title': _('No permitido'),
-                        'message': _(
-                            'Esta línea ya está completamente cubierta con placas seleccionadas. '
-                            'No queda cantidad pendiente para mandar a pedir.'
-                        ),
-                    }
-                }
+        if self.display_type or not self.product_id:
+            return
 
-    @api.constrains('auto_transit_assign', 'lot_ids', 'product_uom_qty')
-    def _check_transit_vs_lots(self):
-        for line in self:
-            if not line.auto_transit_assign or not line.lot_ids:
-                continue
+        assigned_qty = self._tc_get_assigned_lot_qty()
+        rounding = self._tc_get_qty_rounding()
 
-            pending_qty = line._tc_get_pending_allocation_qty()
-
-            if line._tc_float_le_zero(pending_qty):
-                raise UserError(_(
-                    'La línea "%s" ya está completamente cubierta con placas seleccionadas. '
-                    'No puede marcarse como "Mandar a pedir" si no queda cantidad pendiente.'
-                ) % (line.product_id.display_name or ''))
+        if float_compare(
+            self.product_uom_qty or 0.0,
+            assigned_qty,
+            precision_rounding=rounding,
+        ) != 0:
+            self.product_uom_qty = assigned_qty

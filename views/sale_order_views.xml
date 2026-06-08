@@ -21,21 +21,21 @@
                 <field name="tc_closure_at" column_invisible="1"/>
 
                 <!--
-                    IMPORTANTE:
-                    Antes estaba readonly="has_stone_lots".
-                    Eso bloqueaba el flujo mixto:
-                    - asignar placas primero
-                    - después mandar a pedir el restante
+                    INTERRUPTOR DE MODO.
+                    'Mandar a pedir' es ahora el switch que gobierna la cantidad:
+                    - ON  => product_uom_qty (Solicitado) es manual (pedido a proveedor),
+                             se puede además asignar placas y mandar el restante a compra.
+                    - OFF => product_uom_qty NO es editable a mano; la cantidad vendible
+                             se fija exclusivamente seleccionando placas (Solicitado = Asignado).
 
-                    Ahora se permite marcar Mandar a pedir aunque existan placas,
-                    siempre que exista pendiente real por cubrir.
+                    Debe ser libremente activable para poder "desbloquear" la cantidad manual,
+                    por eso ya no lleva readonly por pendiente<=0.
                 -->
                 <field name="auto_transit_assign"
                        widget="boolean_toggle"
                        optional="show"
                        width="110px"
-                       string="Mandar a pedir"
-                       readonly="tc_qty_pending_allocation &lt;= 0 and not auto_transit_assign"/>
+                       string="Mandar a pedir"/>
 
                 <field name="transit_status"
                        optional="hide"
@@ -59,6 +59,13 @@
             <!-- ========================================================= -->
             <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="attributes">
                 <attribute name="string">Solicitado</attribute>
+                <!--
+                    REGLA DE MODO:
+                    La cantidad solo se edita a mano cuando 'Mandar a pedir' está activo.
+                    Sin 'Mandar a pedir', la cantidad se fija seleccionando placas
+                    (el backend la iguala a la suma asignada por lotes).
+                -->
+                <attribute name="readonly">not auto_transit_assign</attribute>
             </xpath>
 
             <!-- ========================================================= -->
