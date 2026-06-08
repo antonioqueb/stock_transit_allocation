@@ -964,6 +964,16 @@ export class ToBePurchased extends Component {
         return this.fmtSplitQty(line.qty_m2, line.qty_pieces);
     }
 
+    fmtAvailableStock(product) {
+        if (!product) return "0.00";
+        return this.fmtSplitQty(product.qty_a_m2, product.qty_a_pieces);
+    }
+
+    fmtAvailableStockTitle(product) {
+        if (!product) return "Sin stock disponible";
+        return `Stock disponible en bodega (libre, sin reservas ni hold): ${this.fmtAvailableStock(product)}`;
+    }
+
     getTransitShipmentGroups(product) {
         return (product && (product.transit_free_shipment_groups || product.transit_free_eta_groups)) || [];
     }

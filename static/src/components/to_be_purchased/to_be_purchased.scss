@@ -1779,6 +1779,32 @@ $o-tbp-pill: 999px;
 
 
 // ============================================================================
+// Stock disponible — indicador de inventario libre en bodega
+// ============================================================================
+
+.o_tbp_stat_available {
+    border-color: rgba(4, 217, 79, 0.32);
+    background: linear-gradient(180deg, #ffffff, $o-tbp-green-soft);
+    color: $o-tbp-green-dark;
+
+    b {
+        color: $o-tbp-green-dark;
+    }
+}
+
+.o_tbp_available_qty {
+    font-weight: 900 !important;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: $o-tbp-muted;
+
+    &.is-positive {
+        color: $o-tbp-green-dark !important;
+    }
+}
+
+
+// ============================================================================
 // Tránsito libre resumido por ETA — To Be Purchased
 // ============================================================================
 

@@ -155,6 +155,10 @@
                                           t-att-title="fmtTransitFreeTitle(product)">
                                         Tránsito libre <b><t t-esc="fmtTransitFree(product)"/></b>
                                     </span>
+                                    <span t-attf-class="o_tbp_stat o_tbp_stat_available #{(product.qty_a || 0) > 0 ? 'is-positive' : ''}"
+                                          t-att-title="fmtAvailableStockTitle(product)">
+                                        Stock disp. <b><t t-esc="fmtAvailableStock(product)"/></b>
+                                    </span>
                                     <span class="o_tbp_stat">
                                         % global <b><t t-esc="fmtPercent(linesAssignmentPercent(product.so_lines))"/></b>
                                     </span>
@@ -402,6 +406,7 @@
                                             <th class="text-center" style="width: 42px;">Sel</th>
                                             <th>Producto</th>
                                             <th>Proveedor</th>
+                                            <th class="text-end" style="width: 150px;">Stock disp.</th>
                                             <th class="text-end" style="width: 190px;">Tránsito libre</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
@@ -428,6 +433,9 @@
                                                     <div class="o_tbp_cell_sub" t-att-title="prod.vendor">
                                                         <t t-esc="prod.vendor"/>
                                                     </div>
+                                                </td>
+                                                <td t-attf-class="text-end o_tbp_available_qty #{(prod.qty_a || 0) > 0 ? 'is-positive' : ''}" t-att-title="fmtAvailableStockTitle(prod)">
+                                                    <t t-esc="fmtAvailableStock(prod)"/>
                                                 </td>
                                                 <td class="text-end o_tbp_transit_qty" t-att-title="fmtTransitFreeTitle(prod)">
                                                     <t t-esc="fmtTransitFree(prod)"/>
@@ -511,6 +519,7 @@
                                             <th style="width: 90px;">SO</th>
                                             <th>Cliente</th>
                                             <th style="width: 88px;">Fecha</th>
+                                            <th class="text-end" style="width: 150px;">Stock disp.</th>
                                             <th class="text-end" style="width: 190px;">Tránsito libre</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
@@ -546,6 +555,9 @@
                                                     </div>
                                                 </td>
                                                 <td><t t-esc="prod.date"/></td>
+                                                <td t-attf-class="text-end o_tbp_available_qty #{(prod.qty_a || 0) > 0 ? 'is-positive' : ''}" t-att-title="fmtAvailableStockTitle(prod)">
+                                                    <t t-esc="fmtAvailableStock(prod)"/>
+                                                </td>
                                                 <td class="text-end o_tbp_transit_qty" t-att-title="fmtTransitFreeTitle(prod)">
                                                     <t t-esc="fmtTransitFree(prod)"/>
                                                 </td>
