@@ -1435,19 +1435,19 @@ class SaleOrderLine(models.Model):
 
     def _tc_sync_requested_qty_from_lots(self):
         """
-        Ajusta product_uom_qty (Solicitado) en función de las placas para las
-        líneas SIN 'Mandar a pedir'.
+        Ajusta product_uom_qty (Solicitado) en función de las placas.
 
-        Modelo:
-        - 'Mandar a pedir' ON  => la cantidad es manual (pedido a proveedor);
-          no se toca aquí (salvo ajuste forzado explícito).
-        - 'Mandar a pedir' OFF => la cantidad se rige por las placas con regla
-          RATCHET: SUBE al asignar más (es lo que se va a cobrar) pero NO baja
-          sola al quitar placas (se conserva el valor más alto, p.ej. al
-          reemplazar una placa rota).
-        - Contexto tc_force_qty_to_selection=True ('Ajustar cantidad a la
-          selección' en To Be Allocated): iguala la cantidad a la selección
-          actual AUNQUE SEA MENOR (cliente ya no quiso la placa, sin reemplazo).
+        Tres modos:
+        - 'Por Asignar' (por_asignar): la cantidad escrita se conserva SIEMPRE;
+          nunca se deriva de las placas, ni siquiera con ajuste forzado.
+        - 'Mandar a pedir' (auto_transit_assign): RATCHET. La demanda manual SUBE
+          si se asigna de más que lo solicitado (es lo que se va a cobrar), pero
+          se MANTIENE si se asigna de menos. Nunca baja por las placas ni por el
+          ajuste forzado (su demanda manual se respeta).
+        - Sin ninguno de los dos: RATCHET igual (sube al asignar más, no baja al
+          quitar placas) y además admite el ajuste forzado a la baja
+          (tc_force_qty_to_selection / 'Ajustar a selección') para igualar la
+          cantidad a la selección AUNQUE SEA MENOR.
         """
         force = self.env.context.get('tc_force_qty_to_selection')
 
@@ -1460,20 +1460,20 @@ class SaleOrderLine(models.Model):
             if line.por_asignar:
                 continue
 
-            # En modo compra la cantidad es manual: respetar la demanda capturada,
-            # salvo que se pida un ajuste forzado explícito a la selección.
-            if line.auto_transit_assign and not force:
-                continue
-
             assigned_qty = line._tc_get_assigned_lot_qty()
             rounding = line._tc_get_qty_rounding()
             current_qty = line.product_uom_qty or 0.0
 
-            if force:
+            # El ajuste forzado a la baja solo aplica a líneas SIN modo manual.
+            # 'Mandar a pedir' conserva su demanda manual: solo CRECE al asignar
+            # de más; nunca baja (ni por placas ni por ajuste forzado).
+            allow_force_down = force and not line.auto_transit_assign
+
+            if allow_force_down:
                 # Ajuste explícito: la demanda se iguala a la selección, aun si baja.
                 target_qty = assigned_qty
             else:
-                # Ratchet: solo sube; nunca baja por desasignar placas.
+                # Ratchet: sube al asignar de más; nunca baja por desasignar placas.
                 target_qty = (
                     assigned_qty
                     if float_compare(assigned_qty, current_qty, precision_rounding=rounding) > 0

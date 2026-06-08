@@ -148,15 +148,16 @@
                 <!--
                     Ajuste manual desde la línea: baja el Solicitado a las placas
                     efectivamente asignadas (la regla ratchet no lo baja solo).
-                    Solo aplica sin 'Mandar a pedir', con placas y cuando hay
-                    diferencia por bajar (pendiente > 0).
+                    Solo aplica sin 'Mandar a pedir' ni 'Por Asignar' (modos de
+                    cantidad manual), con placas y con diferencia por bajar
+                    (pendiente > 0).
                 -->
                 <button name="action_tc_adjust_qty_to_selection"
                         type="object"
                         string="Ajustar a selección"
                         class="btn-secondary"
                         title="Igualar la cantidad solicitada a las placas efectivamente asignadas (aunque sea menor)"
-                        invisible="auto_transit_assign or tc_assignment_closed or not has_stone_lots or tc_qty_pending_allocation &lt;= 0"/>
+                        invisible="auto_transit_assign or por_asignar or tc_assignment_closed or not has_stone_lots or tc_qty_pending_allocation &lt;= 0"/>
 
                 <button name="action_tc_close_allocation_short"
                         type="object"
