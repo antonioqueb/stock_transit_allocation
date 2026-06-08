@@ -937,21 +937,28 @@ class SaleOrderLine(models.Model):
         reason=False,
         over_assignment_action=False,
         over_assignment_reason=False,
+        force_qty_to_selection=False,
     ):
         """
         Punto único para guardar asignaciones desde To Be Allocated.
 
         Reglas centrales:
         - La selección actualiza lot_ids/x_lot_breakdown_json.
-        - Si se asigna menos, el pendiente sigue operativo o se manda a compra.
-        - Si se asigna exacto, la línea queda cubierta.
-        - Si se asigna de más, se exige decisión administrativa:
-          * free: entregar excedente sin cobrar. Se sube product_uom_qty a lo asignado
-            y se aplica descuento equivalente al excedente.
-          * bill: cobrar excedente. Se sube product_uom_qty a lo asignado y se conserva
-            el descuento actual.
+        - Sin 'Mandar a pedir', la cantidad (Solicitado) sigue a las placas con
+          regla RATCHET: sube al asignar más, pero NO baja sola al quitar placas
+          (se conserva lo más alto, p.ej. al reemplazar una placa rota).
+        - force_qty_to_selection=True ('Ajustar cantidad a la selección'):
+          iguala la cantidad a la selección actual AUNQUE SEA MENOR (cuando el
+          cliente ya no quiso la placa y no hay reemplazo).
+        - Si se manda el restante a compra y se asigna de más, se exige decisión
+          administrativa (free/bill).
         """
         result = {}
+
+        # El ajuste explícito a la selección es excluyente con mandar a compra:
+        # al igualar la cantidad a lo asignado no queda pendiente que comprar.
+        if force_qty_to_selection:
+            send_pending_to_purchase = False
 
         for line in self:
             if line.display_type or not line.product_id:
@@ -982,7 +989,11 @@ class SaleOrderLine(models.Model):
             # por lo que no hay excedente que cobrar/regalar: la derivación de cantidad
             # en write() ajustará product_uom_qty a lo asignado.
             over_assigned_qty = max(assigned_qty - requested_qty_before, 0.0) if requested_qty_before > 0 else assigned_qty
-            has_over_assignment = purchase_intent_after and line._tc_float_gt_zero(over_assigned_qty)
+            has_over_assignment = (
+                purchase_intent_after
+                and not force_qty_to_selection
+                and line._tc_float_gt_zero(over_assigned_qty)
+            )
 
             # Sin modo compra el excedente no aplica: la cantidad seguirá a las placas.
             if not has_over_assignment:
@@ -1008,7 +1019,7 @@ class SaleOrderLine(models.Model):
             # En modo compra, fijar la intención JUNTO con las placas para que la
             # derivación de cantidad respete la demanda manual y conserve el pendiente
             # que debe irse a compra. Sin modo compra, la cantidad seguirá a las placas.
-            if purchase_intent_after:
+            if purchase_intent_after and not force_qty_to_selection:
                 vals['auto_transit_assign'] = True
 
             if 'x_lot_breakdown_json' in line._fields:
@@ -1038,7 +1049,10 @@ class SaleOrderLine(models.Model):
                         'tc_stock_rejected_at': False,
                     })
 
-            line.with_context(skip_tc_allocation_recovery=True).write(vals)
+            line.with_context(
+                skip_tc_allocation_recovery=True,
+                tc_force_qty_to_selection=force_qty_to_selection,
+            ).write(vals)
 
             over_admin_result = {
                 'qty_before': requested_qty_before,
@@ -1087,17 +1101,10 @@ class SaleOrderLine(models.Model):
 
                 pending_qty = line._tc_get_pending_allocation_qty()
 
-            elif line._tc_float_le_zero(pending_qty):
-                # Si la línea quedó totalmente cubierta y no hay una OC activa que
-                # deba conservar trazabilidad, se limpia la intención operativa.
-                if not line._tc_has_active_purchase_flow():
-                    line.with_context(skip_tc_allocation_recovery=True).write({
-                        'tc_stock_rejected': False,
-                        'tc_stock_rejected_reason': False,
-                        'tc_stock_rejected_by': False,
-                        'tc_stock_rejected_at': False,
-                        'auto_transit_assign': False,
-                    })
+            # Nota: si la línea queda totalmente cubierta NO se apaga 'Mandar a
+            # pedir' ni el rechazo de stock. Es intención explícita del vendedor y
+            # solo él la quita ('Revisar stock'). La cobertura se refleja en
+            # hub_state/assignment_state.
 
             requested_qty_after = line.product_uom_qty or 0.0
             discount_after = line._tc_get_discount_percent()
@@ -1299,47 +1306,18 @@ class SaleOrderLine(models.Model):
 
     def _tc_prepare_hub_state_for_read(self):
         """
-        Normalización conservadora antes de leer los hubs.
+        Normalización antes de leer los hubs.
 
         Regla de negocio:
-        - auto_transit_assign / tc_stock_rejected son intención explícita de
-          comprar el pendiente aunque exista stock disponible.
-        - Nunca se limpian automáticamente solo porque haya stock.
-        - Solo se limpian cuando ya no queda pendiente real y no hay una OC
-          activa que necesite conservar trazabilidad.
+        - auto_transit_assign / tc_stock_rejected son intención EXPLÍCITA del
+          vendedor y NUNCA se limpian de forma automática, ni siquiera cuando la
+          línea queda totalmente cubierta por placas. Solo el usuario las quita
+          (botón 'Revisar stock'). El estado de cobertura se refleja en
+          hub_state/assignment_state, no apagando el flag.
+
+        Por eso este método ya no modifica nada (se conserva por compatibilidad).
         """
-        for line in self:
-            if (
-                line.display_type
-                or line.state not in ('sale', 'done')
-                or not line.product_id
-                or line.tc_assignment_closed
-            ):
-                continue
-
-            pending_qty = line._tc_get_pending_allocation_qty()
-
-            if line._tc_float_gt_zero(pending_qty):
-                continue
-
-            if line._tc_has_active_purchase_flow():
-                continue
-
-            vals = {}
-
-            if 'auto_transit_assign' in line._fields and line.auto_transit_assign:
-                vals['auto_transit_assign'] = False
-
-            if line.tc_stock_rejected:
-                vals.update({
-                    'tc_stock_rejected': False,
-                    'tc_stock_rejected_reason': False,
-                    'tc_stock_rejected_by': False,
-                    'tc_stock_rejected_at': False,
-                })
-
-            if vals:
-                line.with_context(skip_tc_allocation_recovery=True).write(vals)
+        return
 
     def _tc_after_lot_assignment_change(self, old_lots_by_line):
         for line in self:
@@ -1357,37 +1335,12 @@ class SaleOrderLine(models.Model):
             if removed_lot_ids:
                 line._tc_release_removed_lots(removed_lot_ids)
 
-            if line.tc_assignment_closed:
-                continue
-
-            pending_qty = line._tc_get_pending_allocation_qty()
-
-            # Si aún queda pendiente, se respeta el camino elegido por el vendedor:
-            # - sin intención de compra: TBA si hay stock; TBP si no hay stock.
-            # - con intención de compra: TBP aunque haya stock.
-            if line._tc_float_gt_zero(pending_qty):
-                continue
-
-            # Si ya no queda pendiente, limpiar intención de compra solo si no
-            # existe una OC/allocation activa.
-            if line._tc_has_active_purchase_flow():
-                continue
-
-            vals = {}
-
-            if 'auto_transit_assign' in line._fields and line.auto_transit_assign:
-                vals['auto_transit_assign'] = False
-
-            if line.tc_stock_rejected:
-                vals.update({
-                    'tc_stock_rejected': False,
-                    'tc_stock_rejected_reason': False,
-                    'tc_stock_rejected_by': False,
-                    'tc_stock_rejected_at': False,
-                })
-
-            if vals:
-                line.with_context(skip_tc_allocation_recovery=True).write(vals)
+            # IMPORTANTE: 'Mandar a pedir' (auto_transit_assign) y el rechazo de
+            # stock son intención EXPLÍCITA del vendedor. NO se apagan solos al
+            # asignar placas, aunque la línea quede totalmente cubierta. Si el
+            # usuario marcó 'Mandar a pedir', se mantiene marcado; solo él lo quita
+            # con el botón 'Revisar stock'. El hub ya muestra la línea como cubierta
+            # vía hub_state='allocated' cuando no queda pendiente, sin tocar el flag.
 
     def write(self, vals):
         vals = dict(vals or {})
@@ -1464,39 +1417,54 @@ class SaleOrderLine(models.Model):
 
     def _tc_sync_requested_qty_from_lots(self):
         """
-        Iguala product_uom_qty (Solicitado) a la cantidad asignada por placas
-        para las líneas SIN 'Mandar a pedir'.
+        Ajusta product_uom_qty (Solicitado) en función de las placas para las
+        líneas SIN 'Mandar a pedir'.
 
         Modelo:
         - 'Mandar a pedir' ON  => la cantidad es manual (pedido a proveedor);
-          no se toca aquí.
-        - 'Mandar a pedir' OFF => la única forma de fijar cantidad vendible es
-          seleccionar placas, por lo que product_uom_qty = suma asignada.
-          Si no hay placas, queda en 0 (no se vende nada sin selección).
+          no se toca aquí (salvo ajuste forzado explícito).
+        - 'Mandar a pedir' OFF => la cantidad se rige por las placas con regla
+          RATCHET: SUBE al asignar más (es lo que se va a cobrar) pero NO baja
+          sola al quitar placas (se conserva el valor más alto, p.ej. al
+          reemplazar una placa rota).
+        - Contexto tc_force_qty_to_selection=True ('Ajustar cantidad a la
+          selección' en To Be Allocated): iguala la cantidad a la selección
+          actual AUNQUE SEA MENOR (cliente ya no quiso la placa, sin reemplazo).
         """
+        force = self.env.context.get('tc_force_qty_to_selection')
+
         for line in self:
             if line.display_type or not line.product_id:
                 continue
 
-            # En modo compra la cantidad es manual: respetar la demanda capturada.
-            if line.auto_transit_assign:
+            # En modo compra la cantidad es manual: respetar la demanda capturada,
+            # salvo que se pida un ajuste forzado explícito a la selección.
+            if line.auto_transit_assign and not force:
                 continue
 
             assigned_qty = line._tc_get_assigned_lot_qty()
             rounding = line._tc_get_qty_rounding()
+            current_qty = line.product_uom_qty or 0.0
 
-            if float_compare(
-                line.product_uom_qty or 0.0,
-                assigned_qty,
-                precision_rounding=rounding,
-            ) == 0:
+            if force:
+                # Ajuste explícito: la demanda se iguala a la selección, aun si baja.
+                target_qty = assigned_qty
+            else:
+                # Ratchet: solo sube; nunca baja por desasignar placas.
+                target_qty = (
+                    assigned_qty
+                    if float_compare(assigned_qty, current_qty, precision_rounding=rounding) > 0
+                    else current_qty
+                )
+
+            if float_compare(current_qty, target_qty, precision_rounding=rounding) == 0:
                 continue
 
             line.with_context(
                 tc_qty_sync_from_lots=True,
                 skip_tc_qty_manual_reset=True,
                 skip_tc_allocation_recovery=True,
-            ).write({'product_uom_qty': assigned_qty})
+            ).write({'product_uom_qty': target_qty})
 
     def _tc_post_plain_message(self, title, lines=None):
         """
@@ -1936,9 +1904,9 @@ class SaleOrderLine(models.Model):
         'Mandar a pedir' es el interruptor de modo y es libremente activable:
         - Al ACTIVARLO, la cantidad pasa a ser manual; no se modifica el valor
           actual (el usuario podrá editarlo).
-        - Al DESACTIVARLO, la cantidad vuelve a seguir a las placas, por lo que se
-          iguala a la suma asignada (feedback inmediato en el formulario; el write
-          en backend aplica la misma regla al persistir).
+        - Al DESACTIVARLO, la cantidad vuelve a regirse por las placas con regla
+          RATCHET: solo sube si la selección supera la cantidad actual; nunca baja
+          sola (para bajarla está 'Ajustar cantidad a la selección' en TBA).
         """
         if self.auto_transit_assign:
             return
@@ -1950,8 +1918,8 @@ class SaleOrderLine(models.Model):
         rounding = self._tc_get_qty_rounding()
 
         if float_compare(
-            self.product_uom_qty or 0.0,
             assigned_qty,
+            self.product_uom_qty or 0.0,
             precision_rounding=rounding,
-        ) != 0:
+        ) > 0:
             self.product_uom_qty = assigned_qty

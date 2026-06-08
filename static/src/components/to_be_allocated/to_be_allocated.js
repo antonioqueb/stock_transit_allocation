@@ -1066,6 +1066,12 @@ export class ToBeAllocated extends Component {
                         </div>
 
                         <div class="stone-footer-actions">
+                            <label class="stone-footer-adjust" id="sp-adjust-qty-label"
+                                   title="Iguala la cantidad solicitada a la selección actual, aunque sea menor (p.ej. el cliente ya no quiso la placa). Normalmente la cantidad solo sube al asignar y no baja al quitar placas.">
+                                <input type="checkbox" id="sp-adjust-qty"/>
+                                <span>Ajustar cantidad a la selección</span>
+                            </label>
+
                             <button class="stone-btn stone-btn-outline" id="sp-cancel">
                                 Cancelar
                             </button>
@@ -1785,10 +1791,18 @@ export class ToBeAllocated extends Component {
             const selectedForTarget = this._getAllocationBaseFromTotals(totals, state.requestedUnit);
             const overQty = selectedForTarget - Number(state.requestedQty || 0);
 
+            // Ajuste explícito: igualar la cantidad solicitada a la selección,
+            // aunque sea MENOR (la regla normal es ratchet: sube al asignar, no
+            // baja al quitar placas).
+            const forceQtyToSelection = !!(root.querySelector("#sp-adjust-qty")?.checked);
+
             let overAction = false;
             let overReason = false;
 
-            if (overQty > 0.0001) {
+            // La decisión de excedente (free/bill) solo aplica al mandar el
+            // restante a compra. Para asignación normal de stock, asignar de más
+            // simplemente sube lo solicitado (es lo que se va a cobrar).
+            if (sendPendingToPurchase && !forceQtyToSelection && overQty > 0.0001) {
                 const decision = await requestOverAssignmentDecision(overQty, state.requestedUnit || "");
                 if (!decision) return false;
                 overAction = decision.action;
@@ -1811,6 +1825,7 @@ export class ToBeAllocated extends Component {
                             : false,
                         overAction,
                         overReason,
+                        forceQtyToSelection,
                     ]
                 );
 

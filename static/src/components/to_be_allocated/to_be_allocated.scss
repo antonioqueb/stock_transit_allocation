@@ -1599,3 +1599,23 @@ $o-tba-pill: 999px;
     0% { background-position: 120% 0; }
     100% { background-position: -120% 0; }
 }
+
+// Casilla "Ajustar cantidad a la selección" en el pie del selector de placas.
+.stone-footer-adjust {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-right: auto;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+    user-select: none;
+
+    input[type="checkbox"] {
+        width: 15px;
+        height: 15px;
+        cursor: pointer;
+    }
+}
