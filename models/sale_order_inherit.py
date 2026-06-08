@@ -949,6 +949,7 @@ class SaleOrderLine(models.Model):
         over_assignment_action=False,
         over_assignment_reason=False,
         force_qty_to_selection=False,
+        por_asignar=False,
     ):
         """
         Punto único para guardar asignaciones desde To Be Allocated.
@@ -961,6 +962,9 @@ class SaleOrderLine(models.Model):
         - force_qty_to_selection=True ('Ajustar cantidad a la selección'):
           iguala la cantidad a la selección actual AUNQUE SEA MENOR (cuando el
           cliente ya no quiso la placa y no hay reemplazo).
+        - por_asignar=True ('Por Asignar'): asigna las placas pero NO ajusta el
+          Solicitado a la selección; lo conserva tal cual. Pone la línea en modo
+          de cantidad manual 'Por Asignar' (excluyente con 'Mandar a pedir').
         - Si se manda el restante a compra y se asigna de más, se exige decisión
           administrativa (free/bill).
         """
@@ -969,6 +973,12 @@ class SaleOrderLine(models.Model):
         # El ajuste explícito a la selección es excluyente con mandar a compra:
         # al igualar la cantidad a lo asignado no queda pendiente que comprar.
         if force_qty_to_selection:
+            send_pending_to_purchase = False
+
+        # 'Por Asignar' es un modo de cantidad manual: conserva el Solicitado,
+        # no ajusta a la selección y no manda el restante a compra.
+        if por_asignar:
+            force_qty_to_selection = False
             send_pending_to_purchase = False
 
         for line in self:
@@ -993,6 +1003,11 @@ class SaleOrderLine(models.Model):
                 or getattr(line, 'tc_stock_rejected', False)
             )
             purchase_intent_after = bool(purchase_intent_before or send_pending_to_purchase)
+
+            # 'Por Asignar' pasa la línea a cantidad manual SIN compra: anula
+            # cualquier intención previa de mandar a pedir (excluyentes).
+            if por_asignar:
+                purchase_intent_after = False
 
             # La sobreasignación solo tiene sentido en modo compra ('Mandar a pedir'),
             # donde existe una demanda manual independiente de las placas.
@@ -1059,6 +1074,11 @@ class SaleOrderLine(models.Model):
                         'tc_stock_rejected_by': False,
                         'tc_stock_rejected_at': False,
                     })
+
+            # 'Por Asignar': fija el modo de cantidad manual en la línea. write()
+            # garantiza la exclusión mutua apagando 'Mandar a pedir'.
+            if por_asignar and 'por_asignar' in line._fields:
+                vals['por_asignar'] = True
 
             line.with_context(
                 skip_tc_allocation_recovery=True,
@@ -1798,6 +1818,35 @@ class SaleOrderLine(models.Model):
                         _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
                     ],
                 )
+        return True
+
+    def action_tc_set_por_asignar(self):
+        """
+        Activa el modo 'Por Asignar' desde la propia línea de la orden de venta:
+        pone la línea en cantidad manual CONSERVANDO el Solicitado (no lo ajusta
+        a la selección) y, por exclusión mutua, apaga 'Mandar a pedir'.
+
+        Es el equivalente en la línea al botón 'Por Asignar' de To Be Allocated.
+        El toggle de la columna sigue disponible; este botón es un atajo de acción.
+        """
+        for line in self:
+            if line.display_type or not line.product_id:
+                continue
+
+            if line.por_asignar:
+                continue
+
+            # write() garantiza la exclusión mutua (apaga 'Mandar a pedir').
+            line.write({'por_asignar': True})
+
+            line._tc_post_plain_message(
+                _('🔖 Línea marcada como Por Asignar'),
+                [
+                    _('Producto: %s') % (line.product_id.display_name or ''),
+                    _('Solicitado: %.3f') % (line.product_uom_qty or 0.0),
+                    _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
+                ],
+            )
         return True
 
     def action_tc_close_allocation_short(self, reason=False, closure_action=False):

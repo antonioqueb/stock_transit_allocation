@@ -1072,6 +1072,12 @@ export class ToBeAllocated extends Component {
                                 <span>Ajustar cantidad a la selección</span>
                             </label>
 
+                            <label class="stone-footer-adjust" id="sp-por-asignar-label"
+                                   title="Asigna las placas seleccionadas pero NO ajusta la cantidad solicitada: la conserva tal cual. Pone la línea en modo 'Por Asignar' (cantidad manual).">
+                                <input type="checkbox" id="sp-por-asignar"/>
+                                <span>Por Asignar</span>
+                            </label>
+
                             <button class="stone-btn stone-btn-outline" id="sp-cancel">
                                 Cancelar
                             </button>
@@ -1796,6 +1802,10 @@ export class ToBeAllocated extends Component {
             // baja al quitar placas).
             const forceQtyToSelection = !!(root.querySelector("#sp-adjust-qty")?.checked);
 
+            // 'Por Asignar': asigna placas pero NO ajusta el Solicitado a la
+            // selección; lo conserva. Excluyente con 'Ajustar a la selección'.
+            const porAsignar = !!(root.querySelector("#sp-por-asignar")?.checked);
+
             let overAction = false;
             let overReason = false;
 
@@ -1826,6 +1836,7 @@ export class ToBeAllocated extends Component {
                         overAction,
                         overReason,
                         forceQtyToSelection,
+                        porAsignar,
                     ]
                 );
 
@@ -1901,6 +1912,19 @@ export class ToBeAllocated extends Component {
         root.querySelector("#sp-cancel").addEventListener("click", doCancel);
         root.querySelector("#sp-confirm-bottom").addEventListener("click", () => doConfirm(false));
         root.querySelector("#sp-confirm-purchase-bottom").addEventListener("click", () => doConfirm(true));
+
+        // 'Ajustar cantidad a la selección' y 'Por Asignar' son excluyentes:
+        // uno baja la cantidad a lo asignado; el otro la conserva tal cual.
+        const adjustQtyCb = root.querySelector("#sp-adjust-qty");
+        const porAsignarCb = root.querySelector("#sp-por-asignar");
+        if (adjustQtyCb && porAsignarCb) {
+            adjustQtyCb.addEventListener("change", () => {
+                if (adjustQtyCb.checked) porAsignarCb.checked = false;
+            });
+            porAsignarCb.addEventListener("change", () => {
+                if (porAsignarCb.checked) adjustQtyCb.checked = false;
+            });
+        }
         root.querySelector("#sp-select-all").addEventListener("click", doSelectAll);
         root.querySelector("#sp-clear-all").addEventListener("click", doClearAll);
 

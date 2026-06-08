@@ -159,6 +159,19 @@
                         title="Igualar la cantidad solicitada a las placas efectivamente asignadas (aunque sea menor)"
                         invisible="auto_transit_assign or por_asignar or tc_assignment_closed or not has_stone_lots or tc_qty_pending_allocation &lt;= 0"/>
 
+                <!--
+                    'Por Asignar': pone la línea en modo de cantidad manual SIN
+                    ajustar el Solicitado a la selección (lo conserva). Atajo de
+                    acción equivalente al toggle de la columna; se oculta cuando
+                    la línea ya está en ese modo o la asignación está cerrada.
+                -->
+                <button name="action_tc_set_por_asignar"
+                        type="object"
+                        string="Por Asignar"
+                        class="btn-secondary"
+                        title="Marcar la línea como 'Por Asignar': cantidad manual, conserva el Solicitado sin ajustarlo a la selección"
+                        invisible="por_asignar or tc_assignment_closed"/>
+
                 <button name="action_tc_close_allocation_short"
                         type="object"
                         string="Cerrar"
