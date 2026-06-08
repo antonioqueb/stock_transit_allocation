@@ -1746,6 +1746,37 @@ class SaleOrderLine(models.Model):
             })
         return True
 
+    def action_tc_adjust_qty_to_selection(self):
+        """
+        Ajuste manual desde la propia línea de la orden de venta:
+        iguala el Solicitado (product_uom_qty) a la cantidad EFECTIVAMENTE
+        asignada por placas, AUNQUE SEA MENOR.
+
+        Es el mismo override que 'Ajustar cantidad a la selección' de To Be
+        Allocated, pero accionable directo en la línea. Útil cuando la regla
+        ratchet mantuvo la demanda alta (no baja sola al quitar placas) y el
+        cliente finalmente quiso solo lo seleccionado.
+        """
+        for line in self:
+            if line.display_type or not line.product_id:
+                continue
+
+            before = line.product_uom_qty or 0.0
+            line.with_context(tc_force_qty_to_selection=True)._tc_sync_requested_qty_from_lots()
+            after = line.product_uom_qty or 0.0
+
+            if float_compare(before, after, precision_rounding=line._tc_get_qty_rounding()) != 0:
+                line._tc_post_plain_message(
+                    _('✏️ Cantidad ajustada a la selección'),
+                    [
+                        _('Producto: %s') % (line.product_id.display_name or ''),
+                        _('Solicitado anterior: %.3f') % before,
+                        _('Solicitado actual: %.3f') % after,
+                        _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
+                    ],
+                )
+        return True
+
     def action_tc_close_allocation_short(self, reason=False, closure_action=False):
         valid_actions = {'settle', 'discount', 'credit_note'}
         action_value = closure_action or 'settle'
