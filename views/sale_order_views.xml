@@ -37,6 +37,17 @@
                        width="110px"
                        string="Mandar a pedir"/>
 
+                <!--
+                    'Por Asignar': segundo interruptor de cantidad manual,
+                    mutuamente excluyente con 'Mandar a pedir'. Desbloquea la
+                    edición de 'Solicitado' y conserva siempre el valor escrito.
+                -->
+                <field name="por_asignar"
+                       widget="boolean_toggle"
+                       optional="show"
+                       width="110px"
+                       string="Por Asignar"/>
+
                 <field name="transit_status"
                        optional="hide"
                        widget="badge"
@@ -61,11 +72,12 @@
                 <attribute name="string">Solicitado</attribute>
                 <!--
                     REGLA DE MODO:
-                    La cantidad solo se edita a mano cuando 'Mandar a pedir' está activo.
-                    Sin 'Mandar a pedir', la cantidad se fija seleccionando placas
-                    (el backend la iguala a la suma asignada por lotes).
+                    La cantidad solo se edita a mano cuando 'Mandar a pedir' o
+                    'Por Asignar' están activos. Sin ninguno de los dos, la
+                    cantidad se fija seleccionando placas (el backend la iguala a
+                    la suma asignada por lotes).
                 -->
-                <attribute name="readonly">not auto_transit_assign</attribute>
+                <attribute name="readonly">not auto_transit_assign and not por_asignar</attribute>
             </xpath>
 
             <!-- ========================================================= -->

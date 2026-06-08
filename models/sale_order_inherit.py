@@ -58,6 +58,17 @@ class SaleOrderLine(models.Model):
         ),
     )
 
+    por_asignar = fields.Boolean(
+        string='Por Asignar',
+        default=False,
+        copy=False,
+        help=(
+            "Modo de cantidad manual, mutuamente excluyente con 'Mandar a pedir': "
+            "permite editar la cantidad solicitada y la conserva SIEMPRE "
+            "(no se sincroniza desde las placas, ni siquiera con ajuste forzado)."
+        ),
+    )
+
     has_stone_lots = fields.Boolean(
         string='Tiene placas asignadas',
         compute='_compute_has_stone_lots',
@@ -1345,6 +1356,13 @@ class SaleOrderLine(models.Model):
     def write(self, vals):
         vals = dict(vals or {})
 
+        # 'Mandar a pedir' y 'Por Asignar' son modos mutuamente excluyentes:
+        # activar uno apaga el otro, también a nivel de datos (no solo en UI).
+        if vals.get('por_asignar'):
+            vals['auto_transit_assign'] = False
+        elif vals.get('auto_transit_assign'):
+            vals['por_asignar'] = False
+
         allocation_sensitive_fields = {
             'lot_ids',
             'x_lot_breakdown_json',
@@ -1435,6 +1453,11 @@ class SaleOrderLine(models.Model):
 
         for line in self:
             if line.display_type or not line.product_id:
+                continue
+
+            # 'Por Asignar': la cantidad escrita se conserva SIEMPRE; nunca se
+            # deriva de las placas, ni siquiera con ajuste forzado explícito.
+            if line.por_asignar:
                 continue
 
             # En modo compra la cantidad es manual: respetar la demanda capturada,
@@ -1940,6 +1963,13 @@ class SaleOrderLine(models.Model):
           sola (para bajarla está 'Ajustar cantidad a la selección' en TBA).
         """
         if self.auto_transit_assign:
+            # Mutuamente excluyente con 'Por Asignar'.
+            if self.por_asignar:
+                self.por_asignar = False
+            return
+
+        # En modo 'Por Asignar' la cantidad escrita se conserva: no ratchet.
+        if self.por_asignar:
             return
 
         if self.display_type or not self.product_id:
@@ -1954,3 +1984,13 @@ class SaleOrderLine(models.Model):
             precision_rounding=rounding,
         ) > 0:
             self.product_uom_qty = assigned_qty
+
+    @api.onchange('por_asignar')
+    def _onchange_por_asignar(self):
+        """
+        'Por Asignar' desbloquea la edición manual de la cantidad solicitada y
+        es mutuamente excluyente con 'Mandar a pedir'. La cantidad escrita se
+        conserva siempre: nunca se sincroniza desde las placas.
+        """
+        if self.por_asignar and self.auto_transit_assign:
+            self.auto_transit_assign = False
