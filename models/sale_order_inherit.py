@@ -949,7 +949,6 @@ class SaleOrderLine(models.Model):
         over_assignment_action=False,
         over_assignment_reason=False,
         force_qty_to_selection=False,
-        por_asignar=False,
     ):
         """
         Punto único para guardar asignaciones desde To Be Allocated.
@@ -961,10 +960,8 @@ class SaleOrderLine(models.Model):
           (se conserva lo más alto, p.ej. al reemplazar una placa rota).
         - force_qty_to_selection=True ('Ajustar cantidad a la selección'):
           iguala la cantidad a la selección actual AUNQUE SEA MENOR (cuando el
-          cliente ya no quiso la placa y no hay reemplazo).
-        - por_asignar=True ('Por Asignar'): asigna las placas pero NO ajusta el
-          Solicitado a la selección; lo conserva tal cual. Pone la línea en modo
-          de cantidad manual 'Por Asignar' (excluyente con 'Mandar a pedir').
+          cliente ya no quiso la placa y no hay reemplazo). Además saca la línea
+          del modo 'Por Asignar' si estaba activo.
         - Si se manda el restante a compra y se asigna de más, se exige decisión
           administrativa (free/bill).
         """
@@ -973,12 +970,6 @@ class SaleOrderLine(models.Model):
         # El ajuste explícito a la selección es excluyente con mandar a compra:
         # al igualar la cantidad a lo asignado no queda pendiente que comprar.
         if force_qty_to_selection:
-            send_pending_to_purchase = False
-
-        # 'Por Asignar' es un modo de cantidad manual: conserva el Solicitado,
-        # no ajusta a la selección y no manda el restante a compra.
-        if por_asignar:
-            force_qty_to_selection = False
             send_pending_to_purchase = False
 
         for line in self:
@@ -1003,11 +994,6 @@ class SaleOrderLine(models.Model):
                 or getattr(line, 'tc_stock_rejected', False)
             )
             purchase_intent_after = bool(purchase_intent_before or send_pending_to_purchase)
-
-            # 'Por Asignar' pasa la línea a cantidad manual SIN compra: anula
-            # cualquier intención previa de mandar a pedir (excluyentes).
-            if por_asignar:
-                purchase_intent_after = False
 
             # La sobreasignación solo tiene sentido en modo compra ('Mandar a pedir'),
             # donde existe una demanda manual independiente de las placas.
@@ -1074,11 +1060,6 @@ class SaleOrderLine(models.Model):
                         'tc_stock_rejected_by': False,
                         'tc_stock_rejected_at': False,
                     })
-
-            # 'Por Asignar': fija el modo de cantidad manual en la línea. write()
-            # garantiza la exclusión mutua apagando 'Mandar a pedir'.
-            if por_asignar and 'por_asignar' in line._fields:
-                vals['por_asignar'] = True
 
             line.with_context(
                 skip_tc_allocation_recovery=True,
@@ -1458,8 +1439,10 @@ class SaleOrderLine(models.Model):
         Ajusta product_uom_qty (Solicitado) en función de las placas.
 
         Tres modos:
-        - 'Por Asignar' (por_asignar): la cantidad escrita se conserva SIEMPRE;
-          nunca se deriva de las placas, ni siquiera con ajuste forzado.
+        - 'Por Asignar' (por_asignar): en uso normal la cantidad escrita se
+          conserva (no se deriva de placas). EXCEPCIÓN: el ajuste forzado
+          ('Ajustar a cantidad seleccionada') SÍ la iguala a la selección y,
+          además, saca la línea del modo (apaga el booleano por_asignar).
         - 'Mandar a pedir' (auto_transit_assign): RATCHET. La demanda manual SUBE
           si se asigna de más que lo solicitado (es lo que se va a cobrar), pero
           se MANTIENE si se asigna de menos. Nunca baja por las placas ni por el
@@ -1475,22 +1458,21 @@ class SaleOrderLine(models.Model):
             if line.display_type or not line.product_id:
                 continue
 
-            # 'Por Asignar': la cantidad escrita se conserva SIEMPRE; nunca se
-            # deriva de las placas, ni siquiera con ajuste forzado explícito.
-            if line.por_asignar:
+            # Sin ajuste forzado, los modos de cantidad manual ('Por Asignar' y
+            # 'Mandar a pedir') conservan el Solicitado y no lo derivan de placas.
+            if not force and (line.por_asignar or line.auto_transit_assign):
                 continue
 
             assigned_qty = line._tc_get_assigned_lot_qty()
             rounding = line._tc_get_qty_rounding()
             current_qty = line.product_uom_qty or 0.0
 
-            # El ajuste forzado a la baja solo aplica a líneas SIN modo manual.
-            # 'Mandar a pedir' conserva su demanda manual: solo CRECE al asignar
-            # de más; nunca baja (ni por placas ni por ajuste forzado).
+            # El ajuste forzado iguala el Solicitado a la selección AUN SI BAJA,
+            # salvo en 'Mandar a pedir', cuya demanda manual solo crece (ratchet)
+            # y nunca baja por las placas.
             allow_force_down = force and not line.auto_transit_assign
 
             if allow_force_down:
-                # Ajuste explícito: la demanda se iguala a la selección, aun si baja.
                 target_qty = assigned_qty
             else:
                 # Ratchet: sube al asignar de más; nunca baja por desasignar placas.
@@ -1500,14 +1482,23 @@ class SaleOrderLine(models.Model):
                     else current_qty
                 )
 
-            if float_compare(current_qty, target_qty, precision_rounding=rounding) == 0:
+            write_vals = {}
+            if float_compare(current_qty, target_qty, precision_rounding=rounding) != 0:
+                write_vals['product_uom_qty'] = target_qty
+
+            # El ajuste forzado a la selección saca la línea del modo 'Por Asignar':
+            # el Solicitado ya quedó igualado a lo seleccionado.
+            if force and line.por_asignar:
+                write_vals['por_asignar'] = False
+
+            if not write_vals:
                 continue
 
             line.with_context(
                 tc_qty_sync_from_lots=True,
                 skip_tc_qty_manual_reset=True,
                 skip_tc_allocation_recovery=True,
-            ).write({'product_uom_qty': target_qty})
+            ).write(write_vals)
 
     def _tc_post_plain_message(self, title, lines=None):
         """
@@ -1818,35 +1809,6 @@ class SaleOrderLine(models.Model):
                         _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
                     ],
                 )
-        return True
-
-    def action_tc_set_por_asignar(self):
-        """
-        Activa el modo 'Por Asignar' desde la propia línea de la orden de venta:
-        pone la línea en cantidad manual CONSERVANDO el Solicitado (no lo ajusta
-        a la selección) y, por exclusión mutua, apaga 'Mandar a pedir'.
-
-        Es el equivalente en la línea al botón 'Por Asignar' de To Be Allocated.
-        El toggle de la columna sigue disponible; este botón es un atajo de acción.
-        """
-        for line in self:
-            if line.display_type or not line.product_id:
-                continue
-
-            if line.por_asignar:
-                continue
-
-            # write() garantiza la exclusión mutua (apaga 'Mandar a pedir').
-            line.write({'por_asignar': True})
-
-            line._tc_post_plain_message(
-                _('🔖 Línea marcada como Por Asignar'),
-                [
-                    _('Producto: %s') % (line.product_id.display_name or ''),
-                    _('Solicitado: %.3f') % (line.product_uom_qty or 0.0),
-                    _('Asignado: %.3f') % line._tc_get_assigned_lot_qty(),
-                ],
-            )
         return True
 
     def action_tc_close_allocation_short(self, reason=False, closure_action=False):
