@@ -1159,9 +1159,13 @@ class ToBePurchasedLogic(models.AbstractModel):
         metrics_by_line, free_qty_by_product, product_ids = self._hub_compute_sale_line_metrics(sale_lines_all)
         payment_map = self._hub_get_payment_percent_map(sale_lines_all)
 
+        # Solo se muestran órdenes con pago/anticipo registrado. Si la SO no
+        # tiene ningún cobro posteado (payment_percent == 0) no debe aparecer
+        # en el tablero To Be Purchased.
         sale_lines = sale_lines_all.filtered(
             lambda line: metrics_by_line.get(line.id, {}).get('hub_state') == 'to_be_purchased'
             and self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('purchase_pending_qty'))
+            and self._hub_float_gt_zero(payment_map.get(line.order_id.id, 0.0))
         )
 
         product_ids = set(sale_lines.mapped('product_id').ids)
