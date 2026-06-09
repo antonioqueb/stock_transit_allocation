@@ -64,8 +64,10 @@ class SaleOrderLine(models.Model):
         copy=False,
         help=(
             "Modo de cantidad manual, mutuamente excluyente con 'Mandar a pedir': "
-            "permite editar la cantidad solicitada y la conserva SIEMPRE "
-            "(no se sincroniza desde las placas, ni siquiera con ajuste forzado)."
+            "permite editar la cantidad solicitada por encima de lo asignado. "
+            "PISO INVIOLABLE: nunca puede quedar por debajo de lo asignado en "
+            "placas; si se asigna de más, la cantidad sube a lo asignado. Para "
+            "reducir la cantidad a cobrar primero hay que desasignar placas."
         ),
     )
 
@@ -401,6 +403,35 @@ class SaleOrderLine(models.Model):
         quants = Quant.search(domain)
         return sum(quants.mapped('quantity'))
 
+    def _tc_get_lot_any_location_qty(self, lot):
+        """
+        Cantidad física de la placa en CUALQUIER ubicación (no solo interna).
+
+        Una placa asignada que ya salió de stock interno (entregada, en tránsito,
+        movida a otra ubicación) SIGUE asignada a la línea. Si solo miráramos el
+        stock interno, lo asignado colapsaría a 0 y el PISO dejaría de proteger el
+        cobro mínimo. Por eso, antes de caer al área teórica, se busca su cantidad
+        física en cualquier ubicación de stock.
+        """
+        self.ensure_one()
+
+        if not lot or not self.product_id:
+            return 0.0
+
+        Quant = self.env['stock.quant'].sudo()
+
+        domain = [
+            ('product_id', '=', self.product_id.id),
+            ('lot_id', '=', lot.id),
+            ('quantity', '>', 0),
+        ]
+
+        if 'company_id' in Quant._fields and self.order_id and self.order_id.company_id:
+            domain.append(('company_id', 'in', [False, self.order_id.company_id.id]))
+
+        quants = Quant.search(domain)
+        return sum(quants.mapped('quantity'))
+
     def _tc_get_lot_fallback_qty(self, lot):
         """
         Fallback defensivo para placas cuando el quant ya no está interno
@@ -436,6 +467,11 @@ class SaleOrderLine(models.Model):
                 return 0.0
 
         qty = self._tc_get_lot_internal_qty(lot)
+
+        # Si la placa ya no está en stock interno pero sigue asignada, recupera su
+        # cantidad física desde cualquier ubicación antes de caer al área teórica.
+        if self._tc_float_le_zero(qty):
+            qty = self._tc_get_lot_any_location_qty(lot)
 
         if self._tc_float_le_zero(qty):
             qty = self._tc_get_lot_fallback_qty(lot)
@@ -1011,18 +1047,24 @@ class SaleOrderLine(models.Model):
             if not has_over_assignment:
                 over_assigned_qty = 0.0
 
-            if has_over_assignment and over_assignment_action not in ('free', 'bill'):
-                raise UserError(_(
-                    'La asignación excede lo solicitado por %(qty).3f. '
-                    'Debe indicar si el excedente se entrega sin cobrar o si se cobrará al cliente.'
-                ) % {'qty': over_assigned_qty})
+            # REGLA DE TECHO UNIVERSAL:
+            # Si se asigna más de lo solicitado, la cantidad solicitada SIEMPRE
+            # sube a lo asignado, sin importar el modo ('Por Asignar' o 'Mandar a
+            # pedir'). Por eso ya NO se bloquea pidiendo una decisión comercial:
+            # si el usuario no eligió explícitamente regalar el excedente ('free'),
+            # el excedente se COBRA ('bill'), porque nunca se cobra menos de lo
+            # asignado. 'free' (entregar sin cobrar) queda como opción explícita
+            # opt-in para casos puntuales.
+            effective_over_action = over_assignment_action
+            if has_over_assignment and effective_over_action not in ('free', 'bill'):
+                effective_over_action = 'bill'
 
-            if has_over_assignment and over_assignment_action == 'free':
+            if has_over_assignment and effective_over_action == 'free':
                 line._tc_require_discount_field()
 
             vals = {
                 'lot_ids': [(6, 0, safe_lot_ids)],
-                'tc_over_assignment_action': over_assignment_action if has_over_assignment else False,
+                'tc_over_assignment_action': effective_over_action if has_over_assignment else False,
                 'tc_over_assignment_reason': over_assignment_reason if has_over_assignment else False,
                 'tc_over_assignment_by': self.env.user.id if has_over_assignment else False,
                 'tc_over_assignment_at': fields.Datetime.now() if has_over_assignment else False,
@@ -1081,7 +1123,7 @@ class SaleOrderLine(models.Model):
                     assigned_qty=assigned_qty,
                     requested_qty=requested_qty_before,
                     over_assigned_qty=over_assigned_qty,
-                    action=over_assignment_action,
+                    action=effective_over_action,
                     reason=over_assignment_reason,
                 )
 
@@ -1121,11 +1163,11 @@ class SaleOrderLine(models.Model):
             requested_qty_after = line.product_uom_qty or 0.0
             discount_after = line._tc_get_discount_percent()
 
-            if has_over_assignment and over_assignment_action == 'free':
+            if has_over_assignment and effective_over_action == 'free':
                 commercial_note = _(
                     'Se ajustó la cantidad solicitada a %.3f y se aplicó descuento equivalente al excedente para no cobrarlo.'
                 ) % requested_qty_after
-            elif has_over_assignment and over_assignment_action == 'bill':
+            elif has_over_assignment and effective_over_action == 'bill':
                 commercial_note = _(
                     'Se ajustó la cantidad solicitada a %.3f para cobrar el excedente asignado.'
                 ) % requested_qty_after
@@ -1164,7 +1206,7 @@ class SaleOrderLine(models.Model):
                 'sent_to_purchase': sent_to_purchase,
                 'purchase_qty': purchase_qty,
                 'over_assigned_qty': over_assigned_qty,
-                'over_assignment_action': over_assignment_action if has_over_assignment else False,
+                'over_assignment_action': effective_over_action if has_over_assignment else False,
                 'discount_before': over_admin_result.get('discount_before', 0.0),
                 'discount_after': discount_after,
                 'discount_applied': over_admin_result.get('discount_applied', False),
@@ -1364,6 +1406,62 @@ class SaleOrderLine(models.Model):
         elif vals.get('auto_transit_assign'):
             vals['por_asignar'] = False
 
+        # ---------------------------------------------------------------------
+        # REGLA DE PISO: la cantidad solicitada (lo que se cobra) NUNCA puede
+        # quedar por debajo de lo ya asignado en placas, en NINGÚN modo
+        # ('Por Asignar' y 'Mandar a pedir' incluidos). Para reducir la cantidad
+        # a cobrar primero hay que desasignar placas.
+        #
+        # Solo se valida la edición manual PURA de la cantidad (sin cambio de
+        # placas en el mismo write y fuera de la derivación interna). Cuando
+        # cambian las placas, la derivación ratchet de
+        # _tc_sync_requested_qty_from_lots ya garantiza el piso.
+        # ---------------------------------------------------------------------
+        manual_qty_edit = (
+            'product_uom_qty' in vals
+            and 'lot_ids' not in vals
+            and 'x_lot_breakdown_json' not in vals
+            and not self.env.context.get('tc_qty_sync_from_lots')
+        )
+        if manual_qty_edit:
+            try:
+                new_qty = float(vals.get('product_uom_qty') or 0.0)
+            except (TypeError, ValueError):
+                new_qty = 0.0
+
+            for line in self:
+                if line.display_type or not line.product_id:
+                    continue
+
+                assigned_qty = line._tc_get_assigned_lot_qty()
+                rounding = line._tc_get_qty_rounding()
+
+                # DIAGNÓSTICO TEMPORAL: deja rastro del piso para depurar casos en
+                # que la cantidad bajó por debajo de lo asignado sin bloquearse.
+                _logger.info(
+                    "[TC FLOOR] line=%s vals_keys=%s new_qty=%.4f assigned=%.4f "
+                    "lot_ids=%s breakdown=%s",
+                    line.id,
+                    list(vals.keys()),
+                    new_qty,
+                    assigned_qty,
+                    line.lot_ids.ids if 'lot_ids' in line._fields else [],
+                    line._tc_read_lot_breakdown(),
+                )
+
+                if float_compare(new_qty, assigned_qty, precision_rounding=rounding) < 0:
+                    raise UserError(_(
+                        'No puede establecer la cantidad solicitada (%(req).3f) por '
+                        'debajo de lo ya asignado en placas (%(assigned).3f) para el '
+                        'producto "%(prod)s".\n\n'
+                        'La cantidad a cobrar nunca puede ser menor que lo asignado. '
+                        'Si necesita reducirla, primero desasigne placas.'
+                    ) % {
+                        'req': new_qty,
+                        'assigned': assigned_qty,
+                        'prod': line.product_id.display_name or line.name or '',
+                    })
+
         allocation_sensitive_fields = {
             'lot_ids',
             'x_lot_breakdown_json',
@@ -1438,29 +1536,24 @@ class SaleOrderLine(models.Model):
         """
         Ajusta product_uom_qty (Solicitado) en función de las placas.
 
-        Tres modos:
-        - 'Por Asignar' (por_asignar): en uso normal la cantidad escrita se
-          conserva (no se deriva de placas). EXCEPCIÓN: el ajuste forzado
-          ('Ajustar a cantidad seleccionada') SÍ la iguala a la selección y,
-          además, saca la línea del modo (apaga el booleano por_asignar).
-        - 'Mandar a pedir' (auto_transit_assign): RATCHET. La demanda manual SUBE
-          si se asigna de más que lo solicitado (es lo que se va a cobrar), pero
-          se MANTIENE si se asigna de menos. Nunca baja por las placas ni por el
-          ajuste forzado (su demanda manual se respeta).
-        - Sin ninguno de los dos: RATCHET igual (sube al asignar más, no baja al
-          quitar placas) y además admite el ajuste forzado a la baja
-          (tc_force_qty_to_selection / 'Ajustar a selección') para igualar la
-          cantidad a la selección AUNQUE SEA MENOR.
+        REGLA DE PISO UNIVERSAL: el Solicitado (lo que se cobra) NUNCA puede
+        quedar por debajo de lo asignado en placas. Por eso el RATCHET HACIA
+        ARRIBA (subir el Solicitado a lo asignado cuando se asigna de más) se
+        aplica SIEMPRE, en TODOS los modos ('Por Asignar' y 'Mandar a pedir'
+        incluidos): la asignada manda cuando es más. Para bajar la cantidad a
+        cobrar hay que desasignar placas.
+
+        El ratchet nunca baja solo al quitar placas (conserva el valor más alto,
+        p.ej. al reemplazar una placa rota). Para bajar a la selección está el
+        ajuste forzado (tc_force_qty_to_selection / 'Ajustar a selección'), que
+        iguala el Solicitado a lo asignado AUNQUE SEA MENOR, salvo en
+        'Mandar a pedir', cuya demanda manual solo crece y nunca baja por placas.
+        El ajuste forzado además saca la línea del modo 'Por Asignar'.
         """
         force = self.env.context.get('tc_force_qty_to_selection')
 
         for line in self:
             if line.display_type or not line.product_id:
-                continue
-
-            # Sin ajuste forzado, los modos de cantidad manual ('Por Asignar' y
-            # 'Mandar a pedir') conservan el Solicitado y no lo derivan de placas.
-            if not force and (line.por_asignar or line.auto_transit_assign):
                 continue
 
             assigned_qty = line._tc_get_assigned_lot_qty()
