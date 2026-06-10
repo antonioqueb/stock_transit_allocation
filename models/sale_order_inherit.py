@@ -1493,6 +1493,10 @@ class SaleOrderLine(models.Model):
         # la suma asignada en las líneas SIN intención de compra cuando:
         #   - cambian las placas/desglose (lot_ids / x_lot_breakdown_json), o
         #   - se APAGA 'Mandar a pedir' (se deja de pedir el restante).
+        # Al APAGAR 'Mandar a pedir' como acción pura (sin cambio de placas en
+        # el mismo write), el Solicitado REGRESA a lo asignado AUNQUE BAJE:
+        # 0 asignado => 0 solicitado. La cantidad manual solo vive mientras el
+        # modo está activo.
         # El propio sync se reentra con tc_qty_sync_from_lots para no recursar.
         # ---------------------------------------------------------------------
         is_qty_sync = self.env.context.get('tc_qty_sync_from_lots')
@@ -1528,7 +1532,28 @@ class SaleOrderLine(models.Model):
             self._tc_after_lot_assignment_change(old_lots_by_line)
 
         if qty_derive_line_ids:
-            self.browse(qty_derive_line_ids).exists()._tc_sync_requested_qty_from_lots()
+            derive_lines = self.browse(qty_derive_line_ids).exists()
+
+            # Apagar 'Mandar a pedir' sin tocar placas en el mismo write regresa
+            # el Solicitado a lo asignado, aunque baje. Se excluyen las líneas
+            # que quedan en 'Por Asignar' (cantidad manual que se conserva) y
+            # las cerradas administrativamente (el cierre conserva la cantidad).
+            force_reset_lines = derive_lines.browse()
+            if unchecking_purchase and not lots_in_vals:
+                force_reset_lines = derive_lines.filtered(
+                    lambda l: not l.auto_transit_assign
+                    and not l.por_asignar
+                    and not l.tc_assignment_closed
+                )
+
+            ratchet_lines = derive_lines - force_reset_lines
+
+            if force_reset_lines:
+                force_reset_lines.with_context(
+                    tc_force_qty_to_selection=True,
+                )._tc_sync_requested_qty_from_lots()
+            if ratchet_lines:
+                ratchet_lines._tc_sync_requested_qty_from_lots()
 
         return res
 
@@ -1549,6 +1574,11 @@ class SaleOrderLine(models.Model):
         iguala el Solicitado a lo asignado AUNQUE SEA MENOR, salvo en
         'Mandar a pedir', cuya demanda manual solo crece y nunca baja por placas.
         El ajuste forzado además saca la línea del modo 'Por Asignar'.
+
+        APAGAR 'Mandar a pedir' (sin tocar placas en el mismo write) también
+        entra por el camino forzado desde write(): la cantidad manual solo vive
+        mientras el modo está activo, así que el Solicitado regresa a lo
+        asignado (0 asignado => 0 solicitado).
         """
         force = self.env.context.get('tc_force_qty_to_selection')
 
@@ -2062,9 +2092,9 @@ class SaleOrderLine(models.Model):
         'Mandar a pedir' es el interruptor de modo y es libremente activable:
         - Al ACTIVARLO, la cantidad pasa a ser manual; no se modifica el valor
           actual (el usuario podrá editarlo).
-        - Al DESACTIVARLO, la cantidad vuelve a regirse por las placas con regla
-          RATCHET: solo sube si la selección supera la cantidad actual; nunca baja
-          sola (para bajarla está 'Ajustar cantidad a la selección' en TBA).
+        - Al DESACTIVARLO, la cantidad REGRESA a lo asignado en placas, aunque
+          baje (0 asignado => 0 solicitado): la cantidad manual solo vive
+          mientras el modo está activo.
         """
         if self.auto_transit_assign:
             # Mutuamente excluyente con 'Por Asignar'.
@@ -2082,11 +2112,22 @@ class SaleOrderLine(models.Model):
         assigned_qty = self._tc_get_assigned_lot_qty()
         rounding = self._tc_get_qty_rounding()
 
+        # Con la asignación cerrada, el cierre administrativo conserva la
+        # cantidad: solo aplica el piso (subir si lo asignado es mayor).
+        if self.tc_assignment_closed:
+            if float_compare(
+                assigned_qty,
+                self.product_uom_qty or 0.0,
+                precision_rounding=rounding,
+            ) > 0:
+                self.product_uom_qty = assigned_qty
+            return
+
         if float_compare(
             assigned_qty,
             self.product_uom_qty or 0.0,
             precision_rounding=rounding,
-        ) > 0:
+        ) != 0:
             self.product_uom_qty = assigned_qty
 
     @api.onchange('por_asignar')
