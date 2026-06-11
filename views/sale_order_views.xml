@@ -177,6 +177,33 @@
     </record>
 
     <!-- ───────────────────────────────────────────────────────────── -->
+    <!-- Ruta (route_id, de sale_stock): fuera del grid principal y     -->
+    <!-- dentro de la pestaña Logística. Va en una vista aparte con     -->
+    <!-- prioridad alta para aplicarse después de sale_stock (que crea  -->
+    <!-- la columna) y de la vista que crea la pestaña Logística.       -->
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <record id="view_order_form_transit_route_relocate" model="ir.ui.view">
+        <field name="name">sale.order.form.transit.route.relocate</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='route_id']" position="attributes">
+                <attribute name="column_invisible">1</attribute>
+            </xpath>
+
+            <xpath expr="//page[@name='logistics_lines']//list/field[@name='transit_status']" position="before">
+                <field name="route_id"
+                       string="Ruta"
+                       groups="stock.group_adv_location"
+                       options="{'no_open': True, 'no_create': True}"/>
+            </xpath>
+
+        </field>
+    </record>
+
+    <!-- ───────────────────────────────────────────────────────────── -->
     <!-- Vista de búsqueda: filtro y agrupación                         -->
     <!-- ───────────────────────────────────────────────────────────── -->
     <record id="view_sales_order_filter_transit_inherit" model="ir.ui.view">
