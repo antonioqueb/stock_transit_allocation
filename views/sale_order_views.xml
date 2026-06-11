@@ -189,9 +189,7 @@
         <field name="priority">200</field>
         <field name="arch" type="xml">
 
-            <xpath expr="//field[@name='order_line']/list/field[@name='route_id']" position="attributes">
-                <attribute name="column_invisible">1</attribute>
-            </xpath>
+            <xpath expr="//field[@name='order_line']/list/field[@name='route_id']" position="replace"/>
 
             <xpath expr="//page[@name='logistics_lines']//list/field[@name='transit_status']" position="before">
                 <field name="route_id"
