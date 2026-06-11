@@ -109,17 +109,6 @@
                        column_invisible="parent.state != 'sale'"
                        readonly="1"/>
 
-                <field name="tc_assignment_state"
-                       string="Estado asignación"
-                       optional="hide"
-                       column_invisible="parent.state != 'sale'"
-                       widget="badge"
-                       decoration-muted="tc_assignment_state == 'no_demand'"
-                       decoration-warning="tc_assignment_state in ['open', 'partial', 'to_purchase']"
-                       decoration-success="tc_assignment_state == 'complete'"
-                       decoration-danger="tc_assignment_state in ['over_assigned', 'closed_short']"
-                       readonly="1"/>
-
                 <field name="tc_closed_short_qty"
                        string="Dif. cerrada"
                        optional="hide"
