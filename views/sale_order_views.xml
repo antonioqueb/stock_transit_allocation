@@ -63,15 +63,6 @@
             </xpath>
 
             <!-- ========================================================= -->
-            <!-- Asignado: única métrica que permanece en Líneas de la orden -->
-            <!-- ========================================================= -->
-            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
-                <field name="tc_qty_assigned_lots"
-                       string="Asignado"
-                       readonly="1"/>
-            </xpath>
-
-            <!-- ========================================================= -->
             <!-- Líneas de la orden: solo deben existir las columnas        -->
             <!-- Producto, Mandar a pedir, Por Asignar, Solicitado,         -->
             <!-- Nivel de Precio, Asignado, Unidad, Precio unitario,        -->
@@ -188,6 +179,15 @@
         <field name="inherit_id" ref="sale.view_order_form"/>
         <field name="priority">200</field>
         <field name="arch" type="xml">
+
+            <!-- Asignado inmediatamente después de Solicitado. Esta vista se
+                 aplica después de la de Nivel de Precio (priority 130), por lo
+                 que su inserción queda pegada a la cantidad. -->
+            <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
+                <field name="tc_qty_assigned_lots"
+                       string="Asignado"
+                       readonly="1"/>
+            </xpath>
 
             <xpath expr="//field[@name='order_line']/list/field[@name='route_ids']" position="replace"/>
 
