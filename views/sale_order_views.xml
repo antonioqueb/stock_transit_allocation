@@ -111,7 +111,7 @@
 
                 <field name="tc_assignment_state"
                        string="Estado asignación"
-                       optional="show"
+                       optional="hide"
                        column_invisible="parent.state != 'sale'"
                        widget="badge"
                        decoration-muted="tc_assignment_state == 'no_demand'"
