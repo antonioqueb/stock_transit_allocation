@@ -1903,7 +1903,18 @@ class StockTransitVoyage(models.Model):
         return picking_type, dest_location
 
     def _tc_reception_safe_context(self):
-        ctx = dict(self.env.context or {})
+        # CRÍTICO: NO heredar llaves default_* del contexto del cliente.
+        # Este contexto se usa en create() de stock.picking y stock.move; un
+        # default_* arrastrado del navegador (vista/acción previa, breadcrumbs
+        # corruptos) puede hacer nacer el documento en un estado indebido
+        # (p.ej. default_state => recepción en HECHO sin pasar por ningún
+        # guard de _action_done/button_validate). Solo se conservan las llaves
+        # no-default y se inyectan los skips explícitos.
+        ctx = {
+            key: value
+            for key, value in (self.env.context or {}).items()
+            if not key.startswith('default_')
+        }
         ctx.update({
             'skip_procurement': True,
             'tracking_disable': True,
@@ -1949,6 +1960,20 @@ class StockTransitVoyage(models.Model):
         label = operation_label or _("preparar la recepción física")
 
         if picking.state == 'done':
+            # Diagnóstico: deja rastro de QUÉ dejó la recepción en HECHO sin
+            # pasar por los guards de validación (estados de moves y llaves de
+            # contexto, donde un default_* heredado del cliente es el sospechoso
+            # típico).
+            _logger.error(
+                "[TC_RECEPTION_GUARD] Recepción %s en HECHO durante '%s'. "
+                "moves=%s estados_moves=%s move_lines=%s ctx_keys=%s",
+                picking.name or picking.id,
+                label,
+                picking.move_ids.ids,
+                picking.move_ids.mapped('state'),
+                picking.move_line_ids.ids,
+                sorted(self.env.context.keys()),
+            )
             raise UserError(_(
                 "Control Tower detuvo el flujo porque la operación de recepción física %(picking)s "
                 "quedó en estado HECHO durante %(operation)s.\n\n"
@@ -2065,6 +2090,14 @@ class StockTransitVoyage(models.Model):
 
         if 'procure_method' in move_fields:
             vals['procure_method'] = 'make_to_stock'
+
+        # La demanda de recepción SIEMPRE nace en borrador. Explícito para que
+        # ningún default heredado de contexto pueda crear el move ya hecho.
+        if 'state' in move_fields:
+            vals['state'] = 'draft'
+
+        if 'picked' in move_fields:
+            vals['picked'] = False
 
         vals = {
             field_name: field_value
