@@ -127,34 +127,6 @@
                        readonly="1"/>
 
                 <!--
-                    Acción explícita desde el pedido.
-                    Sirve para el flujo:
-                    100 solicitado / 80 asignado / 20 pendiente
-                    → Mandar restante a To Be Purchased.
-                -->
-                <button name="action_tc_send_to_purchase"
-                        type="object"
-                        string="Mandar restante"
-                        column_invisible="parent.state != 'sale'"
-                        class="btn-warning"
-                        title="Mandar el pendiente real a compra aunque exista stock disponible"
-                        invisible="tc_qty_pending_allocation &lt;= 0 or tc_assignment_closed or auto_transit_assign"/>
-
-                <!--
-                    Acción inversa:
-                    si se mandó a pedir pero luego se quiere volver a revisar stock,
-                    limpia la intención de compra y permite que el pendiente regrese
-                    a To Be Allocated si existe stock libre.
-                -->
-                <button name="action_tc_clear_stock_rejection"
-                        type="object"
-                        string="Revisar stock"
-                        column_invisible="parent.state != 'sale'"
-                        class="btn-secondary"
-                        title="Quitar Mandar a pedir y volver a revisar stock disponible"
-                        invisible="not auto_transit_assign or tc_assignment_closed"/>
-
-                <!--
                     Ajuste manual desde la línea: iguala el Solicitado a las placas
                     efectivamente asignadas (la regla ratchet no lo baja solo).
                     - En 'Por Asignar' iguala la cantidad a la selección (suba o
@@ -166,7 +138,7 @@
                 -->
                 <button name="action_tc_adjust_qty_to_selection"
                         type="object"
-                        string="Ajustar a cantidad seleccionada"
+                        string="Ajustar a selección"
                         column_invisible="parent.state != 'sale'"
                         class="btn-secondary"
                         title="Igualar la cantidad solicitada a las placas efectivamente asignadas (y salir de 'Por Asignar')"
