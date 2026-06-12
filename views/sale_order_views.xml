@@ -202,6 +202,9 @@
 
             <xpath expr="//field[@name='order_line']/list/field[@name='route_ids']" position="replace"/>
 
+            <!-- Quitar el botón Catálogo de los controles de la lista -->
+            <xpath expr="//field[@name='order_line']/list/control/button[@name='action_add_from_catalog']" position="replace"/>
+
             <!-- Botones de acción de asignación al final absoluto de la fila,
                  compactados vía CSS (clase o_tc_btn_compact). -->
             <xpath expr="//field[@name='order_line']/list" position="inside">
