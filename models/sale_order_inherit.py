@@ -1570,7 +1570,7 @@ class SaleOrderLine(models.Model):
 
         El ratchet nunca baja solo al quitar placas (conserva el valor más alto,
         p.ej. al reemplazar una placa rota). Para bajar a la selección está el
-        ajuste forzado (tc_force_qty_to_selection / 'Ajustar a selección'), que
+        ajuste forzado (tc_force_qty_to_selection / 'Ajustar'), que
         iguala el Solicitado a lo asignado AUNQUE SEA MENOR, salvo en
         'Mandar a pedir', cuya demanda manual solo crece y nunca baja por placas.
         El ajuste forzado además saca la línea del modo 'Por Asignar'.
