@@ -21,6 +21,17 @@
                 <field name="tc_closure_at" column_invisible="1"/>
 
                 <!--
+                    Stock disponible del material: suma de m² en ubicaciones
+                    internas sin reservar, sin hold y sin lotes comprometidos
+                    en otras órdenes (tc_available_internal_qty). Visible
+                    siempre, también en cotización.
+                -->
+                <field name="tc_available_internal_qty"
+                       string="Stock"
+                       readonly="1"
+                       optional="show"/>
+
+                <!--
                     INTERRUPTOR DE MODO.
                     'Mandar a pedir' es ahora el switch que gobierna la cantidad:
                     - ON  => product_uom_qty (Solicitado) es manual (pedido a proveedor),
