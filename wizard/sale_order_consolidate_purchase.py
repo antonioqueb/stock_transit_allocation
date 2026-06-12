@@ -27,7 +27,7 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
 
     sale_order_ids = fields.Many2many('sale.order', string='Pedidos a Consolidar')
     
-    only_mto_lines = fields.Boolean(string='Solo productos "Mandar Pedir"', default=True)
+    only_mto_lines = fields.Boolean(string='Solo productos "Pedir"', default=True)
 
     def action_create_consolidated_po(self):
         self.ensure_one()

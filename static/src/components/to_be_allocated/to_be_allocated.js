@@ -1067,7 +1067,7 @@ export class ToBeAllocated extends Component {
 
                         <div class="stone-footer-actions">
                             <label class="stone-footer-adjust" id="sp-adjust-qty-label"
-                                   title="Iguala la cantidad solicitada a la selección actual, aunque sea menor (p.ej. el cliente ya no quiso la placa). Normalmente la cantidad solo sube al asignar y no baja al quitar placas. Si la línea estaba 'Por Asignar', la saca de ese modo.">
+                                   title="Iguala la cantidad solicitada a la selección actual, aunque sea menor (p.ej. el cliente ya no quiso la placa). Normalmente la cantidad solo sube al asignar y no baja al quitar placas. Si la línea estaba 'Asignar', la saca de ese modo.">
                                 <input type="checkbox" id="sp-adjust-qty"/>
                                 <span>Ajustar cantidad a la selección</span>
                             </label>

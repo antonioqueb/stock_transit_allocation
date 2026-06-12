@@ -34,7 +34,7 @@
                 <!--
                     INTERRUPTOR DE MODO.
                     'Mandar a pedir' es ahora el switch que gobierna la cantidad:
-                    - ON  => prMandar Pediry (Solicitado) es manual (pedido a proveedor),
+                    - ON  => prPediry (Solicitado) es manual (pedido a proveedor),
                              se puede además asignar placas y mandar el restante a compra.
                     - OFF => product_uom_qty NO es editable a mano; la cantidad vendible
                              se fija exclusivamente seleccionando placas (Solicitado = Asignado).
@@ -45,17 +45,17 @@
                 <field name="auto_transit_assign"
                        widget="boolean_toggle"
                        width="72px"
-                       string="Mandar Pedir"/>
+                       string="Pedir"/>
 
                 <!--
-                    'Por Asignar': segundo interruptor de cantidad manual,
+                    'Asignar': segundo interruptor de cantidad manual,
                     mutuamente excluyente con 'Mandar a pedir'. Desbloquea la
                     edición de 'Solicitado' y conserva siempre el valor escrito.
                 -->
                 <field name="por_asignar"
                        widget="boolean_toggle"
                        width="72px"
-                       string="Por Asignar"/>
+                       string="Asignar"/>
             </xpath>
 
             <!-- ========================================================= -->
@@ -66,7 +66,7 @@
                 <!--
                     REGLA DE MODO:
                     La cantidad solo se edita a mano cuando 'Mandar a pedir' o
-                    'Por Asignar' están activos. Sin ninguno de los dos, la
+                    'Asignar' están activos. Sin ninguno de los dos, la
                     cantidad se fija seleccionando placas (el backend la iguala a
                     la suma asignada por lotes).
                 -->
@@ -75,7 +75,7 @@
 
             <!-- ========================================================= -->
             <!-- Líneas de la orden: solo deben existir las columnas        -->
-            <!-- Producto, Mandar a pedir, Por Asignar, Solicitado,         -->
+            <!-- Producto, Mandar a pedir, Asignar, Solicitado,         -->
             <!-- Nivel de Precio, Asignado, Unidad, Precio unitario,        -->
             <!-- Impuestos e Importe. El resto de columnas estándar se      -->
             <!-- elimina del grid (los datos viven en sus propias pestañas).-->
@@ -155,7 +155,7 @@
                                     type="object"
                                     string="Ajustar"
                                     class="btn-secondary"
-                                    title="Igualar la cantidad solicitada a las placas efectivamente asignadas (y salir de 'Por Asignar')"
+                                    title="Igualar la cantidad solicitada a las placas efectivamente asignadas (y salir de 'Asignar')"
                                     invisible="auto_transit_assign or tc_assignment_closed or not has_stone_lots or (not por_asignar and tc_qty_pending_allocation &lt;= 0)"/>
 
                             <button name="action_tc_close_allocation_short"
@@ -212,7 +212,7 @@
                         string="Ajustar"
                         class="btn-secondary o_tc_btn_compact"
                         column_invisible="parent.state != 'sale'"
-                        title="Igualar la cantidad solicitada a las placas efectivamente asignadas (y salir de 'Por Asignar')"
+                        title="Igualar la cantidad solicitada a las placas efectivamente asignadas (y salir de 'Asignar')"
                         invisible="auto_transit_assign or tc_assignment_closed or not has_stone_lots or (not por_asignar and tc_qty_pending_allocation &lt;= 0)"/>
 
                 <button name="action_tc_close_allocation_short"

@@ -59,7 +59,7 @@ class SaleOrderLine(models.Model):
     )
 
     por_asignar = fields.Boolean(
-        string='Por Asignar',
+        string='Asignar',
         default=False,
         copy=False,
         help=(
@@ -997,7 +997,7 @@ class SaleOrderLine(models.Model):
         - force_qty_to_selection=True ('Ajustar cantidad a la selección'):
           iguala la cantidad a la selección actual AUNQUE SEA MENOR (cuando el
           cliente ya no quiso la placa y no hay reemplazo). Además saca la línea
-          del modo 'Por Asignar' si estaba activo.
+          del modo 'Asignar' si estaba activo.
         - Si se manda el restante a compra y se asigna de más, se exige decisión
           administrativa (free/bill).
         """
@@ -1049,7 +1049,7 @@ class SaleOrderLine(models.Model):
 
             # REGLA DE TECHO UNIVERSAL:
             # Si se asigna más de lo solicitado, la cantidad solicitada SIEMPRE
-            # sube a lo asignado, sin importar el modo ('Por Asignar' o 'Mandar a
+            # sube a lo asignado, sin importar el modo ('Asignar' o 'Mandar a
             # pedir'). Por eso ya NO se bloquea pidiendo una decisión comercial:
             # si el usuario no eligió explícitamente regalar el excedente ('free'),
             # el excedente se COBRA ('bill'), porque nunca se cobra menos de lo
@@ -1399,11 +1399,11 @@ class SaleOrderLine(models.Model):
     def write(self, vals):
         vals = dict(vals or {})
 
-        # 'Mandar a pedir' y 'Por Asignar' son modos mutuamente excluyentes:
+        # 'Mandar a pedir' y 'Asignar' son modos mutuamente excluyentes:
         # activar uno apaga el otro, también a nivel de datos (no solo en UI).
         if vals.get('por_asignar'):
             # REGLA DE NEGOCIO: sin stock libre disponible no hay nada que
-            # asignar; 'Por Asignar' no puede activarse.
+            # asignar; 'Asignar' no puede activarse.
             for line in self:
                 if line.display_type or not line.product_id:
                     continue
@@ -1411,7 +1411,7 @@ class SaleOrderLine(models.Model):
                 rounding = line._tc_get_qty_rounding()
                 if float_compare(available, 0.0, precision_rounding=rounding) <= 0:
                     raise UserError(_(
-                        'No puedes marcar "Por Asignar" en %s: el stock libre '
+                        'No puedes marcar "Asignar" en %s: el stock libre '
                         'disponible es 0. No hay nada que asignar; usa '
                         '"Pedir" para solicitar el material.'
                     ) % line.product_id.display_name)
@@ -1422,7 +1422,7 @@ class SaleOrderLine(models.Model):
         # ---------------------------------------------------------------------
         # REGLA DE PISO: la cantidad solicitada (lo que se cobra) NUNCA puede
         # quedar por debajo de lo ya asignado en placas, en NINGÚN modo
-        # ('Por Asignar' y 'Mandar a pedir' incluidos). Para reducir la cantidad
+        # ('Asignar' y 'Mandar a pedir' incluidos). Para reducir la cantidad
         # a cobrar primero hay que desasignar placas.
         #
         # Solo se valida la edición manual PURA de la cantidad (sin cambio de
@@ -1549,7 +1549,7 @@ class SaleOrderLine(models.Model):
 
             # Apagar 'Mandar a pedir' sin tocar placas en el mismo write regresa
             # el Solicitado a lo asignado, aunque baje. Se excluyen las líneas
-            # que quedan en 'Por Asignar' (cantidad manual que se conserva) y
+            # que quedan en 'Asignar' (cantidad manual que se conserva) y
             # las cerradas administrativamente (el cierre conserva la cantidad).
             force_reset_lines = derive_lines.browse()
             if unchecking_purchase and not lots_in_vals:
@@ -1577,7 +1577,7 @@ class SaleOrderLine(models.Model):
         REGLA DE PISO UNIVERSAL: el Solicitado (lo que se cobra) NUNCA puede
         quedar por debajo de lo asignado en placas. Por eso el RATCHET HACIA
         ARRIBA (subir el Solicitado a lo asignado cuando se asigna de más) se
-        aplica SIEMPRE, en TODOS los modos ('Por Asignar' y 'Mandar a pedir'
+        aplica SIEMPRE, en TODOS los modos ('Asignar' y 'Mandar a pedir'
         incluidos): la asignada manda cuando es más. Para bajar la cantidad a
         cobrar hay que desasignar placas.
 
@@ -1586,7 +1586,7 @@ class SaleOrderLine(models.Model):
         ajuste forzado (tc_force_qty_to_selection / 'Ajustar'), que
         iguala el Solicitado a lo asignado AUNQUE SEA MENOR, salvo en
         'Mandar a pedir', cuya demanda manual solo crece y nunca baja por placas.
-        El ajuste forzado además saca la línea del modo 'Por Asignar'.
+        El ajuste forzado además saca la línea del modo 'Asignar'.
 
         APAGAR 'Mandar a pedir' (sin tocar placas en el mismo write) también
         entra por el camino forzado desde write(): la cantidad manual solo vive
@@ -1622,7 +1622,7 @@ class SaleOrderLine(models.Model):
             if float_compare(current_qty, target_qty, precision_rounding=rounding) != 0:
                 write_vals['product_uom_qty'] = target_qty
 
-            # El ajuste forzado a la selección saca la línea del modo 'Por Asignar':
+            # El ajuste forzado a la selección saca la línea del modo 'Asignar':
             # el Solicitado ya quedó igualado a lo seleccionado.
             if force and line.por_asignar:
                 write_vals['por_asignar'] = False
@@ -2110,12 +2110,12 @@ class SaleOrderLine(models.Model):
           mientras el modo está activo.
         """
         if self.auto_transit_assign:
-            # Mutuamente excluyente con 'Por Asignar'.
+            # Mutuamente excluyente con 'Asignar'.
             if self.por_asignar:
                 self.por_asignar = False
             return
 
-        # En modo 'Por Asignar' la cantidad escrita se conserva: no ratchet.
+        # En modo 'Asignar' la cantidad escrita se conserva: no ratchet.
         if self.por_asignar:
             return
 
@@ -2146,12 +2146,12 @@ class SaleOrderLine(models.Model):
     @api.onchange('por_asignar')
     def _onchange_por_asignar(self):
         """
-        'Por Asignar' desbloquea la edición manual de la cantidad solicitada y
+        'Asignar' desbloquea la edición manual de la cantidad solicitada y
         es mutuamente excluyente con 'Mandar a pedir'. La cantidad escrita se
         conserva siempre: nunca se sincroniza desde las placas.
 
         REGLA DE NEGOCIO: sin stock libre disponible no se puede marcar
-        'Por Asignar' (no hay nada que asignar). El toggle se revierte de
+        'Asignar' (no hay nada que asignar). El toggle se revierte de
         inmediato y se avisa al usuario.
         """
         if self.por_asignar and self.product_id and not self.display_type:
@@ -2163,7 +2163,7 @@ class SaleOrderLine(models.Model):
                     'warning': {
                         'title': _('Sin stock disponible'),
                         'message': _(
-                            'No puedes marcar "Por Asignar" en %s: el stock '
+                            'No puedes marcar "Asignar" en %s: el stock '
                             'libre disponible es 0. No hay nada que asignar; '
                             'usa "Pedir" para solicitar el material.'
                         ) % self.product_id.display_name,

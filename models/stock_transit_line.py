@@ -485,8 +485,8 @@ class StockTransitLine(models.Model):
             'lot_ids': [(6, 0, lot_ids)],
         }
 
-        # Evita la restricción: Mandar Pedir + placas asignadas.
-        # En este punto ya no es "Mandar Pedir", ya existe lote concreto en tránsito.
+        # Evita la restricción: Pedir + placas asignadas.
+        # En este punto ya no es "Pedir", ya existe lote concreto en tránsito.
         if lot_ids and 'auto_transit_assign' in sale_line._fields:
             vals['auto_transit_assign'] = False
 
