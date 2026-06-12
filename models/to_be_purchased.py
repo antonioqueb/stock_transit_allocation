@@ -70,7 +70,10 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
         text = ' '.join(values)
 
-        if any(token in text for token in ['pieza', 'pza', 'pzas', 'unidad', 'unit', 'formato']):
+        # OJO: 'formato' NO clasifica como pieza. Los productos de formato se
+        # comercializan por metros cuadrados; solo las unidades explícitamente
+        # de pieza/unidad van al grupo de piezas.
+        if any(token in text for token in ['pieza', 'pza', 'pzas', 'unidad', 'unit']):
             return 'pieces'
 
         return 'm2'
