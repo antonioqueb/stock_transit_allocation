@@ -495,8 +495,8 @@
                                 <th style="width: 12%;">PLACA</th>
                                 <th style="width: 8%;">ATADO</th>
                                 <th style="width: 19%;">PEDIMENTO</th>
-                                <th style="width: 7%;">ALTO</th>
                                 <th style="width: 7%;">ANCHO</th>
+                                <th style="width: 7%;">ALTO</th>
                                 <th style="width: 10%;">CANT.</th>
                             </tr>
                         </thead>
@@ -551,11 +551,11 @@
                                     <td class="text-center"><t t-esc="row.get('atado') or '-'"/></td>
                                     <td><t t-esc="row.get('pedimento') or '-'"/></td>
                                     <td class="text-center">
-                                        <t t-if="row.get('alto')"><t t-esc="'%.3f' % row.get('alto')"/></t>
+                                        <t t-if="row.get('ancho')"><t t-esc="'%.3f' % row.get('ancho')"/></t>
                                         <t t-else="">-</t>
                                     </td>
                                     <td class="text-center">
-                                        <t t-if="row.get('ancho')"><t t-esc="'%.3f' % row.get('ancho')"/></t>
+                                        <t t-if="row.get('alto')"><t t-esc="'%.3f' % row.get('alto')"/></t>
                                         <t t-else="">-</t>
                                     </td>
                                     <td class="text-center" style="font-weight: 800; white-space: nowrap;">
