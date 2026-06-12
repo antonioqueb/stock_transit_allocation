@@ -50,6 +50,23 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
         if not rows_data:
             raise UserError(_("No se encontraron datos de medidas reales para procesar."))
 
+        # RED DE SEGURIDAD: si ninguna fila trae captura, abortar sin tocar
+        # nada (de lo contrario todo se marcaría como faltante y se vaciaría
+        # la recepción física completa).
+        def _row_captured(d):
+            if d.get("is_placa", True):
+                return bool(d.get("alto_real") or d.get("ancho_real"))
+            return bool(d.get("qty_real"))
+
+        if not any(_row_captured(d) for d in rows_data):
+            raise UserError(_(
+                "No se encontró ninguna captura en el Worksheet: todas las "
+                "filas tienen la cantidad o medida real vacía o en 0.\n\n"
+                "No se modificó nada. Captura los valores reales en el WS, "
+                "espera unos segundos a que la hoja guarde los cambios (o "
+                "ciérrala) y vuelve a dar Procesar WS."
+            ))
+
         stats = self._tc_apply_physical_worksheet(rows_data)
 
         return {
@@ -256,14 +273,22 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
                 continue
 
             lot = move_line.lot_id
+            is_placa = data.get("is_placa", True)
             alto_real = data.get("alto_real") or 0.0
             ancho_real = data.get("ancho_real") or 0.0
+            qty_real = data.get("qty_real") or 0.0
 
             voyage_line = voyage.line_ids.filtered(lambda l: l.lot_id.id == lot.id)[:1]
             source_quant = self._tc_source_quant(voyage, lot, product)
 
-            # 0 / 0 = pieza no encontrada físicamente.
-            if self._tc_is_zero(product, alto_real) and self._tc_is_zero(product, ancho_real):
+            # Sin captura = pieza no encontrada físicamente.
+            # Placas: alto y largo reales en 0. Formatos: cantidad real en 0.
+            if is_placa:
+                no_capture = self._tc_is_zero(product, alto_real) and self._tc_is_zero(product, ancho_real)
+            else:
+                no_capture = self._tc_is_zero(product, qty_real)
+
+            if no_capture:
                 if source_quant:
                     self._tc_zero_quant(product, lot, source_quant)
 
@@ -280,24 +305,29 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
                 missing += 1
                 continue
 
-            fallback_qty = self._tc_qty_value(move_line)
-            new_qty = self._tc_effective_real_qty(
-                product,
-                lot,
-                alto_real,
-                ancho_real,
-                fallback_qty,
-            )
+            if is_placa:
+                fallback_qty = self._tc_qty_value(move_line)
+                new_qty = self._tc_effective_real_qty(
+                    product,
+                    lot,
+                    alto_real,
+                    ancho_real,
+                    fallback_qty,
+                )
+            else:
+                # Formatos: la cantidad real capturada manda.
+                new_qty = qty_real
 
             if self._tc_is_zero(product, new_qty):
                 not_found += 1
                 continue
 
             lot_vals = {}
-            if "x_alto" in lot._fields:
-                lot_vals["x_alto"] = alto_real
-            if "x_ancho" in lot._fields:
-                lot_vals["x_ancho"] = ancho_real
+            if is_placa:
+                if "x_alto" in lot._fields:
+                    lot_vals["x_alto"] = alto_real
+                if "x_ancho" in lot._fields:
+                    lot_vals["x_ancho"] = ancho_real
             if lot_vals:
                 lot.write(lot_vals)
 
