@@ -1413,7 +1413,7 @@ class SaleOrderLine(models.Model):
                     raise UserError(_(
                         'No puedes marcar "Por Asignar" en %s: el stock libre '
                         'disponible es 0. No hay nada que asignar; usa '
-                        '"Mandar Pedir" para solicitar el material.'
+                        '"Pedir" para solicitar el material.'
                     ) % line.product_id.display_name)
             vals['auto_transit_assign'] = False
         elif vals.get('auto_transit_assign'):
@@ -2165,9 +2165,64 @@ class SaleOrderLine(models.Model):
                         'message': _(
                             'No puedes marcar "Por Asignar" en %s: el stock '
                             'libre disponible es 0. No hay nada que asignar; '
-                            'usa "Mandar Pedir" para solicitar el material.'
+                            'usa "Pedir" para solicitar el material.'
                         ) % self.product_id.display_name,
                     }
                 }
         if self.por_asignar and self.auto_transit_assign:
             self.auto_transit_assign = False
+
+    # -------------------------------------------------------------------------
+    # BORRADO DE LÍNEAS EN ÓRDENES CONFIRMADAS
+    # -------------------------------------------------------------------------
+
+    def _tc_line_blocks_unlink(self):
+        """True si la línea tiene rastro operativo que impide borrarla:
+        cantidad entregada, movimientos de almacén hechos o facturas."""
+        self.ensure_one()
+        if self.qty_delivered:
+            return True
+        if self.qty_invoiced or self.invoice_lines:
+            return True
+        if 'move_ids' in self._fields and self.move_ids.filtered(
+            lambda m: m.state == 'done'
+        ):
+            return True
+        return False
+
+    def _check_line_unlink(self):
+        """Relaja el candado estándar de Odoo: una línea de orden confirmada
+        SÍ puede borrarse mientras no tenga entregas ni facturas. El bloqueo
+        original ("pon la cantidad en 0") solo se mantiene para líneas con
+        rastro operativo real."""
+        restricted = super()._check_line_unlink()
+        return restricted.filtered(lambda l: l._tc_line_blocks_unlink())
+
+    def unlink(self):
+        """Antes de borrar una línea confirmada sin rastro operativo:
+        - libera la asignación de placas (el write dispara la sincronización
+          que ajusta el picking), y
+        - cancela sus movimientos pendientes para no dejar demanda huérfana
+          en las entregas.
+        Las líneas con entregas/facturas no se tocan: el ondelete del core
+        las bloqueará igual que siempre."""
+        deletable = self.filtered(
+            lambda l: l.state == 'sale'
+            and not l.display_type
+            and not l._tc_line_blocks_unlink()
+        )
+        for line in deletable:
+            clear_vals = {}
+            if 'lot_ids' in line._fields and line.lot_ids:
+                clear_vals['lot_ids'] = [(5, 0, 0)]
+            if 'x_lot_breakdown_json' in line._fields and line.x_lot_breakdown_json:
+                clear_vals['x_lot_breakdown_json'] = False
+            if clear_vals:
+                line.write(clear_vals)
+            if 'move_ids' in line._fields:
+                pending = line.move_ids.filtered(
+                    lambda m: m.state not in ('done', 'cancel')
+                )
+                if pending:
+                    pending._action_cancel()
+        return super().unlink()
