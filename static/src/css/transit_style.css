@@ -1,18 +1,1 @@
 /* Compatibility stub. Original file was absent from the provided module, but it is referenced by __manifest__.py. */
-
-
-/* ── Botones de acción compactos en las líneas de la orden de venta ── */
-.o_list_renderer td.o_data_cell .o_tc_btn_compact {
-    font-size: 0.7rem;
-    line-height: 1.3;
-    padding: 1px 6px;
-    white-space: nowrap;
-}
-
-/* Toggles angostos (Mandar a pedir / Por Asignar): encabezado compacto */
-.o_list_renderer th[data-name="auto_transit_assign"],
-.o_list_renderer th[data-name="por_asignar"] {
-    font-size: 0.72rem;
-    white-space: normal;
-    line-height: 1.1;
-}
