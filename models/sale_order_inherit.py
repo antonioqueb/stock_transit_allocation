@@ -678,6 +678,38 @@ class SaleOrderLine(models.Model):
 
         return self._tc_get_raw_pending_allocation_qty()
 
+    def _tc_get_own_order_lot_ids(self):
+        """Lotes seleccionados o asignados por CUALQUIER línea de esta
+        misma orden (x_selected_lots en cotización, lot_ids en confirmada).
+        El material ocupado por la propia orden no resta disponibilidad."""
+        self.ensure_one()
+        lot_ids = set()
+        lines = self.order_id.order_line if self.order_id else self
+        for ol in lines:
+            if 'lot_ids' in ol._fields and ol.lot_ids:
+                lot_ids.update(ol.lot_ids.ids)
+            if 'x_selected_lots' in ol._fields and ol.x_selected_lots:
+                lot_ids.update(ol.x_selected_lots.mapped('lot_id').ids)
+        return lot_ids
+
+    def _tc_order_uses_product_material(self):
+        """True si esta línea u otra línea de la MISMA orden ya tiene
+        material de este producto seleccionado o asignado (aunque sea un
+        consumo parcial o por 0): si la orden ya ocupa el material, las
+        acciones de asignación no deben bloquearse."""
+        self.ensure_one()
+        if not self.product_id:
+            return False
+        lines = self.order_id.order_line if self.order_id else self
+        for ol in lines:
+            if ol.display_type or ol.product_id != self.product_id:
+                continue
+            if 'lot_ids' in ol._fields and ol.lot_ids:
+                return True
+            if 'x_selected_lots' in ol._fields and ol.x_selected_lots:
+                return True
+        return False
+
     def _tc_get_free_internal_qty(self):
         self.ensure_one()
 
@@ -690,31 +722,36 @@ class SaleOrderLine(models.Model):
             ('product_id', '=', self.product_id.id),
             ('location_id.usage', '=', 'internal'),
             ('quantity', '>', 0),
-            ('reserved_quantity', '=', 0),
         ]
 
         if 'x_tiene_hold' in Quant._fields:
             domain.append(('x_tiene_hold', '=', False))
 
+        safe_ids = self._tc_get_own_order_lot_ids()
+
         if hasattr(Quant, '_get_committed_lot_ids'):
             committed_lot_ids = Quant._get_committed_lot_ids(self.product_id.id)
-            safe_current_ids = list(self.lot_ids.ids) if 'lot_ids' in self._fields and self.lot_ids else []
-            # En cotización la selección de placas vive en x_selected_lots
-            # (carrito); el material seleccionado por la propia línea no debe
-            # restarle disponibilidad.
-            if 'x_selected_lots' in self._fields and self.x_selected_lots:
-                safe_current_ids += self.x_selected_lots.mapped('lot_id').ids
-
             excluded_lot_ids = [
                 lot_id for lot_id in committed_lot_ids
-                if lot_id not in safe_current_ids
+                if lot_id not in safe_ids
             ]
 
             if excluded_lot_ids:
                 domain.append(('lot_id', 'not in', excluded_lot_ids))
 
-        quants = Quant.search(domain)
-        return sum(quants.mapped('quantity'))
+        total = 0.0
+        for quant in Quant.search(domain):
+            if quant.lot_id and quant.lot_id.id in safe_ids:
+                # Lote ocupado por esta misma orden: cuenta el remanente no
+                # reservado (uso parcial: 5 de 22 m² deja 17 disponibles).
+                total += max(
+                    (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0),
+                    0.0,
+                )
+            elif not quant.reserved_quantity:
+                # Lotes ajenos: criterio estricto, solo sin reservar.
+                total += quant.quantity or 0.0
+        return total
 
 
     def _tc_is_service_product(self):
@@ -1418,10 +1455,7 @@ class SaleOrderLine(models.Model):
             for line in self:
                 if line.display_type or not line.product_id:
                     continue
-                has_own_material = bool(
-                    ('x_selected_lots' in line._fields and line.x_selected_lots)
-                    or ('lot_ids' in line._fields and line.lot_ids)
-                )
+                has_own_material = line._tc_order_uses_product_material()
                 if has_own_material:
                     continue
                 available = line._tc_get_free_internal_qty()
@@ -2175,10 +2209,7 @@ class SaleOrderLine(models.Model):
         inmediato y se avisa al usuario.
         """
         if self.por_asignar and self.product_id and not self.display_type:
-            has_own_material = bool(
-                ('x_selected_lots' in self._fields and self.x_selected_lots)
-                or ('lot_ids' in self._fields and self.lot_ids)
-            )
+            has_own_material = self._tc_order_uses_product_material()
             available = self._tc_get_free_internal_qty()
             rounding = self._tc_get_qty_rounding()
             if not has_own_material and float_compare(available, 0.0, precision_rounding=rounding) <= 0:
