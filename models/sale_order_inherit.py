@@ -698,7 +698,12 @@ class SaleOrderLine(models.Model):
 
         if hasattr(Quant, '_get_committed_lot_ids'):
             committed_lot_ids = Quant._get_committed_lot_ids(self.product_id.id)
-            safe_current_ids = self.lot_ids.ids if 'lot_ids' in self._fields and self.lot_ids else []
+            safe_current_ids = list(self.lot_ids.ids) if 'lot_ids' in self._fields and self.lot_ids else []
+            # En cotización la selección de placas vive en x_selected_lots
+            # (carrito); el material seleccionado por la propia línea no debe
+            # restarle disponibilidad.
+            if 'x_selected_lots' in self._fields and self.x_selected_lots:
+                safe_current_ids += self.x_selected_lots.mapped('lot_id').ids
 
             excluded_lot_ids = [
                 lot_id for lot_id in committed_lot_ids
@@ -768,7 +773,13 @@ class SaleOrderLine(models.Model):
                 line.tc_qty_pending_allocation = 0.0
                 line.tc_qty_assigned_percent = 0.0
                 line.tc_qty_over_assigned = 0.0
-                line.tc_available_internal_qty = 0.0
+                # El stock libre se muestra también en cotización: solo se
+                # omite si no hay producto o es servicio/sección.
+                line.tc_available_internal_qty = (
+                    0.0
+                    if (line.display_type or not line.product_id or line._tc_is_service_product())
+                    else line._tc_get_free_internal_qty()
+                )
                 line.tc_assignment_state = 'no_demand'
                 line.tc_allocation_hub_state = 'nothing'
                 continue
@@ -1406,6 +1417,12 @@ class SaleOrderLine(models.Model):
             # asignar; 'Asignar' no puede activarse.
             for line in self:
                 if line.display_type or not line.product_id:
+                    continue
+                has_own_material = bool(
+                    ('x_selected_lots' in line._fields and line.x_selected_lots)
+                    or ('lot_ids' in line._fields and line.lot_ids)
+                )
+                if has_own_material:
                     continue
                 available = line._tc_get_free_internal_qty()
                 rounding = line._tc_get_qty_rounding()
@@ -2136,11 +2153,14 @@ class SaleOrderLine(models.Model):
                 self.product_uom_qty = assigned_qty
             return
 
+        # REGLA DE PISO: el solicitado nunca puede quedar por debajo de lo
+        # asignado, pero una cantidad mayor escrita por el vendedor se
+        # respeta; para bajarla está el botón "Ajustar a selección".
         if float_compare(
             assigned_qty,
             self.product_uom_qty or 0.0,
             precision_rounding=rounding,
-        ) != 0:
+        ) > 0:
             self.product_uom_qty = assigned_qty
 
     @api.onchange('por_asignar')
@@ -2155,9 +2175,13 @@ class SaleOrderLine(models.Model):
         inmediato y se avisa al usuario.
         """
         if self.por_asignar and self.product_id and not self.display_type:
+            has_own_material = bool(
+                ('x_selected_lots' in self._fields and self.x_selected_lots)
+                or ('lot_ids' in self._fields and self.lot_ids)
+            )
             available = self._tc_get_free_internal_qty()
             rounding = self._tc_get_qty_rounding()
-            if float_compare(available, 0.0, precision_rounding=rounding) <= 0:
+            if not has_own_material and float_compare(available, 0.0, precision_rounding=rounding) <= 0:
                 self.por_asignar = False
                 return {
                     'warning': {
