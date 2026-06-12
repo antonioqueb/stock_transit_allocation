@@ -34,7 +34,7 @@
                 <field name="auto_transit_assign"
                        widget="boolean_toggle"
                        width="72px"
-                       string="Mandar a pedir"/>
+                       string="Mandar Pedir"/>
 
                 <!--
                     'Por Asignar': segundo interruptor de cantidad manual,
