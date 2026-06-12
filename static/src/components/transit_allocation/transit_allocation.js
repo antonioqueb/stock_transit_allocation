@@ -946,7 +946,7 @@ export class TransitAllocation extends Component {
                             <th>Bloque</th>
                             <th>Atado</th>
                             <th class="col-num">Alto</th>
-                            <th class="col-num">Ancho</th>
+                            <th class="col-num">Largo</th>
                             <th class="col-num">Esp.</th>
                             <th class="col-num">Disponible</th>
                             <th>Embarque</th>

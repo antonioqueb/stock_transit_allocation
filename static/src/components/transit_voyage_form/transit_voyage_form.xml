@@ -100,7 +100,7 @@
                                         <th class="tvl-th tvl-th--center">Atado</th>
                                         <th class="tvl-th tvl-th--center">Grosor</th>
                                         <th class="tvl-th tvl-th--right">Alto</th>
-                                        <th class="tvl-th tvl-th--right">Ancho</th>
+                                        <th class="tvl-th tvl-th--right">Largo</th>
                                         <th class="tvl-th tvl-th--right">m²</th>
                                         <th class="tvl-th">Cliente</th>
                                         <th class="tvl-th tvl-th--prop" title="Propagar asignación hacia abajo">↓↓</th>

@@ -1012,7 +1012,7 @@ export class ToBeAllocated extends Component {
                         </div>
 
                         <div class="stone-filter-group">
-                            <label>Ancho mín.</label>
+                            <label>Largo mín.</label>
                             <input type="number" class="stone-filter-input stone-filter-sm" id="sf-ancho" placeholder="0" step="0.01"/>
                         </div>
 
@@ -1423,7 +1423,7 @@ export class ToBeAllocated extends Component {
                             <th>Bloque</th>
                             <th>Atado</th>
                             <th class="col-num">Alto</th>
-                            <th class="col-num">Ancho</th>
+                            <th class="col-num">Largo</th>
                             <th class="col-num">Esp.</th>
                             <th class="col-num">Disp.</th>
                             <th>Tipo</th>

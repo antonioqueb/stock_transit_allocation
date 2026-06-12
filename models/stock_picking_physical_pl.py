@@ -208,7 +208,7 @@ class StockPickingPhysicalPackingList(models.Model):
             unit_type = product.product_tmpl_id.x_unidad_del_producto or "Placa"
 
             if unit_type == "Placa":
-                headers = ["Grosor (cm)", "Alto (m)", "Ancho (m)"] + common_headers_suffix
+                headers = ["Grosor (cm)", "Alto (m)", "Largo (m)"] + common_headers_suffix
             else:
                 headers = ["Grosor (cm)", "Cantidad"] + common_headers_suffix
 

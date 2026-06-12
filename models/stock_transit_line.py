@@ -55,7 +55,7 @@ class StockTransitLine(models.Model):
     )
     x_ancho = fields.Float(
         related='lot_id.x_ancho',
-        string='Ancho',
+        string='Largo',
         readonly=True,
     )
 
