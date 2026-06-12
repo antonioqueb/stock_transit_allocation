@@ -1402,6 +1402,19 @@ class SaleOrderLine(models.Model):
         # 'Mandar a pedir' y 'Por Asignar' son modos mutuamente excluyentes:
         # activar uno apaga el otro, también a nivel de datos (no solo en UI).
         if vals.get('por_asignar'):
+            # REGLA DE NEGOCIO: sin stock libre disponible no hay nada que
+            # asignar; 'Por Asignar' no puede activarse.
+            for line in self:
+                if line.display_type or not line.product_id:
+                    continue
+                available = line._tc_get_free_internal_qty()
+                rounding = line._tc_get_qty_rounding()
+                if float_compare(available, 0.0, precision_rounding=rounding) <= 0:
+                    raise UserError(_(
+                        'No puedes marcar "Por Asignar" en %s: el stock libre '
+                        'disponible es 0. No hay nada que asignar; usa '
+                        '"Mandar Pedir" para solicitar el material.'
+                    ) % line.product_id.display_name)
             vals['auto_transit_assign'] = False
         elif vals.get('auto_transit_assign'):
             vals['por_asignar'] = False
@@ -2136,6 +2149,25 @@ class SaleOrderLine(models.Model):
         'Por Asignar' desbloquea la edición manual de la cantidad solicitada y
         es mutuamente excluyente con 'Mandar a pedir'. La cantidad escrita se
         conserva siempre: nunca se sincroniza desde las placas.
+
+        REGLA DE NEGOCIO: sin stock libre disponible no se puede marcar
+        'Por Asignar' (no hay nada que asignar). El toggle se revierte de
+        inmediato y se avisa al usuario.
         """
+        if self.por_asignar and self.product_id and not self.display_type:
+            available = self._tc_get_free_internal_qty()
+            rounding = self._tc_get_qty_rounding()
+            if float_compare(available, 0.0, precision_rounding=rounding) <= 0:
+                self.por_asignar = False
+                return {
+                    'warning': {
+                        'title': _('Sin stock disponible'),
+                        'message': _(
+                            'No puedes marcar "Por Asignar" en %s: el stock '
+                            'libre disponible es 0. No hay nada que asignar; '
+                            'usa "Mandar Pedir" para solicitar el material.'
+                        ) % self.product_id.display_name,
+                    }
+                }
         if self.por_asignar and self.auto_transit_assign:
             self.auto_transit_assign = False
