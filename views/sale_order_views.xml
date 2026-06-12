@@ -34,7 +34,7 @@
                 <!--
                     INTERRUPTOR DE MODO.
                     'Mandar a pedir' es ahora el switch que gobierna la cantidad:
-                    - ON  => product_uom_qty (Solicitado) es manual (pedido a proveedor),
+                    - ON  => prMandar Pediry (Solicitado) es manual (pedido a proveedor),
                              se puede además asignar placas y mandar el restante a compra.
                     - OFF => product_uom_qty NO es editable a mano; la cantidad vendible
                              se fija exclusivamente seleccionando placas (Solicitado = Asignado).

@@ -970,7 +970,7 @@ export class ToBePurchased extends Component {
     }
 
     fmtAvailableStockTitle(product) {
-        if (!product) return "Sin stock disponible";
+        if (!product) return "Mandar Pedir disponible";
         return `Stock disponible en bodega (libre, sin reservas ni hold): ${this.fmtAvailableStock(product)}`;
     }
 
