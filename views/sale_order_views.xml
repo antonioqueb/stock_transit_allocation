@@ -205,6 +205,11 @@
             <!-- Quitar el botón Catálogo de los controles de la lista -->
             <xpath expr="//field[@name='order_line']/list/control/button[@name='action_add_from_catalog']" position="replace"/>
 
+            <!-- Quitar "Agregar una sección" y "Agregar una nota" de los
+                 controles de la lista, en cotización y orden de venta. -->
+            <xpath expr="//field[@name='order_line']/list/control/create[@name='add_section_control']" position="replace"/>
+            <xpath expr="//field[@name='order_line']/list/control/create[@name='add_note_control']" position="replace"/>
+
             <!-- Botones de acción de asignación al final absoluto de la fila,
                  compactados vía CSS (clase o_tc_btn_compact). -->
             <xpath expr="//field[@name='order_line']/list" position="inside">
