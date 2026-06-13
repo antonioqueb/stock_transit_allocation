@@ -753,6 +753,121 @@ class SaleOrderLine(models.Model):
                 total += quant.quantity or 0.0
         return total
 
+    def _tc_get_max_assignable_qty(self):
+        """Techo de asignación para esta línea: máximo que puede quedar como
+        Solicitado/Asignado en modo 'Asignar' (sin 'Mandar a pedir').
+
+        Es el stock físico interno realmente disponible para la orden:
+        - Lotes ya tomados por la PROPIA orden cuentan su cantidad física
+          COMPLETA (aunque estén reservados por esta misma orden): el material
+          ya es de la orden, no debe restarse a sí mismo. (Esto lo distingue de
+          _tc_get_free_internal_qty, que descuenta lo reservado para reflejar el
+          'libre').
+        - Lotes ajenos solo cuentan si están sin reservar, sin hold y no están
+          comprometidos en otras órdenes.
+
+        Sirve como cota superior: no se puede asignar/cobrar más material del que
+        existe disponible para la orden; el faltante se manda a pedir."""
+        self.ensure_one()
+
+        if not self.product_id:
+            return 0.0
+
+        Quant = self.env['stock.quant'].sudo()
+
+        domain = [
+            ('product_id', '=', self.product_id.id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+        ]
+
+        if 'x_tiene_hold' in Quant._fields:
+            domain.append(('x_tiene_hold', '=', False))
+
+        safe_ids = self._tc_get_own_order_lot_ids()
+
+        if hasattr(Quant, '_get_committed_lot_ids'):
+            committed_lot_ids = Quant._get_committed_lot_ids(self.product_id.id)
+            excluded_lot_ids = [
+                lot_id for lot_id in committed_lot_ids
+                if lot_id not in safe_ids
+            ]
+
+            if excluded_lot_ids:
+                domain.append(('lot_id', 'not in', excluded_lot_ids))
+
+        total = 0.0
+        for quant in Quant.search(domain):
+            if quant.lot_id and quant.lot_id.id in safe_ids:
+                # Material de la propia orden: cuenta su físico completo.
+                total += quant.quantity or 0.0
+            elif not quant.reserved_quantity:
+                # Lotes ajenos: solo lo que está libre (sin reservar).
+                total += quant.quantity or 0.0
+        return total
+
+    def _tc_validate_assignment_stock_cap(self):
+        """REGLA DE NEGOCIO (cotización Y orden de venta):
+
+        En modo 'Asignar' (la línea NO está marcada como 'Mandar a pedir'), la
+        cantidad solicitada/asignada:
+          - no puede asignarse si el stock disponible es 0, y
+          - no puede superar el stock físico disponible para la orden.
+
+        Lo que falte se manda a pedir con 'Pedir'. Las líneas en 'Mandar a
+        pedir' (auto_transit_assign) quedan exentas: pedir más que el stock es
+        justamente su propósito."""
+        if self.env.context.get('skip_tc_stock_cap'):
+            return
+
+        for line in self:
+            if line.display_type or not line.product_id or line._tc_is_service_product():
+                continue
+
+            # 'Mandar a pedir' puede superar el stock por diseño.
+            if line.auto_transit_assign:
+                continue
+
+            has_selected = bool(line.x_selected_lots) if 'x_selected_lots' in line._fields else False
+            has_lots = bool(line.lot_ids) if 'lot_ids' in line._fields else False
+
+            # Solo se valida cuando la línea está en modo de asignación: bien por
+            # el booleano 'Asignar', bien porque tiene placas/lotes seleccionados
+            # (selección por carrito en cotización o por placas en la orden).
+            if not (line.por_asignar or has_selected or has_lots):
+                continue
+
+            requested = line.product_uom_qty or 0.0
+            if line._tc_float_le_zero(requested):
+                continue
+
+            rounding = line._tc_get_qty_rounding()
+            # El techo nunca puede quedar por debajo de lo ya asignado en placas
+            # a esta línea: ese material es real aunque ya haya salido del stock
+            # interno (entregado / en tránsito), igual que en la regla de PISO.
+            ceiling = max(
+                line._tc_get_max_assignable_qty(),
+                line._tc_get_assigned_lot_qty(),
+            )
+
+            if float_compare(ceiling, 0.0, precision_rounding=rounding) <= 0:
+                raise UserError(_(
+                    'No puedes asignar stock en "%(prod)s": el stock disponible '
+                    'es 0. No hay material para asignar; usa "Pedir" para '
+                    'solicitarlo a compras.'
+                ) % {'prod': line.product_id.display_name})
+
+            if float_compare(requested, ceiling, precision_rounding=rounding) > 0:
+                raise UserError(_(
+                    'No puedes asignar %(req).3f de "%(prod)s": supera el stock '
+                    'disponible para la orden (%(stock).3f).\n\n'
+                    'Asigna como máximo el stock disponible. Si necesitas más, '
+                    'usa "Pedir" para solicitar el faltante a compras.'
+                ) % {
+                    'req': requested,
+                    'prod': line.product_id.display_name,
+                    'stock': ceiling,
+                })
 
     def _tc_is_service_product(self):
         """Los hubs de asignación/compra no gestionan servicios."""
@@ -1444,8 +1559,31 @@ class SaleOrderLine(models.Model):
             # con el botón 'Revisar stock'. El hub ya muestra la línea como cubierta
             # vía hub_state='allocated' cuando no queda pendiente, sin tocar el flag.
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        lines = super().create(vals_list)
+        # Las líneas creadas por el carrito en cotización (x_selected_lots +
+        # product_uom_qty) entran por aquí, no por write(): se valida el techo de
+        # stock también en este camino para que la restricción aplique en
+        # cotización igual que en la orden.
+        lines._tc_validate_assignment_stock_cap()
+        return lines
+
     def write(self, vals):
         vals = dict(vals or {})
+
+        # Campos cuyo cambio puede dejar la línea por encima del stock asignable;
+        # solo entonces se revalida el techo tras escribir (evita bloquear
+        # ediciones ajenas, p. ej. precio, si el stock bajó después de asignar).
+        _tc_stock_cap_fields = {
+            'por_asignar',
+            'auto_transit_assign',
+            'product_uom_qty',
+            'lot_ids',
+            'x_lot_breakdown_json',
+            'x_selected_lots',
+        }
+        _tc_check_stock_cap = bool(_tc_stock_cap_fields.intersection(vals.keys()))
 
         # 'Mandar a pedir' y 'Asignar' son modos mutuamente excluyentes:
         # activar uno apaga el otro, también a nivel de datos (no solo en UI).
@@ -1618,6 +1756,12 @@ class SaleOrderLine(models.Model):
                 )._tc_sync_requested_qty_from_lots()
             if ratchet_lines:
                 ratchet_lines._tc_sync_requested_qty_from_lots()
+
+        # Tras aplicar la escritura y la derivación de cantidad por placas, se
+        # valida que ninguna línea en modo 'Asignar' supere el stock disponible
+        # ni intente asignar con stock 0. Solo cuando cambió un campo relevante.
+        if _tc_check_stock_cap:
+            self._tc_validate_assignment_stock_cap()
 
         return res
 
@@ -2226,6 +2370,48 @@ class SaleOrderLine(models.Model):
                 }
         if self.por_asignar and self.auto_transit_assign:
             self.auto_transit_assign = False
+
+    @api.onchange('product_uom_qty')
+    def _onchange_tc_qty_over_stock(self):
+        """Aviso inmediato cuando, en modo 'Asignar', la cantidad supera el
+        stock disponible. El bloqueo real (UserError) ocurre al guardar en
+        create()/write(); aquí solo se advierte para no dejar guardar a ciegas."""
+        if self.display_type or not self.product_id or self.auto_transit_assign:
+            return
+        if self._tc_is_service_product():
+            return
+
+        has_selected = bool(self.x_selected_lots) if 'x_selected_lots' in self._fields else False
+        has_lots = bool(self.lot_ids) if 'lot_ids' in self._fields else False
+        if not (self.por_asignar or has_selected or has_lots):
+            return
+
+        requested = self.product_uom_qty or 0.0
+        if self._tc_float_le_zero(requested):
+            return
+
+        rounding = self._tc_get_qty_rounding()
+        ceiling = max(
+            self._tc_get_max_assignable_qty(),
+            self._tc_get_assigned_lot_qty(),
+        )
+
+        if float_compare(requested, ceiling, precision_rounding=rounding) > 0:
+            return {
+                'warning': {
+                    'title': _('Cantidad mayor al stock'),
+                    'message': _(
+                        'Estás asignando %(req).3f de "%(prod)s" pero el stock '
+                        'disponible es %(stock).3f. No podrás guardar hasta '
+                        'asignar como máximo el stock; usa "Pedir" para el '
+                        'faltante.'
+                    ) % {
+                        'req': requested,
+                        'prod': self.product_id.display_name,
+                        'stock': ceiling,
+                    },
+                }
+            }
 
     # -------------------------------------------------------------------------
     # BORRADO DE LÍNEAS EN ÓRDENES CONFIRMADAS
