@@ -637,6 +637,11 @@ class StockTransitLineTransitAllocationSync(models.Model):
             skip_hold_validation=True,
             skip_picking_clean=True,
             skip_transit_sale_sync=True,
+            # La asignación desde tránsito es PARCIAL por diseño: cubre lo que
+            # viene en camino y el resto queda pendiente/compra. El tope de stock
+            # (solicitado > disponible) no aplica aquí; bloquearía asignar
+            # material real en tránsito solo porque la demanda total es mayor.
+            skip_tc_stock_cap=True,
         ).write(vals)
 
         # Si la línea ya quedó cubierta, limpia intención de compra.
