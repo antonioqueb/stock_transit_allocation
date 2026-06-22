@@ -655,20 +655,48 @@ class StockTransitLine(models.Model):
         if not transit_lines:
             return {'success': False, 'message': _('Sin líneas para asignar.')}
 
-        partner_id = partner_id or False
+        # SANEO DE FK COLGANTE: si una línea apunta a un cliente borrado/fusionado
+        # (p.ej. contactos deduplicados, que no repuntan modelos custom), cualquier
+        # lectura posterior de ese partner lanza MissingError y rompe la asignación.
+        # Se limpia a bajo nivel ANTES de operar; el cliente correcto se fija luego
+        # desde la propia orden. .exists() no lanza (solo consulta existencia).
+        dangling = transit_lines.filtered(
+            lambda l: l.partner_id and not l.partner_id.exists()
+        )
+        if dangling:
+            self.env.cr.execute(
+                "UPDATE stock_transit_line SET partner_id = NULL WHERE id IN %s",
+                (tuple(dangling.ids),),
+            )
+            dangling.invalidate_recordset(['partner_id'])
+
         order_id = order_id or False
 
-        # Sin orden no hay sobre-asignación posible: asignación simple.
+        # Sin orden no hay sobre-asignación posible: solo se limpia la orden.
+        # NO se reescribe partner aquí: el cliente se gestiona por separado
+        # (onPartnerChange), y reescribir un partner obsoleto/borrado provoca
+        # MissingError.
         if not order_id:
-            vals = {'order_id': False}
-            if partner_id:
-                vals['partner_id'] = partner_id
-            transit_lines.write(vals)
+            transit_lines.write({'order_id': False})
             return {'success': True, 'over_assigned_qty': 0.0}
 
         order = self.env['sale.order'].browse(order_id).exists()
         if not order:
             return {'success': False, 'message': _('Orden de venta no encontrada.')}
+
+        # El cliente SIEMPRE se deriva de la orden (no del valor que mande el
+        # front, que puede estar obsoleto). La validación de asignación exige
+        # que coincidan, y así evitamos escribir un partner inexistente.
+        partner = order.partner_id
+        if not partner.exists():
+            return {
+                'success': False,
+                'message': _(
+                    'El cliente del pedido %s no existe (fue borrado/fusionado). '
+                    'Corrige el cliente del pedido antes de asignar.'
+                ) % order.name,
+            }
+        partner_id = partner.id
 
         # Excedente agregado por producto contra su línea de venta destino.
         total_over = 0.0
