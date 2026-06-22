@@ -671,15 +671,36 @@ class StockTransitLine(models.Model):
             dangling.invalidate_recordset(['partner_id'])
 
         order_id = order_id or False
+        partner_id = partner_id or False
 
         _logger.info(
             "[TC_VOYAGE_ASSIGN] lines=%s partner_id=%s order_id=%s over_action=%s",
             transit_lines.ids, partner_id, order_id, over_action,
         )
 
-        # Sin orden: se asigna/limpia solo el cliente (no hay excedente posible).
-        # El partner del popup masivo SÍ se escribe (es una selección válida del
-        # usuario); solo se valida que exista para no caer en MissingError.
+        # COMPAT DEFENSIVO (args invertidos):
+        # En el flujo correcto, tc_voyage_assign SIEMPRE recibe partner_id=False
+        # (el cliente se deriva de la orden). Si llega un partner_id truthy y
+        # order_id=False, es un front desincronizado que mandó el id de la ORDEN
+        # en el slot del partner. Si ese id resuelve a una sale.order, se
+        # reinterpreta como order_id para que la asignación NO se pierda.
+        if not order_id and partner_id:
+            try:
+                possible_order = self.env['sale.order'].sudo().browse(int(partner_id)).exists()
+            except (TypeError, ValueError):
+                possible_order = False
+            if possible_order:
+                _logger.warning(
+                    "[TC_VOYAGE_ASSIGN] compat args invertidos: partner_id=%s "
+                    "reinterpretado como order_id=%s (%s)",
+                    partner_id, possible_order.id, possible_order.name,
+                )
+                order_id = possible_order.id
+                partner_id = False
+
+        # Sin orden: solo se limpia/asigna cliente (acción explícita). El partner,
+        # si llega, debe existir para no caer en MissingError. NO se pierde una
+        # asignación de orden por aquí porque el compat de arriba ya la rescató.
         if not order_id:
             vals = {'order_id': False}
             if partner_id:

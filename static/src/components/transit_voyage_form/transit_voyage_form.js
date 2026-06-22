@@ -18,6 +18,7 @@ class TransitVoyageLinesWidget extends Component {
     };
 
     setup() {
+        console.warn("[TVOYAGE_JS_RUNTIME_13_7_4] loaded", { url: window.location.href });
         this.orm          = useService("orm");
         this.notification = useService("notification");
 
@@ -218,6 +219,7 @@ class TransitVoyageLinesWidget extends Component {
 
     async onPartnerChange(line, ev) {
         const partnerId = parseInt(ev.target.value) || false;
+        console.warn("[TVOYAGE_onPartnerChange_13_7_4]", { lineId: line.id, partnerId });
 
         line.partner_id = partnerId ? [partnerId, this._partnerName(partnerId)] : false;
         line.order_id   = false;
@@ -244,23 +246,37 @@ class TransitVoyageLinesWidget extends Component {
     async onOrderChange(line, ev) {
         const orderId = parseInt(ev.target.value) || false;
         this.state.editingCell = null;
+        console.warn("[TVOYAGE_onOrderChange_13_7_4]", { lineId: line.id, rawValue: ev.target.value, orderId });
 
-        // El cliente se deriva de la orden (fuente de verdad): no se exige que la
-        // línea tenga cliente previo. partner=false -> el backend lo toma de la orden.
+        // Limpiar orden (— Sin orden —) es una acción EXPLÍCITA con ruta propia,
+        // no una asignación. Así no entra al bloqueo de "sin order_id".
+        if (!orderId) {
+            await this._clearLineOrder(line);
+            return;
+        }
+
+        // Asignar: cliente se deriva de la orden (partner=false).
         const ok = await this._assignWithOverCheck([line.id], false, orderId);
         if (!ok) return;
 
-        if (orderId) {
-            const ord = this.getOrdersForProduct(line).find(o => o.id === orderId);
-            line.order_id = [orderId, ord ? ord.name : String(orderId)];
-            if (ord) {
-                line.partner_id = [ord.partner_id, ord.partner_name];
-            }
-            line.allocation_status = "reserved";
-        } else {
-            line.order_id = false;
-            line.allocation_status = "available";
+        const ord = this.getOrdersForProduct(line).find(o => o.id === orderId);
+        line.order_id = [orderId, ord ? ord.name : String(orderId)];
+        if (ord) {
+            line.partner_id = [ord.partner_id, ord.partner_name];
         }
+        line.allocation_status = "reserved";
+        this._recalcGroup(line);
+    }
+
+    async _clearLineOrder(line) {
+        try {
+            await this.orm.call("stock.transit.line", "tc_voyage_assign", [[line.id], false, false]);
+        } catch (e) {
+            this.notification.add("Error al limpiar la orden: " + (e.message || e), { type: "danger" });
+            return;
+        }
+        line.order_id = false;
+        line.allocation_status = "available";
         this._recalcGroup(line);
     }
 
@@ -404,6 +420,7 @@ class TransitVoyageLinesWidget extends Component {
 
         const srcLine = group.lines[fromIndex];
         const orderId = srcLine.order_id ? srcLine.order_id[0] : false;
+        console.warn("[TVOYAGE_propagateDown_13_7_4]", { fromIndex, srcLineId: srcLine.id, orderId });
 
         if (!orderId) {
             this.notification.add("Primero seleccione una orden para propagar.", { type: "warning" });
@@ -431,17 +448,35 @@ class TransitVoyageLinesWidget extends Component {
      * reintenta con la decisión. Devuelve true si la asignación se aplicó.
      */
     async _assignWithOverCheck(transitLineIds, partnerId, orderId, overAction = false, overReason = false) {
+        console.warn("[TVOYAGE_ASSIGN_CALL_13_7_4]", {
+            transitLineIds, partnerId, orderId, overAction, overReason,
+            url: window.location.href,
+        });
+
+        // Asignar SIEMPRE requiere orden. Sin orden no se llama aquí (limpiar
+        // orden tiene su propia ruta). Esto evita "rama sin-orden" silenciosa.
+        if (!orderId) {
+            console.error("[TVOYAGE_ASSIGN_BLOCKED_NO_ORDER_13_7_4]", { transitLineIds, partnerId, orderId });
+            this.notification.add(
+                "Asignación bloqueada: el frontend no envió order_id. Selecciona una orden.",
+                { type: "danger" },
+            );
+            return false;
+        }
+
         try {
+            // partner SIEMPRE false: el backend deriva el cliente de la orden.
+            // Endurecido a nivel orm.call para blindar contra callers viejos.
             const result = await this.orm.call(
                 "stock.transit.line",
                 "tc_voyage_assign",
-                [transitLineIds, partnerId || false, orderId || false, overAction, overReason],
+                [transitLineIds, false, orderId, overAction, overReason],
             );
 
             if (result && result.need_over_assignment_decision) {
                 const decision = await this.requestOverAssignmentDecision(result.over_assigned_qty || 0, "");
                 if (!decision) return false;
-                return this._assignWithOverCheck(transitLineIds, partnerId, orderId, decision.action, decision.reason);
+                return this._assignWithOverCheck(transitLineIds, false, orderId, decision.action, decision.reason);
             }
 
             if (result && result.success === false) {
