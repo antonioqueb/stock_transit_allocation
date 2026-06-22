@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_transit_unassign_wizard_form" model="ir.ui.view">
+        <field name="name">transit.unassign.wizard.form</field>
+        <field name="model">transit.unassign.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Desasignar materiales en tránsito">
+                <div class="alert alert-warning" role="alert">
+                    <i class="fa fa-exclamation-triangle me-1"/>
+                    Las líneas marcadas se <b>liberarán a Stock</b>: se quitará el
+                    cliente y la orden, se cancelará el hold físico y se actualizará
+                    la línea de venta. Úsalo para corregir asignaciones erróneas.
+                </div>
+                <group>
+                    <group>
+                        <field name="voyage_id"/>
+                        <field name="selected_count"/>
+                    </group>
+                    <group string="Marcado rápido">
+                        <field name="filter_partner_id"
+                               options="{'no_create': True, 'no_create_edit': True}"/>
+                        <field name="filter_order_id"
+                               options="{'no_create': True, 'no_create_edit': True}"/>
+                    </group>
+                </group>
+                <field name="line_wizard_ids">
+                    <list editable="bottom" create="0" delete="0">
+                        <field name="selected" widget="boolean_toggle"/>
+                        <field name="lot_id" readonly="1"/>
+                        <field name="product_id" readonly="1"/>
+                        <field name="product_uom_qty" readonly="1"/>
+                        <field name="partner_id" readonly="1"/>
+                        <field name="order_id" readonly="1"/>
+                        <field name="container_number" readonly="1"/>
+                    </list>
+                </field>
+                <group>
+                    <field name="reason"
+                           placeholder="Ej. Asignado por error al pedido equivocado..."/>
+                </group>
+                <footer>
+                    <button string="Desasignar seleccionados"
+                            name="action_apply"
+                            type="object"
+                            class="btn-primary"
+                            confirm="¿Desasignar los materiales marcados y liberarlos a Stock?"/>
+                    <button string="Cancelar" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Acción de servidor: aparece en el menú "Acciones" de la lista de
+         líneas en tránsito tras multiseleccionar. -->
+    <record id="action_transit_line_unassign_server" model="ir.actions.server">
+        <field name="name">Desasignar materiales (masivo)</field>
+        <field name="model_id" ref="model_stock_transit_line"/>
+        <field name="binding_model_id" ref="model_stock_transit_line"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">action = {
+    'type': 'ir.actions.act_window',
+    'name': 'Desasignar materiales en tránsito',
+    'res_model': 'transit.unassign.wizard',
+    'view_mode': 'form',
+    'target': 'new',
+    'context': dict(env.context, active_model='stock.transit.line', active_ids=records.ids),
+}</field>
+    </record>
+
+    <!-- Lista de líneas en tránsito (segundo punto de entrada). -->
+    <record id="view_stock_transit_line_list" model="ir.ui.view">
+        <field name="name">stock.transit.line.list</field>
+        <field name="model">stock.transit.line</field>
+        <field name="arch" type="xml">
+            <list string="Líneas en tránsito">
+                <field name="voyage_id"/>
+                <field name="lot_id"/>
+                <field name="product_id"/>
+                <field name="product_uom_qty"/>
+                <field name="container_number"/>
+                <field name="partner_id"/>
+                <field name="order_id"/>
+                <field name="allocation_status"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="action_stock_transit_line_list" model="ir.actions.act_window">
+        <field name="name">Líneas en tránsito</field>
+        <field name="res_model">stock.transit.line</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="view_stock_transit_line_list"/>
+        <field name="domain">[('partner_id', '!=', False)]</field>
+    </record>
+
+    <menuitem id="menu_transit_line_list"
+              name="Líneas en tránsito"
+              parent="menu_transit_root"
+              action="action_stock_transit_line_list"
+              sequence="4"/>
+</odoo>

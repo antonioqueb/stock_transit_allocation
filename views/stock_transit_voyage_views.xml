@@ -72,6 +72,12 @@
                             class="btn-secondary"
                             invisible="custom_status in ['delivered', 'cancel']"/>
 
+                    <button name="action_open_unassign_wizard"
+                            string="🔓 Desasignar"
+                            type="object"
+                            class="btn-secondary"
+                            invisible="custom_status in ['delivered', 'cancel']"/>
+
                     <button name="action_generate_reception"
                             string="🏭 Recibir"
                             type="object"

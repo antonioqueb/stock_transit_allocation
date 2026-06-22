@@ -1328,6 +1328,27 @@ class StockTransitVoyage(models.Model):
         'cancel': 'Cancelado',
     }
 
+    def action_open_unassign_wizard(self):
+        """Abre el wizard de desasignación masiva para este viaje.
+
+        Permite liberar a Stock varios materiales asignados por error, sin
+        tener que limpiar cliente/orden línea por línea."""
+        self.ensure_one()
+
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Desasignar materiales en tránsito'),
+            'res_model': 'transit.unassign.wizard',
+            'view_mode': 'form',
+            'target': 'new',
+            'context': dict(
+                self.env.context,
+                active_model='stock.transit.voyage',
+                active_id=self.id,
+                active_ids=self.ids,
+            ),
+        }
+
     def action_advance_status(self):
         self.ensure_one()
 
