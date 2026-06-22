@@ -397,17 +397,26 @@ class TransitVoyageLinesWidget extends Component {
     // ─── Propagación ─────────────────────────────────────────────────────────
 
     async propagateDown(group, fromIndex, ev) {
-        if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+        if (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+
         const srcLine = group.lines[fromIndex];
-        if (!srcLine.partner_id) return;
+        const orderId = srcLine.order_id ? srcLine.order_id[0] : false;
+
+        if (!orderId) {
+            this.notification.add("Primero seleccione una orden para propagar.", { type: "warning" });
+            return;
+        }
+
         const targets = group.lines.slice(fromIndex + 1);
         if (!targets.length) return;
 
-        const ids  = targets.map(l => l.id);
-        const partnerId = srcLine.partner_id[0];
-        const orderId = srcLine.order_id ? srcLine.order_id[0] : false;
+        const ids = targets.map(l => l.id);
 
-        const ok = await this._assignWithOverCheck(ids, partnerId, orderId);
+        // partner=false: el backend deriva el cliente desde la orden.
+        const ok = await this._assignWithOverCheck(ids, false, orderId);
         if (!ok) return;
 
         this.notification.add(`Propagado a ${ids.length} lotes`, { type: "success", sticky: false });
