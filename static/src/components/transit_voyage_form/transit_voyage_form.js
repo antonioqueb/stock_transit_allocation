@@ -27,6 +27,7 @@ class TransitVoyageLinesWidget extends Component {
             loading:       true,
             allPartners:   [],
             allOrders:     {},
+            ordersByProduct: {},   // { product_id: [{id, name, partner_id, partner_name}] }
             editingCell:   null,   // { lineId, field }
             selectedLines: new Set(),
             // Popup de asignación masiva
@@ -155,13 +156,15 @@ class TransitVoyageLinesWidget extends Component {
         const saleLines = await this.orm.searchRead(
             "sale.order.line",
             [["product_id", "in", productIds], ["order_id.state", "in", ["sale", "done"]], ["display_type", "=", false]],
-            ["order_id"],
+            ["order_id", "product_id"],
             { limit: 500 }
         );
         const soIds = [...new Set(saleLines.map(sl => sl.order_id[0]))];
         if (!soIds.length) return;
 
         const orders = await this.orm.searchRead("sale.order", [["id", "in", soIds]], ["id", "name", "partner_id"]);
+        const orderById = {};
+        orders.forEach(o => { orderById[o.id] = o; });
 
         const pmap = {};
         orders.forEach(o => {
@@ -173,6 +176,27 @@ class TransitVoyageLinesWidget extends Component {
         this.state.allPartners = Object.values(pmap).sort((a, b) => a.name.localeCompare(b.name));
         this.state.allOrders   = {};
         Object.values(pmap).forEach(p => { this.state.allOrders[p.id] = p.orders; });
+
+        // Órdenes elegibles POR PRODUCTO (no por cliente de la línea): permite
+        // asignar una línea disponible eligiendo la orden directamente y derivando
+        // el cliente desde la orden. Cada entrada lleva el cliente para mostrarlo.
+        const obp = {};
+        saleLines.forEach(sl => {
+            const prod = sl.product_id[0];
+            const ord = orderById[sl.order_id[0]];
+            if (!ord) return;
+            if (!obp[prod]) obp[prod] = [];
+            if (!obp[prod].some(x => x.id === ord.id)) {
+                obp[prod].push({
+                    id: ord.id,
+                    name: ord.name,
+                    partner_id: ord.partner_id[0],
+                    partner_name: ord.partner_id[1],
+                });
+            }
+        });
+        Object.values(obp).forEach(list => list.sort((a, b) => a.name.localeCompare(b.name)));
+        this.state.ordersByProduct = obp;
     }
 
     // ─── Grupos ───────────────────────────────────────────────────────────────
@@ -221,13 +245,22 @@ class TransitVoyageLinesWidget extends Component {
         const orderId = parseInt(ev.target.value) || false;
         this.state.editingCell = null;
 
-        const partnerId = line.partner_id ? line.partner_id[0] : false;
-        const ok = await this._assignWithOverCheck([line.id], partnerId, orderId);
+        // El cliente se deriva de la orden (fuente de verdad): no se exige que la
+        // línea tenga cliente previo. partner=false -> el backend lo toma de la orden.
+        const ok = await this._assignWithOverCheck([line.id], false, orderId);
         if (!ok) return;
 
-        line.order_id = orderId ? [orderId, this._orderName(line, orderId)] : false;
-        const hasAssignment = line.partner_id && orderId;
-        line.allocation_status = hasAssignment ? "reserved" : "available";
+        if (orderId) {
+            const ord = this.getOrdersForProduct(line).find(o => o.id === orderId);
+            line.order_id = [orderId, ord ? ord.name : String(orderId)];
+            if (ord) {
+                line.partner_id = [ord.partner_id, ord.partner_name];
+            }
+            line.allocation_status = "reserved";
+        } else {
+            line.order_id = false;
+            line.allocation_status = "available";
+        }
         this._recalcGroup(line);
     }
 
@@ -252,6 +285,13 @@ class TransitVoyageLinesWidget extends Component {
     getOrdersForLine(line) {
         if (!line.partner_id) return [];
         return this.state.allOrders[line.partner_id[0]] || [];
+    }
+
+    // Órdenes elegibles para el PRODUCTO de la línea (independiente del cliente
+    // de la línea). Permite asignar líneas disponibles sin cliente previo.
+    getOrdersForProduct(line) {
+        const pid = line.product_id ? line.product_id[0] : 0;
+        return this.state.ordersByProduct[pid] || [];
     }
 
     // ─── Selección ────────────────────────────────────────────────────────────
@@ -334,14 +374,13 @@ class TransitVoyageLinesWidget extends Component {
     }
 
     async confirmAssign() {
-        if (!this.state.popupPartner) {
-            this.notification.add("Seleccione un cliente", { type: "warning" });
+        if (!this.state.popupOrder) {
+            this.notification.add("Seleccione la orden de venta a asignar", { type: "warning" });
             return;
         }
         const ids  = [...this.state.selectedLines];
-        const ok = await this._assignWithOverCheck(
-            ids, this.state.popupPartner, this.state.popupOrder || false,
-        );
+        // partner=false: el backend deriva el cliente de la orden seleccionada.
+        const ok = await this._assignWithOverCheck(ids, false, this.state.popupOrder);
         if (!ok) return;
 
         this.notification.add(`${ids.length} lotes asignados`, { type: "success" });

@@ -708,6 +708,24 @@ class StockTransitLine(models.Model):
             }
         partner_id = partner.id
 
+        # No mover en silencio líneas ya reservadas a OTRA orden: eso debe pasar
+        # por desasignar/reasignar explícitamente. Reasignar a la MISMA orden es
+        # idempotente y se permite.
+        locked = transit_lines.filtered(
+            lambda l: l.order_id and l.order_id.id != order.id
+        )
+        if locked:
+            return {
+                'success': False,
+                'message': _(
+                    'Estos lotes ya están reservados a otra orden: %s. '
+                    'Desasígnalos primero (botón "Desasignar") antes de reasignar.'
+                ) % ', '.join(
+                    '%s→%s' % (l.lot_id.name or l.id, l.order_id.name)
+                    for l in locked
+                ),
+            }
+
         # Excedente agregado por producto contra su línea de venta destino.
         total_over = 0.0
         for product in transit_lines.mapped('product_id'):

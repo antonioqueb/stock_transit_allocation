@@ -232,35 +232,31 @@
                                             </t>
                                         </td>
 
-                                        <!-- Sales Order editable -->
+                                        <!-- Sales Order editable (orden-primero: no exige cliente previo) -->
                                         <td class="tvl-td tvl-td--order">
-                                            <t t-if="line.partner_id">
-                                                <t t-if="isEditing(line.id, 'order_id')">
-                                                    <select class="tvl-inline-select"
-                                                            t-on-change="(ev) => this.onOrderChange(line, ev)"
-                                                            t-on-blur="() => this.state.editingCell = null">
-                                                        <option value="">— Sin orden —</option>
-                                                        <t t-foreach="getOrdersForLine(line)" t-as="o" t-key="o.id">
-                                                            <option t-att-value="o.id"
-                                                                    t-att-selected="line.order_id and line.order_id[0] === o.id"
-                                                                    t-esc="o.name"/>
-                                                        </t>
-                                                    </select>
-                                                </t>
-                                                <t t-else="">
-                                                    <div class="tvl-editable-cell" t-on-click="() => this.startEdit(line.id, 'order_id')">
-                                                        <t t-if="line.order_id">
-                                                            <span class="tvl-order-name" t-esc="line.order_id[1]"/>
-                                                            <i class="fa fa-pencil tvl-edit-icon"/>
-                                                        </t>
-                                                        <t t-else="">
-                                                            <span class="tvl-add-hint"><i class="fa fa-plus-circle"/> Orden</span>
-                                                        </t>
-                                                    </div>
-                                                </t>
+                                            <t t-if="isEditing(line.id, 'order_id')">
+                                                <select class="tvl-inline-select"
+                                                        t-on-change="(ev) => this.onOrderChange(line, ev)"
+                                                        t-on-blur="() => this.state.editingCell = null">
+                                                    <option value="">— Sin orden —</option>
+                                                    <t t-foreach="getOrdersForProduct(line)" t-as="o" t-key="o.id">
+                                                        <option t-att-value="o.id"
+                                                                t-att-selected="line.order_id and line.order_id[0] === o.id">
+                                                            <t t-esc="o.name"/> · <t t-esc="o.partner_name"/>
+                                                        </option>
+                                                    </t>
+                                                </select>
                                             </t>
                                             <t t-else="">
-                                                <span class="tvl-muted">—</span>
+                                                <div class="tvl-editable-cell" t-on-click="() => this.startEdit(line.id, 'order_id')">
+                                                    <t t-if="line.order_id">
+                                                        <span class="tvl-order-name" t-esc="line.order_id[1]"/>
+                                                        <i class="fa fa-pencil tvl-edit-icon"/>
+                                                    </t>
+                                                    <t t-else="">
+                                                        <span class="tvl-add-hint"><i class="fa fa-plus-circle"/> Orden</span>
+                                                    </t>
+                                                </div>
                                             </t>
                                         </td>
 
