@@ -638,6 +638,95 @@ class StockTransitLine(models.Model):
         return res
 
     # -------------------------------------------------------------------------
+    # ASIGNACIÓN DESDE EL FORMULARIO DEL VIAJE (con control de sobre-asignación)
+    # -------------------------------------------------------------------------
+
+    def tc_voyage_assign(self, transit_line_ids, partner_id, order_id,
+                         over_action=False, over_reason=False):
+        """Asignación desde el formulario del Viaje con control de excedente.
+
+        Detecta si asignar estos lotes a la orden supera lo SOLICITADO en la
+        línea de venta. Si hay excedente y aún no se eligió qué hacer (free/bill),
+        devuelve ``need_over_assignment_decision`` para que el front muestre el
+        popup. Con la decisión tomada, escribe la asignación pasando la decisión
+        por contexto: el ratchet ajusta 'Solicitado' (y aplica descuento si es
+        'free') correctamente. Es decir, 'Solicitado' NO cambia hasta decidir."""
+        transit_lines = self.browse(transit_line_ids or self.ids).exists()
+        if not transit_lines:
+            return {'success': False, 'message': _('Sin líneas para asignar.')}
+
+        partner_id = partner_id or False
+        order_id = order_id or False
+
+        # Sin orden no hay sobre-asignación posible: asignación simple.
+        if not order_id:
+            vals = {'order_id': False}
+            if partner_id:
+                vals['partner_id'] = partner_id
+            transit_lines.write(vals)
+            return {'success': True, 'over_assigned_qty': 0.0}
+
+        order = self.env['sale.order'].browse(order_id).exists()
+        if not order:
+            return {'success': False, 'message': _('Orden de venta no encontrada.')}
+
+        # Excedente agregado por producto contra su línea de venta destino.
+        total_over = 0.0
+        for product in transit_lines.mapped('product_id'):
+            product_lines = transit_lines.filtered(lambda l: l.product_id == product)
+            sale_line = product_lines[:1]._tc_get_sale_line_for_assignment(
+                order=order, product=product,
+            )
+            if not sale_line:
+                return {
+                    'success': False,
+                    'message': _(
+                        'La orden %(order)s no tiene una línea para %(prod)s. '
+                        'Agrega el producto al pedido antes de asignar.'
+                    ) % {'order': order.name, 'prod': product.display_name},
+                }
+
+            requested = sale_line.product_uom_qty or 0.0
+            assigned_before = sale_line._tc_get_assigned_lot_qty()
+            already_assigned = set(sale_line.lot_ids.ids) if 'lot_ids' in sale_line._fields else set()
+            new_qty = sum(
+                tl.product_uom_qty or 0.0
+                for tl in product_lines
+                if tl.lot_id and tl.lot_id.id not in already_assigned
+            )
+            projected = assigned_before + new_qty
+            over = max(projected - requested, 0.0) if requested > 0 else projected
+            if over > 0:
+                total_over += over
+
+        if total_over > 0 and over_action not in ('free', 'bill'):
+            return {
+                'success': False,
+                'need_over_assignment_decision': True,
+                'over_assigned_qty': total_over,
+                'message': _(
+                    'La asignación excede lo solicitado. Indica si el excedente '
+                    'se entrega sin cobrar o si se cobrará al cliente.'
+                ),
+            }
+
+        # La decisión viaja por contexto: _tc_sync_requested_qty_from_lots la
+        # aplica (cantidad + descuento) en vez del ratchet automático.
+        transit_lines.with_context(
+            tc_over_assignment_action=over_action or False,
+            tc_over_assignment_reason=over_reason or False,
+        ).write({
+            'partner_id': partner_id,
+            'order_id': order_id,
+        })
+
+        return {
+            'success': True,
+            'over_assigned_qty': total_over,
+            'over_assignment_action': over_action if total_over > 0 else False,
+        }
+
+    # -------------------------------------------------------------------------
     # RESERVA / LIBERACIÓN
     # -------------------------------------------------------------------------
 

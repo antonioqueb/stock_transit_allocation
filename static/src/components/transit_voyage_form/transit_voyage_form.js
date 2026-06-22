@@ -221,12 +221,9 @@ class TransitVoyageLinesWidget extends Component {
         const orderId = parseInt(ev.target.value) || false;
         this.state.editingCell = null;
 
-        try {
-            await this.orm.write("stock.transit.line", [line.id], { order_id: orderId || false });
-        } catch (e) {
-            this.notification.add("Error guardando orden: " + e.message, { type: "danger" });
-            return;
-        }
+        const partnerId = line.partner_id ? line.partner_id[0] : false;
+        const ok = await this._assignWithOverCheck([line.id], partnerId, orderId);
+        if (!ok) return;
 
         line.order_id = orderId ? [orderId, this._orderName(line, orderId)] : false;
         const hasAssignment = line.partner_id && orderId;
@@ -342,19 +339,15 @@ class TransitVoyageLinesWidget extends Component {
             return;
         }
         const ids  = [...this.state.selectedLines];
-        const vals = {
-            partner_id: this.state.popupPartner,
-            order_id:   this.state.popupOrder || false,
-        };
-        try {
-            await this.orm.write("stock.transit.line", ids, vals);
-            this.notification.add(`${ids.length} lotes asignados`, { type: "success" });
-            this.state.selectedLines = new Set();
-            this.state.showAssignPopup = false;
-            await this.refresh();
-        } catch (e) {
-            this.notification.add("Error: " + e.message, { type: "danger" });
-        }
+        const ok = await this._assignWithOverCheck(
+            ids, this.state.popupPartner, this.state.popupOrder || false,
+        );
+        if (!ok) return;
+
+        this.notification.add(`${ids.length} lotes asignados`, { type: "success" });
+        this.state.selectedLines = new Set();
+        this.state.showAssignPopup = false;
+        await this.refresh();
     }
 
     clearSelection() {
@@ -372,17 +365,152 @@ class TransitVoyageLinesWidget extends Component {
         if (!targets.length) return;
 
         const ids  = targets.map(l => l.id);
-        const vals = {
-            partner_id: srcLine.partner_id[0],
-            order_id:   srcLine.order_id ? srcLine.order_id[0] : false,
-        };
+        const partnerId = srcLine.partner_id[0];
+        const orderId = srcLine.order_id ? srcLine.order_id[0] : false;
+
+        const ok = await this._assignWithOverCheck(ids, partnerId, orderId);
+        if (!ok) return;
+
+        this.notification.add(`Propagado a ${ids.length} lotes`, { type: "success", sticky: false });
+        await this.refresh();
+    }
+
+    // ─── Asignación con control de sobre-asignación ───────────────────────────
+
+    /**
+     * Asigna líneas de tránsito a (cliente, orden) vía servidor. Si el servidor
+     * detecta excedente sobre lo solicitado, muestra el popup de decisión y
+     * reintenta con la decisión. Devuelve true si la asignación se aplicó.
+     */
+    async _assignWithOverCheck(transitLineIds, partnerId, orderId, overAction = false, overReason = false) {
         try {
-            await this.orm.write("stock.transit.line", ids, vals);
-            this.notification.add(`Propagado a ${ids.length} lotes`, { type: "success", sticky: false });
-            await this.refresh();
+            const result = await this.orm.call(
+                "stock.transit.line",
+                "tc_voyage_assign",
+                [transitLineIds, partnerId || false, orderId || false, overAction, overReason],
+            );
+
+            if (result && result.need_over_assignment_decision) {
+                const decision = await this.requestOverAssignmentDecision(result.over_assigned_qty || 0, "");
+                if (!decision) return false;
+                return this._assignWithOverCheck(transitLineIds, partnerId, orderId, decision.action, decision.reason);
+            }
+
+            if (result && result.success === false) {
+                this.notification.add(result.message || "No se pudo aplicar la asignación.", { type: "danger" });
+                return false;
+            }
+
+            return true;
         } catch (e) {
-            this.notification.add("Error al propagar: " + e.message, { type: "danger" });
+            this.notification.add("Error al asignar: " + (e.message || e), { type: "danger" });
+            return false;
         }
+    }
+
+    _escapeHtml(str) {
+        return String(str ?? "").replace(/[&<>"']/g, (c) => (
+            { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+        ));
+    }
+
+    destroyOverAssignPopup() {
+        if (this._overAssignRoot && this._overAssignRoot.parentNode) {
+            this._overAssignRoot.parentNode.removeChild(this._overAssignRoot);
+        }
+        this._overAssignRoot = null;
+    }
+
+    /**
+     * Popup de decisión cuando se asigna más de lo solicitado.
+     * Resuelve a {action, reason} o a false si se cancela.
+     */
+    requestOverAssignmentDecision(overQty, unitLabel) {
+        this.destroyOverAssignPopup();
+
+        return new Promise((resolve) => {
+            const root = document.createElement("div");
+            root.className = "stone-decision-root stone-overassign-root";
+            root.style.position = "fixed";
+            root.style.inset = "0";
+            root.style.zIndex = "99999";
+            document.body.appendChild(root);
+            this._overAssignRoot = root;
+
+            root.innerHTML = `
+                <div class="stone-decision-overlay" style="z-index: 100000;">
+                    <div class="stone-decision-dialog" style="z-index: 100001;">
+                        <div class="stone-decision-header">
+                            <div>
+                                <h4>Asignación mayor a lo solicitado</h4>
+                                <p>
+                                    Hay un excedente de
+                                    <strong>${this.fmtNum(overQty)} ${this._escapeHtml(unitLabel)}</strong>.
+                                    Selecciona cómo se administrará.
+                                </p>
+                            </div>
+                            <button type="button" class="stone-decision-x" data-action="cancel">
+                                <i class="fa fa-times"></i>
+                            </button>
+                        </div>
+
+                        <div class="stone-decision-options">
+                            <label class="stone-decision-option active">
+                                <input type="radio" name="over_action" value="free" checked="checked"/>
+                                <span class="stone-decision-option-icon"><i class="fa fa-gift"></i></span>
+                                <span>
+                                    <strong>Entregar excedente sin cobrar</strong>
+                                    <small>El cliente recibe el material extra, pero se aplica el descuento equivalente.</small>
+                                </span>
+                            </label>
+
+                            <label class="stone-decision-option">
+                                <input type="radio" name="over_action" value="bill"/>
+                                <span class="stone-decision-option-icon"><i class="fa fa-money"></i></span>
+                                <span>
+                                    <strong>Cobrar excedente</strong>
+                                    <small>La cantidad solicitada se ajustará para cobrar el excedente asignado.</small>
+                                </span>
+                            </label>
+                        </div>
+
+                        <div class="stone-decision-note">
+                            <label>Nota administrativa</label>
+                            <textarea id="tvl-over-note" rows="3">Sobreasignación autorizada desde el Viaje.</textarea>
+                        </div>
+
+                        <div class="stone-decision-footer">
+                            <button type="button" class="stone-btn stone-btn-outline" data-action="cancel">Volver</button>
+                            <button type="button" class="stone-btn stone-btn-primary-dark" data-action="accept">Continuar</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            const cleanup = () => this.destroyOverAssignPopup();
+            const cancel = () => { cleanup(); resolve(false); };
+
+            root.querySelectorAll(".stone-decision-option").forEach((option) => {
+                option.addEventListener("click", () => {
+                    root.querySelectorAll(".stone-decision-option").forEach((el) => el.classList.remove("active"));
+                    option.classList.add("active");
+                    const input = option.querySelector("input[name='over_action']");
+                    if (input) input.checked = true;
+                });
+            });
+
+            root.querySelectorAll("[data-action='cancel']").forEach((btn) => btn.addEventListener("click", cancel));
+            root.querySelector("[data-action='accept']").addEventListener("click", () => {
+                const selected = root.querySelector("input[name='over_action']:checked");
+                const note = root.querySelector("#tvl-over-note");
+                const payload = {
+                    action: selected ? selected.value : "free",
+                    reason: note && note.value ? note.value : "Sobreasignación autorizada desde el Viaje.",
+                };
+                cleanup();
+                resolve(payload);
+            });
+        });
     }
 
     // ─── Totales / Formato ────────────────────────────────────────────────────

@@ -1825,6 +1825,8 @@ class SaleOrderLine(models.Model):
         asignado (0 asignado => 0 solicitado).
         """
         force = self.env.context.get('tc_force_qty_to_selection')
+        over_action = self.env.context.get('tc_over_assignment_action')
+        over_reason = self.env.context.get('tc_over_assignment_reason')
 
         for line in self:
             if line.display_type or not line.product_id:
@@ -1833,6 +1835,32 @@ class SaleOrderLine(models.Model):
             assigned_qty = line._tc_get_assigned_lot_qty()
             rounding = line._tc_get_qty_rounding()
             current_qty = line.product_uom_qty or 0.0
+
+            # DECISIÓN DE SOBRE-ASIGNACIÓN (popup del Viaje): cuando se asignó
+            # más de lo solicitado y el usuario eligió free/bill, se aplica el
+            # ajuste de cantidad y, en 'free', el descuento equivalente, en
+            # lugar del ratchet silencioso. Así 'Solicitado' solo se mueve por
+            # decisión explícita.
+            if over_action in ('free', 'bill'):
+                over_qty = (
+                    max(assigned_qty - current_qty, 0.0)
+                    if current_qty > 0 else assigned_qty
+                )
+                if float_compare(over_qty, 0.0, precision_rounding=rounding) > 0:
+                    line._tc_apply_over_assignment_admin_action(
+                        assigned_qty=assigned_qty,
+                        requested_qty=current_qty,
+                        over_assigned_qty=over_qty,
+                        action=over_action,
+                        reason=over_reason,
+                    )
+                    line.with_context(skip_tc_allocation_recovery=True).write({
+                        'tc_over_assignment_action': over_action,
+                        'tc_over_assignment_reason': over_reason or False,
+                        'tc_over_assignment_by': self.env.user.id,
+                        'tc_over_assignment_at': fields.Datetime.now(),
+                    })
+                    continue
 
             # El ajuste forzado iguala el Solicitado a la selección AUN SI BAJA,
             # salvo en 'Mandar a pedir', cuya demanda manual solo crece (ratchet)
