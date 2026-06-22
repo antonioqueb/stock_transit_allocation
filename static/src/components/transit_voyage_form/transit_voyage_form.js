@@ -241,6 +241,23 @@ class TransitVoyageLinesWidget extends Component {
         } else {
             this.state.editingCell = null;
         }
+
+        // Recarga el registro del viaje para que el banner "Falta asignar
+        // pedido" (pending_order_count) se actualice EN VIVO, sin refrescar.
+        await this._reloadVoyageBanner();
+    }
+
+    /**
+     * Recarga el registro del viaje (sin recargar las líneas del widget) para
+     * que los campos calculados del formulario —en particular el aviso
+     * "cliente sin pedido"— se refresquen en vivo tras asignar/limpiar.
+     */
+    async _reloadVoyageBanner() {
+        try {
+            await this.props.record.load();
+        } catch (e) {
+            // No es crítico para la operación; el banner se verá al refrescar.
+        }
     }
 
     async onOrderChange(line, ev) {
@@ -266,6 +283,7 @@ class TransitVoyageLinesWidget extends Component {
         }
         line.allocation_status = "reserved";
         this._recalcGroup(line);
+        await this._reloadVoyageBanner();
     }
 
     async _clearLineOrder(line) {
@@ -278,6 +296,7 @@ class TransitVoyageLinesWidget extends Component {
         line.order_id = false;
         line.allocation_status = "available";
         this._recalcGroup(line);
+        await this._reloadVoyageBanner();
     }
 
     _recalcGroup(line) {
