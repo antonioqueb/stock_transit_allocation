@@ -361,6 +361,27 @@
                     </div>
 
                     <!-- ════════════════════════════════════════════════
+                         AVISO: CLIENTE ASIGNADO SIN PEDIDO
+                    ════════════════════════════════════════════════ -->
+                    <field name="pending_order_count" invisible="1"/>
+                    <field name="pending_order_summary" invisible="1"/>
+
+                    <div class="alert alert-warning d-flex align-items-center mt-2 mb-2"
+                         role="alert"
+                         invisible="pending_order_count == 0">
+                        <i class="fa fa-exclamation-triangle fa-lg me-2"/>
+                        <div>
+                            <b>Falta asignar pedido:</b>
+                            <field name="pending_order_count" class="d-inline" readonly="1"/>
+                            material(es) tienen cliente pero <b>sin orden de venta</b>.
+                            Asígnale su pedido al cliente para completar la reserva.
+                            <div class="small text-muted" invisible="not pending_order_summary">
+                                Clientes: <field name="pending_order_summary" class="d-inline" readonly="1"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- ════════════════════════════════════════════════
                          LOTES
                     ════════════════════════════════════════════════ -->
                     <div class="vf-lots-section">

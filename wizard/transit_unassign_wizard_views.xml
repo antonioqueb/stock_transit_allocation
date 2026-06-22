@@ -73,7 +73,8 @@
         <field name="name">stock.transit.line.list</field>
         <field name="model">stock.transit.line</field>
         <field name="arch" type="xml">
-            <list string="Líneas en tránsito">
+            <list string="Líneas en tránsito"
+                  decoration-warning="partner_id and not order_id">
                 <field name="voyage_id"/>
                 <field name="lot_id"/>
                 <field name="product_id"/>

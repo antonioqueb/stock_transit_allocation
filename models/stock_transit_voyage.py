@@ -195,6 +195,20 @@ class StockTransitVoyage(models.Model):
         compute_sudo=False,
     )
 
+    pending_order_count = fields_module.Integer(
+        string='Clientes sin pedido',
+        compute='_compute_pending_order',
+        compute_sudo=True,
+        help='Líneas con cliente asignado pero sin orden de venta: falta '
+             'asignarles su pedido.',
+    )
+
+    pending_order_summary = fields_module.Char(
+        string='Detalle clientes sin pedido',
+        compute='_compute_pending_order',
+        compute_sudo=True,
+    )
+
     shipsgo_last_sync = fields_module.Datetime(
         string="Última Sincronización API",
         readonly=True,
@@ -1028,6 +1042,21 @@ class StockTransitVoyage(models.Model):
                 (rec.allocated_m2 / rec.total_m2) * 100
                 if rec.total_m2 > 0 else 0
             )
+
+    @api.depends('line_ids.partner_id', 'line_ids.order_id')
+    def _compute_pending_order(self):
+        """Líneas con CLIENTE pero SIN PEDIDO: asignación incompleta.
+
+        Se le asignó material a un cliente pero todavía no se indicó a qué
+        orden de venta corresponde; hay que completar el pedido."""
+        for rec in self:
+            pending = rec.line_ids.filtered(
+                lambda l: l.partner_id and not l.order_id
+            )
+            rec.pending_order_count = len(pending)
+
+            partners = pending.mapped('partner_id')
+            rec.pending_order_summary = ', '.join(partners.mapped('name')) if partners else ''
 
     @api.depends('etd', 'eta', 'custom_status', 'create_date', 'shipsgo_payload')
     def _compute_transit_progress(self):
