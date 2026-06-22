@@ -10,6 +10,7 @@ import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { Component, useState, onWillStart, onWillUpdateProps } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
+import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 
 class TransitVoyageLinesWidget extends Component {
     static template = "stock_transit_allocation.TransitVoyageLines";
@@ -21,6 +22,7 @@ class TransitVoyageLinesWidget extends Component {
         console.warn("[TVOYAGE_JS_RUNTIME_13_7_4] loaded", { url: window.location.href });
         this.orm          = useService("orm");
         this.notification = useService("notification");
+        this.dialog       = useService("dialog");
 
         this.state = useState({
             groups:        [],
@@ -242,9 +244,43 @@ class TransitVoyageLinesWidget extends Component {
             this.state.editingCell = null;
         }
 
+        // POPUP INVASIVO: solo si se está asignando OTRA VEZ el mismo cliente
+        // mientras ya hay otra(s) línea(s) con ese cliente SIN pedido. No molesta
+        // en cada asignación; solo cuando se repite un cliente sin haber
+        // completado el anterior con su orden.
+        if (partnerId) {
+            this._warnRepeatedClientWithoutOrder(line, partnerId);
+        }
+
         // Recarga el registro del viaje para que el banner "Falta asignar
         // pedido" (pending_order_count) se actualice EN VIVO, sin refrescar.
         await this._reloadVoyageBanner();
+    }
+
+    _warnRepeatedClientWithoutOrder(line, partnerId) {
+        const pending = [];
+        for (const g of this.state.groups) {
+            for (const l of g.lines) {
+                if (
+                    l.id !== line.id
+                    && l.partner_id && l.partner_id[0] === partnerId
+                    && !l.order_id
+                ) {
+                    pending.push(l);
+                }
+            }
+        }
+        if (!pending.length) {
+            return;
+        }
+        const clientName = line.partner_id ? line.partner_id[1] : "";
+        this.dialog.add(AlertDialog, {
+            title: "Falta asignar pedido",
+            body:
+                `${pending.length} material(es) tienen cliente pero sin orden de venta. ` +
+                `Asígnale su pedido al cliente para completar la reserva.\n\n` +
+                `Clientes: ${clientName}`,
+        });
     }
 
     /**
