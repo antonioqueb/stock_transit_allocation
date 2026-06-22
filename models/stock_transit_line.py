@@ -672,12 +672,22 @@ class StockTransitLine(models.Model):
 
         order_id = order_id or False
 
-        # Sin orden no hay sobre-asignación posible: solo se limpia la orden.
-        # NO se reescribe partner aquí: el cliente se gestiona por separado
-        # (onPartnerChange), y reescribir un partner obsoleto/borrado provoca
-        # MissingError.
+        _logger.info(
+            "[TC_VOYAGE_ASSIGN] lines=%s partner_id=%s order_id=%s over_action=%s",
+            transit_lines.ids, partner_id, order_id, over_action,
+        )
+
+        # Sin orden: se asigna/limpia solo el cliente (no hay excedente posible).
+        # El partner del popup masivo SÍ se escribe (es una selección válida del
+        # usuario); solo se valida que exista para no caer en MissingError.
         if not order_id:
-            transit_lines.write({'order_id': False})
+            vals = {'order_id': False}
+            if partner_id:
+                valid_partner = self.env['res.partner'].browse(partner_id).exists()
+                if valid_partner:
+                    vals['partner_id'] = valid_partner.id
+            transit_lines.write(vals)
+            _logger.info("[TC_VOYAGE_ASSIGN] rama sin-orden, vals=%s", vals)
             return {'success': True, 'over_assigned_qty': 0.0}
 
         order = self.env['sale.order'].browse(order_id).exists()
@@ -724,6 +734,12 @@ class StockTransitLine(models.Model):
             )
             projected = assigned_before + new_qty
             over = max(projected - requested, 0.0) if requested > 0 else projected
+            _logger.info(
+                "[TC_VOYAGE_ASSIGN] sale_line=%s prod=%s requested=%.3f "
+                "assigned_before=%.3f new_qty=%.3f projected=%.3f over=%.3f",
+                sale_line.id, product.display_name, requested,
+                assigned_before, new_qty, projected, over,
+            )
             if over > 0:
                 total_over += over
 
@@ -747,6 +763,13 @@ class StockTransitLine(models.Model):
             'partner_id': partner_id,
             'order_id': order_id,
         })
+
+        _logger.info(
+            "[TC_VOYAGE_ASSIGN] ESCRITO partner_id=%s order_id=%s total_over=%.3f "
+            "(lines ahora: %s)",
+            partner_id, order_id, total_over,
+            [(l.id, l.partner_id.id, l.order_id.id, l.allocation_status) for l in transit_lines],
+        )
 
         return {
             'success': True,
