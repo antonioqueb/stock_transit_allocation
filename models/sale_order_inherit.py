@@ -806,6 +806,35 @@ class SaleOrderLine(models.Model):
                 total += quant.quantity or 0.0
         return total
 
+    def _tc_get_in_transit_reserved_qty(self):
+        """Cantidad reservada EN TRÁNSITO para esta orden/producto.
+
+        Material asignado desde un viaje que todavía no llega físicamente: no
+        existe como stock interno, pero ya está comprometido a la orden. Cuenta
+        para el techo de asignación, porque asignar lotes en tránsito es
+        justamente el propósito de la vista de viaje; de lo contrario el techo
+        físico bloquearía una asignación legítima de material que viene en
+        camino. El cap físico sigue protegiendo la sobre-asignación real."""
+        self.ensure_one()
+
+        if not self.product_id or not self.order_id:
+            return 0.0
+
+        TransitLine = self.env['stock.transit.line'].sudo()
+
+        if 'allocation_status' not in TransitLine._fields:
+            return 0.0
+
+        transit_lines = TransitLine.search([
+            ('order_id', '=', self.order_id.id),
+            ('product_id', '=', self.product_id.id),
+            ('allocation_status', '=', 'reserved'),
+            ('lot_id', '!=', False),
+            ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+        ])
+
+        return sum(transit_lines.mapped('product_uom_qty'))
+
     def _tc_validate_assignment_stock_cap(self):
         """REGLA DE NEGOCIO (cotización Y orden de venta):
 
@@ -845,10 +874,17 @@ class SaleOrderLine(models.Model):
             # El techo nunca puede quedar por debajo de lo ya asignado en placas
             # a esta línea: ese material es real aunque ya haya salido del stock
             # interno (entregado / en tránsito), igual que en la regla de PISO.
+            #
+            # Además se suma el material reservado EN TRÁNSITO para la orden: al
+            # asignar lotes desde un viaje que aún no llega, ese material no
+            # figura como stock físico interno (los lotes a granel resuelven a 0
+            # en stock), por lo que el techo físico bloquearía una asignación
+            # legítima. Sumar el tránsito reservado deja pasar lo que viene en
+            # camino sin abrir la puerta a sobre-asignar stock que no existe.
             ceiling = max(
                 line._tc_get_max_assignable_qty(),
                 line._tc_get_assigned_lot_qty(),
-            )
+            ) + line._tc_get_in_transit_reserved_qty()
 
             if float_compare(ceiling, 0.0, precision_rounding=rounding) <= 0:
                 raise UserError(_(
