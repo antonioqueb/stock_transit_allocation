@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.13.6.6',
+    'version': '19.0.13.7.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
