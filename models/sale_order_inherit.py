@@ -849,9 +849,23 @@ class SaleOrderLine(models.Model):
         if self.env.context.get('skip_tc_stock_cap'):
             return
 
+        old_lots_map = self.env.context.get('tc_cap_old_lots') or {}
+
         for line in self:
             if line.display_type or not line.product_id or line._tc_is_service_product():
                 continue
+
+            # DESASIGNAR NUNCA SE BLOQUEA: si el conjunto de placas nuevo es un
+            # subconjunto estricto del anterior (solo se quitaron placas, no se
+            # agregó ninguna), esta operación reduce la asignación y el tope no
+            # aplica. El tope solo debe frenar ASIGNAR de más. Sin esto, una
+            # línea cuyo 'Solicitado' quedó alto por una sobre-asignación previa
+            # no se podría desasignar (Solicitado > stock disponible).
+            if line.id in old_lots_map and 'lot_ids' in line._fields:
+                new_lots = set(line.lot_ids.ids)
+                old_lots = old_lots_map[line.id]
+                if new_lots < old_lots:
+                    continue
 
             # 'Mandar a pedir' puede superar el stock por diseño.
             if line.auto_transit_assign:
@@ -1764,6 +1778,14 @@ class SaleOrderLine(models.Model):
                 'tc_over_assignment_at': False,
             })
 
+        # Conjunto de placas ANTES de escribir: permite al tope de stock
+        # distinguir una DESASIGNACIÓN (quitar placas) de una asignación nueva.
+        # Quitar placas nunca debe bloquearse por el tope.
+        tc_cap_old_lots = {}
+        if _tc_check_stock_cap and 'lot_ids' in self._fields:
+            for line in self:
+                tc_cap_old_lots[line.id] = set(line.lot_ids.ids) if line.lot_ids else set()
+
         res = super(SaleOrderLine, self).write(vals)
 
         if must_recover:
@@ -1797,7 +1819,9 @@ class SaleOrderLine(models.Model):
         # valida que ninguna línea en modo 'Asignar' supere el stock disponible
         # ni intente asignar con stock 0. Solo cuando cambió un campo relevante.
         if _tc_check_stock_cap:
-            self._tc_validate_assignment_stock_cap()
+            self.with_context(
+                tc_cap_old_lots=tc_cap_old_lots,
+            )._tc_validate_assignment_stock_cap()
 
         return res
 
