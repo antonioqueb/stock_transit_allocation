@@ -102,6 +102,7 @@
                                         <th class="tvl-th tvl-th--right">Alto</th>
                                         <th class="tvl-th tvl-th--right">Largo</th>
                                         <th class="tvl-th tvl-th--right">m²</th>
+                                        <th class="tvl-th tvl-th--right" title="Cantidad a asignar (parcial en formatos/piezas)">A asignar</th>
                                         <th class="tvl-th">Cliente</th>
                                         <th class="tvl-th tvl-th--prop" title="Propagar asignación hacia abajo">↓↓</th>
                                         <th class="tvl-th">Sales Order</th>
@@ -123,7 +124,7 @@
                                                     <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
                                                 </span>
                                             </td>
-                                            <td colspan="9" class="tvl-block-header-m2">
+                                            <td colspan="10" class="tvl-block-header-m2">
                                                 <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
                                             </td>
                                         </tr>
@@ -189,6 +190,20 @@
                                         <!-- m² -->
                                         <td class="tvl-td tvl-td--right tvl-m2-val">
                                             <t t-esc="fmtNum(line.product_uom_qty)"/>
+                                        </td>
+
+                                        <!-- A asignar: parcialidad solo en formatos/piezas -->
+                                        <td class="tvl-td tvl-td--right">
+                                            <t t-if="isFractionable(line)">
+                                                <input type="number" class="tvl-partial-input"
+                                                       t-att-value="partialQtyValue(line)"
+                                                       min="0" step="0.01"
+                                                       t-att-max="line.product_uom_qty"
+                                                       t-on-change="(ev) => this.onPartialQtyChange(line, ev)"/>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="tvl-muted">Completo</span>
+                                            </t>
                                         </td>
 
                                         <!-- Cliente editable -->
@@ -277,7 +292,7 @@
                                     <td class="tvl-td tvl-subtotal__m2">
                                         <t t-esc="fmtNum(group.total_m2)"/> m²
                                     </td>
-                                    <td colspan="4" class="tvl-td tvl-subtotal__info">
+                                    <td colspan="5" class="tvl-td tvl-subtotal__info">
                                         <span t-if="group.reserved_m2 > 0" class="tvl-subtotal__reserved">
                                             <t t-esc="fmtNum(group.reserved_m2)"/> m² reservados
                                         </span>

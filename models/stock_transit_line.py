@@ -3,6 +3,7 @@ from markupsafe import Markup
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from odoo.tools.float_utils import float_compare, float_round
 
 import logging
 
@@ -57,6 +58,13 @@ class StockTransitLine(models.Model):
         related='lot_id.x_ancho',
         string='Largo',
         readonly=True,
+    )
+    x_tipo = fields.Selection(
+        related='lot_id.x_tipo',
+        string='Tipo',
+        readonly=True,
+        help='Tipo de lote (placa/formato/pieza). Formatos y piezas admiten '
+             'consumo parcial; las placas van enteras.',
     )
 
     product_uom_qty = fields.Float(
@@ -642,7 +650,8 @@ class StockTransitLine(models.Model):
     # -------------------------------------------------------------------------
 
     def tc_voyage_assign(self, transit_line_ids, partner_id, order_id,
-                         over_action=False, over_reason=False):
+                         over_action=False, over_reason=False,
+                         partial_qty_by_line=False):
         """Asignación desde el formulario del Viaje con control de excedente.
 
         Detecta si asignar estos lotes a la orden supera lo SOLICITADO en la
@@ -746,6 +755,13 @@ class StockTransitLine(models.Model):
                     for l in locked
                 ),
             }
+
+        # Parcialidades (FORMATOS/PIEZAS): antes de medir excedente, partir las
+        # líneas seleccionadas para asignar solo lo elegido y dejar el saldo
+        # disponible. Tras el split, product_uom_qty ya refleja la parcialidad,
+        # por lo que el cálculo de excedente y el breakdown la respetan sin
+        # lógica adicional.
+        transit_lines._tc_apply_partial_assignment_splits(partial_qty_by_line)
 
         # Excedente agregado por producto contra su línea de venta destino.
         total_over = 0.0
@@ -881,6 +897,147 @@ class StockTransitLine(models.Model):
                 _logger.error("Error cancelando hold: %s", e, exc_info=True)
 
         return True
+
+    # -------------------------------------------------------------------------
+    # PARCIALIDADES (FORMATOS / PIEZAS): SPLIT DE LÍNEA EN TRÁNSITO
+    # -------------------------------------------------------------------------
+
+    def _tc_qty_rounding(self):
+        self.ensure_one()
+        product = self.product_id
+        if product and product.uom_id and product.uom_id.rounding:
+            return product.uom_id.rounding
+        return 0.0001
+
+    def _tc_is_fractionable(self):
+        """Solo FORMATOS y PIEZAS admiten consumo parcial; las PLACAS van enteras.
+
+        Espeja la misma regla de tipo (x_tipo) que ya usan
+        ``_tal_build_breakdown_from_transit_lines`` y
+        ``stock.picking._tc_build_lot_breakdown_from_transit_lines``.
+        """
+        self.ensure_one()
+        lot = self.lot_id
+        if lot and 'x_tipo' in lot._fields and lot.x_tipo:
+            return str(lot.x_tipo).lower() in ('formato', 'pieza')
+        return False
+
+    def _tc_split_for_partial_assignment(self, assign_qty):
+        """Parte la línea para asignar solo ``assign_qty`` y dejar el saldo disponible.
+
+        Reduce esta línea a la cantidad asignada y crea una línea hermana
+        ``available`` con el saldo, conservando viaje, lote, quant y allocation.
+        ``product_uom_qty`` sigue siendo la única fuente de verdad para el
+        breakdown, la recepción y la entrega, por lo que NO se duplica lógica:
+        el desglose de parcialidad ya existente lee automáticamente la cantidad
+        reducida.
+
+        Devuelve la línea de saldo creada (recordset vacío si no hubo split).
+        Solo aplica a fraccionables (formato/pieza); las placas se devuelven sin
+        cambios.
+        """
+        self.ensure_one()
+
+        rounding = self._tc_qty_rounding()
+        full_qty = self.product_uom_qty or 0.0
+        assign_qty = float_round(assign_qty or 0.0, precision_rounding=rounding)
+
+        if float_compare(assign_qty, 0.0, precision_rounding=rounding) <= 0:
+            raise UserError(_(
+                'La cantidad parcial a asignar del lote %s debe ser mayor a cero.'
+            ) % (self.lot_id.display_name or self.product_id.display_name))
+
+        # Igual o más que la línea: no hay saldo que partir.
+        if float_compare(assign_qty, full_qty, precision_rounding=rounding) >= 0:
+            return self.env['stock.transit.line']
+
+        # Las placas no se fraccionan: se conserva la línea completa.
+        if not self._tc_is_fractionable():
+            return self.env['stock.transit.line']
+
+        saldo_qty = float_round(full_qty - assign_qty, precision_rounding=rounding)
+
+        saldo = self.with_context(skip_reservation_logic=True).copy({
+            'product_uom_qty': saldo_qty,
+            'allocation_status': 'available',
+            'partner_id': False,
+            'order_id': False,
+        })
+
+        self.with_context(skip_reservation_logic=True).write({
+            'product_uom_qty': assign_qty,
+        })
+
+        if self.voyage_id:
+            self.voyage_id.message_post(body=Markup(
+                "✂️ <b>Parcialidad:</b> %s<br/>"
+                "Asignado al pedido: %s · Saldo disponible en tránsito: %s"
+            ) % (
+                self.lot_id.name or self.product_id.name,
+                ('%.3f' % assign_qty),
+                ('%.3f' % saldo_qty),
+            ))
+
+        _logger.info(
+            "[TC_SPLIT] transit_line=%s lote=%s full=%.3f asignado=%.3f saldo_line=%s saldo=%.3f",
+            self.id,
+            self.lot_id.name if self.lot_id else 'N/A',
+            full_qty,
+            assign_qty,
+            saldo.id,
+            saldo_qty,
+        )
+
+        return saldo
+
+    def _tc_apply_partial_assignment_splits(self, partial_qty_by_line):
+        """Aplica parcialidades (split) a las líneas fraccionables indicadas.
+
+        ``partial_qty_by_line``: dict ``{transit_line_id: qty}``. Solo afecta a
+        formatos/piezas; las placas se ignoran (van enteras). Cada línea de
+        ``self`` queda reducida a su parcialidad y se crea el saldo disponible.
+        Devuelve el recordset de líneas de saldo creadas.
+        """
+        if not partial_qty_by_line:
+            return self.env['stock.transit.line']
+
+        norm = {}
+        for key, value in partial_qty_by_line.items():
+            try:
+                norm[int(key)] = float(value or 0.0)
+            except (TypeError, ValueError):
+                continue
+
+        if not norm:
+            return self.env['stock.transit.line']
+
+        saldo_lines = self.env['stock.transit.line']
+
+        for line in self:
+            if line.id not in norm:
+                continue
+
+            # Las placas no se fraccionan: se ignora cualquier parcialidad.
+            if not line._tc_is_fractionable():
+                continue
+
+            qty = norm[line.id]
+            rounding = line._tc_qty_rounding()
+            available = line.product_uom_qty or 0.0
+
+            if float_compare(qty, available, precision_rounding=rounding) > 0:
+                raise UserError(_(
+                    'La parcialidad solicitada (%(qty)s) del lote %(lot)s supera la '
+                    'cantidad embarcada disponible (%(avail)s).'
+                ) % {
+                    'qty': ('%.3f' % qty),
+                    'lot': line.lot_id.display_name or line.product_id.display_name,
+                    'avail': ('%.3f' % available),
+                })
+
+            saldo_lines |= line._tc_split_for_partial_assignment(qty)
+
+        return saldo_lines
 
     # -------------------------------------------------------------------------
     # CANTIDADES REFERENCIA

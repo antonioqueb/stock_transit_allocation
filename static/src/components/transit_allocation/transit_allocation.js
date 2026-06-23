@@ -612,6 +612,7 @@ export class TransitAllocation extends Component {
                     "x_grosor",
                     "x_alto",
                     "x_ancho",
+                    "x_tipo",
                 ]
             );
 
@@ -627,8 +628,12 @@ export class TransitAllocation extends Component {
     _normalizeTransitLineRow(item, fallback, saleLine) {
         const qty = Number(item.qty || item.product_uom_qty || fallback.qty || fallback.product_uom_qty || 0);
         const unitKind = saleLine.unit_kind || fallback.unit_kind || "m2";
+        const tipo = String(item.x_tipo || fallback.x_tipo || "").toLowerCase();
 
         return {
+            tipo,
+            // Solo formatos/piezas admiten consumo parcial; las placas van enteras.
+            fractionable: tipo === "formato" || tipo === "pieza",
             id: item.id || fallback.id,
             product_id: this._m2oId(item.product_id) || fallback.product_id || saleLine.product_id,
             product_name: this._m2oName(item.product_id) || fallback.product_name || saleLine.product_name || "",
@@ -693,6 +698,9 @@ export class TransitAllocation extends Component {
             allLines: config.transitLines || [],
             filteredLines: config.transitLines || [],
             selectedIds: new Set(),
+            // Cantidad parcial elegida por línea (solo formatos/piezas).
+            // { [transitLineId]: qty }. Las placas no se incluyen: van enteras.
+            partialQty: {},
             saving: false,
             filters: {
                 lot_name: "",
@@ -701,6 +709,15 @@ export class TransitAllocation extends Component {
                 voyage: "",
                 purchase: "",
             },
+        };
+
+        // Cantidad efectiva de una línea: la parcial elegida si es fraccionable
+        // y hay un valor capturado; de lo contrario, la cantidad completa.
+        const getEffectiveQty = (line) => {
+            if (line.fractionable && state.partialQty[line.id] !== undefined) {
+                return Number(state.partialQty[line.id]) || 0;
+            }
+            return Number(line.qty || 0);
         };
 
         root.innerHTML = `
@@ -838,7 +855,7 @@ export class TransitAllocation extends Component {
             let total = 0;
             for (const line of state.allLines) {
                 if (state.selectedIds.has(line.id)) {
-                    total += Number(line.qty || 0);
+                    total += getEffectiveQty(line);
                 }
             }
             return total;
@@ -901,6 +918,37 @@ export class TransitAllocation extends Component {
 
             for (const line of state.filteredLines) {
                 const selected = state.selectedIds.has(line.id);
+
+                // Celda "A asignar": formatos/piezas seleccionados muestran un
+                // input para elegir la parcialidad (clamp al disponible); las
+                // placas y los no seleccionados muestran el lote completo o "—".
+                let assignCell;
+                if (line.fractionable) {
+                    if (selected) {
+                        const fullQty = Number(line.qty || 0);
+                        const chosen = state.partialQty[line.id] !== undefined
+                            ? state.partialQty[line.id]
+                            : fullQty;
+                        const step = line.tipo === "pieza" ? "1" : "0.01";
+                        assignCell = `
+                            <div class="stone-transit-qty-wrap">
+                                <input type="number"
+                                       class="stone-transit-qty-input"
+                                       data-qty-line-id="${line.id}"
+                                       value="${chosen}"
+                                       min="0"
+                                       step="${step}"
+                                       max="${fullQty}"/>
+                                <span class="stone-transit-qty-unit">/ ${this._fmtPlain(fullQty)} ${this._escapeHtml(line.unit_label || "")}</span>
+                            </div>
+                        `;
+                    } else {
+                        assignCell = `<span class="text-muted">—</span>`;
+                    }
+                } else {
+                    assignCell = `<span class="text-muted">Completo</span>`;
+                }
+
                 rows += `
                     <tr class="${selected ? "row-sel" : ""}" data-transit-line-id="${line.id}">
                         <td class="col-chk">
@@ -918,6 +966,7 @@ export class TransitAllocation extends Component {
                         <td class="col-num">${this._fmtDim(line.x_ancho)}</td>
                         <td class="col-num">${this._escapeHtml(line.x_grosor || "-")}</td>
                         <td class="col-num fw-semibold">${this._fmtPlain(line.qty)} ${this._escapeHtml(line.unit_label || "")}</td>
+                        <td class="col-num">${assignCell}</td>
                         <td>
                             <button type="button" class="btn btn-link p-0 stone-transit-link" data-open-voyage="${line.voyage_id || ""}">
                                 <i class="fa fa-external-link"></i>
@@ -949,6 +998,7 @@ export class TransitAllocation extends Component {
                             <th class="col-num">Largo</th>
                             <th class="col-num">Esp.</th>
                             <th class="col-num">Disponible</th>
+                            <th class="col-num">A asignar</th>
                             <th>Embarque</th>
                             <th>OC</th>
                             <th>Proveedor</th>
@@ -976,6 +1026,31 @@ export class TransitAllocation extends Component {
 
                     renderTable();
                 });
+            });
+
+            // Inputs de parcialidad (formatos/piezas): editar la cantidad NO debe
+            // alternar la selección de la fila, por eso se detiene la propagación.
+            body.querySelectorAll(".stone-transit-qty-input").forEach((input) => {
+                const stop = (ev) => ev.stopPropagation();
+                input.addEventListener("click", stop);
+                input.addEventListener("mousedown", stop);
+
+                const lineId = parseInt(input.dataset.qtyLineId, 10);
+                const lineObj = state.allLines.find((l) => l.id === lineId);
+                const fullQty = lineObj ? Number(lineObj.qty || 0) : Infinity;
+
+                const apply = (ev, normalize) => {
+                    ev.stopPropagation();
+                    let val = parseFloat(input.value);
+                    if (!isFinite(val) || val < 0) val = 0;
+                    if (isFinite(fullQty) && val > fullQty) val = fullQty;
+                    state.partialQty[lineId] = val;
+                    if (normalize) input.value = val;
+                    updateSelectionDisplay();
+                };
+
+                input.addEventListener("input", (ev) => apply(ev, false));
+                input.addEventListener("change", (ev) => apply(ev, true));
             });
 
             body.querySelectorAll("[data-open-voyage]").forEach((btn) => {
@@ -1031,6 +1106,14 @@ export class TransitAllocation extends Component {
                 return doConfirm(decision.action, decision.reason);
             }
 
+            // Parcialidades elegidas para formatos/piezas seleccionados. El
+            // backend parte la línea: asigna esta cantidad y deja el saldo.
+            const partialByLine = {};
+            for (const line of state.allLines) {
+                if (!state.selectedIds.has(line.id) || !line.fractionable) continue;
+                partialByLine[line.id] = getEffectiveQty(line);
+            }
+
             state.saving = true;
 
             try {
@@ -1043,6 +1126,7 @@ export class TransitAllocation extends Component {
                         "Asignación operativa desde Transit Allocation.",
                         overAction,
                         overReason,
+                        partialByLine,
                     ]
                 );
 

@@ -181,6 +181,9 @@ class TransitAllocationLogic(models.AbstractModel):
             'x_alto': getattr(lot, 'x_alto', 0.0) or 0.0,
             'x_ancho': getattr(lot, 'x_ancho', 0.0) or 0.0,
             'x_color': getattr(lot, 'x_color', '') or '',
+            # Tipo de lote para que el front habilite parcialidad solo en
+            # formatos/piezas (fraccionables); las placas van enteras.
+            'x_tipo': (str(lot.x_tipo).lower() if lot and 'x_tipo' in lot._fields and lot.x_tipo else ''),
         }
 
     def _tal_make_sale_line_row(self, sale_line, metrics, payment_percent, allocation_info):
@@ -404,11 +407,19 @@ class TransitAllocationLogic(models.AbstractModel):
         reason=False,
         over_assignment_action=False,
         over_assignment_reason=False,
+        partial_qty_by_line=False,
     ):
         sale_line = self.env['sale.order.line'].browse(sale_line_id).exists()
         pending_qty_before = self._tal_validate_sale_line_for_assignment(sale_line)
 
         transit_lines = self.env['stock.transit.line'].browse(transit_line_ids or []).exists()
+
+        # Parcialidades (FORMATOS/PIEZAS): partir las líneas seleccionadas para
+        # asignar solo lo elegido y dejar el saldo disponible en tránsito. Tras
+        # el split, product_uom_qty refleja la parcialidad, por lo que la
+        # validación, el conteo y el breakdown la respetan sin lógica adicional.
+        transit_lines._tc_apply_partial_assignment_splits(partial_qty_by_line)
+
         selected_qty = self._tal_validate_transit_lines_for_assignment(transit_lines, sale_line)
 
         rounding = self._tal_get_qty_rounding(sale_line.product_id)

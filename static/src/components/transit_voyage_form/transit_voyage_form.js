@@ -33,6 +33,8 @@ class TransitVoyageLinesWidget extends Component {
             ordersByProduct: {},   // { product_id: [{id, name, partner_id, partner_name}] }
             editingCell:   null,   // { lineId, field }
             selectedLines: new Set(),
+            // Parcialidad elegida por línea (solo formatos/piezas). { [lineId]: qty }
+            partialQty:    {},
             // Popup de asignación masiva
             showAssignPopup: false,
             popupPartner:    null,
@@ -77,7 +79,7 @@ class TransitVoyageLinesWidget extends Component {
                 [
                     "id", "product_id", "lot_id", "container_number",
                     "product_uom_qty", "partner_id", "order_id",
-                    "allocation_status", "x_grosor", "x_alto", "x_ancho",
+                    "allocation_status", "x_grosor", "x_alto", "x_ancho", "x_tipo",
                 ],
                 { order: "product_id asc, lot_id asc" }
             );
@@ -386,6 +388,40 @@ class TransitVoyageLinesWidget extends Component {
     isLineSelected(id) { return this.state.selectedLines.has(id); }
     get selectedCount() { return this.state.selectedLines.size; }
 
+    // ─── Parcialidad (FORMATOS / PIEZAS) ──────────────────────────────────────
+
+    // Solo formatos/piezas admiten consumo parcial; las placas van enteras.
+    isFractionable(line) {
+        const t = String(line.x_tipo || "").toLowerCase();
+        return t === "formato" || t === "pieza";
+    }
+
+    // Cantidad mostrada en el input de parcialidad: la elegida o el lote completo.
+    partialQtyValue(line) {
+        const v = this.state.partialQty[line.id];
+        return v !== undefined ? v : (line.product_uom_qty || 0);
+    }
+
+    onPartialQtyChange(line, ev) {
+        const max = line.product_uom_qty || 0;
+        let val = parseFloat(ev.target.value);
+        if (!isFinite(val) || val < 0) val = 0;
+        if (val > max) { val = max; ev.target.value = val; }
+        this.state.partialQty[line.id] = val;
+    }
+
+    // Mapa {transit_line_id: qty} de parcialidades para las líneas dadas. El
+    // backend solo parte formatos/piezas; el resto se ignora.
+    _buildPartialMap(transitLineIds) {
+        const map = {};
+        for (const id of transitLineIds) {
+            if (this.state.partialQty[id] !== undefined) {
+                map[id] = this.state.partialQty[id];
+            }
+        }
+        return map;
+    }
+
     // ─── M² total de los seleccionados ────────────────────────────────────────
     get selectedM2() {
         let total = 0;
@@ -525,7 +561,7 @@ class TransitVoyageLinesWidget extends Component {
             const result = await this.orm.call(
                 "stock.transit.line",
                 "tc_voyage_assign",
-                [transitLineIds, false, orderId, overAction, overReason],
+                [transitLineIds, false, orderId, overAction, overReason, this._buildPartialMap(transitLineIds)],
             );
 
             if (result && result.need_over_assignment_decision) {
