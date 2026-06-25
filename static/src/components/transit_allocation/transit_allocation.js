@@ -21,8 +21,7 @@ export class TransitAllocation extends Component {
             loading: true,
             expanded: {},
             searchQuery: "",
-            groupBy: "product", // product | sale_order | salesperson | customer | unit_type
-            selectedPurchase: "", // nombre de la OC o "" para todas
+            groupBy: "product", // product | sale_order | salesperson | customer | unit_type | purchase
             assigning: {},
         });
 
@@ -254,15 +253,6 @@ export class TransitAllocation extends Component {
             });
         }
 
-        // Filtro por Orden de Compra: conserva las líneas cuyas OC asociadas
-        // incluyan la seleccionada.
-        const purchase = this.state.selectedPurchase;
-        if (purchase) {
-            rows = rows.filter((line) =>
-                (line.purchase_names || []).includes(purchase)
-            );
-        }
-
         if (this.state.groupBy === "product") {
             this.state.filteredData = this._groupByProduct(rows);
         } else if (this.state.groupBy === "sale_order") {
@@ -273,6 +263,8 @@ export class TransitAllocation extends Component {
             this.state.filteredData = this._groupByCustomer(rows);
         } else if (this.state.groupBy === "unit_type") {
             this.state.filteredData = this._groupByUnitType(rows);
+        } else if (this.state.groupBy === "purchase") {
+            this.state.filteredData = this._groupByPurchase(rows);
         }
     }
 
@@ -411,6 +403,26 @@ export class TransitAllocation extends Component {
         return this._sortGroups(Object.values(map));
     }
 
+    _groupByPurchase(rows) {
+        const map = {};
+        for (const line of rows) {
+            const names = (line.purchase_names || []).filter(Boolean);
+            const keys = names.length ? names : ["Sin OC"];
+            for (const key of keys) {
+                if (!map[key]) {
+                    map[key] = this._makeGroup({
+                        id: key,
+                        key: `purchase_${key}`,
+                        label: key,
+                        sublabel: "Orden de compra",
+                    });
+                }
+                this._addLineToGroup(map[key], line);
+            }
+        }
+        return this._sortGroups(Object.values(map));
+    }
+
     _groupByCustomer(rows) {
         const map = {};
         for (const line of rows) {
@@ -459,23 +471,6 @@ export class TransitAllocation extends Component {
     clearSearch() {
         this.state.searchQuery = "";
         this.applyFilters();
-    }
-
-    onPurchaseChange(ev) {
-        this.state.selectedPurchase = ev.target.value || "";
-        this.applyFilters();
-    }
-
-    get purchaseOptions() {
-        const set = new Set();
-        for (const line of this.state.data) {
-            for (const name of line.purchase_names || []) {
-                if (name) {
-                    set.add(name);
-                }
-            }
-        }
-        return [...set].sort((a, b) => String(a).localeCompare(String(b)));
     }
 
     setGroupBy(mode) {

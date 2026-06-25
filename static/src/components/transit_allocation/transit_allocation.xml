@@ -74,18 +74,6 @@
                     </button>
                 </div>
 
-                <div t-attf-class="o_tba_purchase_filter #{state.selectedPurchase ? 'active' : ''}">
-                    <i class="fa fa-shopping-cart o_tba_purchase_icon"/>
-                    <select class="o_tba_purchase_select" t-on-change="onPurchaseChange">
-                        <option value="">Compra: todas</option>
-                        <t t-foreach="purchaseOptions" t-as="po" t-key="po">
-                            <option t-att-value="po" t-att-selected="state.selectedPurchase === po">
-                                <t t-esc="po"/>
-                            </option>
-                        </t>
-                    </select>
-                </div>
-
                 <div class="o_tba_group_buttons">
                     <button type="button"
                             t-att-class="state.groupBy === 'product' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
@@ -120,6 +108,13 @@
                             t-on-click="() => this.setGroupBy('unit_type')">
                         <i class="fa fa-balance-scale me-1"/>
                         Tipo
+                    </button>
+
+                    <button type="button"
+                            t-att-class="state.groupBy === 'purchase' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
+                            t-on-click="() => this.setGroupBy('purchase')">
+                        <i class="fa fa-shopping-cart me-1"/>
+                        Compra
                     </button>
                 </div>
             </div>

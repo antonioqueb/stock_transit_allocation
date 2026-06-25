@@ -32,7 +32,7 @@
                         <option value="">Todos los vendedores</option>
                         <t t-foreach="salespersonOptions" t-as="sp" t-key="sp.id">
                             <option t-att-value="sp.id"
-                                    t-att-selected="String(state.selectedSalesperson) === String(sp.id)">
+                                    t-att-selected="isSalespersonSelected(sp.id)">
                                 <t t-esc="sp.name"/>
                             </option>
                         </t>
@@ -59,6 +59,11 @@
                             t-on-click="() => this.setGroupBy('customer')"
                             title="Agrupar por cliente">
                         <i class="fa fa-users me-1"/> Cliente
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.groupBy === 'salesperson' ? 'active' : ''}"
+                            t-on-click="() => this.setGroupBy('salesperson')"
+                            title="Agrupar por vendedor">
+                        <i class="fa fa-user me-1"/> Vendedor
                     </button>
                     <button t-attf-class="o_tbp_group_btn #{state.groupBy === 'unit_type' ? 'active' : ''}"
                             t-on-click="() => this.setGroupBy('unit_type')"

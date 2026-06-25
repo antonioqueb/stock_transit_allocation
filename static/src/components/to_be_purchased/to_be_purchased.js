@@ -211,6 +211,8 @@ export class ToBePurchased extends Component {
             this.state.filteredData = this._groupBySaleOrder(result);
         } else if (this.state.groupBy === "vendor") {
             this.state.filteredData = this._groupByVendor(result);
+        } else if (this.state.groupBy === "salesperson") {
+            this.state.filteredData = this._groupBySalesperson(result);
         } else if (this.state.groupBy === "customer") {
             this.state.filteredData = this._groupByCustomer(result);
         } else if (this.state.groupBy === "unit_type") {
@@ -397,6 +399,30 @@ export class ToBePurchased extends Component {
         return this._sortOperationalGroups(Object.values(map));
     }
 
+    _groupBySalesperson(data) {
+        const map = {};
+
+        for (const product of data) {
+            for (const soLine of product.so_lines || []) {
+                const key = soLine.salesperson_id || soLine.salesperson || "Sin vendedor";
+
+                if (!map[key]) {
+                    map[key] = this._makeOperationalGroup({
+                        id: key,
+                        key: `salesperson_${key}`,
+                        name: soLine.salesperson || "Sin vendedor",
+                        subtitle: "Vendedor de la orden con material pendiente por comprar",
+                    });
+                }
+
+                const pseudoProduct = { ...product, so_lines: [soLine] };
+                this._addProductLinesToOperationalGroup(map[key], pseudoProduct);
+            }
+        }
+
+        return this._sortOperationalGroups(Object.values(map));
+    }
+
     _groupByCustomer(data) {
         const map = {};
 
@@ -457,6 +483,10 @@ export class ToBePurchased extends Component {
     onSalespersonChange(ev) {
         this.state.selectedSalesperson = ev.target.value || "";
         this.applyFilters();
+    }
+
+    isSalespersonSelected(id) {
+        return String(this.state.selectedSalesperson) === String(id);
     }
 
     get salespersonOptions() {
