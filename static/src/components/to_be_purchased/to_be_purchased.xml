@@ -77,6 +77,13 @@
                         <span class="o_tbp_metric_value"><t t-esc="totalDemandDisplay"/></span>
                     </div>
                 </div>
+                <button type="button"
+                        class="btn btn-sm btn-outline-primary"
+                        t-on-click="refresh"
+                        t-att-disabled="state.loading">
+                    <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'} me-1"/>
+                    Actualizar
+                </button>
                 <button class="btn btn-sm btn-primary o_tbp_generate_btn"
                         t-on-click="openPurchaseModal"
                         t-att-disabled="state.selectedLines.length === 0">
