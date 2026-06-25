@@ -1034,6 +1034,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             'customer': order.partner_id.name,
             'customer_id': order.partner_id.id,
             'salesperson': order.user_id.name if order.user_id else '',
+            'salesperson_id': order.user_id.id if order.user_id else False,
             'product_id': product.id,
             'product_name': product.display_name,
             'product_type': unit_group_label,

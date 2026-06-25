@@ -44,12 +44,6 @@
                         </span>
                     </div>
 
-                    <div class="o_tba_metric">
-                        <span class="o_tba_metric_label">% global</span>
-                        <span class="o_tba_metric_value">
-                            <t t-esc="fmtPercent(totalAssignedPercentGlobal)"/>
-                        </span>
-                    </div>
                 </div>
 
                 <button type="button"
@@ -192,11 +186,6 @@
                                 <span class="o_tba_stat o_tba_stat_available">
                                     Pend. pzas:
                                     <b><t t-esc="fmtNum(group.qty_pending_pieces)"/></b>
-                                </span>
-
-                                <span class="o_tba_stat">
-                                    % global:
-                                    <b><t t-esc="splitPercent(group.qty_assigned, group.qty_requested || group.qty_ordered)"/></b>
                                 </span>
 
                                 <span class="o_tba_stat">

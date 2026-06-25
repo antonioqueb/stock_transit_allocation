@@ -363,6 +363,56 @@ $o-tba-pill: 999px;
     }
 }
 
+// Filtro por Orden de Compra ("Compra") — usado en Transit Allocation
+.o_tba_purchase_filter {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid rgba(215, 232, 242, 0.94);
+    background: rgba(255, 255, 255, 0.78);
+    border-radius: $o-tba-pill;
+    padding: 4px 10px 4px 12px;
+    transition: all 0.16s ease;
+    white-space: nowrap;
+
+    .o_tba_purchase_icon {
+        font-size: 11px;
+        color: $o-tba-muted;
+        opacity: 0.8;
+    }
+
+    .o_tba_purchase_select {
+        border: none;
+        background: transparent;
+        color: $o-tba-text-2;
+        font-size: 11px;
+        font-weight: 750;
+        cursor: pointer;
+        outline: none;
+        max-width: 220px;
+        padding: 3px 2px;
+
+        &:focus {
+            outline: none;
+        }
+    }
+
+    &.active {
+        border-color: rgba(92, 185, 242, 0.42);
+        background: #ffffff;
+        box-shadow: 0 6px 14px rgba(92, 185, 242, 0.16);
+
+        .o_tba_purchase_icon {
+            color: $o-tba-blue-dark;
+            opacity: 1;
+        }
+
+        .o_tba_purchase_select {
+            color: $o-tba-blue-deep;
+        }
+    }
+}
+
 // ============================================================================
 // Loading / Empty
 // ============================================================================

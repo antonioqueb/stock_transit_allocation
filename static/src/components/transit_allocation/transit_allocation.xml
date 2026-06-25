@@ -43,13 +43,6 @@
                             <t t-esc="fmtNum(totalPendingPieces)"/>
                         </span>
                     </div>
-
-                    <div class="o_tba_metric">
-                        <span class="o_tba_metric_label">Cobertura</span>
-                        <span class="o_tba_metric_value">
-                            <t t-esc="fmtPercent(totalCoveragePercent)"/>
-                        </span>
-                    </div>
                 </div>
 
                 <button type="button"
@@ -79,6 +72,18 @@
                             t-on-click="clearSearch">
                         <i class="fa fa-times"/>
                     </button>
+                </div>
+
+                <div t-attf-class="o_tba_purchase_filter #{state.selectedPurchase ? 'active' : ''}">
+                    <i class="fa fa-shopping-cart o_tba_purchase_icon"/>
+                    <select class="o_tba_purchase_select" t-on-change="onPurchaseChange">
+                        <option value="">Compra: todas</option>
+                        <t t-foreach="purchaseOptions" t-as="po" t-key="po">
+                            <option t-att-value="po" t-att-selected="state.selectedPurchase === po">
+                                <t t-esc="po"/>
+                            </option>
+                        </t>
+                    </select>
                 </div>
 
                 <div class="o_tba_group_buttons">

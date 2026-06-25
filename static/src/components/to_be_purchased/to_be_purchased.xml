@@ -26,6 +26,19 @@
                     <t t-else="">Mostrar todo</t>
                 </button>
 
+                <div t-attf-class="o_tbp_salesperson_filter #{state.selectedSalesperson ? 'active' : ''}">
+                    <i class="fa fa-user-o o_tbp_salesperson_icon"/>
+                    <select class="o_tbp_salesperson_select" t-on-change="onSalespersonChange">
+                        <option value="">Todos los vendedores</option>
+                        <t t-foreach="salespersonOptions" t-as="sp" t-key="sp.id">
+                            <option t-att-value="sp.id"
+                                    t-att-selected="String(state.selectedSalesperson) === String(sp.id)">
+                                <t t-esc="sp.name"/>
+                            </option>
+                        </t>
+                    </select>
+                </div>
+
                 <div class="o_tbp_group_buttons">
                     <button t-attf-class="o_tbp_group_btn #{state.groupBy === 'product' ? 'active' : ''}"
                             t-on-click="() => this.setGroupBy('product')"
@@ -70,11 +83,6 @@
                     <div class="o_tbp_metric o_tbp_metric_wide">
                         <span class="o_tbp_metric_label">Pendiente</span>
                         <span class="o_tbp_metric_value"><t t-esc="totalDemandDisplay"/></span>
-                    </div>
-
-                    <div class="o_tbp_metric">
-                        <span class="o_tbp_metric_label">% global</span>
-                        <span class="o_tbp_metric_value"><t t-esc="fmtPercent(totalAssignedPercentGlobal)"/></span>
                     </div>
                 </div>
                 <button class="btn btn-sm btn-primary o_tbp_generate_btn"
@@ -158,9 +166,6 @@
                                     <span t-attf-class="o_tbp_stat o_tbp_stat_available #{(product.qty_a || 0) > 0 ? 'is-positive' : ''}"
                                           t-att-title="fmtAvailableStockTitle(product)">
                                         Stock disp. <b><t t-esc="fmtAvailableStock(product)"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
-                                        % global <b><t t-esc="fmtPercent(linesAssignmentPercent(product.so_lines))"/></b>
                                     </span>
                                 </div>
                             </div>
@@ -391,9 +396,6 @@
                                         Pendiente <b><t t-esc="fmtGroupPending(so)"/></b>
                                     </span>
                                     <span class="o_tbp_stat">
-                                        % global <b><t t-esc="fmtPercent(allocationPercent(so.total_assigned, so.total_requested))"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
                                         Días <b><t t-esc="fmtDays(so.max_days_unassigned)"/></b>
                                     </span>
                                 </div>
@@ -500,9 +502,6 @@
                                     </span>
                                     <span class="o_tbp_stat o_tbp_stat_buy is-positive">
                                         Pendiente <b><t t-esc="fmtGroupPending(vendor)"/></b>
-                                    </span>
-                                    <span class="o_tbp_stat">
-                                        % global <b><t t-esc="fmtPercent(allocationPercent(vendor.total_assigned, vendor.total_requested))"/></b>
                                     </span>
                                     <span class="o_tbp_stat">
                                         Días <b><t t-esc="fmtDays(vendor.max_days_unassigned)"/></b>

@@ -22,6 +22,7 @@ export class TransitAllocation extends Component {
             expanded: {},
             searchQuery: "",
             groupBy: "product", // product | sale_order | salesperson | customer | unit_type
+            selectedPurchase: "", // nombre de la OC o "" para todas
             assigning: {},
         });
 
@@ -253,6 +254,15 @@ export class TransitAllocation extends Component {
             });
         }
 
+        // Filtro por Orden de Compra: conserva las líneas cuyas OC asociadas
+        // incluyan la seleccionada.
+        const purchase = this.state.selectedPurchase;
+        if (purchase) {
+            rows = rows.filter((line) =>
+                (line.purchase_names || []).includes(purchase)
+            );
+        }
+
         if (this.state.groupBy === "product") {
             this.state.filteredData = this._groupByProduct(rows);
         } else if (this.state.groupBy === "sale_order") {
@@ -449,6 +459,23 @@ export class TransitAllocation extends Component {
     clearSearch() {
         this.state.searchQuery = "";
         this.applyFilters();
+    }
+
+    onPurchaseChange(ev) {
+        this.state.selectedPurchase = ev.target.value || "";
+        this.applyFilters();
+    }
+
+    get purchaseOptions() {
+        const set = new Set();
+        for (const line of this.state.data) {
+            for (const name of line.purchase_names || []) {
+                if (name) {
+                    set.add(name);
+                }
+            }
+        }
+        return [...set].sort((a, b) => String(a).localeCompare(String(b)));
     }
 
     setGroupBy(mode) {
@@ -1432,13 +1459,6 @@ export class TransitAllocation extends Component {
             total += Number(row.qty_available_pieces || 0);
         }
         return total;
-    }
-
-    get totalCoveragePercent() {
-        const pending = this.totalPendingM2 + this.totalPendingPieces;
-        const available = this.totalTransitAvailableM2 + this.totalTransitAvailablePieces;
-        if (pending <= 0) return 0;
-        return Math.min(100, (available / pending) * 100);
     }
 }
 

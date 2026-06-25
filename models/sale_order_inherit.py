@@ -2305,6 +2305,18 @@ class SaleOrderLine(models.Model):
                 ],
             )
 
+        # Nota de crédito: avisar a FACTURACIÓN (Lourdes/Zulema) para que la
+        # generen. Integración SUAVE con sale_payment_proof. Una alerta por orden.
+        if action_value == 'credit_note':
+            for order in self.mapped('order_id'):
+                if order and hasattr(order, '_credit_note_request_notify'):
+                    try:
+                        order._credit_note_request_notify(reason=reason or '')
+                    except Exception:
+                        _logger.exception(
+                            "[TC CLOSE] No se pudo avisar a facturación de la nota de crédito"
+                        )
+
         return True
 
     def action_tc_reopen_allocation(self):

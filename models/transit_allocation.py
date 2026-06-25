@@ -508,6 +508,46 @@ class TransitAllocationLogic(models.AbstractModel):
 
         uom = sale_line._tc_get_line_uom() if hasattr(sale_line, '_tc_get_line_uom') else sale_line.product_id.uom_id
 
+        # Cobrar excedente: avisar a FACTURACIÓN (Lourdes/Zulema) y COBRANZA
+        # (Clara) reutilizando el motor del módulo sale_payment_proof. Integración
+        # SUAVE (sin dependencia dura): solo si el método está disponible.
+        if has_over_assignment and over_assignment_action == 'bill':
+            order = sale_line.order_id
+            if order and hasattr(order, '_overcharge_notify'):
+                try:
+                    over_amount = (over_assigned_qty or 0.0) * (sale_line.price_unit or 0.0)
+                    order._overcharge_notify(
+                        product_name=sale_line.product_id.display_name or '',
+                        over_qty=over_assigned_qty,
+                        uom_name=uom.display_name if uom else '',
+                        amount=over_amount,
+                        reason=over_assignment_reason or reason or '',
+                    )
+                except Exception:
+                    _logger.exception(
+                        "[TRANSIT ALLOC] No se pudo notificar el excedente cobrado a "
+                        "facturación/cobranza"
+                    )
+
+        # Excedente NO cobrado ('free' = descuento): si el valor del descuento
+        # supera el umbral en MXN, la orden queda BLOQUEADA hasta autorización
+        # (mismo flujo que precios mínimos). Integración SUAVE con
+        # inventory_shopping_cart: solo si el campo existe.
+        if has_over_assignment and over_assignment_action == 'free':
+            order = sale_line.order_id
+            if order and 'x_discount_needs_auth' in order._fields:
+                try:
+                    if (order.x_discount_needs_auth
+                            and not order.x_discount_auth_requested
+                            and not self.env.user.has_group(
+                                'inventory_shopping_cart.group_price_authorizer')):
+                        order.action_request_discount_authorization()
+                except Exception:
+                    _logger.exception(
+                        "[TRANSIT ALLOC] No se pudo solicitar autorización de descuento "
+                        "por excedente"
+                    )
+
         return {
             'success': True,
             'message': _('Inventario en tránsito asignado correctamente.'),
