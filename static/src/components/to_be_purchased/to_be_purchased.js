@@ -22,8 +22,7 @@ export class ToBePurchased extends Component {
             // Filtros
             searchQuery: "",
             showOnlyPending: true,
-            groupBy: "product", // product | sale_order | vendor | customer | unit_type
-            selectedSalesperson: "", // id del vendedor (user_id) o "" para todos
+            groupBy: "product", // product | sale_order | vendor | salesperson | customer | unit_type
 
             // Modal state
             showModal: false,
@@ -126,22 +125,6 @@ export class ToBePurchased extends Component {
 
                 return haystack.includes(query);
             });
-        }
-
-        // Filtro por vendedor (salesperson / user_id de la orden): se aplica a
-        // nivel de línea, antes de "solo pendientes", para que los totales se
-        // recalculen sobre las líneas del vendedor seleccionado.
-        const salesperson = this.state.selectedSalesperson;
-        if (salesperson) {
-            result = result.map((product) => {
-                const lines = (product.so_lines || []).filter(
-                    (line) => String(line.salesperson_id || "") === String(salesperson)
-                );
-                if (!lines.length) {
-                    return null;
-                }
-                return { ...product, so_lines: lines };
-            }).filter((product) => product !== null);
         }
 
         if (this.state.showOnlyPending) {
@@ -478,31 +461,6 @@ export class ToBePurchased extends Component {
     togglePendingFilter() {
         this.state.showOnlyPending = !this.state.showOnlyPending;
         this.applyFilters();
-    }
-
-    onSalespersonChange(ev) {
-        this.state.selectedSalesperson = ev.target.value || "";
-        this.applyFilters();
-    }
-
-    isSalespersonSelected(id) {
-        return String(this.state.selectedSalesperson) === String(id);
-    }
-
-    get salespersonOptions() {
-        const map = new Map();
-        for (const product of this.state.data) {
-            for (const line of product.so_lines || []) {
-                const id = line.salesperson_id;
-                const name = line.salesperson;
-                if (id && name && !map.has(id)) {
-                    map.set(id, name);
-                }
-            }
-        }
-        return [...map.entries()]
-            .map(([id, name]) => ({ id, name }))
-            .sort((a, b) => String(a.name).localeCompare(String(b.name)));
     }
 
     setGroupBy(mode) {

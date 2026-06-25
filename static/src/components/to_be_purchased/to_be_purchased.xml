@@ -26,19 +26,6 @@
                     <t t-else="">Mostrar todo</t>
                 </button>
 
-                <div t-attf-class="o_tbp_salesperson_filter #{state.selectedSalesperson ? 'active' : ''}">
-                    <i class="fa fa-user-o o_tbp_salesperson_icon"/>
-                    <select class="o_tbp_salesperson_select" t-on-change="onSalespersonChange">
-                        <option value="">Todos los vendedores</option>
-                        <t t-foreach="salespersonOptions" t-as="sp" t-key="sp.id">
-                            <option t-att-value="sp.id"
-                                    t-att-selected="isSalespersonSelected(sp.id)">
-                                <t t-esc="sp.name"/>
-                            </option>
-                        </t>
-                    </select>
-                </div>
-
                 <div class="o_tbp_group_buttons">
                     <button t-attf-class="o_tbp_group_btn #{state.groupBy === 'product' ? 'active' : ''}"
                             t-on-click="() => this.setGroupBy('product')"

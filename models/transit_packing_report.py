@@ -179,6 +179,26 @@ class StockTransitVoyagePackingReport(models.Model):
 
         return self.env['stock.transit.line']
 
+    def _tc_origin_name_for_packing(self, product, partner=False):
+        """Nombre de origen del producto (el asignado por el proveedor).
+        Prefiere el del proveedor dado; si no, el primero por secuencia.
+        Defensivo: vacío si product_origin_names no está instalado."""
+        if not product:
+            return ''
+        tmpl = product.product_tmpl_id
+        if not tmpl or 'origin_name_ids' not in tmpl._fields:
+            return ''
+        origins = tmpl.origin_name_ids
+        if not origins:
+            return ''
+        if partner:
+            partner_match = origins.filtered(
+                lambda o: o.partner_id and o.partner_id.id == partner.id
+            )
+            if partner_match:
+                return partner_match[0].name or ''
+        return origins[0].name or ''
+
     def _tc_get_packing_report_rows_from_supplier_shipments(self):
         self.ensure_one()
 
@@ -211,6 +231,9 @@ class StockTransitVoyagePackingReport(models.Model):
                         'product_key': product.id,
                         'product_name': product.display_name or '',
                         'product_code': product.default_code or '',
+                        'origin_name': self._tc_origin_name_for_packing(
+                            product, getattr(shipment, 'partner_id', False)
+                        ),
                         'uom': product.uom_id.name or '',
                         'tipo': tipo,
                         'ref_interna': '',
@@ -257,6 +280,10 @@ class StockTransitVoyagePackingReport(models.Model):
             alto = self._tc_lot_value_for_packing_report(lot, 'x_alto', 0.0)
             ancho = self._tc_lot_value_for_packing_report(lot, 'x_ancho', 0.0)
 
+            line_partner = False
+            if 'purchase_id' in line._fields and line.purchase_id:
+                line_partner = line.purchase_id.partner_id
+
             rows.append({
                 'source': 'transit_line',
                 'shipment_name': self.name or '',
@@ -266,6 +293,7 @@ class StockTransitVoyagePackingReport(models.Model):
                 'product_key': product.id,
                 'product_name': product.display_name or '',
                 'product_code': product.default_code or '',
+                'origin_name': self._tc_origin_name_for_packing(product, line_partner),
                 'uom': product.uom_id.name or '',
                 'tipo': tipo,
                 'ref_interna': lot.name if lot else '',

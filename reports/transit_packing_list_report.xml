@@ -535,6 +535,9 @@
                                             <span t-if="row.get('product_code')" class="pl-product-meta">
                                                 — <t t-esc="row.get('product_code')"/>
                                             </span>
+                                            <span t-if="row.get('origin_name')" class="pl-product-meta">
+                                                · Origen: <t t-esc="row.get('origin_name')"/>
+                                            </span>
                                         </td>
                                     </tr>
                                 </t>

@@ -268,56 +268,6 @@ $o-tbp-pill: 999px;
     }
 }
 
-// Filtro por vendedor (salesperson de la orden de venta)
-.o_tbp_salesperson_filter {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid rgba(215, 232, 242, 0.94);
-    background: rgba(255, 255, 255, 0.78);
-    border-radius: $o-tbp-pill;
-    padding: 4px 10px 4px 12px;
-    transition: all 0.16s ease;
-    white-space: nowrap;
-
-    .o_tbp_salesperson_icon {
-        font-size: 11px;
-        color: $o-tbp-muted;
-        opacity: 0.8;
-    }
-
-    .o_tbp_salesperson_select {
-        border: none;
-        background: transparent;
-        color: $o-tbp-text-2;
-        font-size: 11px;
-        font-weight: 750;
-        cursor: pointer;
-        outline: none;
-        max-width: 190px;
-        padding: 3px 2px;
-
-        &:focus {
-            outline: none;
-        }
-    }
-
-    &.active {
-        border-color: rgba(92, 185, 242, 0.42);
-        background: #ffffff;
-        box-shadow: 0 6px 14px rgba(92, 185, 242, 0.16);
-
-        .o_tbp_salesperson_icon {
-            color: $o-tbp-blue-dark;
-            opacity: 1;
-        }
-
-        .o_tbp_salesperson_select {
-            color: $o-tbp-blue-deep;
-        }
-    }
-}
-
 .o_tbp_metrics {
     display: flex;
     align-items: stretch;
