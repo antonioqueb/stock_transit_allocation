@@ -1611,6 +1611,12 @@ class SaleOrderLine(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
+        # 'Asignar' (Ocupar) y 'Mandar a pedir' (Pedir) son OPUESTOS: nunca
+        # ambos activos, también AL CREAR la línea (no solo al editar). Si llegan
+        # ambos encendidos, 'Pedir' gana (no requiere stock disponible).
+        for vals in vals_list:
+            if vals.get('por_asignar') and vals.get('auto_transit_assign'):
+                vals['por_asignar'] = False
         lines = super().create(vals_list)
         # Las líneas creadas por el carrito en cotización (x_selected_lots +
         # product_uom_qty) entran por aquí, no por write(): se valida el techo de
@@ -1635,8 +1641,13 @@ class SaleOrderLine(models.Model):
         }
         _tc_check_stock_cap = bool(_tc_stock_cap_fields.intersection(vals.keys()))
 
-        # 'Mandar a pedir' y 'Asignar' son modos mutuamente excluyentes:
-        # activar uno apaga el otro, también a nivel de datos (no solo en UI).
+        # 'Mandar a pedir' (Pedir) y 'Asignar' (Ocupar) son modos OPUESTOS:
+        # nunca ambos activos. Si en el MISMO write llegan ambos encendidos,
+        # 'Pedir' gana (igual que en create) y se evita el chequeo de stock.
+        if vals.get('por_asignar') and vals.get('auto_transit_assign'):
+            vals['por_asignar'] = False
+
+        # Al encender uno se apaga el otro, también a nivel de datos (no solo UI).
         if vals.get('por_asignar'):
             # REGLA DE NEGOCIO: sin stock libre disponible no hay nada que
             # asignar; 'Asignar' no puede activarse.
