@@ -49,7 +49,11 @@ class SupplierAccessTracking(models.Model):
             ship_total = len(ships)
             ship_done = sum(1 for s in ships if s.id in done_ship_ids)
             reception_validated = bool(ship_total and ship_done == ship_total)
-            progress = proforma._portal_progress()['percent'] if proforma else 0
+            # Defensivo: el % vive en stock_lot_packing_import. Si ese módulo aún
+            # no se recargó con _portal_progress, no truena (muestra 0 mientras).
+            progress = 0
+            if proforma and hasattr(proforma, '_portal_progress'):
+                progress = proforma._portal_progress().get('percent', 0)
             status = proforma.status if proforma else 'draft'
 
             if reception_validated:
