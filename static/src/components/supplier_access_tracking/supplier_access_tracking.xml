@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="stock_transit_allocation.SupplierLinksTracking" owl="1">
+        <div class="o_sl_root">
+
+            <!-- Header -->
+            <div class="o_sl_head">
+                <div class="o_sl_title">
+                    <i class="fa fa-link"/>
+                    <div>
+                        <h1>Seguimiento de Ligas</h1>
+                        <p>Avance de captura de tus proveedores en el portal</p>
+                    </div>
+                </div>
+                <button class="o_sl_refresh" t-on-click="() => this.refresh()" title="Actualizar">
+                    <i class="fa fa-refresh"/>
+                </button>
+            </div>
+
+            <!-- KPIs -->
+            <div class="o_sl_kpis">
+                <div class="o_sl_kpi o_sl_k_active" t-on-click="() => this.setFilter('active')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.active or 0"/>
+                    <span class="o_sl_kpi_l">Activas</span>
+                </div>
+                <div class="o_sl_kpi o_sl_k_blue" t-on-click="() => this.setFilter('in_progress')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.in_progress or 0"/>
+                    <span class="o_sl_kpi_l">En captura</span>
+                </div>
+                <div class="o_sl_kpi o_sl_k_amber" t-on-click="() => this.setFilter('captured')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.captured or 0"/>
+                    <span class="o_sl_kpi_l">Por validar tránsito</span>
+                </div>
+                <div class="o_sl_kpi o_sl_k_green" t-on-click="() => this.setFilter('done')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.done or 0"/>
+                    <span class="o_sl_kpi_l">Terminadas</span>
+                </div>
+                <div class="o_sl_kpi o_sl_k_red" t-on-click="() => this.setFilter('expired')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.expired or 0"/>
+                    <span class="o_sl_kpi_l">Vencidas</span>
+                </div>
+                <div class="o_sl_kpi o_sl_k_total" t-on-click="() => this.setFilter('all')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.total or 0"/>
+                    <span class="o_sl_kpi_l">Total</span>
+                </div>
+            </div>
+
+            <!-- Toolbar -->
+            <div class="o_sl_toolbar">
+                <div class="o_sl_chips">
+                    <t t-foreach="filters" t-as="f" t-key="f.key">
+                        <button class="o_sl_chip" t-att-class="{ 'o_active': state.filter === f.key }"
+                                t-on-click="() => this.setFilter(f.key)">
+                            <t t-esc="f.label"/>
+                        </button>
+                    </t>
+                </div>
+                <div class="o_sl_searchbox">
+                    <i class="fa fa-search"/>
+                    <input type="text" placeholder="Buscar proveedor, pedido, proforma…" t-model="state.search"/>
+                </div>
+            </div>
+
+            <!-- Loading -->
+            <div class="o_sl_loading" t-if="state.loading">
+                <div class="o_sl_spinner"/> <span>Cargando ligas…</span>
+            </div>
+
+            <!-- Tabla -->
+            <div class="o_sl_tablewrap" t-if="!state.loading">
+                <table class="o_sl_table">
+                    <thead>
+                        <tr>
+                            <th>Proveedor</th>
+                            <th>Pedido</th>
+                            <th>Proforma</th>
+                            <th class="o_sl_w200">Avance</th>
+                            <th>Estado</th>
+                            <th class="tc">Embarques</th>
+                            <th>Generada</th>
+                            <th>Última conexión</th>
+                            <th>Vigencia</th>
+                            <th/>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="filtered" t-as="r" t-key="r.id">
+                            <td><b t-esc="r.partner"/></td>
+                            <td>
+                                <a t-if="r.po_id" class="o_sl_link" t-on-click="() => this.openRecord('purchase.order', r.po_id)">
+                                    <t t-esc="r.po_name"/>
+                                </a>
+                                <span t-else="">—</span>
+                            </td>
+                            <td>
+                                <a t-if="r.proforma_id" class="o_sl_link" t-on-click="() => this.openRecord('supplier.proforma.header', r.proforma_id)">
+                                    <t t-esc="r.proforma_number or 'Ver'"/>
+                                </a>
+                                <span t-else="" class="o_sl_muted">sin abrir</span>
+                            </td>
+                            <td>
+                                <div class="o_sl_pbar">
+                                    <div class="o_sl_pfill" t-att-class="progressClass(r.progress)"
+                                         t-attf-style="width: {{ r.progress }}%"/>
+                                </div>
+                                <span class="o_sl_ppct"><t t-esc="r.progress"/>%</span>
+                            </td>
+                            <td>
+                                <span class="o_sl_badge" t-att-class="meta(r.state).cls" t-esc="meta(r.state).label"/>
+                            </td>
+                            <td class="tc">
+                                <t t-esc="r.shipments_done"/>/<t t-esc="r.shipments_total"/>
+                            </td>
+                            <td>
+                                <t t-esc="r.created"/>
+                                <small class="o_sl_muted"> · hace <t t-esc="r.days_open"/>d</small>
+                            </td>
+                            <td>
+                                <t t-if="r.last_access">
+                                    <t t-esc="r.last_access"/>
+                                    <small class="o_sl_muted" t-if="r.last_access_days > 0"> · hace <t t-esc="r.last_access_days"/>d</small>
+                                </t>
+                                <span t-else="" class="o_sl_muted">nunca</span>
+                            </td>
+                            <td>
+                                <span t-att-class="r.is_expired ? 'o_sl_exp' : (r.days_to_expire &lt; 30 ? 'o_sl_soon' : '')">
+                                    <t t-esc="r.expiration"/>
+                                </span>
+                            </td>
+                            <td class="o_sl_actions">
+                                <button class="o_sl_iconbtn" title="Copiar liga" t-on-click="() => this.copyLink(r.portal_url)">
+                                    <i class="fa fa-clipboard"/>
+                                </button>
+                            </td>
+                        </tr>
+                        <tr t-if="!filtered.length">
+                            <td colspan="10" class="o_sl_empty">No hay ligas para este filtro.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+        </div>
+    </t>
+
+</templates>

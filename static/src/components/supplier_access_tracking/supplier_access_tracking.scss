@@ -1,0 +1,123 @@
+// ============================================================================
+// Torre de Control — Seguimiento de Ligas del Portal de Proveedor
+// ============================================================================
+.o_sl_root {
+    --sl-blue: #2563eb;
+    --sl-blue-deep: #1e3a8a;
+    --sl-ink: #0f1f3d;
+    --sl-muted: #6b7a90;
+    --sl-line: #e6edf6;
+    --sl-bg: #f4f7fc;
+
+    box-sizing: border-box;
+    height: 100%;
+    overflow: auto;
+    padding: 1.1rem 1.4rem 2rem;
+    background: var(--sl-bg);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--sl-ink);
+    *, *::before, *::after { box-sizing: border-box; }
+
+    .o_sl_head {
+        display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem;
+    }
+    .o_sl_title {
+        display: flex; align-items: center; gap: 0.85rem;
+        i { font-size: 1.5rem; color: #fff; background: linear-gradient(135deg, var(--sl-blue), #38bdf8);
+            width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center;
+            box-shadow: 0 10px 22px rgba(37, 99, 235, 0.3); }
+        h1 { margin: 0; font-size: 1.4rem; font-weight: 800; }
+        p { margin: 0; font-size: 0.82rem; color: var(--sl-muted); }
+    }
+    .o_sl_refresh {
+        border: 1px solid var(--sl-line); background: #fff; border-radius: 11px;
+        width: 40px; height: 40px; color: var(--sl-blue); cursor: pointer;
+        &:hover { box-shadow: 0 6px 14px rgba(15, 31, 61, 0.1); }
+    }
+
+    // KPIs
+    .o_sl_kpis {
+        display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.8rem; margin-bottom: 1rem;
+        @media (max-width: 1100px) { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        @media (max-width: 600px) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    .o_sl_kpi {
+        background: #fff; border: 1px solid var(--sl-line); border-radius: 14px;
+        padding: 0.75rem 0.9rem; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+        border-left: 4px solid #cbd5e1; transition: all 0.15s ease;
+        &:hover { transform: translateY(-2px); box-shadow: 0 10px 22px rgba(15, 31, 61, 0.08); }
+        .o_sl_kpi_n { font-size: 1.5rem; font-weight: 800; }
+        .o_sl_kpi_l { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--sl-muted); font-weight: 700; }
+    }
+    .o_sl_k_active { border-left-color: var(--sl-blue); }
+    .o_sl_k_blue   { border-left-color: #0ea5e9; }
+    .o_sl_k_amber  { border-left-color: #f59e0b; }
+    .o_sl_k_green  { border-left-color: #10b981; }
+    .o_sl_k_red    { border-left-color: #e11d48; }
+    .o_sl_k_total  { border-left-color: #64748b; }
+
+    // Toolbar
+    .o_sl_toolbar {
+        display: flex; align-items: center; justify-content: space-between; gap: 1rem;
+        flex-wrap: wrap; margin-bottom: 0.9rem;
+    }
+    .o_sl_chips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+    .o_sl_chip {
+        border: 1px solid var(--sl-line); background: #fff; color: var(--sl-muted);
+        font-weight: 600; font-size: 0.8rem; padding: 6px 12px; border-radius: 10px; cursor: pointer;
+        &:hover { color: var(--sl-blue); }
+        &.o_active { color: #fff; background: linear-gradient(135deg, var(--sl-blue), var(--sl-blue-deep)); border-color: transparent; }
+    }
+    .o_sl_searchbox {
+        display: inline-flex; align-items: center; gap: 0.45rem; background: #fff;
+        border: 1px solid var(--sl-line); border-radius: 10px; padding: 6px 10px; min-width: 280px;
+        i { color: var(--sl-muted); }
+        input { border: none; outline: none; flex: 1; font-size: 0.85rem; background: transparent; }
+    }
+
+    // Loading
+    .o_sl_loading { display: flex; align-items: center; gap: 0.6rem; padding: 3rem; color: var(--sl-muted); justify-content: center; }
+    .o_sl_spinner { width: 30px; height: 30px; border-radius: 50%; border: 4px solid #dbe6f7; border-top-color: var(--sl-blue); animation: slspin 0.8s linear infinite; }
+    @keyframes slspin { to { transform: rotate(360deg); } }
+
+    // Tabla
+    .o_sl_tablewrap { background: #fff; border: 1px solid var(--sl-line); border-radius: 14px; overflow: auto; box-shadow: 0 10px 24px rgba(15, 31, 61, 0.05); }
+    .o_sl_table {
+        width: 100%; border-collapse: collapse; font-size: 0.84rem;
+        th { text-align: left; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.04em;
+             color: var(--sl-muted); font-weight: 700; padding: 0.7rem 0.8rem; border-bottom: 2px solid var(--sl-line); background: #f8fafc; white-space: nowrap; }
+        td { padding: 0.65rem 0.8rem; border-bottom: 1px solid #f0f4fa; vertical-align: middle; }
+        tr:hover td { background: #f7fbff; }
+        .tc { text-align: center; }
+        .o_sl_w200 { min-width: 190px; }
+    }
+    .o_sl_link { color: var(--sl-blue); font-weight: 600; cursor: pointer; &:hover { text-decoration: underline; } }
+    .o_sl_muted { color: var(--sl-muted); }
+
+    // Barra de avance
+    .o_sl_pbar { display: inline-block; width: 120px; height: 9px; background: #eef3fb; border-radius: 6px; overflow: hidden; vertical-align: middle; }
+    .o_sl_pfill { height: 100%; border-radius: 6px; transition: width 0.5s ease; }
+    .o_sl_pf_green { background: linear-gradient(90deg, #34d399, #10b981); }
+    .o_sl_pf_blue  { background: linear-gradient(90deg, #38bdf8, #2563eb); }
+    .o_sl_pf_amber { background: linear-gradient(90deg, #fbbf24, #f59e0b); }
+    .o_sl_ppct { margin-left: 8px; font-weight: 700; font-size: 0.78rem; }
+
+    // Badges de estado
+    .o_sl_badge { display: inline-block; font-size: 0.72rem; font-weight: 700; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    .o_sl_gray  { background: #eef2f7; color: #64748b; }
+    .o_sl_blue  { background: #e0f2fe; color: #0369a1; }
+    .o_sl_amber { background: #fef3c7; color: #b45309; }
+    .o_sl_green { background: #d1fae5; color: #047857; }
+    .o_sl_red   { background: #ffe4e6; color: #be123c; }
+
+    .o_sl_exp { color: #be123c; font-weight: 700; }
+    .o_sl_soon { color: #b45309; font-weight: 600; }
+
+    .o_sl_actions { text-align: right; white-space: nowrap; }
+    .o_sl_iconbtn {
+        border: 1px solid var(--sl-line); background: #fff; color: var(--sl-blue);
+        width: 28px; height: 28px; border-radius: 8px; cursor: pointer;
+        &:hover { background: var(--sl-blue); color: #fff; border-color: var(--sl-blue); }
+    }
+    .o_sl_empty { text-align: center; color: var(--sl-muted); padding: 2rem; }
+}

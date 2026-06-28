@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="action_supplier_links_tracking" model="ir.actions.client">
+        <field name="name">Seguimiento de Ligas</field>
+        <field name="tag">action_supplier_links_tracking</field>
+    </record>
+
+    <menuitem id="menu_supplier_links_tracking"
+              name="Seguimiento de Ligas"
+              parent="menu_transit_root"
+              action="action_supplier_links_tracking"
+              sequence="4"/>
+
+</odoo>
