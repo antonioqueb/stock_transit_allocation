@@ -435,7 +435,18 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             container_sequences,
         )
 
+        # Guardia anti-duplicado: la restricción de stock.lot es única por
+        # (producto, nombre, compañía incluso sin definir). _get_next_lot_number_for_prefix
+        # filtra por compañía, así que un lote huérfano/omitido con el mismo
+        # nombre puede escaparse. Se salta cualquier número ya ocupado.
+        Lot = self.env["stock.lot"].sudo().with_context(active_test=False)
         lot_name = f"{seq_data['prefix']}-{seq_data['num']:02d}"
+        while Lot.search_count([
+            ("name", "=", lot_name),
+            ("product_id", "=", row["product"].id),
+        ]):
+            seq_data["num"] += 1
+            lot_name = f"{seq_data['prefix']}-{seq_data['num']:02d}"
         seq_data["num"] += 1
 
         lot = self.env["stock.lot"].create(
@@ -637,6 +648,90 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         return lots.sorted(key=sort_key)
 
+    def _tc_build_conflict_free_names(self, target_prefix, ordered_lots, assigned_names):
+        """
+        Genera nombres secuenciales ``prefijo-NN`` evitando la restricción de
+        unicidad de stock.lot (producto + nombre + compañía, incluso sin definir).
+
+        Caso real que reventaba el flujo:
+        - El PL físico corrige datos de una placa y su firma ya no coincide con
+          el lote original (p.ej. 6-19). Se crea un lote nuevo y el 6-19 viejo
+          queda "omitido" (cantidad 0) pero conserva su nombre en BD.
+        - El renombrado secuencial intentaba asignar 6-19 a otro lote del mismo
+          producto → ValidationError de lote duplicado y rollback total.
+
+        Estrategia:
+        - Si el nombre deseado lo ocupa un lote ajeno al grupo pero "muerto"
+          (sin existencias en ningún quant), se renombra ese lote huérfano a
+          ``<nombre>-OBS-<id>`` para liberar el nombre y mantener la secuencia
+          contigua.
+        - Si el lote en conflicto sí tiene existencias, no se toca: se salta
+          ese número y se continúa con el siguiente.
+        """
+        Lot = self.env["stock.lot"].sudo().with_context(active_test=False)
+        picking = self.picking_id
+
+        product_ids = ordered_lots.mapped("product_id").ids
+
+        # Lotes fuera del grupo que podrían chocar con los nombres deseados.
+        conflict_candidates = Lot.search([
+            ("name", "=like", f"{target_prefix}-%"),
+            ("product_id", "in", product_ids),
+            ("id", "not in", ordered_lots.ids),
+            ("company_id", "in", [False, picking.company_id.id]),
+        ])
+        conflicts_by_name = {}
+        for lot in conflict_candidates:
+            conflicts_by_name.setdefault(lot.name, Lot.browse())
+            conflicts_by_name[lot.name] |= lot
+
+        desired_names = {}
+        idx = 1
+
+        for lot in ordered_lots:
+            while True:
+                candidate = f"{target_prefix}-{idx:02d}"
+                idx += 1
+
+                if candidate in assigned_names:
+                    continue
+
+                conflicting = conflicts_by_name.get(candidate)
+                if not conflicting:
+                    desired_names[lot.id] = candidate
+                    break
+
+                # Solo se puede liberar el nombre si TODOS los lotes en
+                # conflicto están muertos (sin existencias).
+                stale = all(
+                    self._tc_float_is_zero(
+                        c.product_id,
+                        sum(c.quant_ids.mapped("quantity")),
+                    )
+                    for c in conflicting
+                )
+
+                if stale:
+                    for c in conflicting:
+                        old_name = c.name
+                        c.write({"name": f"{old_name}-OBS-{c.id}"})
+                        _logger.info(
+                            "[TC_PHYSICAL_PL] Lote huérfano %s (id %s) renombrado a %s "
+                            "para liberar el nombre en el renumerado.",
+                            old_name, c.id, c.name,
+                        )
+                    conflicts_by_name.pop(candidate, None)
+                    desired_names[lot.id] = candidate
+                    break
+
+                _logger.warning(
+                    "[TC_PHYSICAL_PL] Nombre %s ocupado por lote con existencias "
+                    "(ids %s); se salta ese número en la secuencia.",
+                    candidate, conflicting.ids,
+                )
+
+        return desired_names
+
     def _tc_renumber_physical_reception_lots_by_container(self, voyage):
         """
         Normaliza nombres después de aplicar el PL físico.
@@ -681,6 +776,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             groups.setdefault(container, self.env["stock.lot"])
             groups[container] |= lot
 
+        # Nombres ya asignados en esta corrida (evita colisión si dos
+        # contenedores eligen el mismo prefijo dominante).
+        assigned_names = set()
+
         for container, lots in groups.items():
             target_prefix = self._tc_choose_prefix_from_lots(lots)
 
@@ -689,10 +788,12 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
             ordered_lots = self._tc_sort_lots_for_sequence(lots)
 
-            desired_names = {
-                lot.id: f"{target_prefix}-{idx:02d}"
-                for idx, lot in enumerate(ordered_lots, start=1)
-            }
+            desired_names = self._tc_build_conflict_free_names(
+                target_prefix,
+                ordered_lots,
+                assigned_names,
+            )
+            assigned_names.update(desired_names.values())
 
             already_ok = all(lot.name == desired_names[lot.id] for lot in ordered_lots)
             if already_ok:
