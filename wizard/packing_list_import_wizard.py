@@ -366,6 +366,166 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         return False
 
+    def _tc_score_row_lot(self, row, lot):
+        """
+        Puntaje de similitud fila↔lote para el emparejamiento difuso.
+
+        Solo suman los campos con valor en la fila (empatar vacío-con-vacío
+        no aporta identidad y inflaría el puntaje).
+        """
+        score = 0
+
+        def _match(row_key, lot_field, points):
+            nonlocal score
+            row_val = self._tc_normalize_text(row.get(row_key))
+            if row_val and row_val == self._tc_normalize_text(getattr(lot, lot_field, "")):
+                score += points
+
+        _match("bloque", "x_bloque", 3)
+        _match("numero_placa", "x_numero_placa", 3)
+        _match("ref_proveedor", "x_referencia_proveedor", 2)
+        _match("atado", "x_atado", 1)
+        _match("grosor", "x_grosor", 1)
+
+        # Dimensiones físicas (solo placas): alto/ancho casi nunca se editan
+        # a la vez, son un identificador fuerte de la placa física.
+        unit_type = str(row.get("tipo") or "").lower()
+        if unit_type == "placa":
+            alto = row.get("alto") or 0.0
+            ancho = row.get("ancho") or 0.0
+            if alto > 0 and ancho > 0:
+                alto_ok = abs(alto - (getattr(lot, "x_alto", 0.0) or 0.0)) < 0.005
+                ancho_ok = abs(ancho - (getattr(lot, "x_ancho", 0.0) or 0.0)) < 0.005
+                if alto_ok and ancho_ok:
+                    score += 3
+
+        return score
+
+    def _tc_pair_rows_with_lots(self, voyage, valid_rows):
+        """
+        Empareja TODAS las filas del PL físico con los lotes existentes de la
+        recepción/viaje ANTES de crear nada, en tres pasadas globales:
+
+        1. Firma exacta (comportamiento original).
+        2. Difusa por puntaje: tolera que el usuario haya corregido uno o dos
+           campos (ref. proveedor, atado, grosor...) sin perder la identidad
+           del lote — evita duplicar el lote y liberar sus holds.
+        3. Posicional: si tras 1 y 2 quedan N filas y N lotes sueltos del
+           mismo producto (cuentas iguales ⇒ son los mismos fierros con datos
+           corregidos), se emparejan en orden. Si las cuentas NO cuadran, no
+           se arriesga: la fila generará lote nuevo y el sobrante se omite.
+
+        Hacerlo global (y no fila-por-fila) evita que una fila editada le
+        "robe" por coincidencia difusa el lote que le corresponde exactamente
+        a otra fila posterior.
+
+        Devuelve {índice_de_fila: stock.lot}.
+        """
+        candidates = (
+            self.picking_id.move_line_ids.mapped("lot_id")
+            | voyage.line_ids.mapped("lot_id")
+        ).filtered(lambda lot: lot and lot.name)
+
+        pairing = {}
+        used = set()
+
+        # ── Pasada 1: firma exacta ──────────────────────────────────────────
+        for i, (row, _qty) in enumerate(valid_rows):
+            target_sig = self._tc_row_signature(row)
+            for lot in candidates:
+                if lot.id in used or lot.product_id.id != row["product"].id:
+                    continue
+                if self._tc_lot_signature(lot) == target_sig:
+                    pairing[i] = lot
+                    used.add(lot.id)
+                    break
+
+        # ── Pasada 2: difusa por puntaje ────────────────────────────────────
+        fuzzy_pairs = []
+        for i, (row, _qty) in enumerate(valid_rows):
+            if i in pairing:
+                continue
+
+            best_lot = False
+            best_score = 0
+
+            for lot in candidates:
+                if lot.id in used or lot.product_id.id != row["product"].id:
+                    continue
+                score = self._tc_score_row_lot(row, lot)
+                if score > best_score:
+                    best_lot = lot
+                    best_score = score
+
+            # Umbral 3: exige al menos un identificador fuerte (bloque,
+            # nº placa o dimensiones) o una combinación de débiles.
+            if best_lot and best_score >= 3:
+                pairing[i] = best_lot
+                used.add(best_lot.id)
+                fuzzy_pairs.append((row, best_lot, best_score))
+
+        # ── Pasada 3: posicional por producto cuando las cuentas cuadran ───
+        positional_pairs = []
+        products = {row["product"].id for row, _qty in valid_rows}
+
+        for product_id in products:
+            leftover_rows = [
+                i for i, (row, _qty) in enumerate(valid_rows)
+                if i not in pairing and row["product"].id == product_id
+            ]
+            if not leftover_rows:
+                continue
+
+            leftover_lots = self._tc_sort_lots_for_sequence(candidates.filtered(
+                lambda lot: lot.id not in used and lot.product_id.id == product_id
+            ))
+
+            if len(leftover_rows) != len(leftover_lots):
+                _logger.info(
+                    "[TC_PHYSICAL_PL] Pasada posicional omitida para producto %s: "
+                    "%s filas sueltas vs %s lotes sueltos.",
+                    product_id, len(leftover_rows), len(leftover_lots),
+                )
+                continue
+
+            for i, lot in zip(leftover_rows, leftover_lots):
+                pairing[i] = lot
+                used.add(lot.id)
+                positional_pairs.append((valid_rows[i][0], lot))
+
+        # ── Trazabilidad en chatter ─────────────────────────────────────────
+        if fuzzy_pairs or positional_pairs:
+            lines = []
+            for row, lot, score in fuzzy_pairs:
+                lines.append(_(
+                    "• %(lot)s ↔ fila con bloque '%(bloque)s' / placa '%(placa)s' "
+                    "(coincidencia parcial, puntaje %(score)s)"
+                ) % {
+                    "lot": lot.name,
+                    "bloque": row.get("bloque") or "-",
+                    "placa": row.get("numero_placa") or "-",
+                    "score": score,
+                })
+            for row, lot in positional_pairs:
+                lines.append(_(
+                    "• %(lot)s ↔ fila con bloque '%(bloque)s' / placa '%(placa)s' "
+                    "(emparejado por posición: datos corregidos en PL físico)"
+                ) % {
+                    "lot": lot.name,
+                    "bloque": row.get("bloque") or "-",
+                    "placa": row.get("numero_placa") or "-",
+                })
+
+            self.picking_id.message_post(body=_(
+                "🔗 PL físico: %(count)s lote(s) reutilizados con datos corregidos "
+                "(en lugar de duplicarlos):<br/>%(detail)s"
+            ) % {
+                "count": len(fuzzy_pairs) + len(positional_pairs),
+                "detail": "<br/>".join(lines),
+            })
+
+        return pairing
+
     def _tc_prepare_lot_vals(self, row, lot_name=False):
         product = row["product"]
         unit_type = row.get("tipo") or product.product_tmpl_id.x_unidad_del_producto or "Placa"
@@ -407,8 +567,8 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         return vals
 
-    def _tc_get_or_create_lot(self, voyage, row, used_lot_ids, container_sequences):
-        existing_lot = self._tc_find_existing_lot(voyage, row, used_lot_ids)
+    def _tc_get_or_create_lot(self, voyage, row, used_lot_ids, container_sequences, forced_lot=False):
+        existing_lot = forced_lot or self._tc_find_existing_lot(voyage, row, used_lot_ids)
 
         if existing_lot:
             vals = self._tc_prepare_lot_vals(row)
@@ -714,7 +874,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 if stale:
                     for c in conflicting:
                         old_name = c.name
-                        c.write({"name": f"{old_name}-OBS-{c.id}"})
+                        # El nombre apartado NO debe empezar con el prefijo
+                        # numérico: _get_next_lot_number_for_prefix usa
+                        # LIKE 'prefijo-%' y un nombre tipo '6-19-OBS-123'
+                        # inflaría la secuencia siguiente.
+                        c.write({"name": f"OBS-{c.id}-{old_name}"})
                         _logger.info(
                             "[TC_PHYSICAL_PL] Lote huérfano %s (id %s) renombrado a %s "
                             "para liberar el nombre en el renumerado.",
@@ -864,7 +1028,12 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         new_lots = 0
         reused_lots = 0
 
-        for row, qty in valid_rows:
+        # Emparejamiento global fila↔lote ANTES de crear nada (exacto →
+        # difuso → posicional). Tolera correcciones de datos en el PL físico
+        # sin duplicar lotes ni soltar holds.
+        pairing = self._tc_pair_rows_with_lots(voyage, valid_rows)
+
+        for row_index, (row, qty) in enumerate(valid_rows):
             product = row["product"]
 
             lot, was_new = self._tc_get_or_create_lot(
@@ -872,6 +1041,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 row,
                 used_lot_ids,
                 container_sequences,
+                forced_lot=pairing.get(row_index),
             )
 
             if was_new:
