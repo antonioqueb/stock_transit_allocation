@@ -343,6 +343,100 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 )
 
     # -------------------------------------------------------------------------
+    #  EXTRACCIÓN — LAYOUT PROPIO DEL PL FÍSICO
+    # -------------------------------------------------------------------------
+
+    def _extract_rows_from_index(self, idx, product):
+        """
+        El PL físico se GENERA (stock_picking_physical_pl) con un orden de
+        columnas distinto al de la plantilla PL original:
+
+            PL físico  (placa): A=Grosor | B=Alto | C=Largo | D=Peso | E=Notas ...
+            PL original (placa): A=Largo | B=Alto | C=Grosor | D=Peso | E=Color ...
+
+        El parser base asume el layout original, por lo que al procesar el PL
+        físico intercambiaba grosor↔largo: los lotes quedaban con x_ancho=grosor
+        y x_grosor=largo, los m² salían mal (alto×grosor) y la firma de
+        emparejamiento fallaba (origen del bug de lotes duplicados).
+
+        Además el PL físico trae la columna 'Ref. Interna' (nombre del lote
+        original), que aquí se extrae para emparejar de forma determinística.
+        """
+        if not self._tc_is_physical_reception_import():
+            return super()._extract_rows_from_index(idx, product)
+
+        unit_type = product.product_tmpl_id.x_unidad_del_producto or "Placa"
+        is_placa = str(unit_type).lower() == "placa"
+
+        if is_placa:
+            # A=Grosor B=Alto C=Largo D=Peso E=Notas F=Bloque G=No.Placa
+            # H=Atado I=Grupo J=Pedimento K=Contenedor L=Ref.Prov M=Ref.Interna
+            col = {
+                "notas": 4, "bloque": 5, "placa": 6, "atado": 7, "grupo": 8,
+                "pedimento": 9, "contenedor": 10, "ref": 11, "ref_interna": 12,
+            }
+        else:
+            # A=Grosor B=Cantidad C=Peso D=Notas E=Bloque F=No.Placa
+            # G=Atado H=Grupo I=Pedimento J=Contenedor K=Ref.Prov L=Ref.Interna
+            col = {
+                "notas": 3, "bloque": 4, "placa": 5, "atado": 6, "grupo": 7,
+                "pedimento": 8, "contenedor": 9, "ref": 10, "ref_interna": 11,
+            }
+
+        rows = []
+        filas_validas = 0
+        filas_invalidas = 0
+
+        for r in range(3, 300):
+            raw_a = idx.value(0, r)
+            raw_b = idx.value(1, r)
+            raw_c = idx.value(2, r)
+
+            val_b = self._to_float(raw_b)
+            val_c = self._to_float(raw_c)
+
+            if is_placa:
+                # PL físico: B=Alto, C=Largo (el largo vive en x_ancho).
+                es_valido = val_b > 0 and val_c > 0
+            else:
+                # Pieza/formato: B=Cantidad.
+                es_valido = val_b > 0
+
+            if not es_valido:
+                if filas_invalidas < 5 and (raw_a or raw_b or raw_c):
+                    _logger.info(
+                        "[TC_PHYSICAL_PL] Fila %s inválida | A='%s' B='%s' C='%s'",
+                        r + 1, raw_a, raw_b, raw_c,
+                    )
+                    filas_invalidas += 1
+                continue
+
+            filas_validas += 1
+            rows.append({
+                "product": product,
+                "grosor": str(raw_a or "").strip(),
+                "alto": val_b if is_placa else 0.0,
+                "ancho": val_c if is_placa else 0.0,
+                "quantity": val_b if not is_placa else 0.0,
+                "color": str(idx.value(col["notas"], r) or "").strip(),
+                "bloque": str(idx.value(col["bloque"], r) or "").strip(),
+                "numero_placa": str(idx.value(col["placa"], r) or "").strip(),
+                "atado": str(idx.value(col["atado"], r) or "").strip(),
+                "tipo": unit_type,
+                "grupo_name": str(idx.value(col["grupo"], r) or "").strip(),
+                "pedimento": str(idx.value(col["pedimento"], r) or "").strip(),
+                "contenedor": str(idx.value(col["contenedor"], r) or "SN").strip(),
+                "ref_proveedor": str(idx.value(col["ref"], r) or "").strip(),
+                "ref_interna": str(idx.value(col["ref_interna"], r) or "").strip(),
+            })
+
+        _logger.info(
+            "[TC_PHYSICAL_PL] Layout físico | filas válidas: %s | inválidas con contenido: %s",
+            filas_validas, filas_invalidas,
+        )
+        return rows
+
+    # -------------------------------------------------------------------------
     #  LOTES
     # -------------------------------------------------------------------------
 
@@ -428,6 +522,22 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         pairing = {}
         used = set()
+
+        # ── Pasada 0: Ref. Interna (nombre del lote original) ──────────────
+        # El PL físico se genera con la columna 'Ref. Interna' prellenada con
+        # el nombre del lote. Si el usuario no la borra, el emparejamiento es
+        # determinístico: puede editar CUALQUIER otro campo sin duplicar lotes.
+        lots_by_name = {lot.name: lot for lot in candidates}
+
+        for i, (row, _qty) in enumerate(valid_rows):
+            ref_interna = str(row.get("ref_interna") or "").strip()
+            if not ref_interna:
+                continue
+
+            lot = lots_by_name.get(ref_interna)
+            if lot and lot.id not in used and lot.product_id.id == row["product"].id:
+                pairing[i] = lot
+                used.add(lot.id)
 
         # ── Pasada 1: firma exacta ──────────────────────────────────────────
         for i, (row, _qty) in enumerate(valid_rows):
