@@ -1363,6 +1363,29 @@ class StockMove(models.Model):
 
         return True
 
+    def _tc_moves_with_explicit_lot_management(self):
+        """Moves de venta cuya línea está en un modo gestionado por Torre de
+        Control ('Asignar' / 'Mandar a pedir').
+
+        En esos modos los lotes SIEMPRE se asignan de forma explícita (selector
+        de placas, desglose de parcialidades o llegada del tránsito). La
+        reserva nativa NO debe escoger lotes arbitrarios del stock libre: el
+        FIFO puede tomar un lote parcialmente comprometido en OTRA venta y el
+        candado de lote duplicado (stock_lot_dimensions) revienta la operación
+        con "el lote ya está comprometido en otra operación activa" aunque el
+        usuario nunca haya elegido ese lote (caso real: activar 'Mandar a
+        pedir' en una línea con empaque estándar).
+        """
+        return self.filtered(
+            lambda move: (
+                move.sale_line_id
+                and (
+                    getattr(move.sale_line_id, 'auto_transit_assign', False)
+                    or getattr(move.sale_line_id, 'por_asignar', False)
+                )
+            )
+        )
+
     def _action_assign(self, *args, **kwargs):
         if self.env.context.get('tc_physical_reception_prepare') or self.env.context.get('tc_no_auto_validate'):
             guarded_moves = self.filtered(
@@ -1382,7 +1405,24 @@ class StockMove(models.Model):
 
             return True
 
-        return super(StockMove, self)._action_assign(*args, **kwargs)
+        # Sin reserva automática para líneas gestionadas por Torre de Control:
+        # sus lotes llegan por asignación explícita, nunca por FIFO nativo.
+        tc_managed = self._tc_moves_with_explicit_lot_management()
+
+        if tc_managed:
+            _logger.info(
+                "[TC_ASSIGN_GUARD] Se omitió la reserva nativa para líneas en "
+                "modo Asignar/Mandar a pedir. moves=%s pickings=%s",
+                tc_managed.ids,
+                tc_managed.mapped('picking_id.name'),
+            )
+
+        remaining = self - tc_managed
+
+        if not remaining:
+            return True
+
+        return super(StockMove, remaining)._action_assign(*args, **kwargs)
 
     def _action_done(self, *args, **kwargs):
         self._tc_assert_physical_reception_moves_can_be_done()
