@@ -251,6 +251,18 @@ class SaleOrderLine(models.Model):
         digits='Product Unit of Measure',
     )
 
+    tc_is_service_line = fields.Boolean(
+        string='Es servicio (TC)',
+        compute='_compute_tc_is_service_line',
+        help='Los servicios no se gestionan por stock: la cantidad solicitada '
+             'es libre y no requiere los modos Asignar/Mandar a pedir.',
+    )
+
+    @api.depends('product_id')
+    def _compute_tc_is_service_line(self):
+        for line in self:
+            line.tc_is_service_line = bool(line.product_id) and line._tc_is_service_product()
+
     tc_allocation_hub_state = fields.Selection(
         selection=[
             ('allocated', 'Asignado'),
@@ -1865,6 +1877,11 @@ class SaleOrderLine(models.Model):
 
         for line in self:
             if line.display_type or not line.product_id:
+                continue
+
+            # Servicios: la cantidad es libre (no hay placas ni stock que la
+            # derive). Sin este guard, un sync forzado la regresaría a 0.
+            if line._tc_is_service_product():
                 continue
 
             assigned_qty = line._tc_get_assigned_lot_qty()

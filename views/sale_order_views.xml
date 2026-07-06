@@ -19,6 +19,8 @@
                 <field name="tc_closure_reason" column_invisible="1"/>
                 <field name="tc_closure_by" column_invisible="1"/>
                 <field name="tc_closure_at" column_invisible="1"/>
+                <!-- Servicios: cantidad libre, sin stock ni modos Asignar/Pedir. -->
+                <field name="tc_is_service_line" column_invisible="1"/>
 
                 <!--
                     Stock disponible del material: suma de m² en ubicaciones
@@ -45,7 +47,8 @@
                 <field name="auto_transit_assign"
                        widget="boolean_toggle"
                        width="72px"
-                       string="Pedir"/>
+                       string="Pedir"
+                       readonly="tc_is_service_line"/>
 
                 <!--
                     'Asignar': segundo interruptor de cantidad manual,
@@ -55,7 +58,8 @@
                 <field name="por_asignar"
                        widget="boolean_toggle"
                        width="72px"
-                       string="Asignar"/>
+                       string="Asignar"
+                       readonly="tc_is_service_line"/>
             </xpath>
 
             <!-- ========================================================= -->
@@ -69,8 +73,10 @@
                     'Asignar' están activos. Sin ninguno de los dos, la
                     cantidad se fija seleccionando placas (el backend la iguala a
                     la suma asignada por lotes).
+                    EXCEPCIÓN: los SERVICIOS no se gestionan por stock — su
+                    cantidad es siempre editable, sin necesidad de modo.
                 -->
-                <attribute name="readonly">not auto_transit_assign and not por_asignar</attribute>
+                <attribute name="readonly">not tc_is_service_line and not auto_transit_assign and not por_asignar</attribute>
             </xpath>
 
             <!-- ========================================================= -->
