@@ -1382,6 +1382,10 @@ class StockMove(models.Model):
                 and (
                     getattr(move.sale_line_id, 'auto_transit_assign', False)
                     or getattr(move.sale_line_id, 'por_asignar', False)
+                    # Línea con placas asignadas manualmente: la reserva nativa
+                    # tampoco debe escoger lotes para el faltante — cualquier
+                    # placa la elige el vendedor, nunca el FIFO.
+                    or bool(move.sale_line_id.lot_ids)
                 )
             )
         )
