@@ -279,3 +279,87 @@ class SupplierShipmentPackingRowTrace(models.Model):
             'domain': [('lot_id', '=', lot.id)],
             'context': {'create': False, 'edit': False},
         }
+
+
+class StockLotTraceState(models.Model):
+    """Estado actual + foto por lote, en batch, para el widget del viaje
+    (Torre de Control): columnas tipo inventario visual en el PL a asignar."""
+    _inherit = 'stock.lot'
+
+    @api.model
+    def som_trace_state_map(self, lot_ids):
+        labels = dict(TRACE_STATES)
+        lots = self.browse(lot_ids).exists()
+        result = {}
+        if not lots:
+            return result
+
+        ids = lots.ids
+
+        internal, transit, production = {}, {}, {}
+        has_hold = set()
+        for q in self.env['stock.quant'].sudo().search([
+            ('lot_id', 'in', ids), ('quantity', '>', 0),
+        ]):
+            usage = q.location_id.usage
+            lid = q.lot_id.id
+            if usage == 'internal':
+                internal[lid] = internal.get(lid, 0.0) + q.quantity
+            elif usage == 'transit':
+                transit[lid] = transit.get(lid, 0.0) + q.quantity
+            elif usage == 'production':
+                production[lid] = production.get(lid, 0.0) + q.quantity
+            if getattr(q, 'x_tiene_hold', False):
+                has_hold.add(lid)
+
+        in_sale = set()
+        SaleLine = self.env['sale.order.line'].sudo()
+        if 'lot_ids' in SaleLine._fields:
+            for sl in SaleLine.search([
+                ('lot_ids', 'in', ids),
+                ('order_id.state', 'in', ['sale', 'done']),
+            ]):
+                in_sale.update(l.id for l in sl.lot_ids if l.id in set(ids))
+
+        delivered = set()
+        for ml in self.env['stock.move.line'].sudo().search([
+            ('lot_id', 'in', ids), ('state', '=', 'done'),
+            ('picking_id.picking_type_code', '=', 'outgoing'),
+            ('location_dest_id.usage', '=', 'customer'),
+        ]):
+            delivered.add(ml.lot_id.id)
+
+        has_photo_field = 'x_fotografia_ids' in self._fields
+
+        for lot in lots:
+            lid = lot.id
+            if transit.get(lid, 0.0) > 0:
+                state = 'en_transito'
+            elif internal.get(lid, 0.0) > 0:
+                if lid in has_hold:
+                    state = 'hold'
+                elif lid in in_sale:
+                    state = 'vendido'
+                else:
+                    state = 'libre'
+            elif production.get(lid, 0.0) > 0:
+                state = 'recibido'
+            elif lid in delivered:
+                state = 'entregado'
+            else:
+                state = 'sin_stock'
+
+            photo_count = 0
+            photo_id = False
+            if has_photo_field and lot.x_fotografia_ids:
+                photo_count = len(lot.x_fotografia_ids)
+                photo_id = lot.x_fotografia_ids[0].id
+
+            result[lid] = {
+                'state': state,
+                'label': labels.get(state, state),
+                'photo_count': photo_count,
+                'photo_id': photo_id,
+            }
+
+        return result

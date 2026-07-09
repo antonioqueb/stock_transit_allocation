@@ -107,6 +107,9 @@
                                         <th class="tvl-th tvl-th--prop" title="Propagar asignación hacia abajo">↓↓</th>
                                         <th class="tvl-th">Sales Order</th>
                                         <th class="tvl-th tvl-th--status">Estado</th>
+                                        <th class="tvl-th tvl-th--center" title="Situación actual del lote (como en inventario visual)">Situación</th>
+                                        <th class="tvl-th tvl-th--center" title="Fotografías del lote">📷</th>
+                                        <th class="tvl-th tvl-th--center" title="Historial de movimientos">⟲</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -124,7 +127,7 @@
                                                     <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
                                                 </span>
                                             </td>
-                                            <td colspan="10" class="tvl-block-header-m2">
+                                            <td colspan="13" class="tvl-block-header-m2">
                                                 <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
                                             </td>
                                         </tr>
@@ -281,6 +284,36 @@
                                                 t-esc="statusLabel(line.allocation_status)"/>
                                         </td>
 
+                                        <!-- Situación actual del lote -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <span t-if="line.trace"
+                                                  t-attf-class="tvl-trace-chip #{traceChipCls(line.trace.state)}"
+                                                  t-esc="line.trace.label"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Foto del lote -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <button t-if="line.trace and line.trace.photo_count"
+                                                    class="tvl-icon-btn tvl-icon-btn--photo"
+                                                    t-attf-title="Ver fotografía (#{line.trace.photo_count})"
+                                                    t-on-click="() => this.openLotPhoto(line)">
+                                                <i class="fa fa-camera"/>
+                                            </button>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Historial de movimientos -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <button t-if="line.lot_id"
+                                                    class="tvl-icon-btn"
+                                                    title="Historial de movimientos del lote"
+                                                    t-on-click="() => this.openLotHistory(line)">
+                                                <i class="fa fa-history"/>
+                                            </button>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
                                     </tr>
                                 </t>
 
@@ -292,7 +325,7 @@
                                     <td class="tvl-td tvl-subtotal__m2">
                                         <t t-esc="fmtNum(group.total_m2)"/> m²
                                     </td>
-                                    <td colspan="5" class="tvl-td tvl-subtotal__info">
+                                    <td colspan="8" class="tvl-td tvl-subtotal__info">
                                         <span t-if="group.reserved_m2 > 0" class="tvl-subtotal__reserved">
                                             <t t-esc="fmtNum(group.reserved_m2)"/> m² reservados
                                         </span>

@@ -23,6 +23,7 @@ class TransitVoyageLinesWidget extends Component {
         this.orm          = useService("orm");
         this.notification = useService("notification");
         this.dialog       = useService("dialog");
+        this.action       = useService("action");
 
         this.state = useState({
             groups:        [],
@@ -95,10 +96,21 @@ class TransitVoyageLinesWidget extends Component {
                 );
                 lots.forEach(l => { lotData[l.id] = l; });
             }
+            // Estado actual + foto por lote (mismo criterio que inventario visual)
+            let traceMap = {};
+            if (lotIds.length) {
+                try {
+                    traceMap = await this.orm.call("stock.lot", "som_trace_state_map", [lotIds]);
+                } catch (e) {
+                    console.warn("[TransitVoyageLines] trace map:", e);
+                }
+            }
+
             lines.forEach(line => {
                 const lot = line.lot_id && lotData[line.lot_id[0]];
                 line.x_bloque = lot?.x_bloque || "";
                 line.x_atado  = lot?.x_atado  || "";
+                line.trace    = (line.lot_id && traceMap[line.lot_id[0]]) || null;
             });
 
             this._buildGroups(lines);
@@ -108,6 +120,38 @@ class TransitVoyageLinesWidget extends Component {
             this.notification.add("Error cargando líneas", { type: "danger" });
         } finally {
             this.state.loading = false;
+        }
+    }
+
+    // ─── Trazabilidad (columnas tipo inventario visual) ─────────────────────
+
+    traceChipCls(state) {
+        return {
+            libre: "tvl-trace--free",
+            hold: "tvl-trace--hold",
+            vendido: "tvl-trace--sold",
+            entregado: "tvl-trace--delivered",
+            en_transito: "tvl-trace--transit",
+        }[state] || "tvl-trace--other";
+    }
+
+    openLotHistory(line) {
+        if (!line.lot_id) return;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: `Historial — ${line.lot_id[1]}`,
+            res_model: "stock.move.line",
+            views: [[false, "list"], [false, "form"]],
+            domain: [["lot_id", "=", line.lot_id[0]]],
+            target: "current",
+            context: { create: false, edit: false },
+        });
+    }
+
+    openLotPhoto(line) {
+        const pid = line.trace?.photo_id;
+        if (pid) {
+            window.open(`/web/image/stock.lot.image/${pid}/image`, "_blank");
         }
     }
 
