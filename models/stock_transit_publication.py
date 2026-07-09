@@ -464,3 +464,103 @@ class StockTransitVoyagePublication(models.Model):
                 "sticky": False,
             },
         }
+
+class StockTransitVoyagePublicationPending(models.Model):
+    """Detector de material con PL procesado pero inventario SIN publicar.
+
+    Criterio (filtro "Pendiente de publicar" en Torre de Control/Cronograma):
+    - El viaje está en Puerto Origen o etapa superior (sin entregar/cancelar).
+    - Ya tiene Packing List procesado (existen líneas de tránsito).
+    - Pasaron X días desde el procesamiento del PL (parámetro
+      `stock_transit_allocation.publication_pending_days`, default 3).
+    - Y al menos una línea sigue sin publicarse en el Inventario Visual.
+
+    Al publicar todo, el viaje desaparece del filtro: el objetivo operativo
+    es que ese filtro esté siempre vacío.
+    """
+    _inherit = "stock.transit.voyage"
+
+    _TC_PUBLICATION_STAGES = (
+        "puerto_origen", "on_sea", "puerto_destino",
+        "arrived_port", "reception_pending",
+    )
+
+    tc_publication_pending = fields.Boolean(
+        string="Pendiente de publicar",
+        compute="_compute_tc_publication_pending",
+        search="_search_tc_publication_pending",
+        help=(
+            "PL procesado, viaje en Puerto Origen o superior, pasados los días "
+            "configurados y con inventario de tránsito sin publicar."
+        ),
+    )
+
+    @api.model
+    def _tc_publication_pending_days(self):
+        icp = self.env["ir.config_parameter"].sudo()
+        try:
+            return int(icp.get_param(
+                "stock_transit_allocation.publication_pending_days", "3"))
+        except (TypeError, ValueError):
+            return 3
+
+    def _tc_check_publication_pending(self):
+        self.ensure_one()
+
+        if self.custom_status not in self._TC_PUBLICATION_STAGES:
+            return False
+
+        lines = self.line_ids
+        if not lines:
+            # Sin líneas de tránsito = el PL aún no se procesa: no aplica.
+            return False
+
+        if not lines.filtered(lambda l: not l.inventory_published):
+            return False
+
+        # Días transcurridos desde el procesamiento del PL (las líneas nacen
+        # al procesarlo; la más antigua marca el inicio del conteo).
+        created = [d for d in lines.mapped("create_date") if d]
+        if not created:
+            return False
+        elapsed = fields.Datetime.now() - min(created)
+        return elapsed.days >= self._tc_publication_pending_days()
+
+    def _compute_tc_publication_pending(self):
+        for rec in self:
+            rec.tc_publication_pending = rec._tc_check_publication_pending()
+
+    def _search_tc_publication_pending(self, operator, value):
+        if operator not in ("=", "!="):
+            return [("id", "=", False)]
+
+        want_pending = (operator == "=") == bool(value)
+
+        candidates = self.search([
+            ("custom_status", "in", list(self._TC_PUBLICATION_STAGES)),
+        ])
+        pending_ids = [
+            rec.id for rec in candidates if rec._tc_check_publication_pending()
+        ]
+
+        if want_pending:
+            return [("id", "in", pending_ids)]
+        return [("id", "not in", pending_ids)]
+
+
+class StockTransitSheetPublicationPending(models.Model):
+    _inherit = "stock.transit.sheet"
+
+    tc_publication_pending = fields.Boolean(
+        string="Pendiente de publicar",
+        compute="_compute_tc_publication_pending",
+        search="_search_tc_publication_pending",
+    )
+
+    def _compute_tc_publication_pending(self):
+        for rec in self:
+            rec.tc_publication_pending = bool(
+                rec.voyage_id and rec.voyage_id.tc_publication_pending)
+
+    def _search_tc_publication_pending(self, operator, value):
+        return [("voyage_id.tc_publication_pending", operator, value)]
