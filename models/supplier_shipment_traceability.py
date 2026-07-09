@@ -201,7 +201,7 @@ class SupplierShipmentPackingRowTrace(models.Model):
                     and lid not in arrival_date
                 ):
                     arrival_date[lid] = ml.date.date() if ml.date else False
-                if ml.picking_id.picking_type_code == 'outgoing' and dest_usage == 'customer':
+                if dest_usage == 'customer':
                     qty = ml.quantity if 'quantity' in ml._fields else getattr(ml, 'qty_done', 0.0)
                     delivered_qty[lid] = delivered_qty.get(lid, 0.0) + (qty or 0.0)
 
@@ -313,21 +313,30 @@ class StockLotTraceState(models.Model):
                 has_hold.add(lid)
 
         in_sale = set()
+        sale_orders_by_lot = {}
         SaleLine = self.env['sale.order.line'].sudo()
         if 'lot_ids' in SaleLine._fields:
+            id_set = set(ids)
             for sl in SaleLine.search([
                 ('lot_ids', 'in', ids),
                 ('order_id.state', 'in', ['sale', 'done']),
             ]):
-                in_sale.update(l.id for l in sl.lot_ids if l.id in set(ids))
+                for l in sl.lot_ids:
+                    if l.id in id_set:
+                        in_sale.add(l.id)
+                        sale_orders_by_lot.setdefault(l.id, set()).add(sl.order_id.name)
 
         delivered = set()
+        lot_orders = {}
         for ml in self.env['stock.move.line'].sudo().search([
             ('lot_id', 'in', ids), ('state', '=', 'done'),
-            ('picking_id.picking_type_code', '=', 'outgoing'),
             ('location_dest_id.usage', '=', 'customer'),
         ]):
-            delivered.add(ml.lot_id.id)
+            lid = ml.lot_id.id
+            delivered.add(lid)
+            order = ml.move_id.sale_line_id.order_id or ml.picking_id.sale_id
+            if order:
+                lot_orders.setdefault(lid, set()).add(order.name)
 
         has_photo_field = 'x_fotografia_ids' in self._fields
 
@@ -355,11 +364,41 @@ class StockLotTraceState(models.Model):
                 photo_count = len(lot.x_fotografia_ids)
                 photo_id = lot.x_fotografia_ids[0].id
 
+            orders = set()
+            orders |= sale_orders_by_lot.get(lid, set())
+            orders |= lot_orders.get(lid, set())
+
             result[lid] = {
                 'state': state,
                 'label': labels.get(state, state),
+                'orders': sorted(orders),
                 'photo_count': photo_count,
                 'photo_id': photo_id,
             }
 
         return result
+
+    @api.model
+    def som_get_lot_photos(self, lot_id):
+        """Fotos del lote en base64 — mismo contrato que el inventario
+        visual (get_lot_photos): la imagen viaja por RPC y se muestra en un
+        diálogo, nunca vía /web/image."""
+        lot = self.browse(lot_id).exists()
+        if not lot:
+            return {'error': 'Lote no encontrado'}
+
+        photos = []
+        if 'x_fotografia_ids' in lot._fields:
+            for photo in lot.x_fotografia_ids:
+                photos.append({
+                    'id': photo.id,
+                    'name': photo.name,
+                    'image': photo.image,
+                    'notas': getattr(photo, 'notas', '') or '',
+                })
+
+        return {
+            'lot_name': lot.name,
+            'product_name': lot.product_id.display_name,
+            'photos': photos,
+        }

@@ -8,9 +8,34 @@
  */
 import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
-import { Component, useState, onWillStart, onWillUpdateProps } from "@odoo/owl";
+import { Component, useState, onWillStart, onWillUpdateProps, xml } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { Dialog } from "@web/core/dialog/dialog";
+
+/**
+ * Visor de fotos del lote: la imagen llega en base64 por RPC (mismo
+ * mecanismo que el inventario visual), nunca vía /web/image.
+ */
+class LotPhotoDialog extends Component {
+    static template = xml`
+        <Dialog size="'lg'" title="props.title" footer="false">
+            <div class="text-center" style="max-height: 70vh; overflow: auto;">
+                <t t-foreach="props.photos" t-as="ph" t-key="ph.id">
+                    <figure style="margin-bottom: 14px;">
+                        <img t-attf-src="data:image/png;base64,{{ ph.image }}"
+                             style="max-width: 100%; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,.15);"/>
+                        <figcaption style="font-size: 11px; color: #6c757d; margin-top: 4px;">
+                            <t t-esc="ph.name"/>
+                            <t t-if="ph.notas"> — <t t-esc="ph.notas"/></t>
+                        </figcaption>
+                    </figure>
+                </t>
+            </div>
+        </Dialog>`;
+    static components = { Dialog };
+    static props = { title: String, photos: Array, close: Function };
+}
 
 class TransitVoyageLinesWidget extends Component {
     static template = "stock_transit_allocation.TransitVoyageLines";
@@ -148,10 +173,24 @@ class TransitVoyageLinesWidget extends Component {
         });
     }
 
-    openLotPhoto(line) {
-        const pid = line.trace?.photo_id;
-        if (pid) {
-            window.open(`/web/image/stock.lot.image/${pid}/image`, "_blank");
+    async openLotPhoto(line) {
+        if (!line.lot_id || !line.trace?.photo_count) {
+            return; // sin foto: no hace nada
+        }
+        try {
+            const data = await this.orm.call("stock.lot", "som_get_lot_photos", [line.lot_id[0]]);
+            const photos = (data.photos || []).filter((p) => p.image);
+            if (!photos.length) {
+                this.notification.add("El lote no tiene fotografías con contenido.", { type: "warning" });
+                return;
+            }
+            this.dialog.add(LotPhotoDialog, {
+                title: `Fotografías — ${data.lot_name}`,
+                photos,
+            });
+        } catch (e) {
+            console.error("[TransitVoyageLines] fotos:", e);
+            this.notification.add("No se pudieron cargar las fotografías.", { type: "danger" });
         }
     }
 

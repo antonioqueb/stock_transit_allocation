@@ -1148,3 +1148,10 @@ $brand-grad:  linear-gradient(90deg, $brand-start, $brand-end);
     &:hover { background: #e9ecef; color: #212529; }
     &--photo { color: #198754; }
 }
+
+.tvl-trace-orders {
+    font-size: 10.5px;
+    font-weight: 600;
+    color: #0d6efd;
+    white-space: nowrap;
+}

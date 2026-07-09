@@ -108,6 +108,7 @@
                                         <th class="tvl-th">Sales Order</th>
                                         <th class="tvl-th tvl-th--status">Estado</th>
                                         <th class="tvl-th tvl-th--center" title="Situación actual del lote (como en inventario visual)">Situación</th>
+                                        <th class="tvl-th" title="Pedido(s) de venta a los que salió o está comprometido el lote">Pedido</th>
                                         <th class="tvl-th tvl-th--center" title="Fotografías del lote">📷</th>
                                         <th class="tvl-th tvl-th--center" title="Historial de movimientos">⟲</th>
                                     </tr>
@@ -127,7 +128,7 @@
                                                     <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
                                                 </span>
                                             </td>
-                                            <td colspan="13" class="tvl-block-header-m2">
+                                            <td colspan="14" class="tvl-block-header-m2">
                                                 <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
                                             </td>
                                         </tr>
@@ -288,7 +289,16 @@
                                         <td class="tvl-td tvl-td--center">
                                             <span t-if="line.trace"
                                                   t-attf-class="tvl-trace-chip #{traceChipCls(line.trace.state)}"
+                                                  t-att-title="line.trace.orders and line.trace.orders.length ? ('Pedido(s): ' + line.trace.orders.join(', ')) : ''"
                                                   t-esc="line.trace.label"/>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
+                                        <!-- Pedido(s) destino -->
+                                        <td class="tvl-td">
+                                            <t t-if="line.trace and line.trace.orders and line.trace.orders.length">
+                                                <span class="tvl-trace-orders" t-esc="line.trace.orders.join(', ')"/>
+                                            </t>
                                             <span t-else="" class="tvl-muted">—</span>
                                         </td>
 
@@ -325,7 +335,7 @@
                                     <td class="tvl-td tvl-subtotal__m2">
                                         <t t-esc="fmtNum(group.total_m2)"/> m²
                                     </td>
-                                    <td colspan="8" class="tvl-td tvl-subtotal__info">
+                                    <td colspan="9" class="tvl-td tvl-subtotal__info">
                                         <span t-if="group.reserved_m2 > 0" class="tvl-subtotal__reserved">
                                             <t t-esc="fmtNum(group.reserved_m2)"/> m² reservados
                                         </span>
