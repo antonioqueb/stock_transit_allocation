@@ -206,6 +206,9 @@
                 <field name="tc_qty_assigned_lots"
                        string="Asignado"
                        readonly="1"/>
+                <field name="tc_qty_pending_allocation"
+                       string="Pendiente"
+                       readonly="1"/>
             </xpath>
 
             <xpath expr="//field[@name='order_line']/list/field[@name='route_ids']" position="replace"/>
@@ -221,7 +224,6 @@
             <!-- Botones de acción de asignación al final absoluto de la fila,
                  compactados vía CSS (clase o_tc_btn_compact). -->
             <xpath expr="//field[@name='order_line']/list" position="inside">
-                <field name="tc_qty_pending_allocation" column_invisible="1"/>
 
                 <button name="action_tc_adjust_qty_to_selection"
                         type="object"
