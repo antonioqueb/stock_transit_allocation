@@ -10,7 +10,6 @@ import { registry } from "@web/core/registry";
 import { standardFieldProps } from "@web/views/fields/standard_field_props";
 import { Component, useState, onWillStart, onWillUpdateProps, xml } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
-import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { Dialog } from "@web/core/dialog/dialog";
 import { SaleOrderDialog } from "@inventory_visual_enhanced/components/dialogs/sale_order/sale_order_dialog";
 import { HoldInfoDialog } from "@inventory_visual_enhanced/components/dialogs/hold_info/hold_info_dialog";
@@ -387,38 +386,13 @@ class TransitVoyageLinesWidget extends Component {
         // en cada asignación; solo cuando se repite un cliente sin haber
         // completado el anterior con su orden.
         if (partnerId) {
-            this._warnRepeatedClientWithoutOrder(line, partnerId);
         }
 
+        // El aviso de "cliente sin pedido" vive SOLO en la banda amarilla del
+        // formulario (pending_order_count): sin popups invasivos.
         // Recarga el registro del viaje para que el banner "Falta asignar
         // pedido" (pending_order_count) se actualice EN VIVO, sin refrescar.
         await this._reloadVoyageBanner();
-    }
-
-    _warnRepeatedClientWithoutOrder(line, partnerId) {
-        const pending = [];
-        for (const g of this.state.groups) {
-            for (const l of g.lines) {
-                if (
-                    l.id !== line.id
-                    && l.partner_id && l.partner_id[0] === partnerId
-                    && !l.order_id
-                ) {
-                    pending.push(l);
-                }
-            }
-        }
-        if (!pending.length) {
-            return;
-        }
-        const clientName = line.partner_id ? line.partner_id[1] : "";
-        this.dialog.add(AlertDialog, {
-            title: "Falta asignar pedido",
-            body:
-                `${pending.length} material(es) tienen cliente pero sin orden de venta. ` +
-                `Asígnale su pedido al cliente para completar la reserva.\n\n` +
-                `Clientes: ${clientName}`,
-        });
     }
 
     /**
@@ -659,12 +633,40 @@ class TransitVoyageLinesWidget extends Component {
 
         const ids = targets.map(l => l.id);
 
-        // partner=false: el backend deriva el cliente desde la orden.
-        const ok = await this._assignWithOverCheck(ids, false, orderId);
-        if (!ok) return;
+        // Propagación INTELIGENTE: el backend llena hasta lo solicitado y se
+        // detiene ANTES del excedente (parcialidad exacta en formatos/piezas).
+        // Sin popup de decisión ni asignación uno-por-uno.
+        try {
+            const result = await this.orm.call(
+                "stock.transit.line",
+                "tc_voyage_propagate_smart",
+                [ids, orderId],
+            );
 
-        this.notification.add(`Propagado a ${ids.length} lotes`, { type: "success", sticky: false });
-        await this.refresh();
+            if (result && result.success === false) {
+                this.notification.add(result.message || "No se pudo propagar.", { type: "danger" });
+                return;
+            }
+
+            const assigned = result?.assigned_count || 0;
+            const skipped  = result?.skipped_count || 0;
+
+            if (!assigned) {
+                this.notification.add(
+                    result?.message || "No se propagó ningún lote (excedería lo solicitado).",
+                    { type: "warning", sticky: true },
+                );
+                return;
+            }
+
+            this.notification.add(
+                result?.message || `Propagado a ${assigned} lotes`,
+                { type: skipped ? "warning" : "success", sticky: !!skipped },
+            );
+            await this.refresh();
+        } catch (e) {
+            this.notification.add("Error al propagar: " + (e.message || e), { type: "danger" });
+        }
     }
 
     // ─── Asignación con control de sobre-asignación ───────────────────────────

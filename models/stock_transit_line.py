@@ -573,6 +573,7 @@ class StockTransitLine(models.Model):
 
         if assignment_changed:
             sync_targets = set()
+            released_lines = self.env['stock.transit.line']
 
             for line in self:
                 old = old_assignments.get(line.id, {})
@@ -610,6 +611,7 @@ class StockTransitLine(models.Model):
                             'allocation_id': False,
                         })
                     line._execute_release_logic()
+                    released_lines |= line
                     if old_order_id and old_product_id:
                         sync_targets.add((line.id, old_order_id, old_product_id))
 
@@ -643,11 +645,226 @@ class StockTransitLine(models.Model):
                         product=product,
                     )
 
+            # Al liberar, las gemelas por parcialidad vuelven a ser UNA sola
+            # línea: nunca debe verse el mismo lote duplicado sin razón.
+            if released_lines:
+                released_lines.exists()._tc_merge_available_twins()
+
         return res
+
+    def _tc_merge_available_twins(self):
+        """Fusiona líneas DISPONIBLES duplicadas del mismo lote en el viaje.
+
+        El split de parcialidad crea una gemela con el saldo; al liberar la
+        parte asignada ambas quedan disponibles y deben fusionarse. La cantidad
+        resultante se ACOTA a la cantidad física del lote menos lo aún
+        reservado en otras líneas: eso autocorrige lotes inflados por syncs
+        previos a este fix.
+        """
+        processed_lots = set()
+
+        for line in self:
+            if not line.exists() or not line.lot_id or not line.voyage_id:
+                continue
+
+            key = (line.voyage_id.id, line.lot_id.id, line.product_id.id)
+            if key in processed_lots:
+                continue
+            processed_lots.add(key)
+
+            twins = self.search([
+                ('voyage_id', '=', line.voyage_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('product_id', '=', line.product_id.id),
+                ('allocation_status', '=', 'available'),
+                ('order_id', '=', False),
+            ], order='id asc')
+
+            if len(twins) <= 1:
+                continue
+
+            keeper = twins[0]
+            total = sum(twins.mapped('product_uom_qty'))
+
+            # Cota física del lote (quants con existencia; respaldo: área).
+            phys = sum(self.env['stock.quant'].sudo().search([
+                ('lot_id', '=', line.lot_id.id),
+                ('quantity', '>', 0),
+            ]).mapped('quantity'))
+            if phys <= 0:
+                lot = line.lot_id
+                alto = getattr(lot, 'x_alto', 0.0) or 0.0
+                ancho = getattr(lot, 'x_ancho', 0.0) or 0.0
+                phys = alto * ancho
+
+            reserved_elsewhere = sum(self.search([
+                ('voyage_id', '=', line.voyage_id.id),
+                ('lot_id', '=', line.lot_id.id),
+                ('id', 'not in', twins.ids),
+            ]).mapped('product_uom_qty'))
+
+            if phys > 0:
+                total = min(total, max(phys - reserved_elsewhere, 0.0))
+
+            (twins - keeper).with_context(skip_reservation_logic=True).unlink()
+            keeper.with_context(skip_reservation_logic=True).write({
+                'product_uom_qty': total,
+            })
+
+            _logger.info(
+                "[TC_TWINS] merge lote=%s gemelas=%s -> line=%s qty=%.3f "
+                "(fisico=%.3f reservado_otras=%.3f)",
+                line.lot_id.name, len(twins), keeper.id, total,
+                phys, reserved_elsewhere,
+            )
+
+            if keeper.voyage_id:
+                keeper.voyage_id.message_post(body=Markup(
+                    "🧩 <b>Lote reunificado:</b> %s — el saldo disponible "
+                    "volvió a ser una sola línea (%s)."
+                ) % (line.lot_id.name, '%.3f' % total))
 
     # -------------------------------------------------------------------------
     # ASIGNACIÓN DESDE EL FORMULARIO DEL VIAJE (con control de sobre-asignación)
     # -------------------------------------------------------------------------
+
+    def tc_voyage_propagate_smart(self, transit_line_ids, order_id):
+        """Propagación INTELIGENTE desde el Viaje (botón ↓↓).
+
+        Asigna los lotes EN ORDEN hasta llenar lo solicitado de la línea de
+        venta y se DETIENE antes del lote que generaría excedente — sin popup
+        de decisión y sin obligar a ir uno por uno. En formatos/piezas, el
+        último hueco se llena con una PARCIALIDAD exacta.
+
+        Devuelve: assigned_count, skipped_count, remaining_qty y un mensaje
+        listo para notificar.
+        """
+        TOL = 0.0001
+
+        def _as_id(val):
+            try:
+                return int(val) or False
+            except (TypeError, ValueError):
+                return False
+
+        order = self.env['sale.order'].browse(_as_id(order_id) or 0).exists()
+        if not order:
+            return {'success': False, 'message': _('Orden de venta no encontrada.')}
+
+        lines = self.browse(transit_line_ids or []).exists()
+        if not lines:
+            return {'success': False, 'message': _('Sin líneas para propagar.')}
+
+        def _is_fractionable(line):
+            lot = line.lot_id
+            tipo = ''
+            if lot and 'x_tipo' in lot._fields and lot.x_tipo:
+                tipo = str(lot.x_tipo).strip().lower()
+            return tipo in ('formato', 'pieza')
+
+        # Pendiente por línea de venta destino (por producto).
+        remaining_by_sl = {}
+        sl_by_product = {}
+
+        include_ids = []
+        partial_by_line = {}
+        skipped = 0
+        stopped_products = set()
+
+        for line in lines:
+            product = line.product_id
+
+            # Ya reservada a OTRA orden: no es candidata (se salta sin romper).
+            if line.order_id and line.order_id.id != order.id:
+                skipped += 1
+                continue
+
+            # Tras el primer lote que no cabe, ese producto ya no recibe más.
+            if product.id in stopped_products:
+                skipped += 1
+                continue
+
+            if product.id not in sl_by_product:
+                sale_line = line._tc_get_sale_line_for_assignment(
+                    order=order, product=product)
+                sl_by_product[product.id] = sale_line
+                if sale_line:
+                    requested = sale_line.product_uom_qty or 0.0
+                    assigned_before = sale_line._tc_get_assigned_lot_qty()
+                    remaining_by_sl[sale_line.id] = max(
+                        0.0, requested - assigned_before)
+
+            sale_line = sl_by_product[product.id]
+            if not sale_line:
+                skipped += 1
+                continue
+
+            already = (
+                sale_line.lot_ids.ids
+                if 'lot_ids' in sale_line._fields else []
+            )
+            if line.lot_id and line.lot_id.id in already:
+                # Idempotente: ya está en la orden, no consume pendiente.
+                include_ids.append(line.id)
+                continue
+
+            qty = line.product_uom_qty or 0.0
+            remaining = remaining_by_sl.get(sale_line.id, 0.0)
+
+            if qty <= remaining + TOL:
+                include_ids.append(line.id)
+                remaining_by_sl[sale_line.id] = remaining - qty
+            elif remaining > TOL and _is_fractionable(line):
+                # Último hueco: parcialidad exacta en formato/pieza.
+                include_ids.append(line.id)
+                partial_by_line[line.id] = remaining
+                remaining_by_sl[sale_line.id] = 0.0
+                stopped_products.add(product.id)
+            else:
+                skipped += 1
+                stopped_products.add(product.id)
+
+        remaining_total = sum(remaining_by_sl.values())
+
+        if not include_ids:
+            return {
+                'success': True,
+                'assigned_count': 0,
+                'skipped_count': skipped,
+                'remaining_qty': remaining_total,
+                'message': _(
+                    'No se propagó ningún lote: el siguiente excedería lo '
+                    'solicitado (pendiente: %(rem).2f). Asígnalo manualmente '
+                    'si deseas manejar el excedente.'
+                ) % {'rem': remaining_total},
+            }
+
+        result = self.tc_voyage_assign(
+            include_ids, False, order.id,
+            over_action=False, over_reason=False,
+            partial_qty_by_line=partial_by_line or False,
+        )
+
+        if not result or result.get('success') is False or result.get('need_over_assignment_decision'):
+            # No debería ocurrir (se llenó por debajo de lo solicitado), pero
+            # si el estado cambió entre lecturas, se reporta tal cual.
+            return result
+
+        if skipped:
+            message = _(
+                'Propagado a %(n)s lote(s). %(m)s quedaron SIN asignar para '
+                'no exceder lo solicitado (pendiente restante: %(rem).2f).'
+            ) % {'n': len(include_ids), 'm': skipped, 'rem': remaining_total}
+        else:
+            message = _('Propagado a %(n)s lote(s).') % {'n': len(include_ids)}
+
+        result.update({
+            'assigned_count': len(include_ids),
+            'skipped_count': skipped,
+            'remaining_qty': remaining_total,
+            'message': message,
+        })
+        return result
 
     def tc_voyage_assign(self, transit_line_ids, partner_id, order_id,
                          over_action=False, over_reason=False,

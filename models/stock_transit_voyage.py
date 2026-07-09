@@ -1607,11 +1607,14 @@ class StockTransitVoyage(models.Model):
         if placeholder_lines:
             placeholder_lines.unlink()
 
-        existing_by_lot = {
-            line.lot_id.id: line
-            for line in self.line_ids
-            if line.lot_id
-        }
+        # Un lote puede tener VARIAS líneas (gemelas por parcialidad):
+        # indexar TODAS, no solo la última, para repartir sin inflar.
+        existing_by_lot = {}
+        for line in self.line_ids:
+            if line.lot_id:
+                existing_by_lot.setdefault(
+                    line.lot_id.id, self.env['stock.transit.line'])
+                existing_by_lot[line.lot_id.id] |= line
 
         from .utils.transit_manager import TransitManager
 
@@ -1687,11 +1690,43 @@ class StockTransitVoyage(models.Model):
                 lot_container = move_line.lot_id.ref
 
             if lot_id in existing_by_lot:
-                existing_line = existing_by_lot[lot_id]
+                lot_lines = existing_by_lot[lot_id].exists()
+                if not lot_lines:
+                    continue
+
+                existing_line = lot_lines.sorted('id')[0]
                 update_vals = {}
 
-                if self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done):
-                    update_vals['product_uom_qty'] = qty_done
+                if len(lot_lines) == 1:
+                    if self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done):
+                        update_vals['product_uom_qty'] = qty_done
+                else:
+                    # GEMELAS (parcialidad): la cantidad física del lote se
+                    # DISTRIBUYE — las líneas con orden conservan su
+                    # parcialidad y la disponible absorbe el resto. Jamás se
+                    # escribe el total del lote en cada gemela (eso duplicaba
+                    # el lote con la cantidad completa en ambas).
+                    reserved = lot_lines.filtered(lambda l: l.order_id)
+                    free = (lot_lines - reserved).sorted('id')
+                    reserved_qty = sum(reserved.mapped('product_uom_qty'))
+                    rest = max(qty_done - reserved_qty, 0.0)
+
+                    if free:
+                        keeper = free[0]
+                        extras = free - keeper
+                        if extras:
+                            extras.with_context(skip_reservation_logic=True).unlink()
+                        if self._qty_differs(move_line.product_id, keeper.product_uom_qty, rest):
+                            keeper.with_context(skip_reservation_logic=True).write({
+                                'product_uom_qty': rest,
+                            })
+                        _logger.info(
+                            "[TC_TWINS] lote=%s fisico=%.3f reservado=%.3f "
+                            "saldo_libre=%.3f (gemelas normalizadas)",
+                            move_line.lot_id.name, qty_done, reserved_qty, rest,
+                        )
+
+                    existing_line = (reserved.sorted('id')[:1] or free[:1])[0]
 
                 if found_quant and existing_line.quant_id.id != found_quant.id:
                     update_vals['quant_id'] = found_quant.id
