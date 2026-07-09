@@ -26,6 +26,12 @@
         </div>
 
         <div class="tk-toolbar__right">
+            <button t-attf-class="tk-btn-pending #{state.pendingOnly ? 'tk-btn-pending--active' : ''}"
+                    t-on-click="togglePendingOnly"
+                    title="PL procesado, en Puerto Origen o superior, pasados los días configurados y el inventario sigue SIN publicar. El objetivo es que este filtro esté vacío.">
+                <i class="fa fa-eye-slash"/> Pendiente de publicar
+                <span t-if="pendingCount" class="tk-btn-pending__count" t-esc="pendingCount"/>
+            </button>
             <button class="tk-btn-refresh" t-on-click="refresh" title="Actualizar">
                 <i t-attf-class="fa fa-refresh #{state.loading ? 'fa-spin' : ''}"/>
             </button>
@@ -96,6 +102,11 @@
                             <div class="tk-card__header">
                                 <span class="tk-card__name" t-esc="card.name"/>
                                 <span t-attf-class="tk-eta #{etaClass(card)}" t-esc="etaLabel(card)"/>
+                            </div>
+
+                            <!-- Inventario sin publicar -->
+                            <div t-if="card.tc_publication_pending" class="tk-card__pending">
+                                <i class="fa fa-eye-slash"/> Inventario SIN publicar
                             </div>
 
                             <!-- OC Origen -->

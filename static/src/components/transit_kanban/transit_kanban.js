@@ -99,6 +99,7 @@ export class TransitKanbanView extends Component {
             records:      [],
             loading:      true,
             searchText:   "",
+            pendingOnly:  false,  // filtro "Pendiente de publicar"
             columns:      {},   // { stageKey: [records] }
             totals:          {},   // { stageKey: { count, m2 } }
             collapsed:       {},   // { stageKey: bool }
@@ -125,6 +126,7 @@ export class TransitKanbanView extends Component {
                     "shipping_line", "container_number", "bl_number",
                     "eta", "etd", "allocation_percent", "transit_progress",
                     "total_m2", "allocated_m2", "company_id",
+                    "tc_publication_pending",
                 ],
                 { order: "eta asc, id desc", limit: 500 }
             );
@@ -154,6 +156,10 @@ export class TransitKanbanView extends Component {
         }
 
         for (const r of records) {
+            // Filtro "Pendiente de publicar": PL procesado + Puerto Origen o
+            // superior + X días + inventario sin publicar. Meta: verlo vacío.
+            if (this.state.pendingOnly && !r.tc_publication_pending) continue;
+
             // Filtro búsqueda
             if (q) {
                 const haystack = [
@@ -180,6 +186,15 @@ export class TransitKanbanView extends Component {
     }
 
     // ─── Handlers ─────────────────────────────────────────────────────────────
+
+    get pendingCount() {
+        return this.state.records.filter((r) => r.tc_publication_pending).length;
+    }
+
+    togglePendingOnly() {
+        this.state.pendingOnly = !this.state.pendingOnly;
+        this._buildColumns(this.state.records);
+    }
 
     onSearch(ev) {
         this.state.searchText = ev.target.value;
