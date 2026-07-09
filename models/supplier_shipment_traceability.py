@@ -1,0 +1,281 @@
+# -*- coding: utf-8 -*-
+"""Trazabilidad de lotes dentro del formulario del embarque.
+
+El inventario visual solo muestra existencias: un lote ya entregado desaparece
+de ahí. Esta pestaña responde "¿qué pasó con cada lote del embarque?" sin
+buscar placa por placa: estado actual, fechas clave, costo y acceso directo al
+historial de movimientos.
+
+Los lotes no guardan referencia a la fila del packing (la recepción física
+puede renumerarlos), así que se resuelven por atributos en varios pases:
+producto + bloque + no. placa → producto + no. placa + atado → producto +
+bloque con candidato único.
+"""
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
+
+
+TRACE_STATES = [
+    ('en_transito', 'En tránsito'),
+    ('recibido', 'Recibido'),
+    ('libre', 'Libre'),
+    ('hold', 'Apartado (hold)'),
+    ('vendido', 'Vendido (por entregar)'),
+    ('entregado', 'Entregado'),
+    ('sin_stock', 'Sin existencia'),
+    ('sin_lote', 'Sin lote'),
+]
+
+
+class SupplierShipment(models.Model):
+    _inherit = 'supplier.shipment'
+
+    packing_row_ids = fields.One2many(
+        'supplier.shipment.packing.row', 'shipment_id',
+        string='Líneas de todos los Packing Lists',
+    )
+
+
+class SupplierShipmentPackingRowTrace(models.Model):
+    _inherit = 'supplier.shipment.packing.row'
+
+    trace_lot_id = fields.Many2one(
+        'stock.lot', string='Lote', compute='_compute_trace_info',
+        compute_sudo=True,
+    )
+    trace_state = fields.Selection(
+        TRACE_STATES, string='Estado actual', compute='_compute_trace_info',
+        compute_sudo=True,
+    )
+    trace_fecha_solicitud = fields.Date(
+        string='Fecha de solicitud', compute='_compute_trace_info',
+        compute_sudo=True,
+        help='Fecha de la orden de compra.',
+    )
+    trace_fecha_atencion = fields.Date(
+        string='Fecha de atención', compute='_compute_trace_info',
+        compute_sudo=True,
+        help='Fecha del Packing List capturado por el proveedor.',
+    )
+    trace_fecha_llegada = fields.Date(
+        string='Llegada a bodega', compute='_compute_trace_info',
+        compute_sudo=True,
+        help='Fecha real del primer movimiento validado hacia una ubicación interna.',
+    )
+    trace_costo_unit = fields.Float(
+        string='Costo unitario', compute='_compute_trace_info',
+        compute_sudo=True, digits='Product Price',
+        help='Precio unitario de la línea de la orden de compra.',
+    )
+    trace_subtotal = fields.Float(
+        string='Subtotal', compute='_compute_trace_info',
+        compute_sudo=True, digits='Product Price',
+    )
+    trace_sale_orders = fields.Char(
+        string='Ventas', compute='_compute_trace_info', compute_sudo=True,
+        help='Órdenes de venta donde el lote está o estuvo comprometido.',
+    )
+
+    # -------------------------------------------------------------------------
+    # Resolución de lote por atributos
+    # -------------------------------------------------------------------------
+    def _trace_norm(self, value):
+        return str(value or '').strip().upper()
+
+    def _trace_build_lot_indexes(self):
+        """Índices de lotes por atributos para todos los productos del set."""
+        Lot = self.env['stock.lot'].sudo()
+        product_ids = list(set(self.mapped('product_id').ids))
+        if not product_ids:
+            return {}, {}, {}
+
+        lots = Lot.search([('product_id', 'in', product_ids)])
+
+        by_bloque_placa = {}
+        by_placa_atado = {}
+        by_bloque = {}
+
+        for lot in lots:
+            pid = lot.product_id.id
+            bloque = self._trace_norm(getattr(lot, 'x_bloque', ''))
+            placa = self._trace_norm(getattr(lot, 'x_numero_placa', ''))
+            atado = self._trace_norm(getattr(lot, 'x_atado', ''))
+
+            if bloque and placa:
+                by_bloque_placa.setdefault((pid, bloque, placa), []).append(lot)
+            if placa:
+                by_placa_atado.setdefault((pid, placa, atado), []).append(lot)
+            if bloque:
+                by_bloque.setdefault((pid, bloque), []).append(lot)
+
+        return by_bloque_placa, by_placa_atado, by_bloque
+
+    def _trace_resolve_lot(self, indexes):
+        self.ensure_one()
+        by_bloque_placa, by_placa_atado, by_bloque = indexes
+        pid = self.product_id.id
+        bloque = self._trace_norm(self.bloque)
+        placa = self._trace_norm(self.numero_placa)
+        atado = self._trace_norm(self.atado)
+
+        candidates = by_bloque_placa.get((pid, bloque, placa)) or []
+        if len(candidates) >= 1:
+            return candidates[0]
+
+        candidates = by_placa_atado.get((pid, placa, atado)) or []
+        if len(candidates) == 1:
+            return candidates[0]
+
+        candidates = by_bloque.get((pid, bloque)) or []
+        if len(candidates) == 1:
+            return candidates[0]
+
+        return self.env['stock.lot']
+
+    # -------------------------------------------------------------------------
+    # Cómputo principal (todo en batch: sin consultas por fila)
+    # -------------------------------------------------------------------------
+    def _compute_trace_info(self):
+        indexes = self._trace_build_lot_indexes()
+
+        # Resolver lote por fila y juntar el set completo.
+        row_lot = {}
+        all_lots = self.env['stock.lot'].sudo()
+        for row in self:
+            lot = row._trace_resolve_lot(indexes)
+            row_lot[row.id] = lot
+            all_lots |= lot
+
+        lot_ids = all_lots.ids
+
+        # --- Stock actual por lote (una consulta) ---
+        internal_qty = {}
+        transit_qty = {}
+        production_qty = {}
+        lot_has_hold = set()
+        if lot_ids:
+            Quant = self.env['stock.quant'].sudo()
+            quants = Quant.search([
+                ('lot_id', 'in', lot_ids),
+                ('quantity', '>', 0),
+            ])
+            for q in quants:
+                usage = q.location_id.usage
+                lid = q.lot_id.id
+                if usage == 'internal':
+                    internal_qty[lid] = internal_qty.get(lid, 0.0) + q.quantity
+                elif usage == 'transit':
+                    transit_qty[lid] = transit_qty.get(lid, 0.0) + q.quantity
+                elif usage == 'production':
+                    production_qty[lid] = production_qty.get(lid, 0.0) + q.quantity
+                if getattr(q, 'x_tiene_hold', False):
+                    lot_has_hold.add(lid)
+
+        # --- Ventas donde participa el lote (una consulta) ---
+        lot_orders = {}
+        SaleLine = self.env['sale.order.line'].sudo()
+        if lot_ids and 'lot_ids' in SaleLine._fields:
+            for sl in SaleLine.search([
+                ('lot_ids', 'in', lot_ids),
+                ('order_id.state', 'in', ['sale', 'done']),
+            ]):
+                for lot in sl.lot_ids:
+                    if lot.id in set(lot_ids):
+                        lot_orders.setdefault(lot.id, set()).add(sl.order_id.name)
+
+        # --- Entregas al cliente y llegada a bodega (una consulta) ---
+        delivered_qty = {}
+        arrival_date = {}
+        if lot_ids:
+            MoveLine = self.env['stock.move.line'].sudo()
+            done_mls = MoveLine.search(
+                [('lot_id', 'in', lot_ids), ('state', '=', 'done')],
+                order='date asc',
+            )
+            for ml in done_mls:
+                lid = ml.lot_id.id
+                dest_usage = ml.location_dest_id.usage
+                if (
+                    dest_usage == 'internal'
+                    and ml.location_id.usage != 'internal'
+                    and lid not in arrival_date
+                ):
+                    arrival_date[lid] = ml.date.date() if ml.date else False
+                if ml.picking_id.picking_type_code == 'outgoing' and dest_usage == 'customer':
+                    qty = ml.quantity if 'quantity' in ml._fields else getattr(ml, 'qty_done', 0.0)
+                    delivered_qty[lid] = delivered_qty.get(lid, 0.0) + (qty or 0.0)
+
+        # --- Costos desde la orden de compra (en memoria) ---
+        po_price = {}
+        for row in self:
+            po = row.purchase_id
+            if po and po.id not in po_price:
+                po_price[po.id] = {
+                    line.product_id.id: line.price_unit
+                    for line in po.order_line
+                    if line.product_id
+                }
+
+        for row in self:
+            lot = row_lot.get(row.id) or self.env['stock.lot']
+            lid = lot.id if lot else 0
+
+            row.trace_lot_id = lot
+            row.trace_fecha_atencion = row.packing_id.packing_date or False
+
+            po = row.purchase_id
+            row.trace_fecha_solicitud = (
+                po.date_order.date() if po and po.date_order else False
+            )
+
+            price = po_price.get(po.id, {}).get(row.product_id.id, 0.0) if po else 0.0
+            row.trace_costo_unit = price
+            row.trace_subtotal = price * (row.area_m2 or 0.0)
+
+            if not lot:
+                row.trace_state = 'sin_lote'
+                row.trace_fecha_llegada = False
+                row.trace_sale_orders = ''
+                continue
+
+            row.trace_fecha_llegada = arrival_date.get(lid, False)
+            orders = sorted(lot_orders.get(lid, set()))
+            row.trace_sale_orders = ', '.join(orders)
+
+            if transit_qty.get(lid, 0.0) > 0:
+                row.trace_state = 'en_transito'
+            elif internal_qty.get(lid, 0.0) > 0:
+                if lid in lot_has_hold:
+                    row.trace_state = 'hold'
+                elif orders:
+                    row.trace_state = 'vendido'
+                else:
+                    row.trace_state = 'libre'
+            elif production_qty.get(lid, 0.0) > 0:
+                row.trace_state = 'recibido'
+            elif delivered_qty.get(lid, 0.0) > 0:
+                row.trace_state = 'entregado'
+            elif arrival_date.get(lid):
+                row.trace_state = 'sin_stock'
+            else:
+                row.trace_state = 'recibido' if lot else 'sin_lote'
+
+    # -------------------------------------------------------------------------
+    # Historial de movimientos del lote
+    # -------------------------------------------------------------------------
+    def action_view_lot_history(self):
+        self.ensure_one()
+        lot = self.trace_lot_id
+        if not lot:
+            raise UserError(_(
+                'No se encontró un lote en el sistema para esta línea '
+                '(aún no se recibe o sus datos cambiaron en la recepción física).'
+            ))
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Historial de movimientos — %s') % lot.name,
+            'res_model': 'stock.move.line',
+            'view_mode': 'list,form',
+            'domain': [('lot_id', '=', lot.id)],
+            'context': {'create': False, 'edit': False},
+        }

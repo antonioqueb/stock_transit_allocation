@@ -9,6 +9,7 @@ from . import supplier_shipment
 from . import supplier_shipment_invoice
 from . import supplier_shipment_packing
 from . import supplier_shipment_container
+from . import supplier_shipment_traceability
 from . import stock_picking
 from . import stock_picking_physical_pl
 from . import stock_transit_publication

@@ -91,6 +91,41 @@
                                 </list>
                             </field>
                         </page>
+
+                        <page string="Trazabilidad" name="lot_traceability">
+                            <field name="packing_row_ids" readonly="1">
+                                <list create="0" delete="0" edit="0"
+                                      default_order="packing_id, sequence, id"
+                                      decoration-muted="trace_state == 'entregado'"
+                                      decoration-info="trace_state == 'en_transito'"
+                                      decoration-warning="trace_state in ('hold', 'vendido')"
+                                      decoration-success="trace_state == 'libre'">
+                                    <field name="product_id" string="Producto"/>
+                                    <field name="trace_lot_id" string="Lote"/>
+                                    <field name="bloque" string="Bloque" optional="show"/>
+                                    <field name="numero_placa" string="Placa" optional="show"/>
+                                    <field name="atado" string="Atado" optional="hide"/>
+                                    <field name="grupo_name" string="Tono/Grupo" optional="hide"/>
+                                    <field name="pedimento" string="Pedimento" optional="show"/>
+                                    <field name="container_id" string="Contenedor" optional="show"/>
+                                    <field name="packing_id" string="Packing List" optional="show"/>
+                                    <field name="area_m2" string="Cant." sum="Total"/>
+                                    <field name="trace_costo_unit" string="Costo Unit." optional="show"/>
+                                    <field name="trace_subtotal" string="Subtotal" sum="Total" optional="show"/>
+                                    <field name="trace_fecha_solicitud" string="Solicitud" optional="show"/>
+                                    <field name="trace_fecha_atencion" string="Atención" optional="show"/>
+                                    <field name="trace_fecha_llegada" string="Llegada bodega" optional="show"/>
+                                    <field name="trace_sale_orders" string="Ventas" optional="show"/>
+                                    <field name="trace_state" string="Estado" widget="badge"
+                                           decoration-success="trace_state == 'libre'"
+                                           decoration-info="trace_state in ('en_transito', 'recibido')"
+                                           decoration-warning="trace_state in ('hold', 'vendido')"
+                                           decoration-danger="trace_state in ('sin_lote', 'sin_stock')"/>
+                                    <button name="action_view_lot_history" type="object"
+                                            icon="fa-history" title="Historial de movimientos"/>
+                                </list>
+                            </field>
+                        </page>
                     </notebook>
                 </sheet>
                 <chatter/>
