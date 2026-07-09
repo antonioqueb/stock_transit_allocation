@@ -728,7 +728,7 @@ class StockTransitLine(models.Model):
     # ASIGNACIÓN DESDE EL FORMULARIO DEL VIAJE (con control de sobre-asignación)
     # -------------------------------------------------------------------------
 
-    def tc_voyage_propagate_smart(self, transit_line_ids, order_id):
+    def tc_voyage_propagate_smart(self, order_id=False):
         """Propagación INTELIGENTE desde el Viaje (botón ↓↓).
 
         Asigna los lotes EN ORDEN hasta llenar lo solicitado de la línea de
@@ -751,7 +751,9 @@ class StockTransitLine(models.Model):
         if not order:
             return {'success': False, 'message': _('Orden de venta no encontrada.')}
 
-        lines = self.browse(transit_line_ids or []).exists()
+        # OJO call_kw: el primer argumento del RPC son los IDS del recordset
+        # (self); order_id llega como segundo. No hay parámetro de ids aquí.
+        lines = self.exists()
         if not lines:
             return {'success': False, 'message': _('Sin líneas para propagar.')}
 
