@@ -546,21 +546,3 @@ class StockTransitVoyagePublicationPending(models.Model):
         if want_pending:
             return [("id", "in", pending_ids)]
         return [("id", "not in", pending_ids)]
-
-
-class StockTransitSheetPublicationPending(models.Model):
-    _inherit = "stock.transit.sheet"
-
-    tc_publication_pending = fields.Boolean(
-        string="Pendiente de publicar",
-        compute="_compute_tc_publication_pending",
-        search="_search_tc_publication_pending",
-    )
-
-    def _compute_tc_publication_pending(self):
-        for rec in self:
-            rec.tc_publication_pending = bool(
-                rec.voyage_id and rec.voyage_id.tc_publication_pending)
-
-    def _search_tc_publication_pending(self, operator, value):
-        return [("voyage_id.tc_publication_pending", operator, value)]
