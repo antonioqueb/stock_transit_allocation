@@ -12,6 +12,8 @@ import { Component, useState, onWillStart, onWillUpdateProps, xml } from "@odoo/
 import { useService } from "@web/core/utils/hooks";
 import { AlertDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { Dialog } from "@web/core/dialog/dialog";
+import { SaleOrderDialog } from "@inventory_visual_enhanced/components/dialogs/sale_order/sale_order_dialog";
+import { HoldInfoDialog } from "@inventory_visual_enhanced/components/dialogs/hold_info/hold_info_dialog";
 
 /**
  * Visor de fotos del lote: la imagen llega en base64 por RPC (mismo
@@ -158,6 +160,57 @@ class TransitVoyageLinesWidget extends Component {
             entregado: "tvl-trace--delivered",
             en_transito: "tvl-trace--transit",
         }[state] || "tvl-trace--other";
+    }
+
+    // Popup de órdenes de venta: EL MISMO del inventario visual (réplica 1:1).
+    async onLotSaleOrderClick(line) {
+        const ids = line.trace?.sale_order_ids || [];
+        if (!ids.length) {
+            this.notification.add("No hay órdenes de venta asociadas", { type: "info" });
+            return;
+        }
+        try {
+            const soInfo = await this.orm.call(
+                "stock.quant",
+                "get_sale_order_info",
+                [],
+                {
+                    sale_order_ids: ids,
+                    quant_id: line.trace?.quant_id || false,
+                }
+            );
+            if (soInfo.error) {
+                this.notification.add(soInfo.error, { type: "warning" });
+                return;
+            }
+            this.dialog.add(SaleOrderDialog, {
+                soInfo,
+                title: `Órdenes de Venta (${soInfo.count})`,
+                size: "lg",
+            });
+        } catch (e) {
+            console.error("[TransitVoyageLines] sale order popup:", e);
+            this.notification.add("Error al cargar información de órdenes de venta", { type: "danger" });
+        }
+    }
+
+    // Popup de apartado: EL MISMO del inventario visual (réplica 1:1).
+    onLotHoldClick(line, group) {
+        const holdInfo = line.trace?.hold_info;
+        if (!holdInfo) {
+            this.notification.add("Lote con apartado activo", { type: "info" });
+            return;
+        }
+        const detailData = {
+            lot_name: line.lot_id ? line.lot_id[1] : "",
+            product_name: group ? group.product_name : "",
+        };
+        this.dialog.add(HoldInfoDialog, {
+            holdInfo,
+            detailData,
+            title: `Apartado Activo - ${detailData.lot_name}`,
+            size: "lg",
+        });
     }
 
     openLotHistory(line) {

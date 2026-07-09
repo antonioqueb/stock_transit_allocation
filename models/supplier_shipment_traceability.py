@@ -298,6 +298,8 @@ class StockLotTraceState(models.Model):
 
         internal, transit, production = {}, {}, {}
         has_hold = set()
+        quant_by_lot = {}
+        hold_info_by_lot = {}
         for q in self.env['stock.quant'].sudo().search([
             ('lot_id', 'in', ids), ('quantity', '>', 0),
         ]):
@@ -305,12 +307,26 @@ class StockLotTraceState(models.Model):
             lid = q.lot_id.id
             if usage == 'internal':
                 internal[lid] = internal.get(lid, 0.0) + q.quantity
+                quant_by_lot.setdefault(lid, q.id)
             elif usage == 'transit':
                 transit[lid] = transit.get(lid, 0.0) + q.quantity
             elif usage == 'production':
                 production[lid] = production.get(lid, 0.0) + q.quantity
             if getattr(q, 'x_tiene_hold', False):
                 has_hold.add(lid)
+                # hold_info con la MISMA forma que el inventario visual
+                hold = getattr(q, 'x_hold_activo_id', False)
+                if hold and lid not in hold_info_by_lot:
+                    hold_info_by_lot[lid] = {
+                        'id': hold.id,
+                        'partner_name': hold.partner_id.name if hold.partner_id else '',
+                        'proyecto_nombre': hold.project_id.name if hasattr(hold, 'project_id') and hold.project_id else '',
+                        'arquitecto_nombre': hold.arquitecto_id.name if hasattr(hold, 'arquitecto_id') and hold.arquitecto_id else '',
+                        'vendedor_nombre': hold.user_id.name if hold.user_id else '',
+                        'fecha_inicio': hold.fecha_inicio.strftime('%Y-%m-%d') if hasattr(hold, 'fecha_inicio') and hold.fecha_inicio else '',
+                        'fecha_expiracion': hold.fecha_expiracion.strftime('%Y-%m-%d') if hasattr(hold, 'fecha_expiracion') and hold.fecha_expiracion else '',
+                        'notas': hold.notas if hasattr(hold, 'notas') else '',
+                    }
 
         in_sale = set()
         sale_orders_by_lot = {}
@@ -324,7 +340,8 @@ class StockLotTraceState(models.Model):
                 for l in sl.lot_ids:
                     if l.id in id_set:
                         in_sale.add(l.id)
-                        sale_orders_by_lot.setdefault(l.id, set()).add(sl.order_id.name)
+                        sale_orders_by_lot.setdefault(l.id, set()).add(
+                            (sl.order_id.id, sl.order_id.name))
 
         delivered = set()
         lot_orders = {}
@@ -336,7 +353,7 @@ class StockLotTraceState(models.Model):
             delivered.add(lid)
             order = ml.move_id.sale_line_id.order_id or ml.picking_id.sale_id
             if order:
-                lot_orders.setdefault(lid, set()).add(order.name)
+                lot_orders.setdefault(lid, set()).add((order.id, order.name))
 
         has_photo_field = 'x_fotografia_ids' in self._fields
 
@@ -367,11 +384,16 @@ class StockLotTraceState(models.Model):
             orders = set()
             orders |= sale_orders_by_lot.get(lid, set())
             orders |= lot_orders.get(lid, set())
+            orders = sorted(orders, key=lambda o: o[1])
 
             result[lid] = {
                 'state': state,
                 'label': labels.get(state, state),
-                'orders': sorted(orders),
+                'orders': [name for (_oid, name) in orders],
+                'sale_order_ids': [oid for (oid, _name) in orders],
+                'quant_id': quant_by_lot.get(lid, False),
+                'tiene_hold': lid in has_hold,
+                'hold_info': hold_info_by_lot.get(lid, False),
                 'photo_count': photo_count,
                 'photo_id': photo_id,
             }

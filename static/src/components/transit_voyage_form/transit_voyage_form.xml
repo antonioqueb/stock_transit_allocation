@@ -107,7 +107,7 @@
                                         <th class="tvl-th tvl-th--prop" title="Propagar asignación hacia abajo">↓↓</th>
                                         <th class="tvl-th">Sales Order</th>
                                         <th class="tvl-th tvl-th--status">Estado</th>
-                                        <th class="tvl-th tvl-th--center" title="Situación actual del lote (como en inventario visual)">Situación</th>
+                                        <th class="tvl-th tvl-th--center" title="Estado del lote (idéntico al inventario visual)">E</th>
                                         <th class="tvl-th" title="Pedido(s) de venta a los que salió o está comprometido el lote">Pedido</th>
                                         <th class="tvl-th tvl-th--center" title="Fotografías del lote">📷</th>
                                         <th class="tvl-th tvl-th--center" title="Historial de movimientos">⟲</th>
@@ -285,12 +285,31 @@
                                                 t-esc="statusLabel(line.allocation_status)"/>
                                         </td>
 
-                                        <!-- Situación actual del lote -->
+                                        <!-- Estado del lote: réplica 1:1 del inventario visual -->
                                         <td class="tvl-td tvl-td--center">
-                                            <span t-if="line.trace"
-                                                  t-attf-class="tvl-trace-chip #{traceChipCls(line.trace.state)}"
-                                                  t-att-title="line.trace.orders and line.trace.orders.length ? ('Pedido(s): ' + line.trace.orders.join(', ')) : ''"
-                                                  t-esc="line.trace.label"/>
+                                            <!-- 1. Apartado activo (manita) -->
+                                            <button t-if="line.trace and line.trace.tiene_hold"
+                                                    type="button"
+                                                    class="status-badge-btn status-hold-active"
+                                                    t-on-click="() => this.onLotHoldClick(line, group)"
+                                                    title="Ver información del apartado">
+                                                <i class="fa fa-hand-paper-o"></i>
+                                            </button>
+
+                                            <!-- 2. En orden de venta (signo de peso) -->
+                                            <button t-elif="line.trace and line.trace.sale_order_ids and line.trace.sale_order_ids.length"
+                                                    type="button"
+                                                    class="status-badge-btn status-sale-order"
+                                                    t-on-click="() => this.onLotSaleOrderClick(line)"
+                                                    title="Ver orden de venta">
+                                                <i class="fa fa-usd"></i>
+                                            </button>
+
+                                            <!-- 3. Sin estado (manita gris) -->
+                                            <span t-elif="line.trace" class="status-badge-btn status-no-hold" title="Sin apartado">
+                                                <i class="fa fa-hand-paper-o"></i>
+                                            </span>
+
                                             <span t-else="" class="tvl-muted">—</span>
                                         </td>
 

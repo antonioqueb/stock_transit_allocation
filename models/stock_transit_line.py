@@ -679,8 +679,29 @@ class StockTransitLine(models.Model):
             )
             dangling.invalidate_recordset(['partner_id'])
 
-        order_id = order_id or False
-        partner_id = partner_id or False
+        # SANEO DE TIPOS (fronts con assets viejos en caché):
+        # order_id DEBE ser entero. Si llega 'free'/'bill', el caller viejo mandó
+        # la DECISIÓN de excedente en el slot de la orden:
+        #   (lines, orden_en_slot_partner, action, reason) → se recorren los args
+        # y el compat de abajo rescata la orden desde el slot del partner.
+        if isinstance(order_id, str) and order_id.strip().lower() in ('free', 'bill'):
+            if not over_reason and isinstance(over_action, str):
+                over_reason = over_action
+            over_action = order_id.strip().lower()
+            order_id = False
+            _logger.warning(
+                "[TC_VOYAGE_ASSIGN] compat args recorridos: la decisión de "
+                "excedente llegó en el slot de order_id (front desactualizado).",
+            )
+
+        def _as_id(val):
+            try:
+                return int(val) or False
+            except (TypeError, ValueError):
+                return False
+
+        order_id = _as_id(order_id)
+        partner_id = _as_id(partner_id)
 
         _logger.info(
             "[TC_VOYAGE_ASSIGN] lines=%s partner_id=%s order_id=%s over_action=%s",

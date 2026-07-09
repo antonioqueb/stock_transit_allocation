@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.13.29.0',
+    'version': '19.0.13.30.1',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -55,6 +55,7 @@
         'inventory_shopping_cart',
         'sale_stone_selection',
         'stock_lot_packing_import',
+        'inventory_visual_enhanced',
     ],
     'external_dependencies': {
         'python': ['folium'],
