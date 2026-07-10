@@ -1155,3 +1155,16 @@ $brand-grad:  linear-gradient(90deg, $brand-start, $brand-end);
     color: #0d6efd;
     white-space: nowrap;
 }
+
+/* Proveedor en el hero del viaje */
+.vf-hero__supplier {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 2px;
+
+    .fa { color: #64748b; }
+}

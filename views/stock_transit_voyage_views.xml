@@ -189,6 +189,11 @@
                                     <field name="name" class="vf-hero__name" readonly="1"/>
                                 </div>
 
+                                <div class="vf-hero__supplier" invisible="not tc_supplier_id">
+                                    <i class="fa fa-industry me-1"/>
+                                    <field name="tc_supplier_id" readonly="1" options="{'no_open': True}"/>
+                                </div>
+
                                 <div class="vf-hero__vessel">
                                     <field name="vessel_name"
                                            placeholder="Nombre del buque..."

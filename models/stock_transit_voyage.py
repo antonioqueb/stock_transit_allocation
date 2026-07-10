@@ -161,6 +161,13 @@ class StockTransitVoyage(models.Model):
         string='Orden de Compra Origen',
         readonly=True,
     )
+    tc_supplier_id = fields_module.Many2one(
+        'res.partner',
+        string='Proveedor',
+        related='purchase_id.partner_id',
+        store=True,
+        readonly=True,
+    )
 
     company_id = fields_module.Many2one(
         'res.company',
