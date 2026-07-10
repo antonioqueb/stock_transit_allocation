@@ -2407,6 +2407,12 @@ class StockTransitVoyage(models.Model):
         picking = self.reception_picking_id
         origin = f"{self.name} (Recepción Física)"
 
+        # Recepción YA VALIDADA: solo se abre para consulta. El guard de
+        # "no validar desde este botón" aplica a recepciones vivas; una hecha
+        # es historia legítima, no un flujo forzado.
+        if picking and picking.state == 'done':
+            return self._tc_open_reception_action(picking)
+
         # Si la recepción ya existe y todavía no se procesó PL/Worksheet,
         # se puede sanear de forma segura. Esto corrige recepciones creadas por
         # versiones anteriores que quedaron confirmadas/asignadas o con líneas
