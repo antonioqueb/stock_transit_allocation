@@ -146,6 +146,99 @@ class StockTransitVoyageMetrics(models.Model):
             voyage.tc_free_qty = max(
                 (voyage.total_m2 or 0.0) - (voyage.allocated_m2 or 0.0), 0.0)
 
+    # ------------------------------------------------------------------
+    # Displays con SEMÁNTICA DE UNIDADES (nunca sumar incompatibles)
+    # ------------------------------------------------------------------
+    tc_purchased_display = fields.Char(compute='_compute_tc_flow_displays')
+    tc_shipped_display = fields.Char(compute='_compute_tc_flow_displays')
+    tc_received_display = fields.Char(compute='_compute_tc_flow_displays')
+    tc_flow_status = fields.Char(compute='_compute_tc_flow_displays')
+    tc_free_percent = fields.Float(compute='_compute_tc_flow_displays', digits=(16, 0))
+    tc_coverage_secondary = fields.Char(compute='_compute_tc_flow_displays')
+
+    @staticmethod
+    def _tc_fmt_qty(qty, uom):
+        if abs(qty - round(qty)) < 0.005:
+            num = '%d' % round(qty)
+        else:
+            num = ('%.2f' % qty).rstrip('0').rstrip('.')
+        return '%s %s' % (num, uom) if uom else num
+
+    def _tc_group_by_uom(self, qty_map):
+        """{uom_name: qty} agrupando SOLO unidades iguales."""
+        self.ensure_one()
+        Product = self.env['product.product']
+        out = {}
+        for pid, qty in qty_map.items():
+            uom = Product.browse(pid).uom_id.name or '?'
+            out[uom] = out.get(uom, 0.0) + qty
+        return out
+
+    def _tc_uom_display(self, qty_map):
+        groups = self._tc_group_by_uom(qty_map)
+        if not groups:
+            return '—'
+        parts = [self._tc_fmt_qty(q, u) for u, q in sorted(groups.items())]
+        if len(parts) > 2:
+            return ' · '.join(parts[:2]) + ' · +%d unidades' % (len(parts) - 2)
+        return ' · '.join(parts)
+
+    @api.depends('line_ids.product_uom_qty', 'line_ids.allocation_status',
+                 'purchase_id', 'reception_picking_id.state',
+                 'allocation_percent')
+    def _compute_tc_flow_displays(self):
+        for voyage in self:
+            purchased = voyage._tc_purchased_map()
+            shipped = voyage._tc_shipped_map()
+            received = voyage._tc_received_map()
+
+            voyage.tc_purchased_display = voyage._tc_uom_display(purchased)
+            voyage.tc_shipped_display = voyage._tc_uom_display(shipped)
+            voyage.tc_received_display = voyage._tc_uom_display(received)
+
+            # Un ÚNICO mensaje de estado del flujo (no una fila de métricas).
+            msgs = []
+            pend_by_uom = {}
+            exc_by_uom = {}
+            for pid, bought in purchased.items():
+                sh = shipped.get(pid, 0.0)
+                uom = self.env['product.product'].browse(pid).uom_id.name or '?'
+                if bought > sh + 0.005:
+                    pend_by_uom[uom] = pend_by_uom.get(uom, 0.0) + (bought - sh)
+                elif sh > bought + 0.005:
+                    exc_by_uom[uom] = exc_by_uom.get(uom, 0.0) + (sh - bought)
+            for uom, q in sorted(pend_by_uom.items()):
+                msgs.append('Pendiente por embarcar: %s' % voyage._tc_fmt_qty(q, uom))
+            for uom, q in sorted(exc_by_uom.items()):
+                msgs.append('Exceso embarcado: %s' % voyage._tc_fmt_qty(q, uom))
+            recv_pend = {}
+            for pid, sh in shipped.items():
+                rec = received.get(pid, 0.0)
+                if sh > rec + 0.005:
+                    uom = self.env['product.product'].browse(pid).uom_id.name or '?'
+                    recv_pend[uom] = recv_pend.get(uom, 0.0) + (sh - rec)
+            for uom, q in sorted(recv_pend.items()):
+                msgs.append('Pendiente por recibir: %s' % voyage._tc_fmt_qty(q, uom))
+
+            voyage.tc_flow_status = ' · '.join(msgs) if msgs else 'Flujo completo, sin diferencias.'
+
+            # Cobertura: porcentaje protagonista, físico SOLO con unidad común.
+            pct = voyage.allocation_percent or 0.0
+            voyage.tc_free_percent = max(0.0, 100.0 - pct)
+
+            uoms = set(self._tc_group_by_uom(shipped).keys()) if shipped else set()
+            if len(uoms) == 1:
+                uom = list(uoms)[0]
+                voyage.tc_coverage_secondary = '%s asignados de %s' % (
+                    voyage._tc_fmt_qty(voyage.allocated_m2 or 0.0, uom),
+                    voyage._tc_fmt_qty(voyage.total_m2 or 0.0, uom),
+                )
+            else:
+                assigned_lots = len(voyage.line_ids.filtered(
+                    lambda l: l.allocation_status == 'reserved'))
+                voyage.tc_coverage_secondary = '%d de %d lotes con asignación' % (
+                    assigned_lots, len(voyage.line_ids))
+
     @api.model
     def tc_get_product_flow_map(self, voyage_id):
         """Flujo por producto para las cabeceras de grupo del widget.
@@ -167,6 +260,7 @@ class StockTransitVoyageMetrics(models.Model):
             bought = purchased.get(pid)
             sh = shipped.get(pid, 0.0)
             has_link = pid in purchased
+            product = self.env['product.product'].browse(pid)
             result[pid] = {
                 'purchased': bought or 0.0,
                 'shipped': sh,
@@ -174,5 +268,7 @@ class StockTransitVoyageMetrics(models.Model):
                 'has_po_link': has_link,
                 'pending_ship': max((bought or 0.0) - sh, 0.0) if has_link else 0.0,
                 'excess_ship': max(sh - (bought or 0.0), 0.0) if has_link else 0.0,
+                # Unidad REAL del producto: nunca asumir m².
+                'uom': product.uom_id.name or '',
             }
         return result

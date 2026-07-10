@@ -15,36 +15,25 @@
         <!-- ══════════════ TOOLBAR ══════════════ -->
         <div class="tvl-toolbar">
             <div class="tvl-toolbar__left">
+                <!-- El resumen global (cantidades, barra, %) vive SOLO en la
+                     cabecera negra: aquí únicamente el conteo de contexto. -->
                 <span class="tvl-toolbar__stat">
-                    <i class="fa fa-cube"/>
                     <strong t-esc="state.groups.length"/> productos
-                </span>
-                <span class="tvl-toolbar__divider"/>
-                <span class="tvl-toolbar__stat">
-                    <i class="fa fa-tag"/>
+                    <span class="tvl-toolbar__divider"/>
                     <strong t-esc="state.groups.reduce((s,g) => s + g.lot_count, 0)"/> lotes
                 </span>
-                <span class="tvl-toolbar__divider"/>
-                <span class="tvl-toolbar__stat tvl-toolbar__stat--m2">
-                    <i class="fa fa-th"/>
-                    <strong t-esc="fmtNum(grandTotal)"/> m²
-                </span>
-                <div class="tvl-global-bar">
-                    <div class="tvl-global-bar__fill" t-att-style="'width:' + grandPercent + '%'"/>
-                </div>
-                <span class="tvl-toolbar__pct"><t t-esc="grandPercent"/>% asignado</span>
             </div>
 
             <div class="tvl-toolbar__right">
                 <button t-attf-class="tvl-chip-filter #{state.activeFilter === 'unassigned' ? 'tvl-chip-filter--on' : ''}"
                         t-on-click="() => this.setFilter('unassigned')"
                         title="Mostrar solo material sin asignar">
-                    Sin asignar
+                    Sin asignar<t t-if="filterCount('unassigned')"> · <t t-esc="filterCount('unassigned')"/></t>
                 </button>
                 <button t-attf-class="tvl-chip-filter #{state.activeFilter === 'client_no_order' ? 'tvl-chip-filter--on' : ''}"
                         t-on-click="() => this.setFilter('client_no_order')"
                         title="Mostrar solo material con cliente pero sin pedido">
-                    Cliente sin pedido
+                    Cliente sin pedido<t t-if="filterCount('client_no_order')"> · <t t-esc="filterCount('client_no_order')"/></t>
                 </button>
                 <button class="tvl-btn tvl-btn--refresh" t-on-click="expandAll" title="Expandir todos los productos">
                     <i class="fa fa-angle-double-down"/>
@@ -94,47 +83,37 @@
                                    t-on-click.stop=""
                                    t-on-change="(ev) => this.toggleGroupSelect(group, ev)"/>
                             <i t-attf-class="fa #{isCollapsed(group.product_id) ? 'fa-chevron-right' : 'fa-chevron-down'} tvl-group__chevron"/>
-                            <span class="tvl-group__name" t-esc="group.product_name"/>
-                            <span t-if="group.lot_count" class="tvl-group__badge tvl-group__badge--lots">
-                                <i class="fa fa-tag"/> <t t-esc="group.lot_count"/> lotes
-                            </span>
-                            <span t-if="group.lines.length !== group.lot_count" class="tvl-group__badge tvl-group__badge--lines">
-                                <i class="fa fa-list"/> <t t-esc="group.lines.length"/> líneas
-                            </span>
+                            <div class="tvl-group__title">
+                                <span class="tvl-group__name" t-esc="group.product_name"/>
+                                <span class="tvl-group__lots" t-if="group.lot_count">
+                                    <t t-esc="group.lot_count"/> lotes
+                                </span>
+                            </div>
                         </div>
                         <t t-set="hasDims" t-value="groupHasDims(group)"/>
                         <t t-set="vLines" t-value="group.lines.filter((l) => lineMatchesFilter(l))"/>
                         <div class="tvl-group__header-right">
                             <t t-set="gflow" t-value="groupFlow(group)"/>
-                            <div t-if="gflow and gflow.has_po_link" class="tvl-group__flow">
-                                <span title="Comprado en la OC vinculada (líneas activas de este producto)">
-                                    OC <b t-esc="fmtNum(gflow.purchased)"/>
+                            <!-- Máx. 3 indicadores: estado compra · % asignado · % disponible -->
+                            <div class="tvl-group__summary">
+                                <span t-if="gflow and gflow.has_po_link" t-attf-class="tvl-group__flow-diff #{gflow.pending_ship > 0.005 ? 'tvl-group__flow-diff--amber' : gflow.excess_ship > 0.005 ? 'tvl-group__flow-diff--red' : 'tvl-group__flow-diff--green'}"
+                                      t-attf-title="Comprado #{fmtNum(gflow.purchased)} #{gflow.uom} · Embarcado #{fmtNum(gflow.shipped)} #{gflow.uom}">
+                                    <t t-if="gflow.pending_ship > 0.005">Pendiente por embarcar <t t-esc="fmtNum(gflow.pending_ship)"/> <t t-esc="gflow.uom"/></t>
+                                    <t t-elif="gflow.excess_ship > 0.005">Exceso embarcado <t t-esc="fmtNum(gflow.excess_ship)"/> <t t-esc="gflow.uom"/></t>
+                                    <t t-else="">Compra completa</t>
                                 </span>
-                                <span t-if="gflow.pending_ship > 0.005" class="tvl-group__flow-diff tvl-group__flow-diff--amber"
-                                      title="Comprado menos embarcado en este viaje">
-                                    Pend. embarcar <b t-esc="fmtNum(gflow.pending_ship)"/>
+                                <span t-elif="gflow" class="tvl-group__flow-diff" title="El producto no está en la OC vinculada al viaje">Sin vínculo con OC</span>
+                                <span class="tvl-group__pcts">
+                                    <b t-esc="pct(group)"/>% asignado · <t t-esc="100 - pct(group)"/>% disponible
                                 </span>
-                                <span t-if="gflow.excess_ship > 0.005" class="tvl-group__flow-diff tvl-group__flow-diff--red"
-                                      title="Embarcado por encima de lo comprado">
-                                    Exceso <b t-esc="fmtNum(gflow.excess_ship)"/>
+                                <span class="tvl-group__bar" title="Asignado / embarcado del producto">
+                                    <span class="tvl-group__bar-fill" t-att-style="'width:' + pct(group) + '%'"/>
                                 </span>
-                                <span t-if="gflow.pending_ship &lt;= 0.005 and gflow.excess_ship &lt;= 0.005"
-                                      class="tvl-group__flow-diff tvl-group__flow-diff--green">Embarque completo</span>
                             </div>
-                            <div t-elif="gflow and !gflow.has_po_link" class="tvl-group__flow">
-                                <span class="tvl-group__flow-diff" title="El producto no está en la OC vinculada al viaje">Sin vínculo con OC</span>
-                            </div>
-                            <div class="tvl-group__bar-wrap">
-                                <div class="tvl-group__bar">
-                                    <div class="tvl-group__bar-fill" t-att-style="'width:' + pct(group) + '%'"/>
-                                </div>
-                                <span class="tvl-group__bar-pct"><t t-esc="pct(group)"/>%</span>
-                            </div>
-                            <div class="tvl-group__m2-wrap">
-                                <span class="tvl-group__m2-reserved" t-esc="fmtNum(group.reserved_m2)"/>
-                                <span class="tvl-group__m2-sep">/</span>
-                                <span class="tvl-group__m2-total" t-esc="fmtNum(group.total_m2)"/>
-                                <span class="tvl-group__m2-unit">m²</span>
+                            <!-- Físico con UNIDAD REAL, segunda línea discreta -->
+                            <div class="tvl-group__phys" t-if="gflow">
+                                <t t-if="gflow.has_po_link">Comprado <t t-esc="fmtNum(gflow.purchased)"/> <t t-esc="gflow.uom"/> · </t>
+                                Embarcado <t t-esc="fmtNum(gflow.shipped)"/> <t t-esc="gflow.uom"/>
                             </div>
                         </div>
                     </div>
@@ -146,7 +125,7 @@
                                 <thead>
                                     <tr>
                                         <th class="tvl-th tvl-th--chk"></th>
-                                        <th class="tvl-th">Lote / Placa</th>
+                                        <th class="tvl-th">Lote / placa</th>
                                         <th class="tvl-th">Contenedor</th>
                                         <th class="tvl-th tvl-th--center">Bloque</th>
                                         <t t-if="hasDims">
@@ -155,16 +134,16 @@
                                             <th class="tvl-th tvl-th--right">Alto</th>
                                             <th class="tvl-th tvl-th--right">Largo</th>
                                         </t>
-                                        <th class="tvl-th tvl-th--right" title="Cantidad embarcada en este viaje">Cant.</th>
-                                        <th class="tvl-th tvl-th--right" title="Cantidad a asignar (parcial en formatos/piezas)">A asignar</th>
+                                        <th class="tvl-th tvl-th--right" title="Cantidad embarcada en este viaje">Cantidad<t t-if="gflow and gflow.uom"> (<t t-esc="gflow.uom"/>)</t></th>
+                                        <th class="tvl-th tvl-th--right" title="Cantidad a asignar (parcial en formatos/piezas)">Por asignar</th>
                                         <th class="tvl-th">Cliente</th>
                                         <th class="tvl-th tvl-th--prop" title="Copiar asignación al resto del producto">Copiar</th>
                                         <th class="tvl-th">Pedido de venta</th>
                                         <th class="tvl-th" title="Solicitado, cubierto y pendiente del pedido para este producto">Cobertura del pedido</th>
                                         <th class="tvl-th tvl-th--status" title="Estado de la asignación en este viaje">Asignación</th>
-                                        <th class="tvl-th tvl-th--center" title="Situación física/comercial del lote (idéntico al inventario visual)">Lote</th>
+                                        <th class="tvl-th tvl-th--center" title="Situación física/comercial del lote (idéntico al inventario visual)">Situación</th>
                                         <th class="tvl-th tvl-th--center" title="Fotografías del lote">Foto</th>
-                                        <th class="tvl-th tvl-th--center" title="Historial de movimientos del lote">Hist.</th>
+                                        <th class="tvl-th tvl-th--center" title="Historial de movimientos del lote">Historial</th>
                                     </tr>
                                 </thead>
                                 <tbody>

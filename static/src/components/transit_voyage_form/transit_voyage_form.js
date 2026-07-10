@@ -306,6 +306,17 @@ class TransitVoyageLinesWidget extends Component {
         return out;
     }
 
+    filterCount(key) {
+        let n = 0;
+        for (const g of this.state.groups) {
+            for (const l of g.lines) {
+                if (key === "unassigned" && !l.order_id) n++;
+                if (key === "client_no_order" && l.partner_id && !l.order_id) n++;
+            }
+        }
+        return n;
+    }
+
     setFilter(key) {
         this.state.activeFilter = this.state.activeFilter === key ? "all" : key;
     }

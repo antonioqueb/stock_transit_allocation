@@ -44,66 +44,66 @@
                             type="object"
                             class="btn-primary"
                             invisible="custom_status in ['delivered', 'cancel']"
-                            string="⏩ Avanzar"/>
+                            string="Avanzar" icon="fa-forward"/>
 
                     <button name="action_retreat_status"
                             type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
-                            string="⏪ Retroceder"/>
+                            string="Retroceder" icon="fa-backward"/>
 
                     <separator/>
 
                     <button name="action_load_from_purchase"
-                            string="🔄 Cargar OC"
+                            string="Cargar OC" icon="fa-download"
                             type="object"
                             class="btn-secondary"
                             invisible="picking_id != False or custom_status == 'delivered'"/>
 
                     <button name="action_load_from_picking"
-                            string="🚢 Sincronizar Lotes"
+                            string="Sincronizar lotes" icon="fa-refresh"
                             type="object"
                             class="btn-secondary"
                             invisible="picking_id == False or custom_status == 'delivered'"/>
 
                     <button name="action_sync_shipsgo"
-                            string="📡 Sincronizar API"
+                            string="Sincronizar API" icon="fa-wifi"
                             type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['delivered', 'cancel']"/>
 
                     <button name="action_open_unassign_wizard"
-                            string="🔓 Desasignar"
+                            string="Desasignar" icon="fa-unlock"
                             type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['delivered', 'cancel']"/>
 
                     <button name="action_generate_reception"
-                            string="🏭 Recibir"
+                            string="Recibir" icon="fa-industry"
                             type="object"
                             class="btn-warning"
                             invisible="custom_status not in ['on_sea', 'puerto_destino', 'arrived_port', 'reception_pending', 'booking', 'puerto_origen'] or reception_picking_id != False"/>
 
                     <button name="action_generate_reception"
-                            string="📋 Recepción"
+                            string="Recepción" icon="fa-clipboard"
                             type="object"
                             class="btn-success"
                             invisible="reception_picking_id == False"/>
 
                     <button name="action_sync_reception_from_voyage"
-                            string="📦 Recepcionar"
+                            string="Recepcionar" icon="fa-cubes"
                             type="object"
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
                     <button name="action_print_reception_labels"
-                            string="🏷️ Etiquetas"
+                            string="Etiquetas" icon="fa-tags"
                             type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['solicitud', 'production', 'booking', 'puerto_origen']"/>
 
                     <button name="action_arrive"
-                            string="🏁 Cerrar Viaje"
+                            string="Cerrar viaje" icon="fa-flag-checkered"
                             type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['delivered', 'cancel']"
@@ -129,110 +129,76 @@
                          HERO HEADER
                     ════════════════════════════════════════════════ -->
                     <div class="vf-hero vf-hero--exec">
-                        <!-- 5.1 IDENTIFICACIÓN -->
+                        <!-- Zona 1: Identificación -->
                         <div class="vf-exec-id">
-                            <div class="vf-exec-id__main">
-                                <span class="vf-hero__icon">🚢</span>
-                                <div>
-                                    <div class="vf-hero__ref">
-                                        <field name="name" class="vf-hero__name" readonly="1"/>
-                                    </div>
-                                    <div class="vf-hero__supplier" invisible="not tc_supplier_id">
-                                        <i class="fa fa-industry me-1" title="Proveedor"/>
-                                        <field name="tc_supplier_id" readonly="1" options="{'no_open': True}"/>
-                                    </div>
-                                </div>
+                            <div class="vf-hero__ref">
+                                <field name="name" class="vf-hero__name" readonly="1"/>
                             </div>
-                            <div class="vf-exec-id__meta">
-                                <span class="vf-exec-chip" invisible="not purchase_id" title="Orden de compra vinculada">
-                                    <b>OC</b> <field name="purchase_id" readonly="1" options="{'no_open': True}"/>
+                            <div class="vf-hero__supplier" invisible="not tc_supplier_id">
+                                <field name="tc_supplier_id" readonly="1" options="{'no_open': True}"/>
+                            </div>
+                            <!-- Línea de metadatos: sin píldoras, un solo eje -->
+                            <div class="vf-exec-meta">
+                                <span invisible="not purchase_id">OC <field name="purchase_id" readonly="1" options="{'no_open': True}"/></span>
+                                <span invisible="not bl_number">BL <field name="bl_number" readonly="1"/></span>
+                                <span invisible="not eta">ETA <field name="eta" readonly="1"/></span>
+                                <span class="vf-exec-meta__empty" invisible="eta">Sin ETA</span>
+                                <span invisible="not vessel_name"><field name="vessel_name" readonly="1"/></span>
+                                <span invisible="not container_number or container_number == 'PENDIENTE'">
+                                    <field name="container_number" readonly="1"/>
                                 </span>
-                                <span class="vf-exec-chip" invisible="not bl_number" title="Folio / Bill of Lading">
-                                    <b>BL</b> <field name="bl_number" readonly="1"/>
-                                </span>
-                                <span class="vf-exec-chip" invisible="not eta" title="Llegada estimada">
-                                    <b>ETA</b> <field name="eta" readonly="1"/>
-                                </span>
-                                <span class="vf-exec-chip vf-exec-chip--empty" invisible="eta" title="Captura la ETA en Datos del embarque">Sin ETA</span>
-                                <span class="vf-exec-chip" invisible="not vessel_name">
-                                    <i class="fa fa-ship"/> <field name="vessel_name" readonly="1"/>
-                                </span>
-                                <span class="vf-exec-chip vf-exec-chip--empty" invisible="vessel_name">Buque no registrado</span>
-                                <span class="vf-exec-chip" invisible="not container_number" title="Contenedores (desde las líneas del viaje)">
-                                    <i class="fa fa-cube"/> <field name="container_number" readonly="1"/>
-                                </span>
-                                <span class="vf-exec-chip vf-exec-chip--empty" invisible="container_number">Sin contenedores vinculados</span>
+                                <span class="vf-exec-meta__empty" invisible="container_number and container_number != 'PENDIENTE'">Sin contenedor</span>
                             </div>
                         </div>
 
-                        <!-- 5.2 FLUJO DE MATERIAL: COMPRADO → EMBARCADO → RECIBIDO -->
-                        <div class="vf-exec-flow" title="Comprado: líneas activas de la OC vinculada (solo productos de este embarque). Embarcado: líneas del viaje. Recibido: recepción física validada.">
-                            <div class="vf-flow-step">
-                                <span class="vf-kpi__label">Comprado</span>
-                                <span class="vf-kpi__value">
-                                    <field name="tc_purchased_qty" class="vf-kpi__number" readonly="1"/>
-                                </span>
+                        <!-- Zona 2: Flujo físico (cantidades SIEMPRE con unidad) -->
+                        <div class="vf-exec-flow"
+                             title="Comprado: líneas activas de la OC vinculada (solo productos de este embarque). Embarcado: líneas del viaje. Recibido: recepción física validada. Las unidades distintas se muestran por separado, nunca sumadas.">
+                            <div class="vf-flow-cols">
+                                <div class="vf-flow-step">
+                                    <span class="vf-kpi__label">Comprado</span>
+                                    <field name="tc_purchased_display" class="vf-flow-qty" readonly="1"/>
+                                </div>
+                                <span class="vf-flow-arrow">→</span>
+                                <div class="vf-flow-step">
+                                    <span class="vf-kpi__label">Embarcado</span>
+                                    <field name="tc_shipped_display" class="vf-flow-qty" readonly="1"/>
+                                </div>
+                                <span class="vf-flow-arrow">→</span>
+                                <div class="vf-flow-step">
+                                    <span class="vf-kpi__label">Recibido</span>
+                                    <field name="tc_received_display" class="vf-flow-qty" readonly="1"/>
+                                </div>
                             </div>
-                            <span class="vf-flow-arrow">→</span>
-                            <div class="vf-flow-step">
-                                <span class="vf-kpi__label">Embarcado</span>
-                                <span class="vf-kpi__value">
-                                    <field name="total_m2" class="vf-kpi__number" readonly="1"/>
-                                </span>
-                            </div>
-                            <span class="vf-flow-arrow">→</span>
-                            <div class="vf-flow-step">
-                                <span class="vf-kpi__label">Recibido</span>
-                                <span class="vf-kpi__value">
-                                    <field name="tc_received_qty" class="vf-kpi__number" readonly="1"/>
-                                </span>
-                            </div>
-
-                            <div class="vf-flow-diffs">
-                                <span class="vf-flow-diff vf-flow-diff--amber" invisible="tc_pending_ship_qty &lt;= 0">
-                                    Pendiente por embarcar: <field name="tc_pending_ship_qty" readonly="1"/>
-                                </span>
-                                <span class="vf-flow-diff vf-flow-diff--red" invisible="tc_excess_ship_qty &lt;= 0">
-                                    Exceso embarcado: <field name="tc_excess_ship_qty" readonly="1"/>
-                                </span>
-                                <span class="vf-flow-diff vf-flow-diff--amber" invisible="tc_pending_receive_qty &lt;= 0">
-                                    Pendiente por recibir: <field name="tc_pending_receive_qty" readonly="1"/>
-                                </span>
-                                <span class="vf-flow-diff vf-flow-diff--green"
-                                      invisible="tc_pending_ship_qty &gt; 0 or tc_excess_ship_qty &gt; 0 or tc_pending_receive_qty &gt; 0">
-                                    Flujo completo, sin diferencias
-                                </span>
+                            <!-- UN solo mensaje de estado, no una fila de métricas -->
+                            <div class="vf-flow-status">
+                                <field name="tc_flow_status" readonly="1"/>
                             </div>
                         </div>
 
-                        <!-- 5.3 COBERTURA COMERCIAL: asignado / embarcado -->
-                        <div class="vf-exec-coverage" title="Cobertura comercial = asignado / embarcado. Independiente del avance logístico.">
-                            <div class="vf-flow-step">
-                                <span class="vf-kpi__label">Asignado</span>
-                                <span class="vf-kpi__value">
-                                    <field name="allocated_m2" class="vf-kpi__number vf-num--green" readonly="1"/>
-                                </span>
+                        <!-- Zona 3: Asignación (porcentaje protagonista) -->
+                        <div class="vf-exec-coverage"
+                             title="Cobertura comercial = asignado / embarcado. Independiente del avance logístico.">
+                            <span class="vf-kpi__label">Cobertura comercial</span>
+                            <div class="vf-cov-headline">
+                                <field name="allocation_percent" class="vf-cov-pct" readonly="1"/><span class="vf-cov-pct-unit">% asignado</span>
+                                <span class="vf-cov-sep">·</span>
+                                <field name="tc_free_percent" class="vf-cov-free" readonly="1"/><span class="vf-cov-free-unit">% disponible</span>
                             </div>
-                            <div class="vf-flow-step">
-                                <span class="vf-kpi__label">Sin asignar</span>
-                                <span class="vf-kpi__value">
-                                    <field name="tc_free_qty" class="vf-kpi__number vf-num--amber" readonly="1"/>
-                                </span>
+                            <div class="vf-cov-bar">
+                                <field name="allocation_percent" widget="progressbar" readonly="1"/>
                             </div>
-                            <div class="vf-flow-step vf-flow-step--bar">
-                                <span class="vf-kpi__label">Cobertura del embarque</span>
-                                <div class="vf-cov-bar" title="Asignado / Embarcado">
-                                    <field name="allocation_percent" widget="progressbar" readonly="1"/>
-                                </div>
+                            <div class="vf-cov-secondary">
+                                <field name="tc_coverage_secondary" readonly="1"/>
                             </div>
                         </div>
                     </div>
 
                     <!-- ════════════════════════════════════════════════
                          DATOS DEL EMBARQUE
-                         Esencial siempre visible; el panel editable completo
-                         se revela con "Ver todos los datos".
+                         Fila compacta; el panel completo la REEMPLAZA al abrir.
                     ════════════════════════════════════════════════ -->
+                    <div class="vf-databand">
                     <div class="vf-quickdata">
                         <span class="vf-qd" invisible="not reception_picking_id">
                             <span class="vf-qd__label">Recepción física</span>
@@ -263,7 +229,8 @@
                     <details class="vf-alldata">
                         <summary class="vf-alldata__summary">
                             <i class="fa fa-chevron-right vf-map-caret me-1"/>
-                            Ver todos los datos del embarque (editar)
+                            <span class="vf-alldata__open-label">Ver detalles del embarque</span>
+                            <span class="vf-alldata__close-label">Ocultar detalles</span>
                         </summary>
                     <div class="vf-data-panel">
                         <div class="vf-panel-col">
@@ -306,6 +273,16 @@
 
                             <div class="vf-panel-col__body">
                                 <div class="vf-field-row">
+                                    <span class="vf-field-label">Buque</span>
+                                    <field name="vessel_name" placeholder="Nombre del buque" class="vf-field-val"/>
+                                </div>
+
+                                <div class="vf-field-row">
+                                    <span class="vf-field-label">Naviera</span>
+                                    <field name="shipping_line" placeholder="Naviera" class="vf-field-val"/>
+                                </div>
+
+                                <div class="vf-field-row">
                                     <span class="vf-field-label">ETD</span>
                                     <field name="etd" class="vf-field-val"/>
                                 </div>
@@ -338,19 +315,21 @@
                             </div>
 
                             <div class="vf-panel-col__body">
-                                <div class="vf-containers-display">
+                                <div class="vf-containers-display"
+                                     invisible="not container_number or container_number == 'PENDIENTE'">
                                     <field name="container_number" readonly="1" class="vf-containers-value"/>
                                 </div>
-
-                                <div class="vf-hint">
-                                    <i class="fa fa-info-circle"/>
-                                    Se actualizan automáticamente desde las líneas del viaje.
+                                <div class="vf-empty-note"
+                                     invisible="container_number and container_number != 'PENDIENTE'">
+                                    Sin contenedores vinculados
+                                    <span>Se actualizarán desde las líneas del viaje.</span>
                                 </div>
                             </div>
                         </div>
                     </div>
 
                     </details>
+                    </div>
 
                     <!-- ════════════════════════════════════════════════
                          MAPA (SIEMPRE colapsado; se expande bajo demanda)
@@ -393,26 +372,10 @@
 
                     <field name="shipsgo_payload" invisible="1"/>
 
-                    <!-- ════════════════════════════════════════════════
-                         AVISO: CLIENTE ASIGNADO SIN PEDIDO
-                    ════════════════════════════════════════════════ -->
+                    <!-- La incidencia "cliente sin pedido" vive ÚNICAMENTE en el
+                         centro de incidencias del widget (una sola alerta, accionable). -->
                     <field name="pending_order_count" invisible="1"/>
                     <field name="pending_order_summary" invisible="1"/>
-
-                    <div class="alert alert-warning d-flex align-items-center mt-2 mb-2"
-                         role="alert"
-                         invisible="pending_order_count == 0">
-                        <i class="fa fa-exclamation-triangle fa-lg me-2"/>
-                        <div>
-                            <b>Falta asignar pedido:</b>
-                            <field name="pending_order_count" class="d-inline" readonly="1"/>
-                            material(es) tienen cliente pero <b>sin orden de venta</b>.
-                            Asígnale su pedido al cliente para completar la reserva.
-                            <div class="small text-muted" invisible="not pending_order_summary">
-                                Clientes: <field name="pending_order_summary" class="d-inline" readonly="1"/>
-                            </div>
-                        </div>
-                    </div>
 
                     <!-- ════════════════════════════════════════════════
                          LOTES
@@ -420,18 +383,10 @@
                     <div class="vf-lots-section">
                         <div class="vf-lots-section__header">
                             <div class="vf-lots-section__title">
-                                <i class="fa fa-th-list"/> Contenido del Embarque
-                                <span class="vf-lots-section__subtitle">
-                                    Agrupado por producto · Click para expandir/colapsar
-                                </span>
+                                <i class="fa fa-th-list"/>
+                                <span title="Agrupado por producto; clic en la cabecera para expandir o colapsar">Contenido del embarque</span>
                             </div>
 
-                            <div class="vf-lots-section__actions">
-                                <div class="vf-info-tip">
-                                    <i class="fa fa-lightbulb-o"/>
-                                    <span>Click en <strong>↓↓</strong> para propagar cliente/orden.</span>
-                                </div>
-                            </div>
                         </div>
 
                         <field name="line_ids" widget="transit_voyage_lines"/>

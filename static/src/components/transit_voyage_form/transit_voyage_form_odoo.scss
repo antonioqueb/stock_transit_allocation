@@ -418,42 +418,16 @@ $vf-radius-xl:     24px;
 .o_voyage_form .vf-hero {
     width: auto !important;
     margin: 18px 18px 0;
-    min-height: 255px;
-    padding: 28px 30px !important;
-    border-radius: 26px !important;
+    min-height: 0;
+    padding: 16px 20px !important;
+    border-radius: 12px !important;
     border: 1px solid rgba(255, 255, 255, .10);
-    background:
-        radial-gradient(circle at 10% 10%, rgba(255, 255, 255, .10), transparent 30%),
-        radial-gradient(circle at 88% 0%, rgba(255, 255, 255, .075), transparent 34%),
-        linear-gradient(135deg, #050505 0%, #111111 46%, #252525 100%) !important;
+    background: #17191C !important;
     box-shadow: $vf-shadow-dark;
     overflow: hidden;
     position: relative;
     box-sizing: border-box;
 
-    &::before {
-        content: "";
-        position: absolute;
-        inset: 0;
-        background:
-            linear-gradient(rgba(255, 255, 255, .035) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255, 255, 255, .035) 1px, transparent 1px);
-        background-size: 42px 42px;
-        opacity: .64;
-        pointer-events: none;
-    }
-
-    &::after {
-        content: "";
-        position: absolute;
-        width: 380px;
-        height: 380px;
-        right: -140px;
-        top: -140px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(255, 255, 255, .11), transparent 68%);
-        pointer-events: none;
-    }
 }
 
 .o_voyage_form .vf-hero__left,
@@ -482,18 +456,16 @@ $vf-radius-xl:     24px;
 
 .o_voyage_form .vf-hero__ref {
     color: #ffffff !important;
-    font-size: 34px !important;
-    font-weight: 950 !important;
-    letter-spacing: -.045em;
-    line-height: 1.05;
-    margin-bottom: 12px;
+    font-size: 20px !important;
+    font-weight: 600 !important;
+    line-height: 26px;
+    margin-bottom: 2px;
 
     .o_field_widget span,
     .o_input {
         color: #ffffff !important;
-        font-size: 34px !important;
-        font-weight: 950 !important;
-        letter-spacing: -.045em !important;
+        font-size: 20px !important;
+        font-weight: 600 !important;
         background: transparent !important;
         border: 0 !important;
         padding: 0 !important;
@@ -785,7 +757,7 @@ $vf-radius-xl:     24px;
 }
 
 .o_voyage_form .vf-panel-col__header {
-    min-height: 54px;
+    min-height: 32px;
     background: linear-gradient(135deg, #ffffff, #f4f4f5) !important;
     border-bottom: 1px solid $vf-border !important;
     color: $vf-text-strong !important;
@@ -1779,183 +1751,79 @@ $vf-radius-xl:     24px;
     }
 }
 
-// ============================================================================
-// CAPA COMPACTA (rediseño de densidad)
-// Mismo lenguaje visual grayscale, pero con ~50% menos espacio vertical:
-// más información de valor por pantalla. Va AL FINAL para ganar por cascada.
-// ============================================================================
 
-.o_voyage_form .vf-hero {
-    min-height: 0 !important;
-    margin: 10px 12px 0 !important;
-    padding: 14px 20px !important;
-    border-radius: 16px !important;
-    align-items: center;
-    gap: 14px !important;
-}
+// ════════════════════════════════════════════════════════════════════════════
+// SISTEMA VISUAL ÚNICO — Torre de Control (v14.2)
+// Una sola capa consolidada: tokens, tipografía, retícula 4/8, una familia de
+// botones/badges. Sustituye a las capas "premium/compacta/tower" eliminadas.
+// ════════════════════════════════════════════════════════════════════════════
 
-.o_voyage_form .vf-hero__icon {
-    width: 48px !important;
-    height: 48px !important;
-    border-radius: 14px !important;
-    font-size: 24px !important;
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, .035), 0 10px 22px rgba(0, 0, 0, .3) !important;
-}
+$transit-bg: #f5f6f8;
+$transit-surface: #ffffff;
+$transit-header: #17191c;
+$transit-header-secondary: #24272c;
+$transit-text: #20242a;
+$transit-text-muted: #667085;
+$transit-border: #e2e6ea;
+$transit-primary: #1570ef;
+$transit-success: #16a34a;
+$transit-warning: #d97706;
+$transit-danger: #dc2626;
 
-.o_voyage_form .vf-hero__identity {
-    gap: 3px !important;
-}
+$transit-radius-sm: 6px;
+$transit-radius-md: 8px;
+$transit-radius-lg: 12px;
 
-.o_voyage_form .vf-hero__ref {
-    font-size: 21px !important;
-    margin-bottom: 2px !important;
+$transit-space-1: 4px;
+$transit-space-2: 8px;
+$transit-space-3: 12px;
+$transit-space-4: 16px;
+$transit-space-5: 24px;
 
-    .o_field_widget span,
-    .o_input {
-        font-size: 21px !important;
+// ── 5. Barra superior: botones y etapas en el MISMO eje y escala ──
+.o_voyage_form .o_form_statusbar {
+    padding-top: $transit-space-2;
+    padding-bottom: $transit-space-2;
+
+    > .o_statusbar_buttons .btn {
+        height: 34px;
+        padding: 0 $transit-space-3;
+        font-size: 13px;
+        font-weight: 500;
+        border-radius: $transit-radius-md;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+
+        i { font-size: 13px; }
+    }
+
+    .o_statusbar_status .o_arrow_button {
+        height: 34px;
+        font-size: 12.5px;
+        font-weight: 500;
+        padding-top: 0;
+        padding-bottom: 0;
+
+        &.o_arrow_button_current {
+            font-weight: 600;
+        }
     }
 }
 
-.o_voyage_form .vf-hero__supplier {
-    font-size: 12px !important;
-    margin-top: 0 !important;
-}
-
-.o_voyage_form .vf-hero__vessel,
-.o_voyage_form .vf-hero__naviera {
-    .o_field_widget span,
-    .o_input {
-        padding: 3px 10px !important;
-        font-size: 11px !important;
-        min-height: 24px !important;
-    }
-}
-
-.o_voyage_form .vf-kpi-grid {
-    border-radius: 14px !important;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, .22) !important;
-}
-
-.o_voyage_form .vf-kpi {
-    min-height: 0 !important;
-    padding: 8px 12px !important;
-
-    &__number,
-    &__number .o_field_widget span {
-        font-size: 17px !important;
-    }
-
-    .o_transit_progress_percent {
-        min-width: 56px !important;
-        height: 26px !important;
-    }
-}
-
-// ── Panel de datos: denso, headers delgados, filas de 24px ──
-.o_voyage_form .vf-data-panel {
-    margin: 8px 12px 0 !important;
-    border-radius: 12px !important;
-    box-shadow: 0 4px 14px rgba(0, 0, 0, .06) !important;
-}
-
-.o_voyage_form .vf-panel-col__header {
-    min-height: 0 !important;
-    padding: 6px 12px !important;
-    font-size: 10px !important;
-
-    i {
-        width: 20px !important;
-        height: 20px !important;
-        border-radius: 7px !important;
-        font-size: 10px !important;
-        margin-right: 2px !important;
-    }
-}
-
-.o_voyage_form .vf-panel-col__body {
-    padding: 6px 12px 8px !important;
-    gap: 0 !important;
-}
-
-.o_voyage_form .vf-field-row {
-    min-height: 24px !important;
-    gap: 6px !important;
-}
-
-.o_voyage_form .vf-field-label {
-    font-size: 10px !important;
-    min-width: 88px !important;
-}
-
-.o_voyage_form .vf-field-val {
-    .o_input,
-    span,
-    a {
-        font-size: 11.5px !important;
-    }
-}
-
-.o_voyage_form .vf-containers-display .vf-containers-value span {
-    font-size: 11.5px !important;
-}
-
-.o_voyage_form .vf-hint {
-    font-size: 9.5px !important;
-    line-height: 1.25 !important;
-    margin-top: 4px;
-}
-
-// ── Secciones inferiores alineadas al nuevo margen ──
-.o_voyage_form .vf-lots-section {
-    margin: 10px 12px 0 !important;
-}
-
-.o_voyage_form .vf-lots-section__header {
-    padding: 8px 12px !important;
-}
-
-.o_voyage_form .vf-metrics-row {
-    margin: 8px 12px !important;
-    padding: 8px 12px !important;
-    gap: 10px !important;
-}
-
-.o_voyage_form .vf-metric-card {
-    padding: 8px 12px !important;
-}
-
-// Separador del mapa y alertas dentro del mismo carril
-.o_voyage_form .vf-map-details {
-    margin-left: 12px !important;
-    margin-right: 12px !important;
-}
-
-
-// ============================================================================
-// TORRE DE CONTROL — Industrial Logistics Control Tower
-// Tokens y componentes del rediseño ejecutivo. Va al final (gana por cascada).
-// ============================================================================
-
-$tw-bg:      #F5F7FA;
-$tw-surface: #FFFFFF;
-$tw-ink:     #17202A;
-$tw-muted:   #667085;
-$tw-border:  #E4E7EC;
-$tw-black:   #121417;
-$tw-success: #12B76A;
-$tw-info:    #2E6BFF;
-$tw-warning: #F79009;
-$tw-danger:  #D92D20;
-
-// ── Franja negra: resumen ejecutivo en 3 zonas ──
+// ── 6. Cabecera negra: retícula estricta de 3 zonas, ≤120px ──
 .o_voyage_form .vf-hero--exec {
     display: grid !important;
-    grid-template-columns: minmax(260px, 1.2fr) minmax(300px, 1.4fr) minmax(240px, 1fr);
-    gap: 20px !important;
-    align-items: center;
-    max-height: 175px;
-    padding: 14px 20px !important;
-    border-radius: 12px !important;
+    grid-template-columns: minmax(240px, 1.1fr) minmax(300px, 1.5fr) minmax(220px, 1fr);
+    gap: $transit-space-5;
+    align-items: start;
+    max-height: 120px;
+    margin: $transit-space-3 $transit-space-4 0 !important;
+
+    > div + div {
+        border-left: 1px solid rgba(255, 255, 255, .12);
+        padding-left: $transit-space-5;
+    }
 
     @media (max-width: 1200px) {
         grid-template-columns: 1fr 1fr;
@@ -1966,63 +1834,61 @@ $tw-danger:  #D92D20;
 .vf-exec-id {
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 2px;
     min-width: 0;
-
-    &__main {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    &__meta {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 5px;
-    }
 }
 
-.vf-exec-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 2px 9px;
-    border-radius: 6px;
-    background: rgba(255, 255, 255, .09);
-    border: 1px solid rgba(255, 255, 255, .14);
-    font-size: 11px;
-    font-weight: 600;
-    color: #f1f5f9;
-    max-width: 100%;
-
-    b { color: rgba(255, 255, 255, .55); font-size: 10px; }
-    i { color: rgba(255, 255, 255, .55); font-size: 10px; }
-
-    .o_field_widget span, .o_field_widget a, span, a {
-        color: #f1f5f9 !important;
-        font-size: 11px !important;
-        font-weight: 600 !important;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        max-width: 220px;
-    }
-
-    &--empty {
-        background: transparent;
-        border-style: dashed;
-        color: rgba(255, 255, 255, .45);
-        font-weight: 500;
-    }
+.o_voyage_form .vf-hero__supplier {
+    font-size: 13px;
+    font-weight: 500;
+    margin-top: 0;
 }
 
-.vf-exec-flow,
-.vf-exec-coverage {
+.vf-exec-meta {
     display: flex;
-    align-items: center;
     flex-wrap: wrap;
-    gap: 12px;
+    align-items: baseline;
+    column-gap: 0;
+    font-size: 12px;
+    color: rgba(255, 255, 255, .72);
     min-width: 0;
+
+    > span {
+        display: inline-flex;
+        align-items: baseline;
+        gap: 4px;
+        white-space: nowrap;
+
+        // separador " · " entre metadatos
+        + span::before {
+            content: "·";
+            margin: 0 6px;
+            color: rgba(255, 255, 255, .35);
+        }
+    }
+
+    .o_field_widget span, .o_field_widget a, span {
+        color: rgba(255, 255, 255, .88) !important;
+        font-size: 12px !important;
+        font-weight: 400;
+    }
+
+    &__empty,
+    &__empty span { color: rgba(255, 255, 255, .45) !important; }
+}
+
+// Flujo físico: número 20px + unidad integrada (viene del display con unidad)
+.vf-exec-flow {
+    display: flex;
+    flex-direction: column;
+    gap: $transit-space-1;
+    min-width: 0;
+}
+
+.vf-flow-cols {
+    display: flex;
+    align-items: flex-end;
+    gap: $transit-space-3;
 }
 
 .vf-flow-step {
@@ -2030,242 +1896,400 @@ $tw-danger:  #D92D20;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+}
 
-    &--bar { flex: 1; min-width: 120px; }
+.o_voyage_form .vf-kpi__label {
+    font-size: 11px;
+    font-weight: 500;
+    letter-spacing: .02em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, .55);
+}
+
+.vf-flow-qty,
+.vf-flow-qty span {
+    font-size: 17px !important;
+    font-weight: 600 !important;
+    color: #fff !important;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 .vf-flow-arrow {
-    color: rgba(255, 255, 255, .4);
-    font-size: 15px;
-    font-weight: 700;
+    color: rgba(255, 255, 255, .35);
+    font-size: 14px;
+    padding-bottom: 3px;
 }
 
-.vf-flow-diffs {
-    flex-basis: 100%;
+.vf-flow-status,
+.vf-flow-status span {
+    font-size: 12px !important;
+    color: rgba(255, 255, 255, .65) !important;
+}
+
+// Asignación: porcentaje protagonista, una sola barra
+.vf-exec-coverage {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 2px;
+    flex-direction: column;
+    gap: $transit-space-1;
+    min-width: 0;
 }
 
-.vf-flow-diff {
-    font-size: 10.5px;
-    font-weight: 600;
+.vf-cov-headline {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    white-space: nowrap;
 
-    .o_field_widget span { font-size: 10.5px !important; font-weight: 700 !important; }
+    .vf-cov-pct, .vf-cov-pct span {
+        font-size: 20px !important;
+        font-weight: 600 !important;
+        color: #fff !important;
+        font-variant-numeric: tabular-nums;
+    }
 
-    &--amber, &--amber .o_field_widget span { color: #fbbf24 !important; }
-    &--red,   &--red .o_field_widget span   { color: #f87171 !important; }
-    &--green  { color: #4ade80 !important; }
+    .vf-cov-pct-unit { font-size: 12px; color: rgba(255, 255, 255, .8); font-weight: 500; }
+    .vf-cov-sep { color: rgba(255, 255, 255, .35); margin: 0 2px; }
+    .vf-cov-free, .vf-cov-free span {
+        font-size: 14px !important;
+        font-weight: 500 !important;
+        color: rgba(255, 255, 255, .75) !important;
+    }
+    .vf-cov-free-unit { font-size: 12px; color: rgba(255, 255, 255, .55); }
 }
-
-.vf-num--green, .vf-num--green .o_field_widget span { color: #4ade80 !important; }
-.vf-num--amber, .vf-num--amber .o_field_widget span { color: #fbbf24 !important; }
 
 .vf-cov-bar {
-    .o_progressbar { min-width: 130px; }
-    .o_progressbar .progress { height: 8px; background: rgba(255,255,255,.14); }
-    .o_progressbar_value { color: #fff !important; font-size: 11px !important; }
+    .o_progressbar { min-width: 0; width: 100%; }
+    .o_progressbar .progress {
+        height: 6px;
+        background: rgba(255, 255, 255, .16);
+        border-radius: 3px;
+    }
+    .o_progressbar .progress-bar { background: $transit-primary; }
+    .o_progressbar_value { display: none; }
 }
 
-// ── Centro de incidencias (compacto, accionable) ──
+.vf-cov-secondary,
+.vf-cov-secondary span {
+    font-size: 12px !important;
+    color: rgba(255, 255, 255, .55) !important;
+}
+
+// ── 7. Fila de datos secundarios ↔ detalle (se reemplazan mutuamente) ──
+.o_voyage_form .vf-databand {
+    margin: $transit-space-2 $transit-space-4 0;
+
+    // Al abrir el detalle, la fila compacta desaparece (nunca ambos).
+    &:has(.vf-alldata[open]) .vf-quickdata { display: none; }
+}
+
+.o_voyage_form .vf-quickdata {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: $transit-space-1 $transit-space-5;
+    min-height: 40px;
+    padding: $transit-space-2 $transit-space-4;
+    background: $transit-surface;
+    border: 1px solid $transit-border;
+    border-radius: $transit-radius-lg;
+    margin: 0;
+}
+
+.o_voyage_form .vf-qd {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 6px;
+
+    &__label {
+        font-size: 11px;
+        font-weight: 500;
+        color: $transit-text-muted;
+    }
+
+    .o_field_widget span, .o_field_widget a, span:not(.vf-qd__label) {
+        font-size: 13px !important;
+        font-weight: 500;
+        color: $transit-text !important;
+    }
+}
+
+.o_voyage_form .vf-alldata {
+    margin: $transit-space-1 0 0;
+
+    > .vf-alldata__summary {
+        cursor: pointer;
+        list-style: none;
+        user-select: none;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 500;
+        color: $transit-primary;
+        padding: $transit-space-1 2px;
+
+        &::-webkit-details-marker { display: none; }
+        &:hover { text-decoration: underline; }
+    }
+
+    .vf-alldata__close-label { display: none; }
+    &[open] .vf-alldata__open-label { display: none; }
+    &[open] .vf-alldata__close-label { display: inline; }
+    &[open] .vf-map-caret { transform: rotate(90deg); }
+
+    .vf-data-panel { margin: $transit-space-1 0 0 !important; }
+}
+
+// Detalle en modo lectura: los inputs NO parecen inputs hasta interactuar
+.o_voyage_form .vf-field-val {
+    .o_input {
+        border: 1px solid transparent !important;
+        background: transparent !important;
+        border-radius: $transit-radius-sm;
+        padding: 2px 4px !important;
+
+        &:hover { border-color: $transit-border !important; }
+        &:focus {
+            border-color: $transit-primary !important;
+            background: $transit-surface !important;
+        }
+    }
+}
+
+.o_voyage_form .vf-field-row { min-height: 28px !important; }
+.o_voyage_form .vf-panel-col__body { padding: $transit-space-3 $transit-space-4 !important; gap: 2px !important; }
+
+.o_voyage_form .vf-empty-note {
+    font-size: 13px;
+    color: $transit-text-muted;
+
+    span {
+        display: block;
+        font-size: 11px;
+        color: lighten($transit-text-muted, 12%);
+    }
+}
+
+// ── 9. Incidencias: una sola alerta, mínima y accionable ──
 .tvl-issues {
     display: flex;
     flex-direction: column;
-    gap: 4px;
-    margin: 6px 0;
+    gap: $transit-space-1;
+    margin: $transit-space-2 0;
 }
 
 .tvl-issue {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 5px 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    border: 1px solid $tw-border;
-    background: $tw-surface;
-    color: $tw-ink;
+    gap: $transit-space-2;
+    padding: 6px $transit-space-3;
+    border-radius: $transit-radius-md;
+    font-size: 13px;
+    border: 1px solid $transit-border;
+    background: $transit-surface;
+    color: $transit-text;
 
-    i { font-size: 12px; }
+    i { font-size: 16px; }
 
-    &--warn   { border-left: 3px solid $tw-warning; i { color: $tw-warning; } }
-    &--danger { border-left: 3px solid $tw-danger;  i { color: $tw-danger; } }
-    &--info   { border-left: 3px solid $tw-info;    i { color: $tw-info; } }
+    &--warn   { background: #fffaf0; border-left: 3px solid $transit-warning; i { color: $transit-warning; } }
+    &--danger { background: #fef5f5; border-left: 3px solid $transit-danger;  i { color: $transit-danger; } }
+    &--info   { border-left: 3px solid $transit-primary; i { color: $transit-primary; } }
 
     &__action {
         margin-left: auto;
-        border: 1px solid $tw-border;
-        background: $tw-bg;
-        color: $tw-info;
-        border-radius: 6px;
-        padding: 1px 10px;
-        font-size: 11px;
-        font-weight: 700;
+        border: 1px solid $transit-border;
+        background: $transit-surface;
+        color: $transit-primary;
+        border-radius: $transit-radius-sm;
+        height: 26px;
+        padding: 0 $transit-space-3;
+        font-size: 12px;
+        font-weight: 500;
         cursor: pointer;
 
-        &:hover { background: #eef2ff; }
+        &:hover { background: #f0f6ff; }
     }
 }
 
-// ── Chips de filtro en la toolbar ──
+// ── 10. Toolbar del contenido + filtros (misma familia) ──
+.tvl-toolbar__stat { font-size: 13px; color: $transit-text-muted; }
+
+.tvl-search {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: 1px solid $transit-border;
+    border-radius: $transit-radius-md;
+    background: $transit-surface;
+    height: 32px;
+    padding: 0 $transit-space-3;
+    min-width: 240px;
+
+    > i { color: $transit-text-muted; font-size: 12px; }
+
+    input {
+        border: 0;
+        outline: none;
+        background: transparent;
+        font-size: 12.5px;
+        flex: 1;
+        color: $transit-text;
+    }
+
+    &__clear {
+        border: 0;
+        background: transparent;
+        color: $transit-text-muted;
+        cursor: pointer;
+
+        &:hover { color: $transit-danger; }
+    }
+}
+
 .tvl-chip-filter {
-    border: 1px solid $tw-border;
-    background: $tw-surface;
-    color: $tw-muted;
+    height: 32px;
+    border: 1px solid $transit-border;
+    background: $transit-surface;
+    color: $transit-text-muted;
     border-radius: 999px;
-    padding: 3px 12px;
-    font-size: 11.5px;
-    font-weight: 600;
+    padding: 0 $transit-space-3;
+    font-size: 12px;
+    font-weight: 500;
     cursor: pointer;
     white-space: nowrap;
 
-    &:hover { border-color: $tw-info; color: $tw-info; }
+    &:hover { border-color: $transit-primary; color: $transit-primary; }
 
     &--on {
-        background: $tw-info;
-        border-color: $tw-info;
+        background: $transit-primary;
+        border-color: $transit-primary;
         color: #fff;
     }
 }
 
-// ── Flujo compra↔embarque en la cabecera del grupo ──
-.tvl-group__flow {
+// ── 11. Cabecera de producto: máx. 3 indicadores + física con unidad ──
+.tvl-group__title {
+    display: flex;
+    align-items: baseline;
+    gap: $transit-space-2;
+    min-width: 0;
+}
+
+.tvl-group__lots {
+    font-size: 12px;
+    color: $transit-text-muted;
+    white-space: nowrap;
+}
+
+.tvl-group__summary {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 10.5px;
-    color: $tw-muted;
+    gap: $transit-space-3;
     white-space: nowrap;
+}
 
-    b { color: $tw-ink; }
+.tvl-group__pcts {
+    font-size: 12px;
+    color: $transit-text-muted;
+
+    b { color: $transit-text; font-weight: 600; }
+}
+
+.tvl-group__bar {
+    display: inline-block;
+    width: 90px;
+    height: 4px;
+    border-radius: 2px;
+    background: $transit-border;
+    overflow: hidden;
+    vertical-align: middle;
+}
+
+.tvl-group__bar-fill {
+    display: block;
+    height: 100%;
+    background: $transit-primary;
 }
 
 .tvl-group__flow-diff {
-    padding: 1px 7px;
-    border-radius: 6px;
-    background: $tw-bg;
-    border: 1px solid $tw-border;
-    font-weight: 600;
+    font-size: 12px;
+    font-weight: 500;
+    padding: 1px 8px;
+    border-radius: $transit-radius-sm;
+    background: $transit-bg;
+    border: 1px solid $transit-border;
+    color: $transit-text-muted;
 
-    &--amber { color: #b45309; background: #fffbeb; border-color: #fde68a; }
-    &--red   { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
-    &--green { color: #047857; background: #ecfdf5; border-color: #a7f3d0; }
+    &--amber { color: $transit-warning; background: #fffaf0; border-color: #fbe3c4; }
+    &--red   { color: $transit-danger; background: #fef5f5; border-color: #f6c9c9; }
+    &--green { color: $transit-success; background: #f2fbf5; border-color: #c7ebd3; }
 }
 
-// ── Cobertura del pedido (microbarra en la tabla) ──
-.tvl-td--cov { min-width: 130px; }
+.tvl-group__phys {
+    font-size: 11px;
+    color: $transit-text-muted;
+    text-align: right;
+    margin-top: 2px;
+}
+
+// ── 12. Cobertura del pedido (microbarra ≤120px) ──
+.tvl-td--cov { min-width: 120px; }
 
 .tvl-cov {
     display: flex;
     flex-direction: column;
     gap: 2px;
-    max-width: 160px;
+    max-width: 120px;
 
     &__nums {
-        font-size: 11px;
-        color: $tw-ink;
+        font-size: 13px;
+        font-weight: 600;
+        color: $transit-text;
         font-variant-numeric: tabular-nums;
-        b { font-weight: 800; }
     }
 
     &__bar {
         display: block;
-        height: 4px;
+        height: 3px;
         border-radius: 2px;
-        background: $tw-border;
+        background: $transit-border;
         overflow: hidden;
     }
 
     &__fill {
         display: block;
         height: 100%;
-        border-radius: 2px;
-        background: $tw-info;
+        background: $transit-primary;
     }
 
     &__label {
-        font-size: 9.5px;
-        font-weight: 700;
-        color: $tw-muted;
+        font-size: 11px;
+        font-weight: 500;
+        color: $transit-text-muted;
     }
 
-    &.tvl-cov--full {
-        .tvl-cov__fill  { background: $tw-success; }
-        .tvl-cov__label { color: $tw-success; }
-    }
-
-    &.tvl-cov--partial {
-        .tvl-cov__fill  { background: $tw-warning; }
-        .tvl-cov__label { color: #b45309; }
-    }
-
-    &.tvl-cov--over {
-        .tvl-cov__fill  { background: $tw-danger; }
-        .tvl-cov__label { color: $tw-danger; }
-    }
-}
-
-// ── Statusbar único legible (etapas completas, actual resaltado) ──
-.o_voyage_form .o_statusbar_status .o_arrow_button {
-    font-size: 11.5px !important;
-    padding-top: 2px !important;
-    padding-bottom: 2px !important;
-}
-
-
-// ── Búsqueda en la tabla ──
-.tvl-search {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    border: 1px solid $tw-border;
-    border-radius: 8px;
-    background: $tw-surface;
-    padding: 3px 10px;
-    min-width: 260px;
-
-    > i { color: $tw-muted; font-size: 11px; }
-
-    input {
-        border: 0;
-        outline: none;
-        background: transparent;
-        font-size: 12px;
-        flex: 1;
-        color: $tw-ink;
-    }
-
-    &__clear {
-        border: 0;
-        background: transparent;
-        color: $tw-muted;
-        cursor: pointer;
-        padding: 0 2px;
-
-        &:hover { color: $tw-danger; }
-    }
+    &.tvl-cov--full    { .tvl-cov__fill { background: $transit-success; } .tvl-cov__label { color: $transit-success; } }
+    &.tvl-cov--partial { .tvl-cov__fill { background: $transit-primary; } }
+    &.tvl-cov--over    { .tvl-cov__fill { background: $transit-danger; } .tvl-cov__label { color: $transit-danger; } }
 }
 
 // ── Drawer de asignación ──
 .tvl-drawer-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(18, 20, 23, .35);
+    background: rgba(23, 25, 28, .35);
     z-index: 1055;
 }
 
 .tvl-drawer {
     position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
+    top: 0; right: 0; bottom: 0;
     width: 400px;
     max-width: 92vw;
-    background: $tw-surface;
-    border-left: 1px solid $tw-border;
-    box-shadow: -12px 0 34px rgba(0, 0, 0, .18);
+    background: $transit-surface;
+    border-left: 1px solid $transit-border;
+    box-shadow: -8px 0 24px rgba(0, 0, 0, .14);
     z-index: 1056;
     display: flex;
     flex-direction: column;
@@ -2274,190 +2298,113 @@ $tw-danger:  #D92D20;
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 14px 18px;
-        background: $tw-black;
+        padding: $transit-space-3 $transit-space-4;
+        background: $transit-header;
         color: #fff;
 
-        h4 { margin: 0; font-size: 15px; font-weight: 800; color: #fff; }
+        h4 { margin: 0; font-size: 16px; font-weight: 600; color: #fff; }
     }
 
     &__close {
-        border: 0;
-        background: transparent;
+        border: 0; background: transparent;
         color: rgba(255, 255, 255, .7);
-        font-size: 15px;
-        cursor: pointer;
-
+        font-size: 14px; cursor: pointer;
         &:hover { color: #fff; }
     }
 
     &__body {
-        flex: 1;
-        overflow-y: auto;
-        padding: 14px 18px;
-        display: flex;
-        flex-direction: column;
-        gap: 14px;
+        flex: 1; overflow-y: auto;
+        padding: $transit-space-4;
+        display: flex; flex-direction: column;
+        gap: $transit-space-4;
     }
 
-    &__section {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
+    &__section { display: flex; flex-direction: column; gap: $transit-space-1; }
 
     &__label {
-        font-size: 10px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .06em;
-        color: $tw-muted;
+        font-size: 11px; font-weight: 500;
+        text-transform: uppercase; letter-spacing: .02em;
+        color: $transit-text-muted;
     }
 
-    &__val {
-        font-size: 13px;
-        color: $tw-ink;
-        line-height: 1.4;
-    }
+    &__val { font-size: 13px; color: $transit-text; line-height: 19px; }
 
     &__cov {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
+        display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px;
 
         > div {
-            background: $tw-bg;
-            border: 1px solid $tw-border;
-            border-radius: 8px;
-            padding: 6px 8px;
-            display: flex;
-            flex-direction: column;
+            background: $transit-bg;
+            border: 1px solid $transit-border;
+            border-radius: $transit-radius-md;
+            padding: 6px $transit-space-2;
+            display: flex; flex-direction: column;
 
-            span { font-size: 9.5px; color: $tw-muted; font-weight: 700; }
-            b { font-size: 14px; color: $tw-ink; font-variant-numeric: tabular-nums; }
+            span { font-size: 11px; color: $transit-text-muted; }
+            b { font-size: 14px; color: $transit-text; font-variant-numeric: tabular-nums; }
         }
     }
 
     &__qty {
         width: 130px;
-        border: 1px solid $tw-border;
-        border-radius: 8px;
-        padding: 6px 10px;
-        font-size: 14px;
-        font-weight: 700;
-        color: $tw-ink;
-
-        &:focus { outline: 2px solid $tw-info; border-color: $tw-info; }
+        border: 1px solid $transit-border;
+        border-radius: $transit-radius-md;
+        padding: 6px $transit-space-3;
+        font-size: 14px; font-weight: 600;
+        color: $transit-text;
+        &:focus { outline: 2px solid $transit-primary; border-color: $transit-primary; }
     }
 
     &__proj {
-        font-size: 16px;
-        font-weight: 800;
-        color: $tw-ink;
-        font-variant-numeric: tabular-nums;
-
-        .tvl-cov__bar { height: 6px; }
+        font-size: 16px; font-weight: 600;
+        color: $transit-text; font-variant-numeric: tabular-nums;
+        .tvl-cov__bar { height: 4px; max-width: 100%; }
     }
 
-    &__fill--over { background: $tw-danger !important; }
+    &__fill--over { background: $transit-danger !important; }
 
     &__verdict {
-        margin-top: 4px;
-        padding: 8px 10px;
-        border-radius: 8px;
-        font-size: 12px;
-        font-weight: 600;
+        margin-top: $transit-space-1;
+        padding: $transit-space-2 $transit-space-3;
+        border-radius: $transit-radius-md;
+        font-size: 12px; font-weight: 500;
 
-        &--ok   { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-        &--full { background: #ecfdf5; color: #047857; border: 1px solid #a7f3d0; }
-        &--warn { background: #fffbeb; color: #b45309; border: 1px solid #fde68a; }
-        &--over { background: #fef2f2; color: #b91c1c; border: 1px solid #fecaca; }
+        &--ok   { background: #f0f6ff; color: $transit-primary; border: 1px solid #cfe0fb; }
+        &--full { background: #f2fbf5; color: $transit-success; border: 1px solid #c7ebd3; }
+        &--warn { background: #fffaf0; color: $transit-warning; border: 1px solid #fbe3c4; }
+        &--over { background: #fef5f5; color: $transit-danger; border: 1px solid #f6c9c9; }
     }
 
     &__foot {
-        display: flex;
-        justify-content: flex-end;
-        gap: 8px;
-        padding: 12px 18px;
-        border-top: 1px solid $tw-border;
-        background: $tw-bg;
+        display: flex; justify-content: flex-end; gap: $transit-space-2;
+        padding: $transit-space-3 $transit-space-4;
+        border-top: 1px solid $transit-border;
+        background: $transit-bg;
     }
 
     &__btn {
-        border-radius: 8px;
-        padding: 7px 16px;
-        font-size: 13px;
-        font-weight: 700;
+        height: 34px;
+        border-radius: $transit-radius-md;
+        padding: 0 $transit-space-4;
+        font-size: 13px; font-weight: 500;
         cursor: pointer;
 
         &--secondary {
-            border: 1px solid $tw-border;
-            background: $tw-surface;
-            color: $tw-muted;
-            &:hover { color: $tw-ink; }
+            border: 1px solid $transit-border;
+            background: $transit-surface;
+            color: $transit-text-muted;
+            &:hover { color: $transit-text; }
         }
 
         &--primary {
-            border: 1px solid $tw-black;
-            background: $tw-black;
+            border: 1px solid $transit-primary;
+            background: $transit-primary;
             color: #fff;
-            &:hover { background: #000; }
+            &:hover { background: darken($transit-primary, 6%); }
         }
     }
 }
 
-// ── Datos del embarque: franja esencial + revelado progresivo ──
-.o_voyage_form .vf-quickdata {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 18px;
-    margin: 8px 12px 0;
-    padding: 8px 14px;
-    background: $tw-surface;
-    border: 1px solid $tw-border;
-    border-radius: 12px;
-}
-
-.o_voyage_form .vf-qd {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 6px;
-    font-size: 11.5px;
-
-    &__label {
-        font-size: 10px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .05em;
-        color: $tw-muted;
-    }
-
-    .o_field_widget span, .o_field_widget a, span:not(.vf-qd__label) {
-        font-size: 11.5px !important;
-        font-weight: 600;
-        color: $tw-ink !important;
-    }
-}
-
-.o_voyage_form .vf-alldata {
-    margin: 4px 12px 0;
-
-    > .vf-alldata__summary {
-        cursor: pointer;
-        list-style: none;
-        user-select: none;
-        font-size: 10.5px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: .06em;
-        color: $tw-muted;
-        padding: 4px 2px;
-
-        &::-webkit-details-marker { display: none; }
-        &:hover { color: $tw-ink; }
-    }
-
-    &[open] .vf-map-caret { transform: rotate(90deg); }
-
-    .vf-data-panel { margin: 4px 0 0 !important; }
-}
+// ── Márgenes de secciones en el mismo carril de 16px ──
+.o_voyage_form .vf-data-panel { margin: $transit-space-2 $transit-space-4 0 !important; border-radius: $transit-radius-lg; box-shadow: none !important; }
+.o_voyage_form .vf-lots-section { margin: $transit-space-3 $transit-space-4 0 !important; }
+.o_voyage_form .vf-map-details { margin-left: $transit-space-4 !important; margin-right: $transit-space-4 !important; }
