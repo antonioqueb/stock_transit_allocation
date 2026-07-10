@@ -1156,15 +1156,50 @@ $brand-grad:  linear-gradient(90deg, $brand-start, $brand-end);
     white-space: nowrap;
 }
 
-/* Proveedor en el hero del viaje */
+/* Proveedor en el hero del viaje (fondo oscuro → texto blanco) */
 .vf-hero__supplier {
     display: flex;
     align-items: center;
     gap: 4px;
     font-size: 13px;
     font-weight: 600;
-    color: #475569;
+    color: #fff;
     margin-top: 2px;
 
-    .fa { color: #64748b; }
+    .fa { color: rgba(255, 255, 255, .75); }
+
+    /* El many2one readonly renderiza un <a>/<span> interno: también blanco */
+    a, span, .o_field_widget, .o_field_widget * {
+        color: #fff !important;
+    }
+}
+
+/* ── Mapa de seguimiento: sección colapsable (SIEMPRE inicia cerrada) ── */
+.vf-map-details {
+    > .vf-map-summary {
+        cursor: pointer;
+        list-style: none;          /* sin la flecha nativa del navegador */
+        user-select: none;
+
+        &::-webkit-details-marker { display: none; }
+
+        &:hover { color: #334155 !important; }
+    }
+
+    .vf-map-caret {
+        transition: transform .15s ease;
+    }
+
+    &[open] .vf-map-caret {
+        transform: rotate(90deg);
+    }
+
+    .vf-map-hint {
+        font-weight: 400;
+        text-transform: none;
+        letter-spacing: 0;
+        color: #94a3b8;
+    }
+
+    &[open] .vf-map-hint { display: none; }
 }
