@@ -1814,15 +1814,18 @@ $transit-space-5: 24px;
 // ── 6. Cabecera negra: retícula estricta de 3 zonas, ≤120px ──
 .o_voyage_form .vf-hero--exec {
     display: grid !important;
-    grid-template-columns: minmax(280px, 1.4fr) minmax(240px, 1fr);
+    grid-template-columns: 3fr 4fr 3fr;
     gap: $transit-space-5;
     align-items: start;
-    max-height: 120px;
+    min-height: 104px;
+    max-height: 116px;
+    padding: $transit-space-4 $transit-space-5 !important;
     margin: $transit-space-3 $transit-space-4 0 !important;
 
     > div + div {
-        border-left: 1px solid rgba(255, 255, 255, .12);
+        border-left: 1px solid rgba(255, 255, 255, .08);
         padding-left: $transit-space-5;
+        height: 100%;
     }
 
     @media (max-width: 1200px) {
@@ -1849,42 +1852,50 @@ $transit-space-5: 24px;
     margin-top: 0;
 }
 
-.vf-exec-meta {
+.vf-exec-log {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: $transit-space-3;
+    min-width: 0;
+    align-content: start;
+}
+
+.vf-log-item {
     display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    column-gap: 0;
-    font-size: 12px;
-    color: rgba(255, 255, 255, .72);
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.vf-log-label {
+    font-size: 10px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: .03em;
+    color: rgba(255, 255, 255, .5);
+    white-space: nowrap;
+}
+
+.vf-log-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
     min-width: 0;
 
-    > span {
-        display: inline-flex;
-        align-items: baseline;
-        gap: 4px;
-        white-space: nowrap;
-
-        // separador " · " entre metadatos
-        + span::before {
-            content: "·";
-            margin: 0 6px;
-            color: rgba(255, 255, 255, .35);
-        }
-
-        // o_field_widget renderiza como div-bloque: forzar inline para que
-        // etiqueta y valor compartan línea.
-        .o_field_widget { display: inline; }
-        .o_field_widget > span, .o_field_widget > div { display: inline; }
-    }
-
+    .o_field_widget { display: inline; }
     .o_field_widget span, .o_field_widget a, span {
-        color: rgba(255, 255, 255, .88) !important;
-        font-size: 12px !important;
-        font-weight: 400;
+        color: #fff !important;
+        font-size: 13px !important;
+        font-weight: 500;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: inline-block;
+        max-width: 100%;
+        vertical-align: bottom;
     }
 
-    &__empty,
-    &__empty span { color: rgba(255, 255, 255, .45) !important; }
+    &--empty { color: rgba(255, 255, 255, .4); font-weight: 400; }
 }
 
 // Flujo físico: número 20px + unidad integrada (viene del display con unidad)
@@ -1943,6 +1954,11 @@ $transit-space-5: 24px;
     flex-direction: column;
     gap: $transit-space-1;
     min-width: 0;
+
+    > .vf-log-label { margin-bottom: 2px; }
+    .vf-cov-bar { width: 100%; }
+    .vf-cov-bar .progress-bar { background: $transit-primary; }
+    .vf-cov-bar .progress { background: rgba(255, 255, 255, .18); }
 }
 
 .vf-cov-headline {
@@ -1956,18 +1972,19 @@ $transit-space-5: 24px;
     .vf-cov-pct, .vf-cov-pct span {
         font-size: 20px !important;
         font-weight: 600 !important;
-        color: #fff !important;
+        color: $transit-primary !important;   // acento SOLO en el porcentaje
         font-variant-numeric: tabular-nums;
     }
 
     .vf-cov-pct-unit { font-size: 12px; color: rgba(255, 255, 255, .8); font-weight: 500; }
     .vf-cov-sep { color: rgba(255, 255, 255, .35); margin: 0 2px; }
-    .vf-cov-free, .vf-cov-free span {
-        font-size: 14px !important;
-        font-weight: 500 !important;
+
+    .vf-cov-lots,
+    .vf-cov-lots span {
+        font-size: 13px !important;
+        font-weight: 400 !important;
         color: rgba(255, 255, 255, .75) !important;
     }
-    .vf-cov-free-unit { font-size: 12px; color: rgba(255, 255, 255, .55); }
 }
 
 .vf-cov-bar {
@@ -1990,10 +2007,18 @@ $transit-space-5: 24px;
     }
 }
 
-.vf-cov-secondary,
-.vf-cov-secondary span {
-    font-size: 12px !important;
-    color: rgba(255, 255, 255, .55) !important;
+.vf-cov-secondary {
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    white-space: nowrap;
+
+    .o_field_widget { display: inline; }
+
+    &, span, .o_field_widget span {
+        font-size: 12px !important;
+        color: rgba(255, 255, 255, .55) !important;
+    }
 }
 
 // ── 7. Fila de datos secundarios ↔ detalle (se reemplazan mutuamente) ──

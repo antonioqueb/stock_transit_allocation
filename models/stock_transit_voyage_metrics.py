@@ -155,6 +155,8 @@ class StockTransitVoyageMetrics(models.Model):
     tc_flow_status = fields.Char(compute='_compute_tc_flow_displays')
     tc_free_percent = fields.Float(compute='_compute_tc_flow_displays', digits=(16, 0))
     tc_coverage_secondary = fields.Char(compute='_compute_tc_flow_displays')
+    tc_lots_summary = fields.Char(compute='_compute_tc_flow_displays')
+    tc_lots_available = fields.Char(compute='_compute_tc_flow_displays')
 
     @staticmethod
     def _tc_fmt_qty(qty, uom):
@@ -238,6 +240,18 @@ class StockTransitVoyageMetrics(models.Model):
                     lambda l: l.allocation_status == 'reserved'))
                 voyage.tc_coverage_secondary = '%d de %d lotes con asignación' % (
                     assigned_lots, len(voyage.line_ids))
+
+            total_lots = len(voyage.line_ids)
+            assigned = len(voyage.line_ids.filtered(
+                lambda l: l.allocation_status == 'reserved'))
+            voyage.tc_lots_summary = '%d de %d lotes' % (assigned, total_lots)
+            free_lots = total_lots - assigned
+            voyage.tc_lots_available = (
+                '%d lote%s disponible%s' % (
+                    free_lots, 's' if free_lots != 1 else '',
+                    's' if free_lots != 1 else '')
+                if free_lots else 'Todos los lotes asignados'
+            )
 
     @api.model
     def tc_get_product_flow_map(self, voyage_id):

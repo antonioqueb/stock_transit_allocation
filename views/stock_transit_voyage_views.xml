@@ -129,7 +129,7 @@
                          HERO HEADER
                     ════════════════════════════════════════════════ -->
                     <div class="vf-hero vf-hero--exec">
-                        <!-- Zona 1: Identificación -->
+                        <!-- 1. Identificación (30%) -->
                         <div class="vf-exec-id">
                             <div class="vf-hero__ref">
                                 <field name="name" class="vf-hero__name" readonly="1"/>
@@ -137,34 +137,56 @@
                             <div class="vf-hero__supplier" invisible="not tc_supplier_id">
                                 <field name="tc_supplier_id" readonly="1" options="{'no_open': True}"/>
                             </div>
-                            <!-- Línea de metadatos: sin píldoras, un solo eje -->
-                            <div class="vf-exec-meta">
-                                <span invisible="not purchase_id">OC <field name="purchase_id" readonly="1" options="{'no_open': True}"/></span>
-                                <span invisible="not bl_number">BL <field name="bl_number" readonly="1"/></span>
-                                <span invisible="not eta">ETA <field name="eta" readonly="1"/></span>
-                                <span class="vf-exec-meta__empty" invisible="eta">Sin ETA</span>
-                                <span invisible="not vessel_name"><field name="vessel_name" readonly="1"/></span>
-                                <span invisible="not container_number or container_number == 'PENDIENTE'">
+                        </div>
+
+                        <!-- 2. Información logística (40%): campos con etiqueta -->
+                        <div class="vf-exec-log">
+                            <div class="vf-log-item">
+                                <span class="vf-log-label">Orden de compra</span>
+                                <span class="vf-log-value" invisible="not purchase_id">
+                                    <field name="purchase_id" readonly="1" options="{'no_open': True}"/>
+                                </span>
+                                <span class="vf-log-value vf-log-value--empty" invisible="purchase_id">Sin definir</span>
+                            </div>
+                            <div class="vf-log-item">
+                                <span class="vf-log-label">BL / Referencia</span>
+                                <span class="vf-log-value" invisible="not bl_number">
+                                    <field name="bl_number" readonly="1"/>
+                                </span>
+                                <span class="vf-log-value vf-log-value--empty" invisible="bl_number">Sin definir</span>
+                            </div>
+                            <div class="vf-log-item">
+                                <span class="vf-log-label">ETA</span>
+                                <span class="vf-log-value" invisible="not eta">
+                                    <field name="eta" readonly="1"/>
+                                </span>
+                                <span class="vf-log-value vf-log-value--empty" invisible="eta">Sin definir</span>
+                            </div>
+                            <div class="vf-log-item">
+                                <span class="vf-log-label">Contenedor</span>
+                                <span class="vf-log-value" invisible="not container_number or container_number == 'PENDIENTE'">
                                     <field name="container_number" readonly="1"/>
                                 </span>
-                                <span class="vf-exec-meta__empty" invisible="container_number and container_number != 'PENDIENTE'">Sin contenedor</span>
+                                <span class="vf-log-value vf-log-value--empty" invisible="container_number and container_number != 'PENDIENTE'">Sin asignar</span>
                             </div>
                         </div>
 
-                        <!-- Zona 3: Asignación (porcentaje protagonista) -->
+                        <!-- 3. Cobertura comercial (30%) -->
                         <div class="vf-exec-coverage"
                              title="Cobertura comercial = asignado / embarcado. Independiente del avance logístico.">
-                            <span class="vf-kpi__label">Cobertura comercial</span>
+                            <span class="vf-log-label">Cobertura comercial</span>
                             <div class="vf-cov-headline">
                                 <field name="allocation_percent" class="vf-cov-pct" readonly="1" options="{'digits': [16, 0]}"/><span class="vf-cov-pct-unit">% asignado</span>
                                 <span class="vf-cov-sep">·</span>
-                                <field name="tc_free_percent" class="vf-cov-free" readonly="1" options="{'digits': [16, 0]}"/><span class="vf-cov-free-unit">% disponible</span>
+                                <span class="vf-cov-lots"><field name="tc_lots_summary" readonly="1"/></span>
                             </div>
                             <div class="vf-cov-bar">
                                 <field name="allocation_percent" widget="progressbar" readonly="1"/>
                             </div>
                             <div class="vf-cov-secondary">
-                                <field name="tc_coverage_secondary" readonly="1"/>
+                                <field name="tc_lots_available" readonly="1"/>
+                                <span class="vf-cov-sep">·</span>
+                                <field name="tc_free_percent" readonly="1" options="{'digits': [16, 0]}"/><span>%</span>
                             </div>
                         </div>
                     </div>
