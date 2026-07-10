@@ -1836,6 +1836,11 @@ $transit-space-5: 24px;
     flex-direction: column;
     gap: 2px;
     min-width: 0;
+
+    .vf-hero__ref .o_field_widget,
+    .vf-hero__supplier .o_field_widget {
+        display: inline-block;
+    }
 }
 
 .o_voyage_form .vf-hero__supplier {
@@ -1865,6 +1870,11 @@ $transit-space-5: 24px;
             margin: 0 6px;
             color: rgba(255, 255, 255, .35);
         }
+
+        // o_field_widget renderiza como div-bloque: forzar inline para que
+        // etiqueta y valor compartan línea.
+        .o_field_widget { display: inline; }
+        .o_field_widget > span, .o_field_widget > div { display: inline; }
     }
 
     .o_field_widget span, .o_field_widget a, span {
@@ -1941,6 +1951,8 @@ $transit-space-5: 24px;
     gap: 4px;
     white-space: nowrap;
 
+    .o_field_widget { display: inline-flex; align-items: baseline; }
+
     .vf-cov-pct, .vf-cov-pct span {
         font-size: 20px !important;
         font-weight: 600 !important;
@@ -1964,9 +1976,18 @@ $transit-space-5: 24px;
         height: 6px;
         background: rgba(255, 255, 255, .16);
         border-radius: 3px;
+        flex: 1;
     }
     .o_progressbar .progress-bar { background: $transit-primary; }
-    .o_progressbar_value { display: none; }
+
+    // El widget imprime el valor ("71 %") en distintos wrappers según la
+    // versión: ocultar todos — el porcentaje ya es el titular de la zona.
+    .o_progressbar_value,
+    .o_progressbar > span,
+    .o_progressbar input,
+    .o_progressbar .o_input {
+        display: none !important;
+    }
 }
 
 .vf-cov-secondary,

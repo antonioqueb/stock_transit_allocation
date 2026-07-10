@@ -156,9 +156,9 @@
                              title="Cobertura comercial = asignado / embarcado. Independiente del avance logístico.">
                             <span class="vf-kpi__label">Cobertura comercial</span>
                             <div class="vf-cov-headline">
-                                <field name="allocation_percent" class="vf-cov-pct" readonly="1"/><span class="vf-cov-pct-unit">% asignado</span>
+                                <field name="allocation_percent" class="vf-cov-pct" readonly="1" options="{'digits': [16, 0]}"/><span class="vf-cov-pct-unit">% asignado</span>
                                 <span class="vf-cov-sep">·</span>
-                                <field name="tc_free_percent" class="vf-cov-free" readonly="1"/><span class="vf-cov-free-unit">% disponible</span>
+                                <field name="tc_free_percent" class="vf-cov-free" readonly="1" options="{'digits': [16, 0]}"/><span class="vf-cov-free-unit">% disponible</span>
                             </div>
                             <div class="vf-cov-bar">
                                 <field name="allocation_percent" widget="progressbar" readonly="1"/>
