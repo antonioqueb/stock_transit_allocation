@@ -51,8 +51,16 @@ class TransitVoyageLinesWidget extends Component {
         this.dialog       = useService("dialog");
         this.action       = useService("action");
 
+        // Helper usado dentro de expresiones de template (t-set con arrow):
+        // bind explícito para no depender del `this` del scope compilado.
+        this.lineMatchesFilter = this.lineMatchesFilter.bind(this);
+
         this.state = useState({
             groups:        [],
+            // Torre de Control
+            productFlow:   {},     // {product_id: {purchased, shipped, received, ...}}
+            coverage:      {},     // {orderId: {productId: {requested, covered, pending}}}
+            activeFilter:  "all",  // all | unassigned | client_no_order | over
             collapsed:     {},
             loading:       true,
             allPartners:   [],
@@ -108,6 +116,15 @@ class TransitVoyageLinesWidget extends Component {
                 console.warn("[TransitVoyageLines] normalize twins:", e);
             }
 
+            // Flujo comprado/embarcado/recibido POR PRODUCTO (una sola llamada).
+            try {
+                this.state.productFlow = await this.orm.call(
+                    "stock.transit.voyage", "tc_get_product_flow_map", [voyageId]) || {};
+            } catch (e) {
+                console.warn("[TransitVoyageLines] product flow:", e);
+                this.state.productFlow = {};
+            }
+
             const lines = await this.orm.searchRead(
                 "stock.transit.line",
                 [["voyage_id", "=", voyageId]],
@@ -155,6 +172,104 @@ class TransitVoyageLinesWidget extends Component {
         } finally {
             this.state.loading = false;
         }
+    }
+
+    // ─── Torre de Control: incidencias, filtros y cobertura ─────────────────
+
+    /** Incidencias accionables (cada una aplica un filtro sobre la tabla). */
+    get issues() {
+        const out = [];
+        let clientNoOrder = 0;
+        let unassigned = 0;
+        for (const g of this.state.groups) {
+            for (const l of g.lines) {
+                if (l.partner_id && !l.order_id) clientNoOrder++;
+                if (!l.partner_id && !l.order_id) unassigned++;
+            }
+        }
+        if (clientNoOrder) {
+            out.push({
+                key: "client_no_order", level: "warn",
+                text: `${clientNoOrder} material(es) tienen cliente pero sin pedido asignado`,
+                action: "Ver materiales",
+            });
+        }
+        if (unassigned) {
+            out.push({
+                key: "unassigned", level: "info",
+                text: `${unassigned} material(es) sin asignar`,
+                action: "Ver materiales",
+            });
+        }
+        // Diferencias de flujo (del backend, ya cargadas por producto).
+        let pendShip = 0, excess = 0, noLink = 0;
+        for (const f of Object.values(this.state.productFlow || {})) {
+            pendShip += f.pending_ship || 0;
+            excess += f.excess_ship || 0;
+            if (!f.has_po_link) noLink++;
+        }
+        if (excess > 0.005) {
+            out.push({ key: "none", level: "danger", text: `Exceso embarcado vs OC: ${this.fmtNum(excess)}` });
+        }
+        if (pendShip > 0.005) {
+            out.push({ key: "none", level: "warn", text: `Pendiente por embarcar de la OC: ${this.fmtNum(pendShip)}` });
+        }
+        if (noLink) {
+            out.push({ key: "none", level: "info", text: `${noLink} producto(s) sin vínculo con OC` });
+        }
+        return out;
+    }
+
+    setFilter(key) {
+        this.state.activeFilter = this.state.activeFilter === key ? "all" : key;
+    }
+
+    lineMatchesFilter(l) {
+        switch (this.state.activeFilter) {
+            case "unassigned":       return !l.order_id;
+            case "client_no_order":  return !!l.partner_id && !l.order_id;
+            default:                 return true;
+        }
+    }
+
+    /** Cobertura del pedido de la línea (desde el mapa batch). */
+    lineCoverage(l) {
+        if (!l.order_id || !l.product_id) return null;
+        const c = (this.state.coverage[l.order_id[0]] || {})[l.product_id[0]];
+        if (!c || !c.requested) return null;
+        const pct = Math.min(100, (c.covered / c.requested) * 100);
+        return { ...c, pct };
+    }
+
+    covLabel(c) {
+        if (!c) return "";
+        if (c.pending <= 0.005 && c.covered <= c.requested + 0.005) return "Completo";
+        if (c.covered > c.requested + 0.005) return `Excede por ${this.fmtNum(c.covered - c.requested)}`;
+        return `Faltan ${this.fmtNum(c.pending)}`;
+    }
+
+    covClass(c) {
+        if (!c) return "";
+        if (c.covered > c.requested + 0.005) return "tvl-cov--over";
+        if (c.pending <= 0.005) return "tvl-cov--full";
+        return "tvl-cov--partial";
+    }
+
+    /** Flujo compra↔embarque del grupo (cabecera de producto). */
+    groupFlow(group) {
+        return (this.state.productFlow || {})[group.product_id] || null;
+    }
+
+    expandAll()   { this.state.collapsed = {}; }
+    collapseAll() {
+        const c = {};
+        this.state.groups.forEach(g => { c[g.product_id] = true; });
+        this.state.collapsed = c;
+    }
+
+    /** ¿El grupo tiene dimensiones físicas? (si no, se ocultan esas columnas) */
+    groupHasDims(group) {
+        return group.lines.some(l => l.x_grosor || l.x_alto || l.x_ancho || l.x_atado);
     }
 
     // ─── Trazabilidad (columnas tipo inventario visual) ─────────────────────
@@ -304,9 +419,27 @@ class TransitVoyageLinesWidget extends Component {
         const saleLines = await this.orm.searchRead(
             "sale.order.line",
             [["product_id", "in", productIds], ["order_id.state", "in", ["sale", "done"]], ["display_type", "=", false]],
-            ["order_id", "product_id"],
+            [
+                "order_id", "product_id",
+                // Cobertura del pedido (campos calculados ya existentes):
+                "product_uom_qty", "tc_qty_assigned_lots", "tc_qty_pending_allocation",
+            ],
             { limit: 500 }
         );
+
+        // Mapa de cobertura por (pedido, producto) — sin RPC por fila.
+        const cov = {};
+        saleLines.forEach(sl => {
+            const oid = sl.order_id[0];
+            const pid = sl.product_id[0];
+            if (!cov[oid]) cov[oid] = {};
+            const entry = cov[oid][pid] || { requested: 0, covered: 0, pending: 0 };
+            entry.requested += sl.product_uom_qty || 0;
+            entry.covered   += sl.tc_qty_assigned_lots || 0;
+            entry.pending   += sl.tc_qty_pending_allocation || 0;
+            cov[oid][pid] = entry;
+        });
+        this.state.coverage = cov;
         const soIds = [...new Set(saleLines.map(sl => sl.order_id[0]))];
         if (!soIds.length) return;
 
@@ -335,11 +468,15 @@ class TransitVoyageLinesWidget extends Component {
             if (!ord) return;
             if (!obp[prod]) obp[prod] = [];
             if (!obp[prod].some(x => x.id === ord.id)) {
+                const c = (cov[ord.id] || {})[prod] || {};
                 obp[prod].push({
                     id: ord.id,
                     name: ord.name,
                     partner_id: ord.partner_id[0],
                     partner_name: ord.partner_id[1],
+                    // Preventivo: el vendedor ve solicitado/pendiente ANTES de asignar.
+                    requested: c.requested || 0,
+                    pending: c.pending || 0,
                 });
             }
         });
@@ -640,6 +777,18 @@ class TransitVoyageLinesWidget extends Component {
         if (!targets.length) return;
 
         const ids = targets.map(l => l.id);
+
+        // Vista previa: qué se va a copiar y a cuántas líneas (nunca silencioso).
+        const totalQty = targets.reduce((sum, l) => sum + (l.product_uom_qty || 0), 0);
+        const ordName = srcLine.order_id ? srcLine.order_id[1] : "";
+        const proceed = window.confirm(
+            `Copiar asignación al resto del producto:\n\n` +
+            `Pedido destino: ${ordName}\n` +
+            `Líneas afectadas: ${ids.length}\n` +
+            `Cantidad total: ${this.fmtNum(totalQty)}\n\n` +
+            `Se llenará hasta lo solicitado del pedido y se detendrá antes de generar excedente.`
+        );
+        if (!proceed) return;
 
         // Propagación INTELIGENTE: el backend llena hasta lo solicitado y se
         // detiene ANTES del excedente (parcialidad exacta en formatos/piezas).

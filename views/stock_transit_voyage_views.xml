@@ -115,126 +115,114 @@
                             invisible="custom_status in ['delivered', 'cancel']"
                             confirm="¿Está seguro de cancelar este viaje?"/>
 
-                    <!-- ======================================================
-                         STATUSBAR COMPACTO POR VENTANAS DE 3 ESTADOS
-                         Máximo 3 estados visibles a la vez.
-                         Siempre muestra el estado actual y sus estados cercanos.
-                    ====================================================== -->
-
-                    <!-- Solicitud / Producción -->
+                    <!-- Etapas logísticas: barra única, completa y clickable.
+                         El estado actual lo resalta el estilo nativo + CSS compacto
+                         (reemplaza el hack de 6 statusbars ventaneados que truncaba). -->
                     <field name="custom_status"
                            widget="statusbar"
-                           statusbar_visible="solicitud,production,booking"
-                           invisible="custom_status not in ['solicitud', 'production']"/>
-
-                    <!-- Booking -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="production,booking,puerto_origen"
-                           invisible="custom_status != 'booking'"/>
-
-                    <!-- Puerto Origen -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="booking,puerto_origen,on_sea"
-                           invisible="custom_status != 'puerto_origen'"/>
-
-                    <!-- En Altamar -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="puerto_origen,on_sea,puerto_destino"
-                           invisible="custom_status != 'on_sea'"/>
-
-                    <!-- Puerto Destino -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="on_sea,puerto_destino,arrived_port"
-                           invisible="custom_status != 'puerto_destino'"/>
-
-                    <!-- Arribo a Puerto -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="puerto_destino,arrived_port,reception_pending"
-                           invisible="custom_status != 'arrived_port'"/>
-
-                    <!-- En Recepción -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="arrived_port,reception_pending,delivered"
-                           invisible="custom_status != 'reception_pending'"/>
-
-                    <!-- Entregado -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="arrived_port,reception_pending,delivered"
-                           invisible="custom_status != 'delivered'"/>
-
-                    <!-- Cancelado -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           statusbar_visible="cancel"
-                           invisible="custom_status != 'cancel'"/>
+                           options="{'clickable': True}"
+                           statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
                 </header>
 
                 <sheet>
                     <!-- ════════════════════════════════════════════════
                          HERO HEADER
                     ════════════════════════════════════════════════ -->
-                    <div class="vf-hero">
-                        <div class="vf-hero__left">
-                            <div class="vf-hero__icon">🚢</div>
-
-                            <div class="vf-hero__identity">
-                                <div class="vf-hero__ref">
-                                    <field name="name" class="vf-hero__name" readonly="1"/>
+                    <div class="vf-hero vf-hero--exec">
+                        <!-- 5.1 IDENTIFICACIÓN -->
+                        <div class="vf-exec-id">
+                            <div class="vf-exec-id__main">
+                                <span class="vf-hero__icon">🚢</span>
+                                <div>
+                                    <div class="vf-hero__ref">
+                                        <field name="name" class="vf-hero__name" readonly="1"/>
+                                    </div>
+                                    <div class="vf-hero__supplier" invisible="not tc_supplier_id">
+                                        <i class="fa fa-industry me-1" title="Proveedor"/>
+                                        <field name="tc_supplier_id" readonly="1" options="{'no_open': True}"/>
+                                    </div>
                                 </div>
-
-                                <div class="vf-hero__supplier" invisible="not tc_supplier_id">
-                                    <i class="fa fa-industry me-1"/>
-                                    <field name="tc_supplier_id" readonly="1" options="{'no_open': True}"/>
-                                </div>
-
-                                <div class="vf-hero__vessel">
-                                    <field name="vessel_name"
-                                           placeholder="Nombre del buque..."
-                                           class="vf-hero__vessel-input"/>
-
-                                    <span class="vf-hero__sep" invisible="not shipping_line">·</span>
-
-                                    <field name="shipping_line"
-                                           placeholder="Naviera..."
-                                           class="vf-hero__naviera-input"/>
-                                </div>
+                            </div>
+                            <div class="vf-exec-id__meta">
+                                <span class="vf-exec-chip" invisible="not purchase_id" title="Orden de compra vinculada">
+                                    <b>OC</b> <field name="purchase_id" readonly="1" options="{'no_open': True}"/>
+                                </span>
+                                <span class="vf-exec-chip" invisible="not bl_number" title="Folio / Bill of Lading">
+                                    <b>BL</b> <field name="bl_number" readonly="1"/>
+                                </span>
+                                <span class="vf-exec-chip" invisible="not eta" title="Llegada estimada">
+                                    <b>ETA</b> <field name="eta" readonly="1"/>
+                                </span>
+                                <span class="vf-exec-chip vf-exec-chip--empty" invisible="eta" title="Captura la ETA en Datos del embarque">Sin ETA</span>
+                                <span class="vf-exec-chip" invisible="not vessel_name">
+                                    <i class="fa fa-ship"/> <field name="vessel_name" readonly="1"/>
+                                </span>
+                                <span class="vf-exec-chip vf-exec-chip--empty" invisible="vessel_name">Buque no registrado</span>
+                                <span class="vf-exec-chip" invisible="not container_number" title="Contenedores (desde las líneas del viaje)">
+                                    <i class="fa fa-cube"/> <field name="container_number" readonly="1"/>
+                                </span>
+                                <span class="vf-exec-chip vf-exec-chip--empty" invisible="container_number">Sin contenedores vinculados</span>
                             </div>
                         </div>
 
-                        <div class="vf-hero__right">
-                            <div class="vf-kpi-grid">
-                                <div class="vf-kpi">
-                                    <span class="vf-kpi__label">Total m²</span>
-                                    <span class="vf-kpi__value">
-                                        <field name="total_m2" class="vf-kpi__number" readonly="1"/>
-                                    </span>
-                                </div>
+                        <!-- 5.2 FLUJO DE MATERIAL: COMPRADO → EMBARCADO → RECIBIDO -->
+                        <div class="vf-exec-flow" title="Comprado: líneas activas de la OC vinculada (solo productos de este embarque). Embarcado: líneas del viaje. Recibido: recepción física validada.">
+                            <div class="vf-flow-step">
+                                <span class="vf-kpi__label">Comprado</span>
+                                <span class="vf-kpi__value">
+                                    <field name="tc_purchased_qty" class="vf-kpi__number" readonly="1"/>
+                                </span>
+                            </div>
+                            <span class="vf-flow-arrow">→</span>
+                            <div class="vf-flow-step">
+                                <span class="vf-kpi__label">Embarcado</span>
+                                <span class="vf-kpi__value">
+                                    <field name="total_m2" class="vf-kpi__number" readonly="1"/>
+                                </span>
+                            </div>
+                            <span class="vf-flow-arrow">→</span>
+                            <div class="vf-flow-step">
+                                <span class="vf-kpi__label">Recibido</span>
+                                <span class="vf-kpi__value">
+                                    <field name="tc_received_qty" class="vf-kpi__number" readonly="1"/>
+                                </span>
+                            </div>
 
-                                <div class="vf-kpi vf-kpi--green">
-                                    <span class="vf-kpi__label">Asignados m²</span>
-                                    <span class="vf-kpi__value">
-                                        <field name="allocated_m2" class="vf-kpi__number" readonly="1"/>
-                                    </span>
-                                </div>
+                            <div class="vf-flow-diffs">
+                                <span class="vf-flow-diff vf-flow-diff--amber" invisible="tc_pending_ship_qty &lt;= 0">
+                                    Pendiente por embarcar: <field name="tc_pending_ship_qty" readonly="1"/>
+                                </span>
+                                <span class="vf-flow-diff vf-flow-diff--red" invisible="tc_excess_ship_qty &lt;= 0">
+                                    Exceso embarcado: <field name="tc_excess_ship_qty" readonly="1"/>
+                                </span>
+                                <span class="vf-flow-diff vf-flow-diff--amber" invisible="tc_pending_receive_qty &lt;= 0">
+                                    Pendiente por recibir: <field name="tc_pending_receive_qty" readonly="1"/>
+                                </span>
+                                <span class="vf-flow-diff vf-flow-diff--green"
+                                      invisible="tc_pending_ship_qty &gt; 0 or tc_excess_ship_qty &gt; 0 or tc_pending_receive_qty &gt; 0">
+                                    Flujo completo, sin diferencias
+                                </span>
+                            </div>
+                        </div>
 
-                                <div class="vf-kpi vf-kpi--blue">
-                                    <span class="vf-kpi__label">% Asignado</span>
-                                    <span class="vf-kpi__value">
-                                        <field name="allocation_percent" class="vf-kpi__number" readonly="1"/>
-                                        <span class="vf-kpi__unit">%</span>
-                                    </span>
-                                </div>
-
-                                <div class="vf-kpi">
-                                    <span class="vf-kpi__label">Progreso</span>
-                                    <field name="transit_progress" widget="transit_ship_progress"/>
+                        <!-- 5.3 COBERTURA COMERCIAL: asignado / embarcado -->
+                        <div class="vf-exec-coverage" title="Cobertura comercial = asignado / embarcado. Independiente del avance logístico.">
+                            <div class="vf-flow-step">
+                                <span class="vf-kpi__label">Asignado</span>
+                                <span class="vf-kpi__value">
+                                    <field name="allocated_m2" class="vf-kpi__number vf-num--green" readonly="1"/>
+                                </span>
+                            </div>
+                            <div class="vf-flow-step">
+                                <span class="vf-kpi__label">Sin asignar</span>
+                                <span class="vf-kpi__value">
+                                    <field name="tc_free_qty" class="vf-kpi__number vf-num--amber" readonly="1"/>
+                                </span>
+                            </div>
+                            <div class="vf-flow-step vf-flow-step--bar">
+                                <span class="vf-kpi__label">Cobertura del embarque</span>
+                                <div class="vf-cov-bar" title="Asignado / Embarcado">
+                                    <field name="allocation_percent" widget="progressbar" readonly="1"/>
                                 </div>
                             </div>
                         </div>
@@ -413,27 +401,6 @@
                         <field name="line_ids" widget="transit_voyage_lines"/>
                     </div>
 
-                    <!-- ════════════════════════════════════════════════
-                         MÉTRICAS FINALES
-                    ════════════════════════════════════════════════ -->
-                    <div class="vf-metrics-row">
-                        <div class="vf-metric-card">
-                            <span class="vf-metric-card__label">Total Embarcado</span>
-                            <field name="total_m2" class="vf-metric-card__value" readonly="1"/>
-                            <span class="vf-metric-card__unit">m²</span>
-                        </div>
-
-                        <div class="vf-metric-card vf-metric-card--green">
-                            <span class="vf-metric-card__label">Asignado</span>
-                            <field name="allocated_m2" class="vf-metric-card__value" readonly="1"/>
-                            <span class="vf-metric-card__unit">m²</span>
-                        </div>
-
-                        <div class="vf-metric-card vf-metric-card--progress">
-                            <span class="vf-metric-card__label">Asignación</span>
-                            <field name="allocation_percent" widget="progressbar" readonly="1"/>
-                        </div>
-                    </div>
                 </sheet>
 
                 <chatter/>

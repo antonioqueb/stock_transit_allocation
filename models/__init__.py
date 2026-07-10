@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from . import purchase_line_allocation
 from . import stock_transit_voyage
+from . import stock_transit_voyage_metrics
 from . import stock_transit_line
 from . import stock_transit_line_fields
 from . import stock_transit_line_propagate

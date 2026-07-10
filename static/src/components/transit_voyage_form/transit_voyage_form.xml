@@ -36,10 +36,40 @@
             </div>
 
             <div class="tvl-toolbar__right">
+                <button t-attf-class="tvl-chip-filter #{state.activeFilter === 'unassigned' ? 'tvl-chip-filter--on' : ''}"
+                        t-on-click="() => this.setFilter('unassigned')"
+                        title="Mostrar solo material sin asignar">
+                    Sin asignar
+                </button>
+                <button t-attf-class="tvl-chip-filter #{state.activeFilter === 'client_no_order' ? 'tvl-chip-filter--on' : ''}"
+                        t-on-click="() => this.setFilter('client_no_order')"
+                        title="Mostrar solo material con cliente pero sin pedido">
+                    Cliente sin pedido
+                </button>
+                <button class="tvl-btn tvl-btn--refresh" t-on-click="expandAll" title="Expandir todos los productos">
+                    <i class="fa fa-angle-double-down"/>
+                </button>
+                <button class="tvl-btn tvl-btn--refresh" t-on-click="collapseAll" title="Colapsar todos los productos">
+                    <i class="fa fa-angle-double-up"/>
+                </button>
                 <button class="tvl-btn tvl-btn--refresh" t-on-click="refresh" title="Recargar">
                     <i class="fa fa-refresh"/>
                 </button>
             </div>
+        </div>
+
+        <!-- ══════════════ CENTRO DE INCIDENCIAS (accionable, compacto) ══════════════ -->
+        <div t-if="issues.length" class="tvl-issues">
+            <t t-foreach="issues" t-as="iss" t-key="iss_index">
+                <div t-attf-class="tvl-issue tvl-issue--#{iss.level}">
+                    <i t-attf-class="fa #{iss.level === 'danger' ? 'fa-times-circle' : iss.level === 'warn' ? 'fa-exclamation-triangle' : 'fa-info-circle'}"/>
+                    <span t-esc="iss.text"/>
+                    <button t-if="iss.action and iss.key !== 'none'"
+                            class="tvl-issue__action"
+                            t-on-click="() => this.setFilter(iss.key)"
+                            t-esc="state.activeFilter === iss.key ? 'Quitar filtro' : iss.action"/>
+                </div>
+            </t>
         </div>
 
         <!-- VACÍO -->
@@ -52,7 +82,8 @@
         <!-- ══════════════ GRUPOS POR PRODUCTO ══════════════ -->
         <div class="tvl-groups" t-if="state.groups.length > 0">
             <t t-foreach="state.groups" t-as="group" t-key="group.product_id">
-                <div class="tvl-group">
+                <t t-set="preFilter" t-value="group.lines.filter((l) => lineMatchesFilter(l))"/>
+                <div class="tvl-group" t-if="preFilter.length">
 
                     <!-- ── Cabecera del producto (desplegable) ── -->
                     <div class="tvl-group__header" t-on-click="() => this.toggleGroup(group.product_id)">
@@ -71,7 +102,28 @@
                                 <i class="fa fa-list"/> <t t-esc="group.lines.length"/> líneas
                             </span>
                         </div>
+                        <t t-set="hasDims" t-value="groupHasDims(group)"/>
+                        <t t-set="vLines" t-value="group.lines.filter((l) => lineMatchesFilter(l))"/>
                         <div class="tvl-group__header-right">
+                            <t t-set="gflow" t-value="groupFlow(group)"/>
+                            <div t-if="gflow and gflow.has_po_link" class="tvl-group__flow">
+                                <span title="Comprado en la OC vinculada (líneas activas de este producto)">
+                                    OC <b t-esc="fmtNum(gflow.purchased)"/>
+                                </span>
+                                <span t-if="gflow.pending_ship > 0.005" class="tvl-group__flow-diff tvl-group__flow-diff--amber"
+                                      title="Comprado menos embarcado en este viaje">
+                                    Pend. embarcar <b t-esc="fmtNum(gflow.pending_ship)"/>
+                                </span>
+                                <span t-if="gflow.excess_ship > 0.005" class="tvl-group__flow-diff tvl-group__flow-diff--red"
+                                      title="Embarcado por encima de lo comprado">
+                                    Exceso <b t-esc="fmtNum(gflow.excess_ship)"/>
+                                </span>
+                                <span t-if="gflow.pending_ship &lt;= 0.005 and gflow.excess_ship &lt;= 0.005"
+                                      class="tvl-group__flow-diff tvl-group__flow-diff--green">Embarque completo</span>
+                            </div>
+                            <div t-elif="gflow and !gflow.has_po_link" class="tvl-group__flow">
+                                <span class="tvl-group__flow-diff" title="El producto no está en la OC vinculada al viaje">Sin vínculo con OC</span>
+                            </div>
                             <div class="tvl-group__bar-wrap">
                                 <div class="tvl-group__bar">
                                     <div class="tvl-group__bar-fill" t-att-style="'width:' + pct(group) + '%'"/>
@@ -97,27 +149,29 @@
                                         <th class="tvl-th">Lote / Placa</th>
                                         <th class="tvl-th">Contenedor</th>
                                         <th class="tvl-th tvl-th--center">Bloque</th>
-                                        <th class="tvl-th tvl-th--center">Atado</th>
-                                        <th class="tvl-th tvl-th--center">Grosor</th>
-                                        <th class="tvl-th tvl-th--right">Alto</th>
-                                        <th class="tvl-th tvl-th--right">Largo</th>
-                                        <th class="tvl-th tvl-th--right">m²</th>
+                                        <t t-if="hasDims">
+                                            <th class="tvl-th tvl-th--center">Atado</th>
+                                            <th class="tvl-th tvl-th--center">Grosor</th>
+                                            <th class="tvl-th tvl-th--right">Alto</th>
+                                            <th class="tvl-th tvl-th--right">Largo</th>
+                                        </t>
+                                        <th class="tvl-th tvl-th--right" title="Cantidad embarcada en este viaje">Cant.</th>
                                         <th class="tvl-th tvl-th--right" title="Cantidad a asignar (parcial en formatos/piezas)">A asignar</th>
                                         <th class="tvl-th">Cliente</th>
-                                        <th class="tvl-th tvl-th--prop" title="Propagar asignación hacia abajo">↓↓</th>
-                                        <th class="tvl-th">Sales Order</th>
-                                        <th class="tvl-th tvl-th--status">Estado</th>
-                                        <th class="tvl-th tvl-th--center" title="Estado del lote (idéntico al inventario visual)">E</th>
-                                        <th class="tvl-th" title="Pedido(s) de venta a los que salió o está comprometido el lote">Pedido</th>
-                                        <th class="tvl-th tvl-th--center" title="Fotografías del lote">📷</th>
-                                        <th class="tvl-th tvl-th--center" title="Historial de movimientos">⟲</th>
+                                        <th class="tvl-th tvl-th--prop" title="Copiar asignación al resto del producto">Copiar</th>
+                                        <th class="tvl-th">Pedido de venta</th>
+                                        <th class="tvl-th" title="Solicitado, cubierto y pendiente del pedido para este producto">Cobertura del pedido</th>
+                                        <th class="tvl-th tvl-th--status" title="Estado de la asignación en este viaje">Asignación</th>
+                                        <th class="tvl-th tvl-th--center" title="Situación física/comercial del lote (idéntico al inventario visual)">Lote</th>
+                                        <th class="tvl-th tvl-th--center" title="Fotografías del lote">Foto</th>
+                                        <th class="tvl-th tvl-th--center" title="Historial de movimientos del lote">Hist.</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                <t t-foreach="group.lines" t-as="line" t-key="line.id">
+                                <t t-foreach="vLines" t-as="line" t-key="line.id">
                                     <!-- Separador de bloque cuando cambia -->
                                     <t t-set="currentBlock" t-value="line.x_bloque || 'Sin Bloque'"/>
-                                    <t t-set="prevLine" t-value="line_index > 0 ? group.lines[line_index - 1] : null"/>
+                                    <t t-set="prevLine" t-value="line_index > 0 ? vLines[line_index - 1] : null"/>
                                     <t t-set="prevBlock" t-value="prevLine ? (prevLine.x_bloque || 'Sin Bloque') : null"/>
                                     <t t-if="line_index === 0 or currentBlock !== prevBlock">
                                         <t t-set="blockInfo" t-value="group.blocks.find(b => b.name === currentBlock)"/>
@@ -128,7 +182,7 @@
                                                     <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
                                                 </span>
                                             </td>
-                                            <td colspan="14" class="tvl-block-header-m2">
+                                            <td t-att-colspan="hasDims ? 14 : 10" class="tvl-block-header-m2">
                                                 <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
                                             </td>
                                         </tr>
@@ -167,29 +221,26 @@
                                             <span t-else="" class="tvl-muted">—</span>
                                         </td>
 
-                                        <!-- Atado -->
-                                        <td class="tvl-td tvl-td--center">
-                                            <span t-if="line.x_atado" class="tvl-dim-chip tvl-dim-chip--atado" t-esc="line.x_atado"/>
-                                            <span t-else="" class="tvl-muted">—</span>
-                                        </td>
-
-                                        <!-- Grosor -->
-                                        <td class="tvl-td tvl-td--center">
-                                            <span t-if="line.x_grosor" class="tvl-dim-val" t-esc="line.x_grosor"/>
-                                            <span t-else="" class="tvl-muted">—</span>
-                                        </td>
-
-                                        <!-- Alto -->
-                                        <td class="tvl-td tvl-td--right tvl-dim-val">
-                                            <t t-if="line.x_alto" t-esc="line.x_alto.toFixed(2)"/>
-                                            <span t-else="" class="tvl-muted">—</span>
-                                        </td>
-
-                                        <!-- Ancho -->
-                                        <td class="tvl-td tvl-td--right tvl-dim-val">
-                                            <t t-if="line.x_ancho" t-esc="line.x_ancho.toFixed(2)"/>
-                                            <span t-else="" class="tvl-muted">—</span>
-                                        </td>
+                                        <!-- Dimensiones físicas: solo cuando el grupo las tiene
+                                             (adhesivos/formatos sin dims no muestran guiones) -->
+                                        <t t-if="hasDims">
+                                            <td class="tvl-td tvl-td--center">
+                                                <span t-if="line.x_atado" class="tvl-dim-chip tvl-dim-chip--atado" t-esc="line.x_atado"/>
+                                                <span t-else="" class="tvl-muted">—</span>
+                                            </td>
+                                            <td class="tvl-td tvl-td--center">
+                                                <span t-if="line.x_grosor" class="tvl-dim-val" t-esc="line.x_grosor"/>
+                                                <span t-else="" class="tvl-muted">—</span>
+                                            </td>
+                                            <td class="tvl-td tvl-td--right tvl-dim-val">
+                                                <t t-if="line.x_alto" t-esc="line.x_alto.toFixed(2)"/>
+                                                <span t-else="" class="tvl-muted">—</span>
+                                            </td>
+                                            <td class="tvl-td tvl-td--right tvl-dim-val">
+                                                <t t-if="line.x_ancho" t-esc="line.x_ancho.toFixed(2)"/>
+                                                <span t-else="" class="tvl-muted">—</span>
+                                            </td>
+                                        </t>
 
                                         <!-- m² -->
                                         <td class="tvl-td tvl-td--right tvl-m2-val">
@@ -257,11 +308,12 @@
                                                 <select class="tvl-inline-select"
                                                         t-on-change="(ev) => this.onOrderChange(line, ev)"
                                                         t-on-blur="() => this.state.editingCell = null">
-                                                    <option value="">— Sin orden —</option>
+                                                    <option value="">— Sin pedido —</option>
                                                     <t t-foreach="getOrdersForProduct(line)" t-as="o" t-key="o.id">
                                                         <option t-att-value="o.id"
                                                                 t-att-selected="line.order_id and line.order_id[0] === o.id">
                                                             <t t-esc="o.name"/> · <t t-esc="o.partner_name"/>
+                                                            <t t-if="o.requested"> · Solicitado <t t-esc="fmtNum(o.requested)"/> · Pendiente <t t-esc="fmtNum(o.pending)"/></t>
                                                         </option>
                                                     </t>
                                                 </select>
@@ -280,6 +332,30 @@
                                         </td>
 
                                         <!-- Estado -->
+                                        <!-- Cobertura del pedido: solicitado / cubierto / pendiente -->
+                                        <td class="tvl-td tvl-td--cov">
+                                            <t t-set="lcov" t-value="lineCoverage(line)"/>
+                                            <t t-if="lcov">
+                                                <div t-attf-class="tvl-cov #{covClass(lcov)}"
+                                                     t-attf-title="Solicitado #{fmtNum(lcov.requested)} · Cubierto #{fmtNum(lcov.covered)} · Pendiente #{fmtNum(lcov.pending)}">
+                                                    <span class="tvl-cov__nums">
+                                                        <b t-esc="fmtNum(lcov.covered)"/> / <t t-esc="fmtNum(lcov.requested)"/>
+                                                    </span>
+                                                    <span class="tvl-cov__bar">
+                                                        <span class="tvl-cov__fill" t-attf-style="width: #{lcov.pct}%"/>
+                                                    </span>
+                                                    <span class="tvl-cov__label" t-esc="covLabel(lcov)"/>
+                                                </div>
+                                            </t>
+                                            <t t-elif="line.trace and line.trace.orders and line.trace.orders.length">
+                                                <span class="tvl-trace-orders"
+                                                      t-attf-title="Pedido(s) a los que salió el lote">
+                                                    <t t-esc="line.trace.orders.join(', ')"/>
+                                                </span>
+                                            </t>
+                                            <span t-else="" class="tvl-muted">—</span>
+                                        </td>
+
                                         <td class="tvl-td tvl-td--status">
                                             <span t-attf-class="tvl-badge #{statusCls(line.allocation_status)}"
                                                 t-esc="statusLabel(line.allocation_status)"/>
@@ -313,13 +389,7 @@
                                             <span t-else="" class="tvl-muted">—</span>
                                         </td>
 
-                                        <!-- Pedido(s) destino -->
-                                        <td class="tvl-td">
-                                            <t t-if="line.trace and line.trace.orders and line.trace.orders.length">
-                                                <span class="tvl-trace-orders" t-esc="line.trace.orders.join(', ')"/>
-                                            </t>
-                                            <span t-else="" class="tvl-muted">—</span>
-                                        </td>
+
 
                                         <!-- Foto del lote -->
                                         <td class="tvl-td tvl-td--center">
@@ -348,7 +418,7 @@
 
                                 <!-- Subtotal del grupo -->
                                 <tr class="tvl-subtotal-row">
-                                    <td colspan="8" class="tvl-td tvl-subtotal__label">
+                                    <td t-att-colspan="hasDims ? 8 : 4" class="tvl-td tvl-subtotal__label">
                                         Subtotal <strong t-esc="group.product_name"/>
                                     </td>
                                     <td class="tvl-td tvl-subtotal__m2">

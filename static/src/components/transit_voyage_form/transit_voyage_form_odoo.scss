@@ -1929,3 +1929,287 @@ $vf-radius-xl:     24px;
     margin-left: 12px !important;
     margin-right: 12px !important;
 }
+
+
+// ============================================================================
+// TORRE DE CONTROL — Industrial Logistics Control Tower
+// Tokens y componentes del rediseño ejecutivo. Va al final (gana por cascada).
+// ============================================================================
+
+$tw-bg:      #F5F7FA;
+$tw-surface: #FFFFFF;
+$tw-ink:     #17202A;
+$tw-muted:   #667085;
+$tw-border:  #E4E7EC;
+$tw-black:   #121417;
+$tw-success: #12B76A;
+$tw-info:    #2E6BFF;
+$tw-warning: #F79009;
+$tw-danger:  #D92D20;
+
+// ── Franja negra: resumen ejecutivo en 3 zonas ──
+.o_voyage_form .vf-hero--exec {
+    display: grid !important;
+    grid-template-columns: minmax(260px, 1.2fr) minmax(300px, 1.4fr) minmax(240px, 1fr);
+    gap: 20px !important;
+    align-items: center;
+    max-height: 175px;
+    padding: 14px 20px !important;
+    border-radius: 12px !important;
+
+    @media (max-width: 1200px) {
+        grid-template-columns: 1fr 1fr;
+        max-height: none;
+    }
+}
+
+.vf-exec-id {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+
+    &__main {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    &__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 5px;
+    }
+}
+
+.vf-exec-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 9px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, .09);
+    border: 1px solid rgba(255, 255, 255, .14);
+    font-size: 11px;
+    font-weight: 600;
+    color: #f1f5f9;
+    max-width: 100%;
+
+    b { color: rgba(255, 255, 255, .55); font-size: 10px; }
+    i { color: rgba(255, 255, 255, .55); font-size: 10px; }
+
+    .o_field_widget span, .o_field_widget a, span, a {
+        color: #f1f5f9 !important;
+        font-size: 11px !important;
+        font-weight: 600 !important;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 220px;
+    }
+
+    &--empty {
+        background: transparent;
+        border-style: dashed;
+        color: rgba(255, 255, 255, .45);
+        font-weight: 500;
+    }
+}
+
+.vf-exec-flow,
+.vf-exec-coverage {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    min-width: 0;
+}
+
+.vf-flow-step {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+
+    &--bar { flex: 1; min-width: 120px; }
+}
+
+.vf-flow-arrow {
+    color: rgba(255, 255, 255, .4);
+    font-size: 15px;
+    font-weight: 700;
+}
+
+.vf-flow-diffs {
+    flex-basis: 100%;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 2px;
+}
+
+.vf-flow-diff {
+    font-size: 10.5px;
+    font-weight: 600;
+
+    .o_field_widget span { font-size: 10.5px !important; font-weight: 700 !important; }
+
+    &--amber, &--amber .o_field_widget span { color: #fbbf24 !important; }
+    &--red,   &--red .o_field_widget span   { color: #f87171 !important; }
+    &--green  { color: #4ade80 !important; }
+}
+
+.vf-num--green, .vf-num--green .o_field_widget span { color: #4ade80 !important; }
+.vf-num--amber, .vf-num--amber .o_field_widget span { color: #fbbf24 !important; }
+
+.vf-cov-bar {
+    .o_progressbar { min-width: 130px; }
+    .o_progressbar .progress { height: 8px; background: rgba(255,255,255,.14); }
+    .o_progressbar_value { color: #fff !important; font-size: 11px !important; }
+}
+
+// ── Centro de incidencias (compacto, accionable) ──
+.tvl-issues {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin: 6px 0;
+}
+
+.tvl-issue {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid $tw-border;
+    background: $tw-surface;
+    color: $tw-ink;
+
+    i { font-size: 12px; }
+
+    &--warn   { border-left: 3px solid $tw-warning; i { color: $tw-warning; } }
+    &--danger { border-left: 3px solid $tw-danger;  i { color: $tw-danger; } }
+    &--info   { border-left: 3px solid $tw-info;    i { color: $tw-info; } }
+
+    &__action {
+        margin-left: auto;
+        border: 1px solid $tw-border;
+        background: $tw-bg;
+        color: $tw-info;
+        border-radius: 6px;
+        padding: 1px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        cursor: pointer;
+
+        &:hover { background: #eef2ff; }
+    }
+}
+
+// ── Chips de filtro en la toolbar ──
+.tvl-chip-filter {
+    border: 1px solid $tw-border;
+    background: $tw-surface;
+    color: $tw-muted;
+    border-radius: 999px;
+    padding: 3px 12px;
+    font-size: 11.5px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover { border-color: $tw-info; color: $tw-info; }
+
+    &--on {
+        background: $tw-info;
+        border-color: $tw-info;
+        color: #fff;
+    }
+}
+
+// ── Flujo compra↔embarque en la cabecera del grupo ──
+.tvl-group__flow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5px;
+    color: $tw-muted;
+    white-space: nowrap;
+
+    b { color: $tw-ink; }
+}
+
+.tvl-group__flow-diff {
+    padding: 1px 7px;
+    border-radius: 6px;
+    background: $tw-bg;
+    border: 1px solid $tw-border;
+    font-weight: 600;
+
+    &--amber { color: #b45309; background: #fffbeb; border-color: #fde68a; }
+    &--red   { color: #b91c1c; background: #fef2f2; border-color: #fecaca; }
+    &--green { color: #047857; background: #ecfdf5; border-color: #a7f3d0; }
+}
+
+// ── Cobertura del pedido (microbarra en la tabla) ──
+.tvl-td--cov { min-width: 130px; }
+
+.tvl-cov {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: 160px;
+
+    &__nums {
+        font-size: 11px;
+        color: $tw-ink;
+        font-variant-numeric: tabular-nums;
+        b { font-weight: 800; }
+    }
+
+    &__bar {
+        display: block;
+        height: 4px;
+        border-radius: 2px;
+        background: $tw-border;
+        overflow: hidden;
+    }
+
+    &__fill {
+        display: block;
+        height: 100%;
+        border-radius: 2px;
+        background: $tw-info;
+    }
+
+    &__label {
+        font-size: 9.5px;
+        font-weight: 700;
+        color: $tw-muted;
+    }
+
+    &.tvl-cov--full {
+        .tvl-cov__fill  { background: $tw-success; }
+        .tvl-cov__label { color: $tw-success; }
+    }
+
+    &.tvl-cov--partial {
+        .tvl-cov__fill  { background: $tw-warning; }
+        .tvl-cov__label { color: #b45309; }
+    }
+
+    &.tvl-cov--over {
+        .tvl-cov__fill  { background: $tw-danger; }
+        .tvl-cov__label { color: $tw-danger; }
+    }
+}
+
+// ── Statusbar único legible (etapas completas, actual resaltado) ──
+.o_voyage_form .o_statusbar_status .o_arrow_button {
+    font-size: 11.5px !important;
+    padding-top: 2px !important;
+    padding-bottom: 2px !important;
+}
