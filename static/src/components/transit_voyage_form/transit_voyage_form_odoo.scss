@@ -1989,7 +1989,7 @@ $transit-space-5: 24px;
     }
 
     .vf-cov-pct-unit { font-size: 13px; font-weight: 500; }
-    .vf-cov-sep { margin: 0 4px; opacity: .5; }
+    .vf-cov-sep { margin: 0 4px; }
 
     .vf-cov-lots,
     .vf-cov-lots span {
@@ -2465,3 +2465,12 @@ $transit-space-5: 24px;
 .o_voyage_form .vf-data-panel { margin: $transit-space-2 $transit-space-4 0 !important; border-radius: $transit-radius-lg; box-shadow: none !important; }
 .o_voyage_form .vf-lots-section { margin: $transit-space-3 $transit-space-4 0 !important; }
 .o_voyage_form .vf-map-details { margin-left: $transit-space-4 !important; margin-right: $transit-space-4 !important; }
+
+
+// Cobertura del hero: blanco puro en todo el renglón, sin excepciones
+// (gana a cualquier regla de widget de Odoo por especificidad + posición).
+.o_voyage_form .vf-hero--exec .vf-cov-headline,
+.o_voyage_form .vf-hero--exec .vf-cov-headline * {
+    color: #fff !important;
+    opacity: 1 !important;
+}

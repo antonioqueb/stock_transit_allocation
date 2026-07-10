@@ -45,15 +45,15 @@ class StockTransitVoyage(models.Model):
 
     custom_status = fields_module.Selection(
         [
-            ('solicitud', 'Solicitud Enviada'),
+            ('solicitud', 'Solicitud'),
             ('production', 'Producción'),
             ('booking', 'Booking'),
-            ('puerto_origen', 'Puerto Origen'),
-            ('on_sea', 'En Altamar / Mar'),
-            ('puerto_destino', 'Puerto Destino'),
-            ('arrived_port', 'Arribo a Puerto (Trámite)'),
-            ('reception_pending', 'En Recepción Física'),
-            ('delivered', 'Entregado en Almacén'),
+            ('puerto_origen', 'Origen'),
+            ('on_sea', 'Altamar'),
+            ('puerto_destino', 'Destino'),
+            ('arrived_port', 'Arribo'),
+            ('reception_pending', 'Recepción'),
+            ('delivered', 'Entregado'),
             ('cancel', 'Cancelado'),
         ],
         string='Estado',

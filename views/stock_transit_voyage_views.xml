@@ -115,13 +115,32 @@
                             invisible="custom_status in ['delivered', 'cancel']"
                             confirm="¿Está seguro de cancelar este viaje?"/>
 
-                    <!-- Etapas logísticas: barra única, completa y clickable.
-                         El estado actual lo resalta el estilo nativo + CSS compacto
-                         (reemplaza el hack de 6 statusbars ventaneados que truncaba). -->
-                    <field name="custom_status"
-                           widget="statusbar"
-                           options="{'clickable': True}"
-                           statusbar_visible="solicitud,production,booking,puerto_origen,on_sea,puerto_destino,arrived_port,reception_pending,delivered"/>
+                    <!-- Etapas logísticas: ventana deslizante de 3 estados
+                         (anterior · ACTUAL · siguiente), con nombres cortos. -->
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="solicitud,production,booking"
+                           invisible="custom_status not in ['solicitud', 'production']"/>
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="production,booking,puerto_origen"
+                           invisible="custom_status != 'booking'"/>
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="booking,puerto_origen,on_sea"
+                           invisible="custom_status != 'puerto_origen'"/>
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="puerto_origen,on_sea,puerto_destino"
+                           invisible="custom_status != 'on_sea'"/>
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="on_sea,puerto_destino,arrived_port"
+                           invisible="custom_status != 'puerto_destino'"/>
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="puerto_destino,arrived_port,reception_pending"
+                           invisible="custom_status != 'arrived_port'"/>
+                    <field name="custom_status" widget="statusbar" options="{'clickable': True}"
+                           statusbar_visible="arrived_port,reception_pending,delivered"
+                           invisible="custom_status not in ['reception_pending', 'delivered']"/>
+                    <field name="custom_status" widget="statusbar"
+                           statusbar_visible="cancel"
+                           invisible="custom_status != 'cancel'"/>
                 </header>
 
                 <sheet>
