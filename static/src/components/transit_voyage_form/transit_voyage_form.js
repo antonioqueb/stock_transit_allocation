@@ -61,6 +61,8 @@ class TransitVoyageLinesWidget extends Component {
             productFlow:   {},     // {product_id: {purchased, shipped, received, ...}}
             coverage:      {},     // {orderId: {productId: {requested, covered, pending}}}
             activeFilter:  "all",  // all | unassigned | client_no_order | over
+            searchText:    "",
+            drawer:        null,   // {line, group, order, qty} asignación pendiente
             collapsed:     {},
             loading:       true,
             allPartners:   [],
@@ -174,6 +176,90 @@ class TransitVoyageLinesWidget extends Component {
         }
     }
 
+    // ─── Drawer de asignación (preventivo) ───────────────────────────────────
+
+    openAssignDrawer(line, group, order) {
+        const qty = this.isFractionable(line)
+            ? this.partialQtyValue(line)
+            : (line.product_uom_qty || 0);
+        this.state.drawer = {
+            lineId: line.id,
+            line,
+            group,
+            order,
+            qty,
+        };
+    }
+
+    closeAssignDrawer() {
+        this.state.drawer = null;
+    }
+
+    onDrawerQtyChange(ev) {
+        const d = this.state.drawer;
+        if (!d) return;
+        const max = d.line.product_uom_qty || 0;
+        let val = parseFloat(ev.target.value);
+        if (!isFinite(val) || val < 0) val = 0;
+        if (val > max) { val = max; ev.target.value = val; }
+        this.state.drawer = { ...d, qty: val };
+    }
+
+    /** Proyección en tiempo real: cubierto + asignación vs solicitado. */
+    get drawerProjection() {
+        const d = this.state.drawer;
+        if (!d) return null;
+        const cov = (this.state.coverage[d.order.id] || {})[d.line.product_id[0]] || null;
+        if (!cov || !cov.requested) {
+            return { noProduct: !cov, cov: null };
+        }
+        const projected = cov.covered + (d.qty || 0);
+        const remaining = cov.requested - projected;
+        let verdict, level;
+        if (cov.pending <= 0.005) {
+            verdict = "Este pedido ya está completamente cubierto.";
+            level = "warn";
+        } else if (remaining > 0.005) {
+            verdict = `Esta asignación cubre parcialmente el pedido. Quedarán ${this.fmtNum(remaining)} pendientes.`;
+            level = "ok";
+        } else if (remaining >= -0.005) {
+            verdict = "Esta asignación completará el pedido.";
+            level = "full";
+        } else {
+            verdict = `Esta asignación excede el requerimiento del pedido por ${this.fmtNum(-remaining)}.`;
+            level = "over";
+        }
+        return {
+            cov,
+            projected,
+            remaining: Math.max(remaining, 0),
+            excess: Math.max(-remaining, 0),
+            pct: Math.min(100, (projected / cov.requested) * 100),
+            verdict,
+            level,
+        };
+    }
+
+    async confirmAssignDrawer() {
+        const d = this.state.drawer;
+        if (!d) return;
+
+        // Parcialidad del drawer → mismo almacén que el input de la tabla.
+        if (this.isFractionable(d.line)) {
+            this.state.partialQty[d.lineId] = d.qty;
+        }
+
+        const ok = await this._assignWithOverCheck([d.lineId], false, d.order.id);
+        this.closeAssignDrawer();
+        if (!ok) return;
+
+        this.notification.add(
+            `Asignado a ${d.order.name}`, { type: "success", sticky: false });
+        // Refresca líneas + cobertura + flujo (conserva grupos abiertos y filtros).
+        await this.refresh();
+        await this._reloadVoyageBanner();
+    }
+
     // ─── Torre de Control: incidencias, filtros y cobertura ─────────────────
 
     /** Incidencias accionables (cada una aplica un filtro sobre la tabla). */
@@ -225,11 +311,26 @@ class TransitVoyageLinesWidget extends Component {
     }
 
     lineMatchesFilter(l) {
+        const q = (this.state.searchText || "").trim().toLowerCase();
+        if (q) {
+            const hay = [
+                l.lot_id ? l.lot_id[1] : "",
+                l.container_number || "",
+                l.x_bloque || "",
+                l.partner_id ? l.partner_id[1] : "",
+                l.order_id ? l.order_id[1] : "",
+            ].join(" ").toLowerCase();
+            if (!hay.includes(q)) return false;
+        }
         switch (this.state.activeFilter) {
             case "unassigned":       return !l.order_id;
             case "client_no_order":  return !!l.partner_id && !l.order_id;
             default:                 return true;
         }
+    }
+
+    onSearchInput(ev) {
+        this.state.searchText = ev.target.value;
     }
 
     /** Cobertura del pedido de la línea (desde el mapa batch). */
@@ -565,12 +666,21 @@ class TransitVoyageLinesWidget extends Component {
             return;
         }
 
-        // Asignar: cliente se deriva de la orden (partner=false).
+        // PREVENTIVO: elegir un pedido abre el drawer con la cobertura y el
+        // resultado proyectado. Nada se asigna hasta Confirmar.
+        const ord = this.getOrdersForProduct(line).find(o => o.id === orderId);
+        if (ord) {
+            const group = this.state.groups.find(
+                g => g.product_id === (line.product_id ? line.product_id[0] : 0));
+            this.openAssignDrawer(line, group, ord);
+            return;
+        }
+
+        // Pedido fuera del catálogo del producto (no debería ocurrir): flujo directo.
         const ok = await this._assignWithOverCheck([line.id], false, orderId);
         if (!ok) return;
 
-        const ord = this.getOrdersForProduct(line).find(o => o.id === orderId);
-        line.order_id = [orderId, ord ? ord.name : String(orderId)];
+        line.order_id = [orderId, String(orderId)];
         if (ord) {
             line.partner_id = [ord.partner_id, ord.partner_name];
         }

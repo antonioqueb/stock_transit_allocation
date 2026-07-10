@@ -229,8 +229,42 @@
                     </div>
 
                     <!-- ════════════════════════════════════════════════
-                         PANEL DE DATOS
+                         DATOS DEL EMBARQUE
+                         Esencial siempre visible; el panel editable completo
+                         se revela con "Ver todos los datos".
                     ════════════════════════════════════════════════ -->
+                    <div class="vf-quickdata">
+                        <span class="vf-qd" invisible="not reception_picking_id">
+                            <span class="vf-qd__label">Recepción física</span>
+                            <field name="reception_picking_id" readonly="1" options="{'no_open': True}"/>
+                        </span>
+                        <span class="vf-qd" invisible="not picking_id">
+                            <span class="vf-qd__label">Recepción ADM</span>
+                            <field name="picking_id" readonly="1" options="{'no_open': True}"/>
+                        </span>
+                        <span class="vf-qd" invisible="not etd">
+                            <span class="vf-qd__label">ETD</span>
+                            <field name="etd" readonly="1"/>
+                        </span>
+                        <span class="vf-qd" invisible="not arrival_date">
+                            <span class="vf-qd__label">Llegada real</span>
+                            <field name="arrival_date" readonly="1"/>
+                        </span>
+                        <span class="vf-qd" invisible="not arrival_date_bodega">
+                            <span class="vf-qd__label">En bodega</span>
+                            <field name="arrival_date_bodega" readonly="1"/>
+                        </span>
+                        <span class="vf-qd">
+                            <span class="vf-qd__label">Días tránsito</span>
+                            <field name="transit_days_expected" readonly="1"/>
+                        </span>
+                    </div>
+
+                    <details class="vf-alldata">
+                        <summary class="vf-alldata__summary">
+                            <i class="fa fa-chevron-right vf-map-caret me-1"/>
+                            Ver todos los datos del embarque (editar)
+                        </summary>
                     <div class="vf-data-panel">
                         <div class="vf-panel-col">
                             <div class="vf-panel-col__header">
@@ -315,6 +349,8 @@
                             </div>
                         </div>
                     </div>
+
+                    </details>
 
                     <!-- ════════════════════════════════════════════════
                          MAPA (SIEMPRE colapsado; se expande bajo demanda)

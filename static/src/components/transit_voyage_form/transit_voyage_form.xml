@@ -591,6 +591,93 @@
         </div>
     </t>
 
+    <!-- ══════════════ DRAWER DE ASIGNACIÓN (preventivo) ══════════════ -->
+    <t t-if="state.drawer">
+        <t t-set="d" t-value="state.drawer"/>
+        <t t-set="proj" t-value="drawerProjection"/>
+        <div class="tvl-drawer-overlay" t-on-click="closeAssignDrawer"/>
+        <aside class="tvl-drawer" role="dialog" aria-label="Confirmar asignación">
+            <div class="tvl-drawer__head">
+                <h4>Confirmar asignación</h4>
+                <button class="tvl-drawer__close" title="Cancelar" t-on-click="closeAssignDrawer">
+                    <i class="fa fa-times"/>
+                </button>
+            </div>
+
+            <div class="tvl-drawer__body">
+                <!-- Material -->
+                <div class="tvl-drawer__section">
+                    <span class="tvl-drawer__label">Material</span>
+                    <div class="tvl-drawer__val">
+                        <b t-esc="d.group ? d.group.product_name : ''"/>
+                        <div>
+                            Lote <span class="tvl-lot-badge" t-esc="d.line.lot_id ? d.line.lot_id[1] : '—'"/>
+                            · Disponible <b t-esc="fmtNum(d.line.product_uom_qty)"/>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pedido -->
+                <div class="tvl-drawer__section">
+                    <span class="tvl-drawer__label">Pedido de venta</span>
+                    <div class="tvl-drawer__val">
+                        <b t-esc="d.order.name"/> · <t t-esc="d.order.partner_name"/>
+                    </div>
+                </div>
+
+                <!-- Cobertura actual -->
+                <div class="tvl-drawer__section" t-if="proj and proj.cov">
+                    <span class="tvl-drawer__label">Cobertura actual del pedido</span>
+                    <div class="tvl-drawer__cov">
+                        <div><span>Solicitado</span> <b t-esc="fmtNum(proj.cov.requested)"/></div>
+                        <div><span>Ya cubierto</span> <b t-esc="fmtNum(proj.cov.covered)"/></div>
+                        <div><span>Pendiente</span> <b t-esc="fmtNum(proj.cov.pending)"/></div>
+                    </div>
+                </div>
+                <div class="tvl-drawer__section" t-if="proj and proj.noProduct">
+                    <div class="tvl-drawer__verdict tvl-drawer__verdict--over">
+                        El pedido seleccionado no contiene este producto.
+                    </div>
+                </div>
+
+                <!-- Cantidad a asignar -->
+                <div class="tvl-drawer__section">
+                    <span class="tvl-drawer__label">Cantidad a asignar</span>
+                    <t t-if="isFractionable(d.line)">
+                        <input type="number" class="tvl-drawer__qty" min="0" step="0.01"
+                               t-att-max="d.line.product_uom_qty"
+                               t-att-value="d.qty"
+                               t-on-input="onDrawerQtyChange"/>
+                    </t>
+                    <t t-else="">
+                        <div class="tvl-drawer__val"><b t-esc="fmtNum(d.qty)"/> (placa completa)</div>
+                    </t>
+                </div>
+
+                <!-- Resultado proyectado -->
+                <div class="tvl-drawer__section" t-if="proj and proj.cov">
+                    <span class="tvl-drawer__label">Resultado proyectado</span>
+                    <div class="tvl-drawer__proj">
+                        <b t-esc="fmtNum(proj.projected)"/> / <t t-esc="fmtNum(proj.cov.requested)"/>
+                        <span class="tvl-cov__bar" style="margin-top: 4px;">
+                            <span t-attf-class="tvl-cov__fill #{proj.level === 'over' ? 'tvl-drawer__fill--over' : ''}"
+                                  t-attf-style="width: #{proj.pct}%"/>
+                        </span>
+                    </div>
+                    <div t-attf-class="tvl-drawer__verdict tvl-drawer__verdict--#{proj.level}"
+                         t-esc="proj.verdict"/>
+                </div>
+            </div>
+
+            <div class="tvl-drawer__foot">
+                <button class="tvl-drawer__btn tvl-drawer__btn--secondary" t-on-click="closeAssignDrawer">Cancelar</button>
+                <button class="tvl-drawer__btn tvl-drawer__btn--primary" t-on-click="confirmAssignDrawer">
+                    Confirmar asignación
+                </button>
+            </div>
+        </aside>
+    </t>
+
 </div>
 
 </t>
