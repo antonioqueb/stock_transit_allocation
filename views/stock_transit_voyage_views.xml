@@ -174,20 +174,6 @@
                                 </span>
                                 <span class="vf-log-value vf-log-value--empty" invisible="bl_number">Sin definir</span>
                             </div>
-                            <div class="vf-log-item">
-                                <span class="vf-log-label">ETA</span>
-                                <span class="vf-log-value" invisible="not eta">
-                                    <field name="eta" readonly="1"/>
-                                </span>
-                                <span class="vf-log-value vf-log-value--empty" invisible="eta">Sin definir</span>
-                            </div>
-                            <div class="vf-log-item">
-                                <span class="vf-log-label">Contenedor</span>
-                                <span class="vf-log-value" invisible="not container_number or container_number == 'PENDIENTE'">
-                                    <field name="container_number" readonly="1"/>
-                                </span>
-                                <span class="vf-log-value vf-log-value--empty" invisible="container_number and container_number != 'PENDIENTE'">Sin asignar</span>
-                            </div>
                         </div>
 
                         <!-- 3. Cobertura comercial (30%): una sola línea, centrada -->
@@ -218,6 +204,17 @@
                         <span class="vf-qd" invisible="not etd">
                             <span class="vf-qd__label">ETD</span>
                             <field name="etd" readonly="1"/>
+                        </span>
+                        <span class="vf-qd">
+                            <span class="vf-qd__label">ETA</span>
+                            <field name="eta" readonly="1" invisible="not eta"/>
+                            <span invisible="eta">Sin definir</span>
+                        </span>
+                        <span class="vf-qd">
+                            <span class="vf-qd__label">Contenedor</span>
+                            <field name="container_number" readonly="1"
+                                   invisible="not container_number or container_number == 'PENDIENTE'"/>
+                            <span invisible="container_number and container_number != 'PENDIENTE'">Sin asignar</span>
                         </span>
                         <span class="vf-qd" invisible="not arrival_date">
                             <span class="vf-qd__label">Llegada real</span>
