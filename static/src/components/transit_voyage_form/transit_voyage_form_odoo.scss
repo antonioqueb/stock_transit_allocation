@@ -1882,7 +1882,12 @@ $transit-space-5: 24px;
     color: #fff;
     min-width: 0;
 
-    .o_field_widget { display: inline; }
+    // Todo descendiente en blanco: los widgets traen su propio color.
+    * { color: #fff !important; }
+
+    .o_field_widget,
+    .o_field_widget > div,
+    .o_field_widget > span { display: inline !important; }
     .o_field_widget span, .o_field_widget a, span {
         color: #fff !important;
         font-size: 13px !important;
@@ -1956,9 +1961,47 @@ $transit-space-5: 24px;
     min-width: 0;
 
     > .vf-log-label { margin-bottom: 2px; }
-    .vf-cov-bar { width: 100%; }
-    .vf-cov-bar .progress-bar { background: $transit-primary; }
-    .vf-cov-bar .progress { background: rgba(255, 255, 255, .18); }
+
+    // Los campos de Odoo renderizan como <div>/<span> de bloque según el
+    // widget: DENTRO de esta zona TODO widget es inline, sin excepción.
+    .o_field_widget,
+    .o_field_widget > div,
+    .o_field_widget > span {
+        display: inline !important;
+        vertical-align: baseline;
+    }
+
+    // Texto negro sobre fondo negro: color explícito en TODO descendiente.
+    .vf-cov-headline .vf-cov-pct,
+    .vf-cov-headline .vf-cov-pct * { color: #6ea8ff !important; }
+
+    .vf-cov-headline .vf-cov-lots,
+    .vf-cov-headline .vf-cov-lots * { color: rgba(255, 255, 255, .75) !important; }
+
+    .vf-cov-secondary,
+    .vf-cov-secondary * { color: rgba(255, 255, 255, .55) !important; }
+
+    // Barra: a todo el ancho, azul sobre gris neutral, y CUALQUIER texto o
+    // hijo del widget que no sea la barra, fuera.
+    .vf-cov-bar {
+        width: 100%;
+
+        .o_progressbar {
+            display: block !important;
+            width: 100%;
+        }
+
+        .o_progressbar > *:not(.progress) { display: none !important; }
+
+        .progress {
+            display: flex !important;
+            height: 6px;
+            background: rgba(255, 255, 255, .18);
+            border-radius: 3px;
+        }
+
+        .progress-bar { background: $transit-primary; }
+    }
 }
 
 .vf-cov-headline {
