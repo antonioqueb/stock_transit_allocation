@@ -100,6 +100,14 @@ class TransitVoyageLinesWidget extends Component {
         if (!voyageId) return;
         this.state.loading = true;
         try {
+            // Autocura: normaliza lotes duplicados (gemelas infladas) antes
+            // de pintar. Solo actúa cuando hay duplicados; si no, es no-op.
+            try {
+                await this.orm.call("stock.transit.line", "tc_normalize_voyage_twins", [voyageId]);
+            } catch (e) {
+                console.warn("[TransitVoyageLines] normalize twins:", e);
+            }
+
             const lines = await this.orm.searchRead(
                 "stock.transit.line",
                 [["voyage_id", "=", voyageId]],

@@ -728,6 +728,109 @@ class StockTransitLine(models.Model):
     # ASIGNACIÓN DESDE EL FORMULARIO DEL VIAJE (con control de sobre-asignación)
     # -------------------------------------------------------------------------
 
+    @api.model
+    def tc_normalize_voyage_twins(self, voyage_id):
+        """Normaliza líneas duplicadas del mismo lote en un viaje (autocura).
+
+        Se invoca al ABRIR el formulario del viaje. Para cada lote con más de
+        una línea:
+        - La(s) reservada(s) recuperan su PARCIALIDAD real desde el desglose
+          de la línea de venta (x_lot_breakdown_json), si existe.
+        - La disponible absorbe el resto contra la cantidad FÍSICA del lote
+          (quants; respaldo: área). Si no queda resto, se elimina.
+        - Varias disponibles se fusionan en una.
+
+        Repara los lotes inflados por el sync de recepción previo al fix
+        [TC_TWINS] sin intervención manual.
+        """
+        voyage = self.env['stock.transit.voyage'].browse(int(voyage_id or 0)).exists()
+        if not voyage:
+            return False
+
+        by_key = {}
+        for line in voyage.line_ids:
+            if line.lot_id:
+                by_key.setdefault(
+                    (line.lot_id.id, line.product_id.id),
+                    self.env['stock.transit.line'],
+                )
+                by_key[(line.lot_id.id, line.product_id.id)] |= line
+
+        fixed = 0
+        for (lot_id, _product_id), lines in by_key.items():
+            if len(lines) <= 1:
+                continue
+
+            lot = lines[0].lot_id
+            rounding = lines[0]._tc_qty_rounding()
+
+            phys = sum(self.env['stock.quant'].sudo().search([
+                ('lot_id', '=', lot_id),
+                ('quantity', '>', 0),
+            ]).mapped('quantity'))
+            if phys <= 0:
+                alto = getattr(lot, 'x_alto', 0.0) or 0.0
+                ancho = getattr(lot, 'x_ancho', 0.0) or 0.0
+                phys = alto * ancho
+            if phys <= 0:
+                continue
+
+            reserved = lines.filtered(lambda l: l.order_id)
+            free = (lines - reserved).sorted('id')
+
+            # Parcialidad real desde el desglose de la venta (fuente de verdad).
+            for r in reserved:
+                sale_line = r._tc_get_sale_line_for_assignment(
+                    order=r.order_id, product=r.product_id)
+                if not sale_line or not hasattr(sale_line, '_tc_read_lot_breakdown'):
+                    continue
+                bd = sale_line._tc_read_lot_breakdown() or {}
+                raw = bd.get(str(lot_id))
+                if raw is None:
+                    continue
+                try:
+                    real_qty = float(raw or 0.0)
+                except (TypeError, ValueError):
+                    continue
+                if real_qty > 0 and float_compare(
+                    real_qty, r.product_uom_qty or 0.0,
+                    precision_rounding=rounding,
+                ) != 0:
+                    r.with_context(skip_reservation_logic=True).write({
+                        'product_uom_qty': real_qty,
+                    })
+
+            reserved_qty = min(sum(reserved.mapped('product_uom_qty')), phys)
+            rest = max(phys - reserved_qty, 0.0)
+
+            if free:
+                keeper = free[0]
+                extras = free - keeper
+                if extras:
+                    extras.with_context(skip_reservation_logic=True).unlink()
+                if rest <= rounding:
+                    keeper.with_context(skip_reservation_logic=True).unlink()
+                elif float_compare(
+                    keeper.product_uom_qty or 0.0, rest,
+                    precision_rounding=rounding,
+                ) != 0:
+                    keeper.with_context(skip_reservation_logic=True).write({
+                        'product_uom_qty': rest,
+                    })
+
+            fixed += 1
+            _logger.info(
+                "[TC_TWINS] normalize voyage=%s lote=%s fisico=%.3f "
+                "reservado=%.3f saldo=%.3f lineas_antes=%s",
+                voyage.name, lot.name, phys, reserved_qty, rest, len(lines),
+            )
+            voyage.message_post(body=Markup(
+                "🧩 <b>Lote normalizado:</b> %s — reservado %s · saldo libre %s "
+                "(cantidad física %s)."
+            ) % (lot.name, '%.3f' % reserved_qty, '%.3f' % rest, '%.3f' % phys))
+
+        return fixed
+
     def tc_voyage_propagate_smart(self, order_id=False):
         """Propagación INTELIGENTE desde el Viaje (botón ↓↓).
 
