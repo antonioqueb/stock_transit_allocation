@@ -171,22 +171,13 @@
                             </div>
                         </div>
 
-                        <!-- 3. Cobertura comercial (30%) -->
+                        <!-- 3. Cobertura comercial (30%): una sola línea, centrada -->
                         <div class="vf-exec-coverage"
                              title="Cobertura comercial = asignado / embarcado. Independiente del avance logístico.">
-                            <span class="vf-log-label">Cobertura comercial</span>
                             <div class="vf-cov-headline">
                                 <field name="allocation_percent" class="vf-cov-pct" readonly="1" options="{'digits': [16, 0]}"/><span class="vf-cov-pct-unit">% asignado</span>
                                 <span class="vf-cov-sep">·</span>
                                 <span class="vf-cov-lots"><field name="tc_lots_summary" readonly="1"/></span>
-                            </div>
-                            <div class="vf-cov-bar">
-                                <field name="allocation_percent" widget="progressbar" readonly="1"/>
-                            </div>
-                            <div class="vf-cov-secondary">
-                                <field name="tc_lots_available" readonly="1"/>
-                                <span class="vf-cov-sep">·</span>
-                                <field name="tc_free_percent" readonly="1" options="{'digits': [16, 0]}"/><span>%</span>
                             </div>
                         </div>
                     </div>

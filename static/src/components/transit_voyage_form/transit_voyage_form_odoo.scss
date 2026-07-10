@@ -1956,14 +1956,12 @@ $transit-space-5: 24px;
 // Asignación: porcentaje protagonista, una sola barra
 .vf-exec-coverage {
     display: flex;
-    flex-direction: column;
-    gap: $transit-space-1;
+    align-items: center;       // centrada vertical
+    justify-content: center;   // centrada horizontal
     min-width: 0;
+    height: 100%;
 
-    > .vf-log-label { margin-bottom: 2px; }
-
-    // Los campos de Odoo renderizan como <div>/<span> de bloque según el
-    // widget: DENTRO de esta zona TODO widget es inline, sin excepción.
+    // Widgets inline sin importar su estructura interna.
     .o_field_widget,
     .o_field_widget > div,
     .o_field_widget > span {
@@ -1971,40 +1969,12 @@ $transit-space-5: 24px;
         vertical-align: baseline;
     }
 
-    // Texto negro sobre fondo negro: color explícito en TODO descendiente.
-    .vf-cov-headline .vf-cov-pct,
-    .vf-cov-headline .vf-cov-pct * { color: #6ea8ff !important; }
-
-    .vf-cov-headline .vf-cov-lots,
-    .vf-cov-headline .vf-cov-lots * { color: rgba(255, 255, 255, .75) !important; }
-
-    .vf-cov-secondary,
-    .vf-cov-secondary * { color: rgba(255, 255, 255, .55) !important; }
-
-    // Barra: a todo el ancho, azul sobre gris neutral, y CUALQUIER texto o
-    // hijo del widget que no sea la barra, fuera.
-    .vf-cov-bar {
-        width: 100%;
-
-        .o_progressbar {
-            display: block !important;
-            width: 100%;
-        }
-
-        .o_progressbar > *:not(.progress) { display: none !important; }
-
-        .progress {
-            display: flex !important;
-            height: 6px;
-            background: rgba(255, 255, 255, .18);
-            border-radius: 3px;
-        }
-
-        .progress-bar { background: $transit-primary; }
-    }
+    // TODO en blanco, sin excepciones.
+    .vf-cov-headline,
+    .vf-cov-headline * { color: #fff !important; }
 }
 
-.vf-cov-headline {
+.vf-cov-headline.vf-cov-headline {
     display: flex;
     align-items: baseline;
     gap: 4px;
@@ -2015,18 +1985,16 @@ $transit-space-5: 24px;
     .vf-cov-pct, .vf-cov-pct span {
         font-size: 20px !important;
         font-weight: 600 !important;
-        color: $transit-primary !important;   // acento SOLO en el porcentaje
         font-variant-numeric: tabular-nums;
     }
 
-    .vf-cov-pct-unit { font-size: 12px; color: rgba(255, 255, 255, .8); font-weight: 500; }
-    .vf-cov-sep { color: rgba(255, 255, 255, .35); margin: 0 2px; }
+    .vf-cov-pct-unit { font-size: 13px; font-weight: 500; }
+    .vf-cov-sep { margin: 0 4px; opacity: .5; }
 
     .vf-cov-lots,
     .vf-cov-lots span {
         font-size: 13px !important;
         font-weight: 400 !important;
-        color: rgba(255, 255, 255, .75) !important;
     }
 }
 

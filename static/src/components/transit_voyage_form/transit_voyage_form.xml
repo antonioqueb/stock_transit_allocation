@@ -139,7 +139,6 @@
                                         <th class="tvl-th">Cliente</th>
                                         <th class="tvl-th tvl-th--prop" title="Copiar asignación al resto del producto">Copiar</th>
                                         <th class="tvl-th">Pedido de venta</th>
-                                        <th class="tvl-th" title="Solicitado, cubierto y pendiente del pedido para este producto">Cobertura del pedido</th>
                                         <th class="tvl-th tvl-th--status" title="Estado de la asignación en este viaje">Asignación</th>
                                         <th class="tvl-th tvl-th--center" title="Situación física/comercial del lote (idéntico al inventario visual)">Situación</th>
                                         <th class="tvl-th tvl-th--center" title="Fotografías del lote">Foto</th>
@@ -161,7 +160,7 @@
                                                     <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
                                                 </span>
                                             </td>
-                                            <td t-att-colspan="hasDims ? 14 : 10" class="tvl-block-header-m2">
+                                            <td t-att-colspan="hasDims ? 13 : 9" class="tvl-block-header-m2">
                                                 <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
                                             </td>
                                         </tr>
@@ -311,30 +310,6 @@
                                         </td>
 
                                         <!-- Estado -->
-                                        <!-- Cobertura del pedido: solicitado / cubierto / pendiente -->
-                                        <td class="tvl-td tvl-td--cov">
-                                            <t t-set="lcov" t-value="lineCoverage(line)"/>
-                                            <t t-if="lcov">
-                                                <div t-attf-class="tvl-cov #{covClass(lcov)}"
-                                                     t-attf-title="Solicitado #{fmtNum(lcov.requested)} · Cubierto #{fmtNum(lcov.covered)} · Pendiente #{fmtNum(lcov.pending)}">
-                                                    <span class="tvl-cov__nums">
-                                                        <b t-esc="fmtNum(lcov.covered)"/> / <t t-esc="fmtNum(lcov.requested)"/>
-                                                    </span>
-                                                    <span class="tvl-cov__bar">
-                                                        <span class="tvl-cov__fill" t-attf-style="width: #{lcov.pct}%"/>
-                                                    </span>
-                                                    <span class="tvl-cov__label" t-esc="covLabel(lcov)"/>
-                                                </div>
-                                            </t>
-                                            <t t-elif="line.trace and line.trace.orders and line.trace.orders.length">
-                                                <span class="tvl-trace-orders"
-                                                      t-attf-title="Pedido(s) a los que salió el lote">
-                                                    <t t-esc="line.trace.orders.join(', ')"/>
-                                                </span>
-                                            </t>
-                                            <span t-else="" class="tvl-muted">—</span>
-                                        </td>
-
                                         <td class="tvl-td tvl-td--status">
                                             <span t-attf-class="tvl-badge #{statusCls(line.allocation_status)}"
                                                 t-esc="statusLabel(line.allocation_status)"/>
@@ -403,7 +378,7 @@
                                     <td class="tvl-td tvl-subtotal__m2">
                                         <t t-esc="fmtNum(group.total_m2)"/> m²
                                     </td>
-                                    <td colspan="9" class="tvl-td tvl-subtotal__info">
+                                    <td colspan="8" class="tvl-td tvl-subtotal__info">
                                         <span t-if="group.reserved_m2 > 0" class="tvl-subtotal__reserved">
                                             <t t-esc="fmtNum(group.reserved_m2)"/> m² reservados
                                         </span>
