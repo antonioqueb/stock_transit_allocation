@@ -73,6 +73,20 @@ class SupplierShipmentPackingRow(models.Model):
         help='Contenedor específico de esta línea (opcional)',
     )
 
+    # Trazabilidad PI/PO por fila. DUPLICADO INTENCIONAL de la definición en
+    # stock_lot_packing_import: esta clase re-declara el modelo con _name (no
+    # _inherit), y en Odoo 19 esa re-declaración REEMPLAZA a la definición del
+    # módulo base — sin estos campos aquí, el registry no los conoce y
+    # trace_pi_po revienta al resolver sus @depends.
+    purchase_line_id = fields.Many2one(
+        'purchase.order.line', string='Línea de compra (PO)',
+        index=True, ondelete='set null', copy=False,
+    )
+    pi_header_id = fields.Many2one(
+        'supplier.proforma.header', string='PI de la línea',
+        index=True, ondelete='set null', copy=False,
+    )
+
     # --- Dimensiones (para Placas) ---
     grosor = fields.Char(string='Grosor')
     alto = fields.Float(string='Alto (m)', digits=(12, 4))
