@@ -43,6 +43,28 @@ class SupplierShipmentPackingRowTrace(models.Model):
         'stock.lot', string='Lote', compute='_compute_trace_info',
         compute_sudo=True,
     )
+    trace_pi_po = fields.Char(
+        string='PI / PO', compute='_compute_trace_pi_po',
+        compute_sudo=True,
+        help='Línea de compra (PO) y PI de las que proviene esta fila del PL, '
+             'asignadas automáticamente al sincronizar el embarque.',
+    )
+
+    @api.depends('purchase_line_id', 'pi_header_id')
+    def _compute_trace_pi_po(self):
+        for row in self:
+            parts = []
+            line = row.purchase_line_id
+            if line:
+                parts.append(line.order_id.name or '')
+                pi = (line.order_id.supplier_pi_number
+                      or (row.pi_header_id.proforma_number if row.pi_header_id else ''))
+                if pi:
+                    parts.append('PI %s' % pi)
+            elif row.pi_header_id and row.pi_header_id.proforma_number:
+                parts.append('PI %s' % row.pi_header_id.proforma_number)
+            row.trace_pi_po = ' · '.join(p for p in parts if p)
+
     trace_state = fields.Selection(
         TRACE_STATES, string='Estado actual', compute='_compute_trace_info',
         compute_sudo=True,

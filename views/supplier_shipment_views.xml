@@ -102,6 +102,7 @@
                                       decoration-success="trace_state == 'libre'">
                                     <field name="product_id" string="Producto"/>
                                     <field name="trace_lot_id" string="Lote"/>
+                                    <field name="trace_pi_po" string="PI / PO" optional="show"/>
                                     <field name="bloque" string="Bloque" optional="show"/>
                                     <field name="numero_placa" string="Placa" optional="show"/>
                                     <field name="atado" string="Atado" optional="hide"/>

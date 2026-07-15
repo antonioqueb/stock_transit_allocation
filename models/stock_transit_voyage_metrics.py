@@ -57,23 +57,42 @@ class StockTransitVoyageMetrics(models.Model):
         digits='Product Unit of Measure',
     )
 
+    def _tc_covered_purchase_orders(self):
+        """POs que amparan el material de este viaje.
+
+        Con factura de carga (embarque multi-PO): TODAS las PO de la carga.
+        Sin carga: la OC vinculada al viaje (flujo clásico, intacto).
+        """
+        self.ensure_one()
+        po = self.purchase_id
+        if not po:
+            return po
+        header = self.env['supplier.proforma.header'].sudo().search(
+            [('purchase_id', '=', po.id)], limit=1)
+        access = header.access_id if header else False
+        if access and access.cargo_invoice_id and access.cargo_invoice_id.purchase_ids:
+            return access.cargo_invoice_id.purchase_ids
+        return po
+
     def _tc_purchased_map(self):
-        """{product_id: qty comprada} de la OC vinculada (UoM del producto).
+        """{product_id: qty comprada} de las OCs amparadas (UoM del producto).
 
         Una consulta por viaje; ignora líneas canceladas/display y solo
-        considera productos presentes en el viaje.
+        considera productos presentes en el viaje. Con factura de carga suma
+        las líneas de TODAS las PO amparadas.
         """
         self.ensure_one()
         result = {}
-        po = self.purchase_id
-        if not po or po.state == 'cancel':
+        pos = self._tc_covered_purchase_orders().filtered(
+            lambda p: p.state != 'cancel')
+        if not pos:
             return result
 
         voyage_products = set(self.line_ids.mapped('product_id').ids)
         if not voyage_products:
             return result
 
-        for pl in po.order_line:
+        for pl in pos.order_line:
             if pl.display_type or not pl.product_id:
                 continue
             if pl.product_id.id not in voyage_products:
