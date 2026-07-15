@@ -86,6 +86,9 @@ class SupplierShipmentPackingRow(models.Model):
         'supplier.proforma.header', string='PI de la línea',
         index=True, ondelete='set null', copy=False,
     )
+    pi_manual = fields.Boolean(
+        string='PI asignada manualmente', copy=False,
+    )
 
     # --- Dimensiones (para Placas) ---
     grosor = fields.Char(string='Grosor')
