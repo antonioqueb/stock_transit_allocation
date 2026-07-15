@@ -57,7 +57,7 @@ class SupplierShipmentPackingRowTrace(models.Model):
             line = row.purchase_line_id
             if line:
                 parts.append(line.order_id.name or '')
-                pi = (line.order_id.supplier_pi_number
+                pi = (line.order_id.partner_ref
                       or (row.pi_header_id.proforma_number if row.pi_header_id else ''))
                 if pi:
                     parts.append('PI %s' % pi)
