@@ -20,25 +20,17 @@
 
             <!-- KPIs -->
             <div class="o_sl_kpis">
-                <div class="o_sl_kpi o_sl_k_active" t-on-click="() => this.setFilter('active')">
-                    <span class="o_sl_kpi_n" t-esc="state.counts.active or 0"/>
-                    <span class="o_sl_kpi_l">Activas</span>
+                <div class="o_sl_kpi o_sl_k_active" t-on-click="() => this.setFilter('no_started')">
+                    <span class="o_sl_kpi_n" t-esc="state.counts.no_started or 0"/>
+                    <span class="o_sl_kpi_l">No atendidas</span>
                 </div>
                 <div class="o_sl_kpi o_sl_k_blue" t-on-click="() => this.setFilter('in_progress')">
                     <span class="o_sl_kpi_n" t-esc="state.counts.in_progress or 0"/>
                     <span class="o_sl_kpi_l">En captura</span>
                 </div>
-                <div class="o_sl_kpi o_sl_k_amber" t-on-click="() => this.setFilter('captured')">
-                    <span class="o_sl_kpi_n" t-esc="state.counts.captured or 0"/>
-                    <span class="o_sl_kpi_l">Por validar tránsito</span>
-                </div>
                 <div class="o_sl_kpi o_sl_k_green" t-on-click="() => this.setFilter('done')">
                     <span class="o_sl_kpi_n" t-esc="state.counts.done or 0"/>
                     <span class="o_sl_kpi_l">Terminadas</span>
-                </div>
-                <div class="o_sl_kpi o_sl_k_red" t-on-click="() => this.setFilter('expired')">
-                    <span class="o_sl_kpi_n" t-esc="state.counts.expired or 0"/>
-                    <span class="o_sl_kpi_l">Vencidas</span>
                 </div>
                 <div class="o_sl_kpi o_sl_k_total" t-on-click="() => this.setFilter('all')">
                     <span class="o_sl_kpi_n" t-esc="state.counts.total or 0"/>

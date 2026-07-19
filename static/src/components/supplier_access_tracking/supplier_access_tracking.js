@@ -4,20 +4,16 @@ import { Component, useState, onWillStart } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 
 const STATE_META = {
-    no_started: { label: "Sin iniciar", cls: "o_sl_gray" },
+    no_started: { label: "No atendida", cls: "o_sl_gray" },
     in_progress: { label: "En captura", cls: "o_sl_blue" },
-    captured: { label: "Capturado · por validar", cls: "o_sl_amber" },
-    done: { label: "Terminado", cls: "o_sl_green" },
-    expired: { label: "Vencida", cls: "o_sl_red" },
+    done: { label: "Terminada", cls: "o_sl_green" },
 };
 
 const FILTERS = [
-    { key: "active", label: "Activas" },
-    { key: "in_progress", label: "En captura" },
-    { key: "captured", label: "Por validar" },
-    { key: "done", label: "Terminadas" },
-    { key: "expired", label: "Vencidas" },
     { key: "all", label: "Todas" },
+    { key: "no_started", label: "No atendidas" },
+    { key: "in_progress", label: "En captura" },
+    { key: "done", label: "Terminadas" },
 ];
 
 export class SupplierLinksTracking extends Component {
@@ -32,7 +28,7 @@ export class SupplierLinksTracking extends Component {
             loading: true,
             rows: [],
             counts: {},
-            filter: "active",
+            filter: "all",
             search: "",
         });
         onWillStart(() => this.load());
@@ -61,9 +57,7 @@ export class SupplierLinksTracking extends Component {
         const q = (this.state.search || "").toLowerCase().trim();
         return this.state.rows.filter((r) => {
             let okF = true;
-            if (f === "active") {
-                okF = !r.is_expired && !r.reception_validated;
-            } else if (f !== "all") {
+            if (f !== "all") {
                 okF = r.state === f;
             }
             const hay = `${r.partner} ${r.po_name} ${r.proforma_number} ${r.token}`.toLowerCase();

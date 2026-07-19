@@ -80,8 +80,10 @@ class SupplierAccessTracking(models.Model):
             return local.strftime('%d/%m/%Y %H:%M' if with_time else '%d/%m/%Y')
 
         rows = []
-        counts = {'total': 0, 'active': 0, 'no_started': 0, 'in_progress': 0,
-                  'captured': 0, 'done': 0, 'expired': 0}
+        # SOLO tres estados (pedido explícito): no atendida / en captura /
+        # terminada. La vigencia se muestra como dato de la fila, no como
+        # estado propio, para no perder ligas entre el ruido.
+        counts = {'total': 0, 'no_started': 0, 'in_progress': 0, 'done': 0}
 
         for a in accesses:
             po = a.purchase_id
@@ -111,12 +113,8 @@ class SupplierAccessTracking(models.Model):
             progress = round(sum(percents) / len(percents)) if percents else 0
             status = proforma.status if proforma else 'draft'
 
-            if reception_validated:
+            if status == 'complete' or reception_validated:
                 state = 'done'
-            elif a.is_expired:
-                state = 'expired'
-            elif status == 'complete':
-                state = 'captured'
             elif proforma and ships:
                 state = 'in_progress'
             else:
@@ -124,8 +122,6 @@ class SupplierAccessTracking(models.Model):
 
             counts['total'] += 1
             counts[state] = counts.get(state, 0) + 1
-            if not a.is_expired and not reception_validated:
-                counts['active'] += 1
 
             rows.append({
                 'id': a.id,
@@ -157,7 +153,7 @@ class SupplierAccessTracking(models.Model):
                 'last_access_days': (now - a.last_access).days if a.last_access else None,
             })
 
-        # Orden: vencidas y en proceso primero (lo accionable arriba), luego por días abiertos.
-        order = {'expired': 0, 'in_progress': 1, 'captured': 2, 'no_started': 3, 'done': 4}
+        # Orden: lo accionable arriba (no atendidas, en captura), luego por días abiertos.
+        order = {'no_started': 0, 'in_progress': 1, 'done': 2}
         rows.sort(key=lambda r: (order.get(r['state'], 9), -r['days_open']))
         return {'rows': rows, 'counts': counts}
