@@ -17,19 +17,55 @@ class SupplierAccessTracking(models.Model):
         has_ship_field = 'supplier_shipment_id' in Picking._fields
         now = fields.Datetime.now()
 
-        po_ids = [a.purchase_id.id for a in accesses if a.purchase_id]
-        proformas = Proforma.search([('purchase_id', 'in', po_ids)]) if po_ids else Proforma
+        # Una liga puede amparar VARIAS POs (factura de carga): el universo de
+        # órdenes es la unión de las POs cubiertas por cada acceso.
+        def _covered(a):
+            try:
+                return a._covered_purchase_orders()
+            except Exception:
+                return a.purchase_id
+
+        all_pos = self.env['purchase.order'].sudo()
+        for a in accesses:
+            all_pos |= _covered(a)
+        proformas = Proforma.search(
+            [('purchase_id', 'in', all_pos.ids)]) if all_pos else Proforma
         prof_by_po = {p.purchase_id.id: p for p in proformas}
 
-        # Recepciones validadas (done) por embarque, en un solo query.
+        # Recepciones por embarque: con la carga multi-PO cada embarque tiene
+        # UNA recepción POR PO. El embarque cuenta como recibido solo cuando
+        # TODAS sus recepciones (no canceladas) están validadas.
         all_ship_ids = proformas.mapped('shipment_ids').ids
         done_ship_ids = set()
         if has_ship_field and all_ship_ids:
-            done = Picking.search([
+            picks = Picking.search([
                 ('supplier_shipment_id', 'in', all_ship_ids),
-                ('state', '=', 'done'),
+                ('state', '!=', 'cancel'),
             ])
-            done_ship_ids = set(done.mapped('supplier_shipment_id').ids)
+            states_by_ship = {}
+            for pk in picks:
+                states_by_ship.setdefault(
+                    pk.supplier_shipment_id.id, []).append(pk.state)
+            done_ship_ids = {
+                sid for sid, states in states_by_ship.items()
+                if states and all(st == 'done' for st in states)
+            }
+
+        Cargo = self.env['supplier.cargo.invoice'].sudo() \
+            if 'supplier.cargo.invoice' in self.env else False
+
+        def _capture_percent(header):
+            """% con la MISMA vara que el portal (sin docs opcionales ni
+            datos generales). Cae al % clásico si el helper no existe."""
+            if not header or not hasattr(header, '_portal_progress'):
+                return 0
+            try:
+                progress = header._portal_progress()
+            except Exception:
+                return 0
+            if Cargo is not False and hasattr(Cargo, '_progress_percent_capture'):
+                return Cargo._progress_percent_capture(progress)
+            return progress.get('percent', 0)
 
         def _fmt(dt, with_time=False):
             if not dt:
@@ -43,17 +79,30 @@ class SupplierAccessTracking(models.Model):
 
         for a in accesses:
             po = a.purchase_id
+            pos = _covered(a)
+            is_cargo = len(pos) > 1
             partner = po.partner_id if po else False
             proforma = prof_by_po.get(po.id) if po else False
-            ships = proforma.shipment_ids if proforma else Shipment
+            headers = [
+                prof_by_po[p.id] for p in pos if p.id in prof_by_po
+            ]
+            # Los embarques de la carga viven en la proforma principal, pero se
+            # toma la unión por si algún flujo creó embarques en otra PI.
+            ships = Shipment
+            for h in headers:
+                ships |= h.shipment_ids
+            if not headers and proforma:
+                ships = proforma.shipment_ids
             ship_total = len(ships)
             ship_done = sum(1 for s in ships if s.id in done_ship_ids)
             reception_validated = bool(ship_total and ship_done == ship_total)
-            # Defensivo: el % vive en stock_lot_packing_import. Si ese módulo aún
-            # no se recargó con _portal_progress, no truena (muestra 0 mientras).
-            progress = 0
-            if proforma and hasattr(proforma, '_portal_progress'):
-                progress = proforma._portal_progress().get('percent', 0)
+            # Avance de captura: proformas CON embarques (donde sucede la
+            # captura); las PI hermanas sin embarques no diluyen el promedio.
+            capture_headers = [h for h in headers if h.shipment_ids] \
+                or ([proforma] if proforma else [])
+            percents = [p for p in (
+                _capture_percent(h) for h in capture_headers) if p is not None]
+            progress = round(sum(percents) / len(percents)) if percents else 0
             status = proforma.status if proforma else 'draft'
 
             if reception_validated:
@@ -78,9 +127,15 @@ class SupplierAccessTracking(models.Model):
                 'portal_url': a.portal_url,
                 'partner': partner.display_name if partner else '—',
                 'po_id': po.id if po else False,
-                'po_name': po.name if po else '',
+                'po_name': ' · '.join(pos.mapped('name')) if is_cargo else (po.name if po else ''),
                 'proforma_id': proforma.id if proforma else False,
-                'proforma_number': (proforma.proforma_number if proforma else '') or '',
+                'proforma_number': ' · '.join(
+                    (h.proforma_number or h.purchase_id.partner_ref or h.purchase_id.name or '')
+                    for h in headers
+                ) if is_cargo else ((proforma.proforma_number if proforma else '') or ''),
+                'is_cargo': is_cargo,
+                'cargo_name': a.cargo_invoice_id.name if getattr(a, 'cargo_invoice_id', False) else '',
+                'po_count': len(pos),
                 'status': status,
                 'state': state,
                 'progress': progress,
