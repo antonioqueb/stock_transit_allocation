@@ -55,17 +55,23 @@ class SupplierAccessTracking(models.Model):
             if 'supplier.cargo.invoice' in self.env else False
 
         def _capture_percent(header):
-            """% con la MISMA vara que el portal (sin docs opcionales ni
-            datos generales). Cae al % clásico si el helper no existe."""
-            if not header or not hasattr(header, '_portal_progress'):
+            """Precedencia: % reportado por el propio portal → 100 si la
+            proforma está completa → cálculo interno de respaldo."""
+            if not header:
                 return 0
-            try:
-                progress = header._portal_progress()
-            except Exception:
-                return 0
-            if Cargo is not False and hasattr(Cargo, '_progress_percent_capture'):
-                return Cargo._progress_percent_capture(progress)
-            return progress.get('percent', 0)
+            if Cargo is not False and hasattr(Cargo, '_header_capture_percent'):
+                return Cargo._header_capture_percent(header)
+            stored = getattr(header, 'portal_overall_pct', 0) or 0
+            if stored > 0:
+                return stored
+            if (header.status or '') == 'complete':
+                return 100
+            if hasattr(header, '_portal_progress'):
+                try:
+                    return header._portal_progress().get('percent', 0)
+                except Exception:
+                    return 0
+            return 0
 
         def _fmt(dt, with_time=False):
             if not dt:
