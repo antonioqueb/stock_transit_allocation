@@ -43,6 +43,8 @@ class SupplierShipment(models.Model):
     # base — ver supplier_shipment_packing.py): catálogo del tarifario.
     naviera_id = fields.Many2one('res.partner', string='Naviera (catálogo)')
     forwarder_id = fields.Many2one('res.partner', string='Forwarder (catálogo)')
+    pol_id = fields.Many2one('res.partner', string='POL (catálogo)')
+    pod_id = fields.Many2one('res.partner', string='POD (catálogo)')
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', tracking=True)
