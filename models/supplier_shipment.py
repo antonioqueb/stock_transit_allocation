@@ -39,6 +39,10 @@ class SupplierShipment(models.Model):
     ], string='Tipo de Embarque', default='maritime')
 
     shipping_line = fields.Char(string='Naviera', tracking=True)
+    # DUPLICADO INTENCIONAL (la clase con _name reemplaza a la del módulo
+    # base — ver supplier_shipment_packing.py): catálogo del tarifario.
+    naviera_id = fields.Many2one('res.partner', string='Naviera (catálogo)')
+    forwarder_id = fields.Many2one('res.partner', string='Forwarder (catálogo)')
     vessel_name = fields.Char(string='Buque / Barco', tracking=True)
     etd = fields.Date(string='ETD (Salida Estimada)')
     eta = fields.Date(string='ETA (Llegada Estimada)', tracking=True)
