@@ -388,6 +388,39 @@ class StockTransitVoyagePublication(models.Model):
                 "transit_inventory_published_by": self.env.user.id,
             })
 
+            # ═══ DISPARADOR DEL COSTEO (acuerdo de negocio) ═══
+            # El costo del producto se recalcula AL PUBLICAR: desde este
+            # momento el material está disponible para que los vendedores lo
+            # comercialicen. Ni la captura del proveedor ni la validación del
+            # tránsito lo disparan. Defensivo: si logistica_tarifario no está
+            # instalado, la publicación no se ve afectada.
+            try:
+                pos = voyage._tc_covered_purchase_orders() if hasattr(
+                    voyage, '_tc_covered_purchase_orders') else voyage.purchase_id
+                if pos and hasattr(pos, '_som_apply_costing_update'):
+                    shipment = self.env['supplier.shipment'].sudo().search(
+                        [('voyage_id', '=', voyage.id)], limit=1)
+                    products = lines.mapped('product_id.product_tmpl_id')
+                    templates = pos.filtered(
+                        lambda po: po.state != 'cancel'
+                    )._som_apply_costing_update(
+                        products=products,
+                        naviera=getattr(shipment, 'naviera_id', False) or False,
+                        forwarder=getattr(shipment, 'forwarder_id', False) or False,
+                        pol=getattr(shipment, 'pol_id', False) or False,
+                        pod=getattr(shipment, 'pod_id', False) or False,
+                    )
+                    if templates:
+                        voyage.message_post(body=_(
+                            "💰 Costeo actualizado al publicar: %s producto(s) "
+                            "recalculados con los datos de esta compra."
+                        ) % len(templates))
+            except Exception:
+                _logger.exception(
+                    "[TC_PUBLISH] Falló el recálculo de costos al publicar el "
+                    "viaje %s (la publicación NO se revierte).", voyage.name,
+                )
+
             voyage.message_post(body=_(
                 "📢 Inventario en tránsito publicado.<br/>"
                 "<b>Committed:</b> %(committed_count)s lote(s) / %(committed_qty).3f<br/>"
