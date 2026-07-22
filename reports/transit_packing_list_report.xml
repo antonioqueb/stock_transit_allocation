@@ -57,6 +57,9 @@
     <template id="report_transit_packing_list_document">
         <t t-call="web.external_layout">
 
+            <!-- Estilos ESPECÍFICOS de este reporte (paisaje denso).
+                 Lo canónico (tablas, bandas, fichas, títulos) viene del
+                 sistema de diseño stock_lot_dimensions.som_report_style. -->
             <style>
                 @page {
                     size: A4 landscape;
@@ -66,108 +69,47 @@
                 .pl-page {
                     font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
                     font-size: 10px;
-                    color: #111827;
+                    color: #222;
                 }
 
-                /* ============ ENCABEZADO ============ */
-                .pl-header {
-                    border-bottom: 2px solid #111827;
-                    padding-bottom: 2px;
-                    margin-bottom: 3px;
-                }
-
-                .pl-title {
-                    margin: 0;
-                    font-size: 20px;
-                    font-weight: 900;
-                    letter-spacing: .04em;
-                    color: #4b362d;
-                    line-height: 1;
-                }
-
-                .pl-subtitle {
-                    font-size: 8.5px;
-                    color: #6b7280;
-                    margin-top: 1px;
-                    line-height: 1;
-                }
-
-                .pl-doc-label {
-                    font-size: 8.5px;
-                    color: #6b7280;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    letter-spacing: .03em;
-                    line-height: 1;
-                }
-
-                .pl-doc-number {
-                    font-size: 17px;
-                    font-weight: 900;
-                    color: #111827;
-                    line-height: 1.05;
-                }
-
-                .pl-print-stamp {
-                    font-size: 7.5px;
-                    color: #9ca3af;
-                    margin-top: 0;
-                    line-height: 1;
-                }
-
-                /* ============ BLOQUE DE INFO COMPACTO ============ */
+                /* Grid de info compacto de 6 columnas (específico) */
                 .pl-info-grid {
                     width: 100%;
-                    border: 1px solid #d1d5db;
-                    border-radius: 4px;
-                    border-collapse: separate;
-                    border-spacing: 0;
+                    border: 1px solid #d8d8d8;
+                    border-collapse: collapse;
                     margin-bottom: 4px;
-                    font-size: 9.5px;
+                    font-size: 9px;
                     table-layout: fixed;
                 }
-
                 .pl-info-grid td {
-                    padding: 1.5px 6px;
-                    border-bottom: 1px solid #e5e7eb;
-                    border-right: 1px solid #e5e7eb;
-                    line-height: 1;
+                    padding: 2px 6px;
+                    border: 1px solid #d8d8d8;
+                    line-height: 1.1;
                     vertical-align: middle;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
-
-                .pl-info-grid tr:last-child td {
-                    border-bottom: none;
-                }
-
                 .pl-info-grid td.pl-lbl {
                     font-weight: 800;
                     text-transform: uppercase;
-                    font-size: 8px;
-                    color: #4b5563;
-                    background: #f9fafb;
+                    font-size: 8.5px;
+                    color: #555;
+                    background: #f2f2f2;
                     width: 11%;
                     letter-spacing: .02em;
                 }
-
                 .pl-info-grid td.pl-val {
                     width: 22%;
-                    color: #111827;
+                    color: #222;
                     font-weight: 600;
                 }
-
                 .pl-info-grid td.pl-val-strong {
                     font-weight: 800;
                     text-transform: uppercase;
                 }
 
-                .pl-info-grid td:last-child {
-                    border-right: none;
-                }
-
-                /* ============ KPIs COMPACTOS ============ */
+                /* KPIs compactos (específico) */
                 .pl-kpi-row {
                     display: table;
                     width: 100%;
@@ -176,183 +118,106 @@
                     border-collapse: separate;
                     border-spacing: 4px 0;
                 }
-
                 .pl-kpi {
                     display: table-cell;
-                    border: 1px solid #d1d5db;
-                    border-radius: 4px;
-                    background: #f9fafb;
+                    border: 1px solid #d8d8d8;
+                    background: #f2f2f2;
                     padding: 2px 6px;
                     text-align: center;
                     vertical-align: middle;
                 }
-
                 .pl-kpi-label {
-                    font-size: 8px;
+                    font-size: 8.5px;
                     font-weight: 800;
                     text-transform: uppercase;
-                    color: #6b7280;
+                    color: #555;
                     letter-spacing: .04em;
                     line-height: 1;
                 }
-
                 .pl-kpi-value {
                     font-size: 12px;
-                    font-weight: 900;
-                    color: #111827;
+                    font-weight: 800;
+                    color: #222;
                     line-height: 1;
                     margin-top: 1px;
                 }
 
-                /* ============ DETALLE ============ */
-                .pl-detail-title {
-                    font-weight: 800;
-                    font-size: 9.5px;
-                    text-transform: uppercase;
-                    margin: 0 0 2px;
-                    color: #111827;
-                    letter-spacing: .03em;
-                }
-
-                .pl-table {
-                    width: 100%;
-                    font-size: 8.5px;
-                    border-collapse: collapse;
-                    border: 1px solid #9ca3af;
-                    table-layout: fixed;
-                    margin-bottom: 3px;
-                }
-
-                .pl-table thead tr {
-                    background-color: #111827;
-                    height: auto !important;
-                }
-
-                .pl-table th {
-                    padding: 1.5px 3px !important;
-                    line-height: 1 !important;
-                    height: auto !important;
-                    color: #ffffff !important;
-                    background-color: #111827 !important;
-                    font-weight: 800;
-                    border: 1px solid #111827;
-                    vertical-align: middle;
-                    text-align: center;
-                    font-size: 8.5px;
-                    letter-spacing: .02em;
-                }
-
-                .pl-table tbody {
-                    font-size: 8.5px;
-                    line-height: 1;
-                }
-
-                .pl-table tbody tr {
-                    height: auto !important;
-                }
-
+                /* Densidad del detalle en paisaje (sobre la som-table) */
+                .pl-table th { text-align: center; }
                 .pl-table td {
-                    padding: 0.5px 3px !important;
-                    line-height: 1 !important;
-                    height: auto !important;
-                    border: 1px solid #e5e7eb;
-                    vertical-align: middle;
-                    font-weight: 400;
-                    word-wrap: break-word;
-                    overflow-wrap: anywhere;
+                    padding: 2px 4px !important;
+                    line-height: 1.1 !important;
                 }
 
-                /* Encabezado de producto */
+                /* Encabezado de producto: banda oscura canónica */
                 .pl-product-row td {
-                    padding: 1.5px 5px !important;
-                    line-height: 1 !important;
-                    height: auto !important;
                     font-weight: 800 !important;
-                    font-size: 9px;
                     text-transform: uppercase;
                     color: #ffffff !important;
                     background-color: #2f2f2f !important;
                     border-color: #2f2f2f !important;
                     letter-spacing: .02em;
                 }
-
                 .pl-product-row .pl-product-meta {
-                    font-size: 8px;
-                    color: #d1d5db !important;
+                    font-size: 8.5px;
+                    color: #d8d8d8 !important;
                     font-weight: 700;
                     margin-left: 6px;
                 }
 
-                /* Subtotal por producto */
+                /* Subtotal por producto: banda gris canónica */
                 .pl-product-subtotal td {
-                    padding: 1px 4px !important;
-                    line-height: 1 !important;
-                    height: auto !important;
-                    background-color: #6f4e37 !important;
+                    background-color: #f2f2f2 !important;
+                    color: #222 !important;
                     font-weight: 800 !important;
-                    font-size: 9px;
-                    border-top: 1px solid #3e2723 !important;
-                    border-bottom: 1px solid #3e2723 !important;
-                    color: #ffffff !important;
                     text-transform: uppercase;
-                    letter-spacing: .02em;
                 }
-
-                .pl-muted {
-                    color: #6b7280;
-                    margin-left: 2px;
-                }
-
                 .pl-product-subtotal .pl-subtotal-uom {
-                    color: #f5e6d3 !important;
+                    color: #555 !important;
                     margin-left: 3px;
                     font-weight: 700;
                 }
 
+                .pl-muted { color: #555; margin-left: 2px; }
+
+                /* Total general: cierre canónico */
                 .pl-total-row td {
-                    border-top: 2px solid #111827 !important;
-                    background-color: #111827 !important;
-                    color: #ffffff !important;
-                    font-weight: 900 !important;
-                    font-size: 9.5px;
-                    padding: 2px 6px !important;
-                    line-height: 1 !important;
-                    height: auto !important;
+                    border-top: 2px solid #2f2f2f !important;
+                    background-color: #f2f2f2 !important;
+                    color: #222 !important;
+                    font-weight: 800 !important;
                     text-transform: uppercase;
-                    letter-spacing: .03em;
                 }
 
                 .pl-note {
-                    border: 1px solid #d1d5db;
-                    background: #f9fafb;
-                    border-radius: 3px;
+                    border: 1px solid #d8d8d8;
+                    background: #f7f7f7;
                     padding: 2px 7px;
                     margin-top: 3px;
                     font-size: 8.5px;
-                    line-height: 1.1;
-                    color: #4b5563;
+                    line-height: 1.15;
+                    color: #555;
                 }
 
+                /* Firmas y pie (específico) */
                 .pl-sign-line {
-                    border-top: 1px solid #111827;
+                    border-top: 1px solid #222;
                     margin-top: 14px;
                     padding-top: 2px;
                     font-size: 9.5px;
                     font-weight: 800;
                 }
-
                 .pl-sign-sub {
                     font-size: 8px;
-                    color: #6b7280;
+                    color: #555;
                     line-height: 1;
                 }
-
                 .pl-foot {
                     margin-top: 3px;
                     font-size: 7.5px;
-                    color: #9ca3af;
+                    color: #999;
                     text-align: center;
-                    border-top: 1px solid #e5e7eb;
+                    border-top: 1px solid #d8d8d8;
                     padding-top: 1px;
                 }
             </style>
@@ -379,22 +244,23 @@
             </t>
 
             <div class="page pl-page">
+                <t t-call="stock_lot_dimensions.som_report_style"/>
 
                 <!-- ===================================================== -->
                 <!-- ENCABEZADO -->
                 <!-- ===================================================== -->
-                <div class="pl-header">
+                <div style="border-bottom: 2px solid #2f2f2f; padding-bottom: 2px; margin-bottom: 3px;">
                     <div class="row" style="align-items: center;">
                         <div class="col-5">
-                            <h2 class="pl-title">PACKING LIST</h2>
-                            <div class="pl-subtitle">Detalle logístico de material cargado en embarque</div>
+                            <h2 class="som-doc-title">PACKING LIST</h2>
+                            <div class="som-doc-subtitle" style="margin-bottom: 0;">Detalle logístico de material cargado en embarque</div>
                         </div>
                         <div class="col-7 text-end">
-                            <div class="pl-doc-label">No. Embarque</div>
-                            <div class="pl-doc-number">
+                            <div class="som-small som-muted som-upper" style="font-weight: 700; line-height: 1;">No. Embarque</div>
+                            <div style="font-size: 15px; font-weight: 800; color: #222; line-height: 1.05;">
                                 <t t-esc="doc.name or '-'"/>
                             </div>
-                            <div class="pl-print-stamp">
+                            <div class="som-small som-muted" style="line-height: 1;">
                                 Impreso: <t t-esc="context_timestamp(datetime.datetime.now()).strftime('%d/%m/%Y %H:%M')"/>
                             </div>
                         </div>
@@ -483,10 +349,10 @@
                 <!-- ===================================================== -->
                 <!-- DETALLE -->
                 <!-- ===================================================== -->
-                <div class="pl-detail-title">Detalle del Packing List</div>
+                <div class="som-section-title" style="margin-bottom: 2px;">Detalle del Packing List</div>
 
                 <t t-if="rows">
-                    <table class="pl-table">
+                    <table class="som-table pl-table">
                         <thead>
                             <tr>
                                 <th style="width: 5%;">#</th>
@@ -561,7 +427,7 @@
                                         <t t-if="row.get('alto')"><t t-esc="'%.3f' % row.get('alto')"/></t>
                                         <t t-else="">-</t>
                                     </td>
-                                    <td class="text-center" style="font-weight: 800; white-space: nowrap;">
+                                    <td class="text-center som-nowrap" style="font-weight: 800;">
                                         <t t-esc="'%.3f' % (row.get('qty') or 0.0)"/>
                                         <span t-if="row.get('uom')" class="pl-muted">
                                             <t t-esc="row.get('uom')"/>
@@ -603,7 +469,7 @@
                 </t>
 
                 <t t-else="">
-                    <div style="border: 1px solid #d1d5db; padding: 6px; color: #6b7280; font-size: 10px; font-style: italic; text-align: center; border-radius: 3px;">
+                    <div class="som-muted" style="border: 1px solid #d8d8d8; padding: 6px; font-size: 10px; font-style: italic; text-align: center;">
                         Sin líneas de Packing List para imprimir.
                     </div>
                 </t>
@@ -620,7 +486,7 @@
                 <!-- ===================================================== -->
                 <!-- FIRMAS -->
                 <!-- ===================================================== -->
-                <div class="row mt-2" style="page-break-inside: avoid;">
+                <div class="row mt-2 som-avoid-break">
                     <div class="col-4 text-center">
                         <div class="pl-sign-line">Revisó</div>
                         <div class="pl-sign-sub">Nombre y firma</div>
