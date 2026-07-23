@@ -398,8 +398,21 @@ class StockTransitVoyagePublication(models.Model):
                 pos = voyage._tc_covered_purchase_orders() if hasattr(
                     voyage, '_tc_covered_purchase_orders') else voyage.purchase_id
                 if pos and hasattr(pos, '_som_apply_costing_update'):
-                    shipment = self.env['supplier.shipment'].sudo().search(
+                    # Embarque con datos de naviera/forwarder: primero por
+                    # vínculo directo al viaje; si no, el más reciente CON
+                    # naviera de las proformas de las POs amparadas.
+                    Shipment = self.env['supplier.shipment'].sudo()
+                    shipment = Shipment.search(
                         [('voyage_id', '=', voyage.id)], limit=1)
+                    if not shipment or not getattr(shipment, 'naviera_id', False):
+                        headers = self.env['supplier.proforma.header'].sudo().search(
+                            [('purchase_id', 'in', pos.ids)])
+                        candidates = headers.mapped('shipment_ids').sorted(
+                            'id', reverse=True)
+                        with_carrier = candidates.filtered(
+                            lambda sh: getattr(sh, 'naviera_id', False)
+                            or getattr(sh, 'forwarder_id', False))
+                        shipment = with_carrier[:1] or shipment or candidates[:1]
                     products = lines.mapped('product_id.product_tmpl_id')
                     templates = pos.filtered(
                         lambda po: po.state != 'cancel'
