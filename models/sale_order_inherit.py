@@ -883,6 +883,15 @@ class SaleOrderLine(models.Model):
             if line.auto_transit_assign:
                 continue
 
+            # 'Solo taller' (sale_stone_workshop_integration): el producto
+            # final se FABRICA en taller a partir del producto base, así que
+            # lo solicitado no depende del stock del producto final — es el
+            # equivalente de 'Mandar a pedir' pero hacia taller. El tope
+            # físico no aplica. Chequeo defensivo por si el integrador de
+            # taller no está instalado en la base.
+            if 'stone_workshop_required' in line._fields and line.stone_workshop_required:
+                continue
+
             has_selected = bool(line.x_selected_lots) if 'x_selected_lots' in line._fields else False
             has_lots = bool(line.lot_ids) if 'lot_ids' in line._fields else False
 
