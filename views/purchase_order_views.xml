@@ -84,5 +84,6 @@
               name="Asignaciones"
               parent="purchase.menu_procurement_management"
               action="action_purchase_line_allocations"
-              sequence="5"/>
+              sequence="5"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 </odoo>

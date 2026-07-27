@@ -230,18 +230,21 @@
 
     <!-- MENÚS -->
     <menuitem id="menu_transit_portal_data" name="Portal Proveedor"
-              parent="menu_transit_root" sequence="20"/>
+              parent="menu_transit_root" sequence="20"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 
     <menuitem id="menu_supplier_proformas"
               name="Proformas"
               parent="menu_transit_portal_data"
               action="action_supplier_proforma_header"
-              sequence="1"/>
+              sequence="1"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 
     <menuitem id="menu_supplier_shipments"
               name="Embarques"
               parent="menu_transit_portal_data"
               action="action_supplier_shipment"
-              sequence="2"/>
+              sequence="2"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 
 </odoo>

@@ -435,17 +435,20 @@
               name="Cronograma"
               parent="menu_transit_root"
               action="action_transit_sheet_custom_client"
-              sequence="1"/>
+              sequence="1"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 
     <menuitem id="menu_transit_voyage_dashboard"
               name="Viajes y Contenedores"
               parent="menu_transit_root"
               action="action_transit_kanban_custom_client"
-              sequence="2"/>
+              sequence="2"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 
     <menuitem id="menu_transit_voyage_list"
               name="Lista de Viajes"
               parent="menu_transit_root"
               action="action_stock_transit_voyage_main"
-              sequence="3"/>
+              sequence="3"
+              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
 </odoo>
