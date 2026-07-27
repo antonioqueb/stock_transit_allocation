@@ -11,6 +11,6 @@
               parent="menu_transit_root"
               action="action_supplier_links_tracking"
               sequence="4"
-              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
+              groups="purchase.group_purchase_user"/>
 
 </odoo>

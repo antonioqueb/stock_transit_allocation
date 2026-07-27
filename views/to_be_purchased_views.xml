@@ -24,14 +24,14 @@
               action="action_to_be_allocated_client"
               web_icon="stock_transit_allocation,static/description/tobeallocated.png"
               sequence="2"
-              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
+              groups="purchase.group_purchase_user"/>
 
     <menuitem id="menu_app_to_be_purchased_root"
               name="To Be Purchased"
               action="action_to_be_purchased_client"
               web_icon="stock_transit_allocation,static/description/tobepurchase.png"
               sequence="3"
-              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
+              groups="purchase.group_purchase_user"/>
 
     <!-- ========================================================= -->
     <!-- MENÚS DENTRO DE APLICACIONES EXISTENTES                   -->
@@ -44,7 +44,7 @@
               parent="sale.sale_order_menu"
               action="action_to_be_allocated_client"
               sequence="0"
-              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
+              groups="purchase.group_purchase_user"/>
 
     <!-- Menú dentro de Compras -->
     <menuitem id="menu_purchase_to_be_purchased"
@@ -52,7 +52,7 @@
               parent="purchase.menu_procurement_management"
               action="action_to_be_purchased_client"
               sequence="0"
-              groups="purchase.group_purchase_user,stock_transit_allocation.group_transit_user"/>
+              groups="purchase.group_purchase_user"/>
 
     <!-- Eliminar binding del wizard viejo si existía en sale.order -->
     <delete model="ir.actions.act_window"
