@@ -11,6 +11,7 @@ from odoo import models, api, _
 from odoo import fields as fields_module
 from odoo.exceptions import UserError
 from odoo.tools.float_utils import float_round, float_compare, float_is_zero
+from odoo.tools import html_escape
 
 fields = fields_module
 
@@ -1177,7 +1178,17 @@ class StockTransitVoyage(models.Model):
                         'eta_overdue_notified': False,
                     })
 
+        # Viajes que ENTRAN a 'arrived_port' con este write (capturado antes
+        # del super para conocer el estado previo): al arribar a puerto
+        # destino se agenda la actividad de recepción para inventarios.
+        arriving = self.browse()
+        if vals.get('custom_status') == 'arrived_port':
+            arriving = self.filtered(lambda v: v.custom_status != 'arrived_port')
+
         res = super().write(vals)
+
+        if arriving:
+            arriving._som_schedule_reception_activity()
 
         # ---------------------------------------------------------
         # SINCRONIZACIÓN BIDIRECCIONAL A OC Y PORTAL
@@ -1210,6 +1221,99 @@ class StockTransitVoyage(models.Model):
             self._check_eta_alerts()
 
         return res
+
+    # Usuario que procesa las recepciones físicas y captura el worksheet
+    # con las medidas. Si el login cambia, actualizar aquí.
+    _SOM_RECEPTION_NOTIFY_LOGIN = 'inventarios@somgroup.mx'
+
+    def _som_schedule_reception_activity(self):
+        """Al arribar a puerto destino, agenda una actividad al usuario de
+        inventarios SOBRE LA RECEPCIÓN (el folio que debe procesar): la
+        actividad abre directo el documento donde se presiona Recibir y se
+        captura el worksheet con las medidas.
+
+        La nota se construye SIN HTML crudo: texto plano escapado línea por
+        línea (html_escape) unido con <br/> vía Markup — nunca se muestran
+        etiquetas al usuario.
+        """
+        user = self.env['res.users'].sudo().search(
+            ['|',
+             ('login', '=', self._SOM_RECEPTION_NOTIFY_LOGIN),
+             ('email', '=', self._SOM_RECEPTION_NOTIFY_LOGIN)],
+            limit=1,
+        )
+        if not user:
+            _logger.warning(
+                "[TC ARRIBO] No existe el usuario %s: no se agenda la "
+                "actividad de recepción.", self._SOM_RECEPTION_NOTIFY_LOGIN,
+            )
+            return
+
+        for voyage in self:
+            # Documento objetivo: la recepción de tránsito (incoming). Si el
+            # viaje aún no la tiene, cualquier recepción pendiente de la OC.
+            picking = voyage.picking_id
+            if (not picking or picking.state in ('done', 'cancel')) and voyage.purchase_id:
+                picking = voyage.purchase_id.picking_ids.filtered(
+                    lambda p: p.picking_type_code == 'incoming'
+                    and p.state not in ('done', 'cancel')
+                )[:1]
+
+            target = picking or voyage
+            summary = _("Arribo a puerto: procesar recepción %s") % (
+                picking.name if picking else (voyage.name or '')
+            )
+
+            # Anti-duplicado: si el estado rebota y vuelve a entrar a
+            # 'arrived_port', no agendar la misma actividad dos veces.
+            existing = self.env['mail.activity'].sudo().search_count([
+                ('res_model', '=', target._name),
+                ('res_id', '=', target.id),
+                ('user_id', '=', user.id),
+                ('summary', '=', summary),
+            ])
+            if existing:
+                continue
+
+            lines = [
+                _("El material del viaje %s llegó a puerto destino.") % (voyage.name or ''),
+            ]
+            if voyage.purchase_id:
+                lines.append(_("Orden de compra: %s") % voyage.purchase_id.name)
+            if picking:
+                lines.append(_("Recepción a procesar: %s") % picking.name)
+
+            moves = picking.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel')
+            ) if picking else self.env['stock.move']
+            if moves:
+                lines.append(_("Materiales a recibir:"))
+                for move in moves[:30]:
+                    product = move.product_id
+                    ref = f"[{product.default_code}] " if product.default_code else ""
+                    uom = move.product_uom.name or ''
+                    lines.append(f"  - {ref}{product.name}: {move.product_uom_qty:g} {uom}")
+                if len(moves) > 30:
+                    lines.append(_("  … y %s materiales más.") % (len(moves) - 30))
+
+            lines.append(_(
+                "Al recibir, procesa el worksheet con las medidas "
+                "correspondientes."
+            ))
+
+            note = Markup('<br/>').join(html_escape(line) for line in lines)
+
+            target.activity_schedule(
+                'mail.mail_activity_data_todo',
+                summary=summary,
+                note=note,
+                user_id=user.id,
+                date_deadline=fields_module.Date.context_today(voyage),
+            )
+            _logger.info(
+                "[TC ARRIBO] Actividad de recepción agendada a %s sobre %s,%s",
+                user.login, target._name, target.id,
+            )
 
     def _sync_dates_to_others(self, vals):
         """Helper para sincronizar fechas logísticas con Orden de Compra y Portal Proveedor"""
