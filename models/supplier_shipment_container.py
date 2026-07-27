@@ -58,8 +58,11 @@ class SupplierShipmentContainer(models.Model):
         readonly=True,
     )
 
-    def name_get(self):
-        return [(r.id, r.container_number or f"CNT-{r.id}") for r in self]
+    @api.depends('container_number')
+    def _compute_display_name(self):
+        # Odoo 19: reemplaza name_get (ya no lo invoca el ORM).
+        for record in self:
+            record.display_name = record.container_number or f"CNT-{record.id}"
 
     def _normalize_container_number(self, value):
         return (value or '').strip().upper()

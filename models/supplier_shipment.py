@@ -173,8 +173,12 @@ class SupplierShipment(models.Model):
                     shipment.voyage_id.with_context(skip_date_sync=True).write(v_vals)
 
 
-    def name_get(self):
-        return [(r.id, r.name or f"EMB-{r.id}") for r in self]
+    @api.depends('name')
+    def _compute_display_name(self):
+        # Odoo 19 sustituyó name_get por _compute_display_name: con name_get
+        # el nombre personalizado NO se mostraba (caía al default).
+        for record in self:
+            record.display_name = record.name or f"EMB-{record.id}"
 
     # --- Sincronización con Torre de Control ---
     def action_sync_to_voyage(self):

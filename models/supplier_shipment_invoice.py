@@ -76,5 +76,8 @@ class SupplierShipmentInvoice(models.Model):
         string='Contenedores que Cubre',
     )
 
-    def name_get(self):
-        return [(r.id, r.invoice_number or f"INV-{r.id}") for r in self]
+    @api.depends('invoice_number')
+    def _compute_display_name(self):
+        # Odoo 19: reemplaza name_get (ya no lo invoca el ORM).
+        for record in self:
+            record.display_name = record.invoice_number or f"INV-{record.id}"

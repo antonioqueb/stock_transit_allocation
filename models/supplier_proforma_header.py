@@ -65,8 +65,14 @@ class SupplierProformaHeader(models.Model):
         for rec in self:
             rec.shipment_count = len(rec.shipment_ids)
 
-    def name_get(self):
-        return [(r.id, f"PRF-{r.purchase_id.name}" if r.purchase_id else f"PRF-{r.id}") for r in self]
+    @api.depends('purchase_id.name')
+    def _compute_display_name(self):
+        # Odoo 19: reemplaza name_get (ya no lo invoca el ORM).
+        for record in self:
+            record.display_name = (
+                f"PRF-{record.purchase_id.name}" if record.purchase_id
+                else f"PRF-{record.id}"
+            )
 
     def action_view_shipments(self):
         self.ensure_one()

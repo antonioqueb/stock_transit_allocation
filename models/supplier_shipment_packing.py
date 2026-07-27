@@ -48,8 +48,11 @@ class SupplierShipmentPacking(models.Model):
         for rec in self:
             rec.row_count = len(rec.row_ids)
 
-    def name_get(self):
-        return [(r.id, r.packing_number or f"PL-{r.id}") for r in self]
+    @api.depends('packing_number')
+    def _compute_display_name(self):
+        # Odoo 19: reemplaza name_get (ya no lo invoca el ORM).
+        for record in self:
+            record.display_name = record.packing_number or f"PL-{record.id}"
 
 
 class SupplierShipmentPackingRow(models.Model):
