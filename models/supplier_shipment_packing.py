@@ -134,8 +134,12 @@ class SupplierShipmentPackingRow(models.Model):
     @api.depends('alto', 'ancho', 'tipo', 'quantity')
     def _compute_area(self):
         for row in self:
-            if row.tipo == 'Placa':
-                row.area_m2 = round(row.alto * row.ancho, 4)
+            # Comparación insensible a mayúsculas: el portal y stock.lot
+            # escriben 'placa'/'Placa' indistintamente y con == exacto las
+            # filas en minúscula caían al else, dejando area_m2 = quantity
+            # (0 m² embarcados en el reporte y en la factura de carga).
+            if (row.tipo or '').strip().lower() == 'placa':
+                row.area_m2 = round((row.alto or 0.0) * (row.ancho or 0.0), 4)
             else:
                 row.area_m2 = row.quantity
 
