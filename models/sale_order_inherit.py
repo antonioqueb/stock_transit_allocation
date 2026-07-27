@@ -736,10 +736,18 @@ class SaleOrderLine(models.Model):
             ('quantity', '>', 0),
         ]
 
-        if 'x_tiene_hold' in Quant._fields:
-            domain.append(('x_tiene_hold', '=', False))
-
         safe_ids = self._tc_get_own_order_lot_ids()
+
+        # Excluir placas con hold SALVO las de la propia orden: el flujo
+        # "apartar para el cliente → cotizar" pone esos lotes en
+        # x_selected_lots/lot_ids con el hold aún activo. Excluirlas en
+        # bloque dejaba el techo/stock libre en 0 y bloqueaba la cotización
+        # PRECISAMENTE porque el material estaba apartado para ese cliente.
+        if 'x_tiene_hold' in Quant._fields:
+            if safe_ids:
+                domain += ['|', ('x_tiene_hold', '=', False), ('lot_id', 'in', list(safe_ids))]
+            else:
+                domain.append(('x_tiene_hold', '=', False))
 
         if hasattr(Quant, '_get_committed_lot_ids'):
             committed_lot_ids = Quant._get_committed_lot_ids(self.product_id.id)
@@ -793,10 +801,18 @@ class SaleOrderLine(models.Model):
             ('quantity', '>', 0),
         ]
 
-        if 'x_tiene_hold' in Quant._fields:
-            domain.append(('x_tiene_hold', '=', False))
-
         safe_ids = self._tc_get_own_order_lot_ids()
+
+        # Excluir placas con hold SALVO las de la propia orden: el flujo
+        # "apartar para el cliente → cotizar" pone esos lotes en
+        # x_selected_lots/lot_ids con el hold aún activo. Excluirlas en
+        # bloque dejaba el techo/stock libre en 0 y bloqueaba la cotización
+        # PRECISAMENTE porque el material estaba apartado para ese cliente.
+        if 'x_tiene_hold' in Quant._fields:
+            if safe_ids:
+                domain += ['|', ('x_tiene_hold', '=', False), ('lot_id', 'in', list(safe_ids))]
+            else:
+                domain.append(('x_tiene_hold', '=', False))
 
         if hasattr(Quant, '_get_committed_lot_ids'):
             committed_lot_ids = Quant._get_committed_lot_ids(self.product_id.id)
@@ -877,6 +893,17 @@ class SaleOrderLine(models.Model):
                 new_lots = set(line.lot_ids.ids)
                 old_lots = old_lots_map[line.id]
                 if new_lots < old_lots:
+                    continue
+                # REEMPLAZO en un solo paso (quitar placa A, poner placa B —
+                # caso placa rota): no es una asignación nueva neta. El
+                # Solicitado puede quedar arriba del nuevo físico por el
+                # ratchet documentado; bloquearlo obligaba a hacer el
+                # reemplazo en dos pasos con "Ajustar" de por medio. La placa
+                # agregada ya pasó los filtros del grid (ni comprometida ni
+                # con hold ajeno).
+                removed_lots = old_lots - new_lots
+                added_lots = new_lots - old_lots
+                if removed_lots and added_lots:
                     continue
 
             # 'Mandar a pedir' puede superar el stock por diseño.
@@ -1717,6 +1744,13 @@ class SaleOrderLine(models.Model):
                 if line.display_type or not line.product_id:
                     continue
 
+                # 'Solo taller': la cantidad a cobrar la define el vendedor;
+                # los lotes asignados por el taller (resultado físico) no
+                # imponen piso. Coherente con la exención del tope y del
+                # ratchet para estas líneas.
+                if 'stone_workshop_required' in line._fields and line.stone_workshop_required:
+                    continue
+
                 assigned_qty = line._tc_get_assigned_lot_qty()
                 rounding = line._tc_get_qty_rounding()
 
@@ -1891,6 +1925,14 @@ class SaleOrderLine(models.Model):
             # Servicios: la cantidad es libre (no hay placas ni stock que la
             # derive). Sin este guard, un sync forzado la regresaría a 0.
             if line._tc_is_service_product():
+                continue
+
+            # 'Solo taller': lo cobrado lo define el VENDEDOR. Los lotes
+            # finales que el taller asigna al terminar son resultado físico
+            # (una placa puede medir 12.5 m² cuando se vendieron 10) y NO
+            # deben mover el Solicitado — sin este guard, el ratchet subía la
+            # cantidad a cobrar sin decisión comercial.
+            if 'stone_workshop_required' in line._fields and line.stone_workshop_required:
                 continue
 
             assigned_qty = line._tc_get_assigned_lot_qty()
