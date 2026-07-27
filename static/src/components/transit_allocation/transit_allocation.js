@@ -1459,8 +1459,4 @@ export class TransitAllocation extends Component {
 
 TransitAllocation.template = "stock_transit_allocation.TransitAllocation";
 
-registry.category("actions").add(
-    "action_transit_allocation",
-    TransitAllocation,
-    { force: true }
-);
+registry.category("lazy_components").add("TransitAllocation", TransitAllocation);

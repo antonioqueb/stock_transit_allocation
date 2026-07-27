@@ -403,4 +403,4 @@ export class TransitKanbanView extends Component {
 }
 
 TransitKanbanView.template = "stock_transit_allocation.TransitKanbanView";
-registry.category("actions").add("action_transit_kanban_custom", TransitKanbanView);
+registry.category("lazy_components").add("TransitKanbanView", TransitKanbanView);

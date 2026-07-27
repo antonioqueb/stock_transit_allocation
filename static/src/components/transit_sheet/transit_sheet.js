@@ -375,4 +375,4 @@ export class TransitSheetView extends Component {
 }
 
 TransitSheetView.template = "stock_transit_allocation.TransitSheetView";
-registry.category("actions").add("action_transit_sheet_custom", TransitSheetView);
+registry.category("lazy_components").add("TransitSheetView", TransitSheetView);

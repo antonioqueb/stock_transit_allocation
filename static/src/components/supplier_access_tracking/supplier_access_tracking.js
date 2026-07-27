@@ -105,4 +105,4 @@ export class SupplierLinksTracking extends Component {
     }
 }
 
-registry.category("actions").add("action_supplier_links_tracking", SupplierLinksTracking);
+registry.category("lazy_components").add("SupplierLinksTracking", SupplierLinksTracking);

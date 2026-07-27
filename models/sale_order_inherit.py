@@ -1819,7 +1819,7 @@ class SaleOrderLine(models.Model):
 
                 # DIAGNÓSTICO TEMPORAL: deja rastro del piso para depurar casos en
                 # que la cantidad bajó por debajo de lo asignado sin bloquearse.
-                _logger.info(
+                _logger.debug(
                     "[TC FLOOR] line=%s vals_keys=%s new_qty=%.4f assigned=%.4f "
                     "lot_ids=%s breakdown=%s",
                     line.id,

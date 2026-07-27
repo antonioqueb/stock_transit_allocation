@@ -2199,9 +2199,5 @@ export class ToBeAllocated extends Component {
 
 ToBeAllocated.template = "stock_transit_allocation.ToBeAllocated";
 
-registry.category("actions").add(
-    "action_to_be_allocated",
-    ToBeAllocated,
-    { force: true }
-);
+registry.category("lazy_components").add("ToBeAllocated", ToBeAllocated);
 
