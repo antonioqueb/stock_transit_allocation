@@ -201,9 +201,12 @@ class StockPicking(models.Model):
         ], limit=1)
 
         if not voyage and self.origin:
+            # Match EXACTO: 'ilike VOY/001' también matcheaba VOY/0010 y
+            # VOY/0011 — un traslado ajeno podía cerrar/asignar el viaje
+            # equivocado al validarse.
             origin_ref = self.origin.split(' ')[0]
             voyage = self.env['stock.transit.voyage'].search([
-                ('name', 'ilike', origin_ref),
+                ('name', '=', origin_ref),
             ], limit=1)
 
         return voyage
@@ -283,6 +286,7 @@ class StockPicking(models.Model):
             self.move_line_ids.with_context(ctx).unlink()
 
         lines_created = 0
+        sync_failures = []
 
         for line in voyage.line_ids:
             if not line.lot_id or line.product_uom_qty <= 0:
@@ -323,6 +327,9 @@ class StockPicking(models.Model):
                         e,
                         exc_info=True,
                     )
+                    sync_failures.append(
+                        "%s (demanda): %s" % (line.product_id.display_name, e)
+                    )
                     continue
 
             try:
@@ -346,6 +353,21 @@ class StockPicking(models.Model):
                     e,
                     exc_info=True,
                 )
+                sync_failures.append(
+                    "%s: %s" % (line.lot_id.name, e)
+                )
+
+        # Los fallos por lote NO pueden quedar solo en el log: la recepción se
+        # reportaba "exitosa" con lotes faltantes y era validable incompleta.
+        if sync_failures:
+            raise UserError(_(
+                "La sincronización desde el viaje falló para %(count)s lote(s):\n"
+                "- %(details)s\n\nCorrige el problema y vuelve a sincronizar "
+                "(no se validó nada a medias)."
+            ) % {
+                'count': len(sync_failures),
+                'details': "\n- ".join(sync_failures[:20]),
+            })
 
         if lines_created > 0:
             msg = _(
@@ -1012,6 +1034,23 @@ class StockPicking(models.Model):
         if not blockers:
             return blockers
 
+        # PARCIALIDADES: un lote puede estar LEGÍTIMAMENTE repartido entre dos
+        # pedidos (línea de tránsito reservada para cada uno). La move line
+        # del otro pedido NO es conflicto si ese pedido tiene su propia
+        # reserva de tránsito del lote — sin este filtro, el segundo pedido
+        # le robaba la placa al primero en la misma validación y le borraba
+        # su asignación en silencio.
+        TransitLine = self.env['stock.transit.line'].sudo()
+        blockers = blockers.filtered(
+            lambda ml: not TransitLine.search_count([
+                ('lot_id', '=', lot.id),
+                ('order_id', '=', self._tc_get_sale_order_from_move_line(ml).id),
+            ])
+        )
+
+        if not blockers:
+            return blockers
+
         ctx = self._tc_assignment_context()
 
         _logger.warning(
@@ -1167,7 +1206,13 @@ class StockPicking(models.Model):
                 received_data = received_by_lot.get(transit_line.lot_id.id)
                 if not received_data:
                     continue
-                total_qty += received_data['qty']
+                # PARCIALIDAD: sumar lo reservado en la línea de tránsito, no
+                # el físico completo del lote (compartido entre pedidos).
+                line_qty = transit_line.product_uom_qty or 0.0
+                total_qty += (
+                    min(line_qty, received_data['qty'])
+                    if line_qty > 0 else received_data['qty']
+                )
 
             if total_qty <= 0:
                 continue
@@ -1212,7 +1257,14 @@ class StockPicking(models.Model):
                 if not received_data:
                     continue
 
-                qty_to_assign = received_data['qty']
+                # PARCIALIDAD: asignar lo reservado a ESTE pedido, no el
+                # físico completo del lote — con un lote repartido entre dos
+                # pedidos, cada entrega recibía la cantidad COMPLETA.
+                line_qty = transit_line.product_uom_qty or 0.0
+                qty_to_assign = (
+                    min(line_qty, received_data['qty'])
+                    if line_qty > 0 else received_data['qty']
+                )
                 source_location_id = received_data['location_dest_id']
 
                 quant = Quant.search([

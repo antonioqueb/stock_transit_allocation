@@ -48,5 +48,11 @@ class PurchaseOrder(models.Model):
                     })
                     voyage.action_load_from_purchase()
 
-                allocations.write({'state': 'pending'})
+                # Solo activar allocations NUEVAS (draft/False). Escribir
+                # 'pending' sin filtrar RESUCITABA las canceladas (incluso las
+                # que el guard acababa de cancelar en la línea anterior) y las
+                # done, inflando la cobertura → doble compra.
+                allocations.filtered(
+                    lambda a: a.state not in ('cancelled', 'done', 'pending')
+                ).write({'state': 'pending'})
         return res

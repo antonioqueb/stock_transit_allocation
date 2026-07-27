@@ -95,6 +95,20 @@ class StockTransitVoyageAllocationGuard(models.Model):
             reserved_qty_by_po_line.setdefault(po_line.id, 0.0)
             reserved_qty_by_po_line[po_line.id] += existing_line.product_uom_qty or 0.0
 
+        # Reservas MANUALES (sin allocation: pedido ajeno a la OC o asignación
+        # directa de lote) también comprometen material del viaje. Sin
+        # descontarlas, el mismo metraje contaba como reservado Y como
+        # disponible en la línea "Para Stock".
+        manual_reserved_by_product = {}
+        for manual_line in self.line_ids.filtered(
+            lambda l: not l.allocation_id and (l.order_id or l.partner_id)
+        ):
+            pid = manual_line.product_id.id
+            manual_reserved_by_product[pid] = (
+                manual_reserved_by_product.get(pid, 0.0)
+                + (manual_line.product_uom_qty or 0.0)
+            )
+
         for alloc in allocations:
             pending_qty = self._tc_get_pending_qty_for_allocation(alloc)
 
@@ -141,8 +155,14 @@ class StockTransitVoyageAllocationGuard(models.Model):
                 reserved_qty_by_po_line.setdefault(po_line.id, 0.0)
                 reserved_qty_by_po_line[po_line.id] += qty_to_allocate
 
+        # SOLO placeholders "Para Stock" (sin lote): incluir líneas con lote
+        # físico real permitía BORRARLAS del viaje o reescribirles la cantidad
+        # con el excedente agregado de la OC (placa de 12 m² declarada 480).
         existing_stock_lines = self.line_ids.filtered(
-            lambda line: not line.allocation_id and not line.partner_id and not line.order_id
+            lambda line: not line.allocation_id
+            and not line.partner_id
+            and not line.order_id
+            and not line.lot_id
         )
 
         existing_stock_by_product = {
@@ -155,6 +175,14 @@ class StockTransitVoyageAllocationGuard(models.Model):
             reserved_qty = reserved_qty_by_po_line.get(po_line.id, 0.0)
             extra_for_stock = total_po_qty - reserved_qty
             product_id = po_line.product_id.id
+
+            # Descontar reservas manuales del mismo producto (bucket
+            # compartido entre líneas de OC del mismo producto).
+            manual_left = manual_reserved_by_product.get(product_id, 0.0)
+            if manual_left > 0 and extra_for_stock > 0:
+                take = min(manual_left, extra_for_stock)
+                extra_for_stock -= take
+                manual_reserved_by_product[product_id] = manual_left - take
 
             if extra_for_stock <= 0:
                 if product_id in existing_stock_by_product:
@@ -232,11 +260,17 @@ class StockTransitVoyageAllocationGuard(models.Model):
         if placeholder_lines:
             placeholder_lines.unlink()
 
-        existing_by_lot = {
-            line.lot_id.id: line
-            for line in self.line_ids
-            if line.lot_id
-        }
+        # RECORDSET por lote (no una sola línea): un lote con parcialidades
+        # tiene GEMELAS y la cantidad física debe DISTRIBUIRSE entre ellas.
+        # El dict de una-línea-por-lote (ganaba la última) escribía el total
+        # físico en la gemela libre dejando metros fantasma (5+5 → 10+5).
+        existing_by_lot = {}
+        for line in self.line_ids:
+            if line.lot_id:
+                existing_by_lot.setdefault(
+                    line.lot_id.id, self.env['stock.transit.line']
+                )
+                existing_by_lot[line.lot_id.id] |= line
 
         lines_to_create = []
         created_count = 0
@@ -269,11 +303,44 @@ class StockTransitVoyageAllocationGuard(models.Model):
             lot_container = self._tc_get_lot_container_for_transit_load(lot)
 
             if lot_id in existing_by_lot:
-                existing_line = existing_by_lot[lot_id]
+                lot_lines = existing_by_lot[lot_id].exists()
+                if not lot_lines:
+                    continue
+
+                existing_line = lot_lines.sorted('id')[0]
                 update_vals = {}
 
-                if self._qty_differs(product, existing_line.product_uom_qty, qty_done):
-                    update_vals['product_uom_qty'] = qty_done
+                if len(lot_lines) == 1:
+                    if self._qty_differs(product, existing_line.product_uom_qty, qty_done):
+                        update_vals['product_uom_qty'] = qty_done
+                else:
+                    # GEMELAS (parcialidad): la cantidad física del lote se
+                    # DISTRIBUYE — las líneas con orden conservan su
+                    # parcialidad y la disponible absorbe el resto. Jamás se
+                    # escribe el total del lote en cada gemela (eso duplicaba
+                    # el lote con la cantidad completa en ambas). Mismo
+                    # contrato que la versión base de action_load_from_picking.
+                    reserved = lot_lines.filtered(lambda l: l.order_id)
+                    free = (lot_lines - reserved).sorted('id')
+                    reserved_qty = sum(reserved.mapped('product_uom_qty'))
+                    rest = max(qty_done - reserved_qty, 0.0)
+
+                    if free:
+                        keeper = free[0]
+                        extras = free - keeper
+                        if extras:
+                            extras.with_context(skip_reservation_logic=True).unlink()
+                        if self._qty_differs(product, keeper.product_uom_qty, rest):
+                            keeper.with_context(skip_reservation_logic=True).write({
+                                'product_uom_qty': rest,
+                            })
+                        _logger.info(
+                            "[TC_TWINS][GUARD] lote=%s fisico=%.3f reservado=%.3f "
+                            "saldo_libre=%.3f (gemelas normalizadas)",
+                            lot.name, qty_done, reserved_qty, rest,
+                        )
+
+                    existing_line = (reserved.sorted('id')[:1] or free[:1])[0]
 
                 if found_quant and existing_line.quant_id.id != found_quant.id:
                     update_vals['quant_id'] = found_quant.id

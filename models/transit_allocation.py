@@ -591,6 +591,12 @@ class StockTransitLineTransitAllocationSync(models.Model):
             if lot_id not in reserved_lot_ids:
                 breakdown.pop(str(lot_id), None)
 
+        # ACUMULAR entre líneas de tránsito del MISMO lote (split parcial
+        # 20 + 30 reservado al mismo pedido): sobreescribir dejaba 30 en vez
+        # de 50 → pendiente fantasma → doble asignación/compra. El primer
+        # toque de cada lote en ESTE ciclo resetea el valor previo (que puede
+        # venir viejo del breakdown de la línea de venta).
+        refreshed_lots = set()
         for transit_line in reserved_transit_lines:
             lot = transit_line.lot_id
             if not lot:
@@ -601,7 +607,12 @@ class StockTransitLineTransitAllocationSync(models.Model):
                 lot_type = str(lot.x_tipo).lower()
 
             if lot_type in ('formato', 'pieza'):
-                breakdown[str(lot.id)] = transit_line.product_uom_qty or 0.0
+                key = str(lot.id)
+                if key in refreshed_lots:
+                    breakdown[key] += transit_line.product_uom_qty or 0.0
+                else:
+                    breakdown[key] = transit_line.product_uom_qty or 0.0
+                    refreshed_lots.add(key)
 
         if hasattr(sale_line, '_tc_prepare_breakdown_value_for_line'):
             return sale_line._tc_prepare_breakdown_value_for_line(breakdown)

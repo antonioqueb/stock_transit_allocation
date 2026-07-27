@@ -12,6 +12,69 @@ _logger = logging.getLogger(__name__)
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
+    def _action_cancel(self):
+        """Cancelar la venta libera el material reservado EN TRÁNSITO.
+
+        Sin este hook, las líneas de tránsito quedaban 'reserved' para
+        siempre (invisibles como disponibles en ambos hubs) y sus allocations
+        seguían 'pending' reservando material en futuras cargas del viaje.
+        """
+        res = super()._action_cancel()
+        self._tc_release_transit_on_order_cancel()
+        return res
+
+    def _tc_release_transit_on_order_cancel(self):
+        TransitLine = self.env['stock.transit.line'].sudo()
+        Allocation = self.env['purchase.order.line.allocation'].sudo()
+
+        for order in self:
+            transit_lines = TransitLine.search([
+                ('order_id', '=', order.id),
+                ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+            ])
+            allocations = transit_lines.mapped('allocation_id')
+            # Allocations de la orden aún sin línea de tránsito (material
+            # todavía no embarcado) también deben cancelarse.
+            allocations |= Allocation.search([
+                ('sale_order_id', '=', order.id),
+                ('state', 'in', ('pending', 'in_transit')),
+            ])
+
+            for transit_line in transit_lines:
+                try:
+                    transit_line._execute_release_logic()
+                except Exception:
+                    _logger.exception(
+                        '[TC_SO_CANCEL] Fallo liberando transit line %s al '
+                        'cancelar %s.', transit_line.id, order.name,
+                    )
+
+            if transit_lines:
+                transit_lines.with_context(
+                    skip_reservation_logic=True,
+                ).write({
+                    'partner_id': False,
+                    'order_id': False,
+                    'allocation_id': False,
+                    'allocation_status': 'available',
+                    'notes': 'Liberado por cancelación de %s' % order.name,
+                })
+
+            pending = allocations.filtered(
+                lambda a: a.state in ('pending', 'in_transit')
+            )
+            if pending:
+                pending.write({'state': 'cancelled'})
+
+            if transit_lines or pending:
+                order.message_post(body=(
+                    'Cancelación: se liberaron %s línea(s) de tránsito y se '
+                    'cancelaron %s asignación(es) de compra pendientes.'
+                    % (len(transit_lines), len(pending))
+                ))
+
+        return True
+
     def unlink(self):
         for order in self:
             transit_lines = self.env['stock.transit.line'].search([

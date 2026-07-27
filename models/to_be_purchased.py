@@ -182,6 +182,35 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             and alloc.purchase_order_id.state != 'cancel'
         )
 
+        # ALLOCATIONS OBSOLETAS: si TODOS los viajes de la OC ya terminaron
+        # (delivered/cancel) y la allocation sigue 'pending' sin línea de
+        # tránsito reservada, ese material llegó y se fue a otro lado — la
+        # allocation jamás se resolverá y contarla como cobertura OCULTABA la
+        # demanda del cliente para siempre.
+        if allocations:
+            Voyage = self.env['stock.transit.voyage'].sudo()
+            po_ids = allocations.mapped('purchase_order_id').ids
+            voyages = Voyage.search([('purchase_id', 'in', po_ids)])
+            pos_with_voyage = set(voyages.mapped('purchase_id').ids)
+            pos_with_active_voyage = set(
+                voyages.filtered(
+                    lambda v: v.custom_status not in ('delivered', 'cancel')
+                ).mapped('purchase_id').ids
+            )
+            reserved_alloc_ids = set(
+                self.env['stock.transit.line'].sudo().search([
+                    ('allocation_id', 'in', allocations.ids),
+                ]).mapped('allocation_id').ids
+            )
+
+            allocations = allocations.filtered(
+                lambda alloc:
+                    alloc.state != 'pending'
+                    or alloc.purchase_order_id.id not in pos_with_voyage
+                    or alloc.purchase_order_id.id in pos_with_active_voyage
+                    or alloc.id in reserved_alloc_ids
+            )
+
         coverage_by_line = defaultdict(float)
         allocations_by_po_line = defaultdict(lambda: self.env['purchase.order.line.allocation'].sudo())
 

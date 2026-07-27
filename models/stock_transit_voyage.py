@@ -1143,12 +1143,19 @@ class StockTransitVoyage(models.Model):
 
         records = super(StockTransitVoyage, self).create(vals_list)
         
-        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR
+        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR — solo valores CAPTURADOS.
+        # `field in record` en Odoo verifica _fields (siempre True): se
+        # sincronizaba siempre, propagando False y BORRANDO fechas/BL ya
+        # capturados en la OC y los embarques.
         if not self.env.context.get('skip_date_sync'):
             for record in records:
-                sync_fields = {'bl_number', 'eta', 'etd'}
-                if any(field in self.env.context.get('default_vals', {}) or field in record for field in sync_fields):
-                    record._sync_dates_to_others({'bl_number': record.bl_number, 'eta': record.eta, 'etd': record.etd})
+                sync_vals = {
+                    field: record[field]
+                    for field in ('bl_number', 'eta', 'etd')
+                    if record[field]
+                }
+                if sync_vals:
+                    record._sync_dates_to_others(sync_vals)
 
         return records
 
@@ -1847,6 +1854,7 @@ class StockTransitVoyage(models.Model):
         resolved_lines = []
         missing_lots = []
         source_location_ids = set()
+        pending_entries = []
 
         for line in candidate_lines:
             quant = line.quant_id
@@ -1881,29 +1889,73 @@ class StockTransitVoyage(models.Model):
                 )
                 continue
 
-            qty_to_receive = self._normalize_product_qty(line.product_id, quant.quantity)
+            pending_entries.append((line, quant))
+
+        # GEMELAS: el físico del quant se DISTRIBUYE entre las líneas que
+        # comparten lote (parcialidades). Antes se escribía quant.quantity
+        # completo en CADA gemela y ambas sumaban a la demanda de recepción
+        # (20 m² para 10 físicos), pisando además la parcialidad reservada.
+        by_quant = {}
+        for line, quant in pending_entries:
+            by_quant.setdefault(quant.id, {'quant': quant, 'lines': []})
+            by_quant[quant.id]['lines'].append(line)
+
+        for data in by_quant.values():
+            quant = data['quant']
+            quant_lines = data['lines']
+            product = quant_lines[0].product_id
+            physical = self._normalize_product_qty(product, quant.quantity)
 
             if float_is_zero(
-                qty_to_receive,
-                precision_rounding=self._get_qty_rounding(line.product_id),
+                physical,
+                precision_rounding=self._get_qty_rounding(product),
             ):
                 missing_lots.append(
-                    "%s (quant cero efectivo)" % (line.lot_id.display_name,)
+                    "%s (quant cero efectivo)" % (quant.lot_id.display_name,)
                 )
                 continue
 
-            if self._qty_differs(line.product_id, line.product_uom_qty, qty_to_receive):
-                line.with_context(skip_reservation_logic=True).write({
-                    'product_uom_qty': qty_to_receive,
-                })
-
             source_location_ids.add(quant.location_id.id)
 
-            resolved_lines.append({
-                'line': line,
-                'quant': quant,
-                'qty_to_receive': qty_to_receive,
-            })
+            if len(quant_lines) == 1:
+                line = quant_lines[0]
+                if self._qty_differs(product, line.product_uom_qty, physical):
+                    line.with_context(skip_reservation_logic=True).write({
+                        'product_uom_qty': physical,
+                    })
+                resolved_lines.append({
+                    'line': line,
+                    'quant': quant,
+                    'qty_to_receive': physical,
+                })
+                continue
+
+            reserved_twins = [l for l in quant_lines if l.order_id]
+            free_twins = [l for l in quant_lines if not l.order_id]
+            remaining = physical
+
+            for line in reserved_twins:
+                take = min(line.product_uom_qty or 0.0, remaining)
+                remaining = max(remaining - take, 0.0)
+                if take > 0:
+                    resolved_lines.append({
+                        'line': line,
+                        'quant': quant,
+                        'qty_to_receive': take,
+                    })
+
+            for index, line in enumerate(free_twins):
+                if index == 0 and remaining > 0:
+                    if self._qty_differs(product, line.product_uom_qty, remaining):
+                        line.with_context(skip_reservation_logic=True).write({
+                            'product_uom_qty': remaining,
+                        })
+                    resolved_lines.append({
+                        'line': line,
+                        'quant': quant,
+                        'qty_to_receive': remaining,
+                    })
+                    remaining = 0.0
 
         if missing_lots:
             raise UserError(_(
@@ -2601,6 +2653,64 @@ class StockTransitVoyage(models.Model):
                 line.allocation_id.action_mark_received(line.product_uom_qty)
 
     def action_cancel(self):
+        """Cancelar el viaje LIBERA todo lo comprometido.
+
+        Antes solo escribía el estado: las líneas reservadas conservaban
+        pedido/cliente, las allocations seguían 'pending' reservando material
+        futuro, y los quants publicados seguían visibles en Inventario Visual
+        — material fantasma comprometido a pedidos que jamás llegaría.
+        """
+        for voyage in self:
+            reserved_lines = voyage.line_ids.filtered(
+                lambda l: l.order_id or l.partner_id or l.allocation_id
+            )
+            allocations = reserved_lines.mapped('allocation_id')
+
+            for line in reserved_lines:
+                try:
+                    line._execute_release_logic()
+                except Exception:
+                    _logger.exception(
+                        '[TC_VOYAGE_CANCEL] Fallo liberando la línea %s del viaje %s.',
+                        line.id, voyage.name,
+                    )
+
+            if reserved_lines:
+                reserved_lines.with_context(
+                    skip_reservation_logic=True,
+                    skip_transit_publication_sync=True,
+                ).write({
+                    'partner_id': False,
+                    'order_id': False,
+                    'allocation_id': False,
+                    'allocation_status': 'available',
+                    'notes': 'Liberado por cancelación del viaje %s' % voyage.name,
+                })
+
+            pending_allocations = allocations.filtered(
+                lambda a: a.state in ('pending', 'in_transit')
+            )
+            if pending_allocations:
+                pending_allocations.write({'state': 'cancelled'})
+
+            # Despublicar: el material de un viaje cancelado no puede seguir
+            # apareciendo como inventario en tránsito disponible/committed.
+            published_quants = self.env['stock.quant'].sudo().search([
+                ('transit_voyage_id', '=', voyage.id),
+                ('transit_inventory_published', '=', True),
+            ])
+            if published_quants:
+                published_quants.write({
+                    'transit_inventory_published': False,
+                    'transit_inventory_state': False,
+                    'transit_voyage_id': False,
+                    'transit_line_id': False,
+                })
+            voyage.line_ids.filtered('inventory_published').with_context(
+                skip_reservation_logic=True,
+                skip_transit_publication_sync=True,
+            ).write({'inventory_published': False})
+
         self.write({'custom_status': 'cancel'})
 
     def _has_valid_container(self):

@@ -210,11 +210,29 @@ class StockTransitLinePublication(models.Model):
                 "inventory_published_by": line.inventory_published_by.id or self.env.user.id,
             })
 
+            # GEMELAS: el estado se escribe A NIVEL QUANT y las parcialidades
+            # de un lote comparten quant. La última gemela procesada pisaba a
+            # la reservada y el quant COMPLETO quedaba "available" con una
+            # parcialidad Committed a un pedido (se podía vender material
+            # comprometido). El quant es 'committed' si CUALQUIER gemela viva
+            # está comprometida.
+            committed_sibling = self.env["stock.transit.line"].sudo().search([
+                ("quant_id", "=", quant.id),
+                ("voyage_id.custom_status", "not in", ("cancel",)),
+                "|", "|",
+                ("order_id", "!=", False),
+                ("partner_id", "!=", False),
+                ("allocation_status", "=", "reserved"),
+            ], limit=1)
+
+            quant_state = "committed" if committed_sibling else publication_state
+            reference_line = committed_sibling or line
+
             quant.sudo().write({
                 "transit_inventory_published": True,
-                "transit_inventory_state": publication_state,
-                "transit_voyage_id": line.voyage_id.id,
-                "transit_line_id": line.id,
+                "transit_inventory_state": quant_state,
+                "transit_voyage_id": reference_line.voyage_id.id,
+                "transit_line_id": reference_line.id,
             })
 
     def _execute_reservation_logic(self, partner, order):

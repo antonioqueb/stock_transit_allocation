@@ -1186,6 +1186,23 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             )
         )
 
+        # GUARD: una línea omitida RESERVADA A UN PEDIDO no se desasigna en
+        # silencio. Si el emparejamiento no encontró la placa (identidad muy
+        # editada / placa extra), el usuario debe decidir: corregir el PL
+        # físico o desasignar la placa del pedido primero. Antes el vendedor
+        # perdía su asignación sin ningún aviso (solo una nota en la línea).
+        omitted_reserved = omitted_lines.filtered(lambda l: l.order_id)
+        if omitted_reserved:
+            raise UserError(_(
+                "El PL físico no incluye estas placas que están RESERVADAS a "
+                "pedidos:\n%s\n\nCorrige la identificación en el PL físico "
+                "(bloque/placa/Ref. Interna) o desasigna las placas de sus "
+                "pedidos antes de importar."
+            ) % "\n".join(
+                "- %s → %s" % (l.lot_id.display_name, l.order_id.name)
+                for l in omitted_reserved[:20]
+            ))
+
         for line in omitted_lines:
             if line.quant_id and line.quant_id.exists():
                 qty_to_remove = line.quant_id.quantity or 0.0

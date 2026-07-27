@@ -25,9 +25,10 @@ class StockPickingPhysicalPackingList(models.Model):
             ], limit=1)
 
             if not voyage and picking.origin:
+                # Match exacto (ilike confundía VOY/001 con VOY/0010).
                 origin_ref = picking.origin.split(" ")[0]
                 voyage = self.env["stock.transit.voyage"].search([
-                    ("name", "ilike", origin_ref),
+                    ("name", "=", origin_ref),
                     ("reception_picking_id", "!=", False),
                 ], limit=1)
 
@@ -51,6 +52,10 @@ class StockPickingPhysicalPackingList(models.Model):
             try:
                 voyage = self._get_linked_reception_voyage()
             except Exception:
+                _logger.exception(
+                    "[TC_PHYSICAL_PL] Fallo resolviendo el viaje ligado al "
+                    "picking %s.", self.name,
+                )
                 voyage = False
 
         return voyage

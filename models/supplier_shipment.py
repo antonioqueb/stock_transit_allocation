@@ -121,17 +121,19 @@ class SupplierShipment(models.Model):
         
         records = super(SupplierShipment, self).create(vals_list)
         
-        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR
+        # SINCRONIZACIÓN AUTOMÁTICA AL CREAR — solo valores CAPTURADOS.
+        # `field in record` verifica _fields (siempre True): crear un segundo
+        # embarque sin BL/fechas propagaba False y borraba el BL y las fechas
+        # vigentes de la OC y los demás embarques.
         if not self.env.context.get('skip_date_sync'):
             for record in records:
-                sync_fields = {'bl_number', 'bl_date', 'eta', 'etd'}
-                if any(field in self.env.context.get('default_vals', {}) or field in record for field in sync_fields):
-                    record._sync_dates_to_others({
-                        'bl_number': record.bl_number, 
-                        'bl_date': record.bl_date, 
-                        'eta': record.eta, 
-                        'etd': record.etd
-                    })
+                sync_vals = {
+                    field: record[field]
+                    for field in ('bl_number', 'bl_date', 'eta', 'etd')
+                    if record[field]
+                }
+                if sync_vals:
+                    record._sync_dates_to_others(sync_vals)
 
         return records
 
