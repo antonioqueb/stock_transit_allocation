@@ -42,6 +42,15 @@ class SupplierShipmentPacking(models.Model):
         string='Líneas de Producto',
     )
     row_count = fields.Integer(compute='_compute_row_count', store=True)
+    # OJO Odoo 19: este modelo se declara con _name AQUÍ y en
+    # stock_lot_packing_import — la re-declaración REEMPLAZA los campos del
+    # otro módulo, así que los campos nuevos deben vivir en AMBAS clases.
+    structure_json = fields.Text(
+        string='Estructura del portal (JSON)',
+        help='Definición de bloques y productos del asistente del portal '
+             '(fuente de verdad de la estructura del packing list, '
+             'independiente de si las filas ya se llenaron o no).',
+    )
 
     @api.depends('row_ids')
     def _compute_row_count(self):
