@@ -149,7 +149,54 @@ class SupplierShipment(models.Model):
                 for shipment in self:
                     shipment._sync_dates_to_others(vals)
 
+        # VAIVÉN embarque → OC de la ruta del tarifario (forwarder, naviera,
+        # POL, POD, ETD y tipo de transporte). Cubre ediciones desde el
+        # backend Y desde el portal (update_shipment termina en este write).
+        if not self.env.context.get('som_carrier_sync'):
+            route_fields = {
+                'forwarder_id', 'naviera_id', 'pol_id', 'pod_id',
+                'etd', 'shipment_type',
+            }
+            if route_fields.intersection(vals.keys()):
+                for shipment in self:
+                    shipment._som_sync_route_to_purchase(vals)
+
         return res
+
+    def _som_sync_route_to_purchase(self, vals):
+        """Refleja en la OC la ruta capturada en el embarque. Solo escribe
+        valores CAPTURADOS (nunca borra con False) y solo campos que existan
+        en la OC (logistica_tarifario puede no estar instalado)."""
+        self.ensure_one()
+        po = self.purchase_id
+        if not po:
+            return
+        pf = po._fields
+        mapping = [
+            ('forwarder_id', 'som_route_forwarder_id', True),
+            ('naviera_id', 'som_route_naviera_id', True),
+            ('pol_id', 'som_route_pol_id', True),
+            ('pod_id', 'som_route_pod_id', True),
+            ('etd', 'som_route_etd', False),
+            ('shipment_type', 'som_transport_type', False),
+        ]
+        po_vals = {}
+        for ship_field, po_field, is_m2o in mapping:
+            if ship_field not in vals or po_field not in pf:
+                continue
+            value = vals[ship_field]
+            if not value:
+                continue
+            current = po[po_field]
+            if is_m2o:
+                if (current.id if current else False) != value:
+                    po_vals[po_field] = value
+            elif current != value:
+                po_vals[po_field] = value
+        if po_vals:
+            po.with_context(
+                som_carrier_sync=True, skip_date_sync=True,
+            ).write(po_vals)
 
     def _sync_dates_to_others(self, vals):
         """Helper para sincronizar fechas logísticas con Orden de Compra y Viaje en Tránsito"""
