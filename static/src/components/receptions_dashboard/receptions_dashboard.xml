@@ -104,13 +104,50 @@
             </div>
 
             <div class="o_rcp_card_actions">
-                <button class="o_rcp_btn ghost" t-on-click="() => this.openVoyage(card.id)">
-                    Viaje <t t-call="stock_transit_allocation.icon_open"/>
+                <button class="o_rcp_btn ghost" t-on-click="() => this.showMaterials(card)">
+                    Materiales
                 </button>
-                <button t-if="card.reception_id" class="o_rcp_btn primary"
+                <button t-if="card.reception_id and (card.phase === 'ready' or card.phase === 'done')"
+                        class="o_rcp_btn primary"
                         t-on-click="() => this.openReception(card.reception_id)">
                     Recepción <t t-esc="card.reception_name ? '· ' + card.reception_name : ''"/>
                 </button>
+            </div>
+        </div>
+    </t>
+
+    <!-- ═══ Popup de materiales (todo lo que almacén ve del embarque) ═══ -->
+    <t t-name="stock_transit_allocation.MaterialsModal">
+        <div class="o_rcp_modal_bg" t-on-click="closeMaterials">
+            <div class="o_rcp_modal" t-on-click.stop="">
+                <div class="o_rcp_modal_head">
+                    <div>
+                        <div class="t" t-esc="state.detail.name"/>
+                        <div class="s">
+                            <t t-if="state.detail.supplier"><t t-esc="state.detail.supplier"/></t>
+                            <t t-if="state.detail.vessel"> · <t t-esc="state.detail.vessel"/></t>
+                            <t t-if="state.detail.eta"> · ETA <t t-esc="state.detail.eta"/></t>
+                        </div>
+                        <div class="s muted" t-if="state.detail.containers" t-esc="state.detail.containers"/>
+                    </div>
+                    <button class="o_rcp_modal_x" t-on-click="closeMaterials">✕</button>
+                </div>
+                <div class="o_rcp_modal_body">
+                    <div class="o_rcp_mat_row head">
+                        <span>Material</span><b>m²</b>
+                    </div>
+                    <div class="o_rcp_mat_row" t-foreach="state.detail.materials" t-as="m" t-key="m.product">
+                        <span t-att-title="m.product" t-esc="m.product"/>
+                        <b t-esc="m.m2"/>
+                    </div>
+                    <div t-if="!state.detail.materials.length" class="o_rcp_empty">
+                        Sin materiales capturados aún
+                    </div>
+                </div>
+                <div class="o_rcp_modal_foot">
+                    <span><b t-esc="state.detail.lots"/> lotes · <b t-esc="state.detail.products"/> productos</span>
+                    <span class="tot">Total <b t-esc="state.detail.m2"/> m²</span>
+                </div>
             </div>
         </div>
     </t>
@@ -227,6 +264,8 @@
                     </div>
                 </div>
             </t>
+
+            <t t-if="state.detail" t-call="stock_transit_allocation.MaterialsModal"/>
         </div>
     </t>
 </templates>

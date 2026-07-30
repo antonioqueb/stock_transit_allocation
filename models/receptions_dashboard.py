@@ -54,6 +54,20 @@ class StockTransitVoyageReceptionsDash(models.Model):
             products = len(set(lines.mapped('product_id').ids))
             lots = len(lines.filtered(lambda l: l.lot_id))
 
+            # Desglose de materiales para el popup del tablero (el personal
+            # de almacén NUNCA entra al viaje/embarque: esto es todo lo que
+            # necesita ver de lo que viene).
+            mat_map = {}
+            for line in lines:
+                if not line.product_id:
+                    continue
+                key = line.product_id.display_name
+                mat_map[key] = mat_map.get(key, 0.0) + (line.product_uom_qty or 0.0)
+            materials = sorted(
+                ({'product': k, 'm2': round(qty, 1)} for k, qty in mat_map.items()),
+                key=lambda x: -x['m2'],
+            )[:40]
+
             picking = v.reception_picking_id
             eta = v.eta
             days_to_eta = (eta - today).days if eta else None
@@ -118,6 +132,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'products': products,
                 'lots': lots,
                 'late_days': late_days,
+                'materials': materials,
             }
 
         cards = [voyage_card(v) for v in active]

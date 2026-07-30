@@ -15,7 +15,7 @@ export class ReceptionsDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
-        this.state = useState({ loading: true, data: null });
+        this.state = useState({ loading: true, data: null, detail: null });
         this.chartRef = useRef("chartWeekly");
         this.chart = null;
         this.timer = null;
@@ -106,14 +106,15 @@ export class ReceptionsDashboard extends Component {
     }
 
     // ── Navegación ──────────────────────────────────────────────
-    openVoyage(id) {
-        this.action.doAction({
-            type: "ir.actions.act_window",
-            res_model: "stock.transit.voyage",
-            res_id: id,
-            views: [[false, "form"]],
-            target: "current",
-        });
+    // OJO: el personal de almacén NUNCA accede al viaje/embarque desde
+    // aquí. Lo único que ve del material en camino es el popup de
+    // materiales; su acceso operativo es la RECEPCIÓN.
+    showMaterials(card) {
+        this.state.detail = card;
+    }
+
+    closeMaterials() {
+        this.state.detail = null;
     }
 
     openReception(id) {
