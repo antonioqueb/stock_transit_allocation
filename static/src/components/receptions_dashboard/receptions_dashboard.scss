@@ -1,0 +1,295 @@
+// Tablero de Recepciones — branding SOM: azul fuerte #0B57D0, cielo #38BDF8
+$rcp-blue: #0b57d0;
+$rcp-sky: #38bdf8;
+$rcp-green: #159957;
+$rcp-red: #e5484d;
+$rcp-ink: #0f172a;
+$rcp-mut: #64748b;
+
+.o_receptions_dash {
+    height: 100%;
+    overflow-y: auto;
+    padding: 16px 20px 28px;
+    background: #f2f6fc;
+
+    svg {
+        width: 18px;
+        height: 18px;
+        flex: 0 0 auto;
+    }
+
+    .o_rcp_topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 14px;
+    }
+    .o_rcp_title {
+        font-size: 20px;
+        font-weight: 800;
+        color: $rcp-ink;
+    }
+    .o_rcp_loading {
+        padding: 40px;
+        text-align: center;
+        color: $rcp-mut;
+    }
+
+    // ── Botones ─────────────────────────────────────────────
+    .o_rcp_btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border-radius: 8px;
+        padding: 5px 12px;
+        font-size: 12.5px;
+        font-weight: 700;
+        cursor: pointer;
+        border: 1px solid transparent;
+
+        svg { width: 14px; height: 14px; }
+
+        &.ghost {
+            background: #fff;
+            border-color: #d3dcea;
+            color: #334155;
+            &:hover { background: #eaf1fb; }
+        }
+        &.primary {
+            background: $rcp-blue;
+            color: #fff;
+            &:hover { background: darken($rcp-blue, 6%); }
+        }
+    }
+
+    // ── KPIs ────────────────────────────────────────────────
+    .o_rcp_kpis {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+        margin-bottom: 16px;
+    }
+    .o_rcp_kpi {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: #fff;
+        border-radius: 12px;
+        padding: 11px 13px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+
+        .ic {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            svg { width: 19px; height: 19px; }
+        }
+        &.blue .ic  { background: rgba(11, 87, 208, 0.1);  color: $rcp-blue; }
+        &.sky .ic   { background: rgba(56, 189, 248, 0.14); color: darken($rcp-sky, 18%); }
+        &.green .ic { background: rgba(21, 153, 87, 0.12); color: $rcp-green; }
+        &.red .ic   { background: rgba(229, 72, 77, 0.12); color: $rcp-red; }
+
+        .v {
+            font-size: 20px;
+            font-weight: 800;
+            color: $rcp-ink;
+            line-height: 1.1;
+            font-variant-numeric: tabular-nums;
+            small { font-size: 11px; color: $rcp-mut; margin-left: 2px; }
+        }
+        .l { font-size: 11.5px; color: $rcp-mut; }
+    }
+
+    // ── Columnas del pipeline ───────────────────────────────
+    .o_rcp_cols {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+        align-items: start;
+        margin-bottom: 16px;
+
+        @media (max-width: 1400px) { grid-template-columns: repeat(2, 1fr); }
+        @media (max-width: 800px)  { grid-template-columns: 1fr; }
+    }
+    .o_rcp_col_head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-weight: 800;
+        font-size: 13px;
+        padding: 9px 12px;
+        border-radius: 10px;
+        margin-bottom: 8px;
+        color: #fff;
+
+        b {
+            margin-left: auto;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 999px;
+            padding: 1px 9px;
+            font-size: 12px;
+        }
+        &.sky    { background: linear-gradient(135deg, #38bdf8, #0ea5e9); }
+        &.blue   { background: linear-gradient(135deg, #3b82f6, #2563eb); }
+        &.strong { background: linear-gradient(135deg, #0b57d0, #0842a0); }
+        &.green  { background: linear-gradient(135deg, #16a34a, #15803d); }
+    }
+    .o_rcp_empty {
+        background: #fff;
+        border: 1px dashed #cbd5e1;
+        border-radius: 10px;
+        padding: 18px;
+        text-align: center;
+        color: $rcp-mut;
+        font-size: 12.5px;
+    }
+
+    // ── Tarjeta de viaje ────────────────────────────────────
+    .o_rcp_card {
+        background: #fff;
+        border-radius: 12px;
+        padding: 12px 13px;
+        margin-bottom: 8px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+        border-left: 4px solid #c7d7f2;
+        transition: box-shadow 0.15s ease, transform 0.15s ease;
+
+        &:hover {
+            box-shadow: 0 4px 14px rgba(15, 23, 42, 0.13);
+            transform: translateY(-1px);
+        }
+        &.late { border-left-color: $rcp-red; }
+    }
+    .o_rcp_card_top {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        justify-content: space-between;
+    }
+    .o_rcp_card_name {
+        font-weight: 800;
+        color: $rcp-ink;
+        font-size: 13.5px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .o_rcp_badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        border-radius: 999px;
+        padding: 2px 9px;
+        white-space: nowrap;
+
+        svg { width: 12px; height: 12px; }
+
+        &.blue  { background: rgba(11, 87, 208, 0.1);  color: $rcp-blue; }
+        &.sky   { background: rgba(56, 189, 248, 0.16); color: #0369a1; }
+        &.red   { background: rgba(229, 72, 77, 0.12);  color: $rcp-red; }
+        &.green { background: rgba(21, 153, 87, 0.12);  color: $rcp-green; }
+        &.muted { background: #eef2f7; color: $rcp-mut; }
+    }
+    .o_rcp_card_sub {
+        margin-top: 3px;
+        font-size: 12px;
+        color: #334155;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+
+        &.muted { color: $rcp-mut; }
+    }
+    .o_rcp_card_stats {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        margin-top: 7px;
+        font-size: 12px;
+        color: $rcp-mut;
+
+        b { color: $rcp-ink; font-variant-numeric: tabular-nums; }
+    }
+    .o_rcp_pub {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-top: 7px;
+        font-size: 11.5px;
+        color: #475569;
+        background: #f1f6fd;
+        border-radius: 8px;
+        padding: 5px 8px;
+
+        svg { width: 13px; height: 13px; color: $rcp-blue; }
+        &.green {
+            background: #edf9f1;
+            svg { color: $rcp-green; }
+        }
+    }
+    .o_rcp_card_actions {
+        display: flex;
+        gap: 6px;
+        margin-top: 9px;
+
+        .o_rcp_btn { flex: 1 1 auto; justify-content: center; }
+    }
+
+    // ── Reportería ──────────────────────────────────────────
+    .o_rcp_report {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 12px;
+
+        @media (max-width: 1000px) { grid-template-columns: 1fr; }
+    }
+    .o_rcp_card_panel {
+        background: #fff;
+        border-radius: 12px;
+        padding: 14px 16px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+    }
+    .o_rcp_panel_title {
+        font-size: 12.5px;
+        font-weight: 800;
+        color: #374151;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        margin-bottom: 10px;
+    }
+    .o_rcp_chart {
+        position: relative;
+        height: 240px;
+    }
+    .o_rcp_ind {
+        padding: 12px 0;
+        border-bottom: 1px solid #eef1f6;
+
+        &:last-child { border-bottom: none; }
+        .v {
+            font-size: 26px;
+            font-weight: 800;
+            color: $rcp-ink;
+            font-variant-numeric: tabular-nums;
+            small { font-size: 13px; color: $rcp-mut; margin-left: 3px; }
+        }
+        .l { font-size: 12px; color: $rcp-mut; }
+    }
+}
+
+// La client action debe dar altura completa.
+.o_action_manager .o_action:has(.o_receptions_dash) {
+    display: flex;
+    flex-direction: column;
+
+    > * {
+        flex: 1 1 auto;
+        min-height: 0;
+    }
+}

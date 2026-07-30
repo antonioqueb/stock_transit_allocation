@@ -1,0 +1,232 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <!-- ═══ Íconos SVG hechos a mano (trazo 1.8, sin emojis) ═══ -->
+    <t t-name="stock_transit_allocation.icon_ship">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 15l1.5 4h15L21 15l-9-3-9 3z"/>
+            <path d="M7 12V7h10v5"/>
+            <path d="M10 7V4h4v3"/>
+            <path d="M2 21c1.5 1 3.5 1 5 0s3.5-1 5 0 3.5 1 5 0 3.5-1 5 0"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_anchor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="5" r="2.4"/>
+            <path d="M12 7.4V21"/>
+            <path d="M8 10h8"/>
+            <path d="M4 14c0 4 3.5 7 8 7s8-3 8-7"/>
+            <path d="M4 14l-1.6 2.4M4 14l2.6 1.2M20 14l1.6 2.4M20 14l-2.6 1.2"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_boxcheck">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 8l9-4.5L21 8v8l-9 4.5L3 16V8z"/>
+            <path d="M3 8l9 4.5L21 8"/>
+            <path d="M12 12.5V21"/>
+            <path d="M8.5 14.8l2.2 2.2 4.4-4.4"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_warehouse">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 21V9l9-5.5L21 9v12"/>
+            <path d="M7 21v-7h10v7"/>
+            <path d="M7 17.5h10"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_alert">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3.5L22 20H2L12 3.5z"/>
+            <path d="M12 10v4.5"/>
+            <circle cx="12" cy="17.2" r="0.4" fill="currentColor"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_calendar">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="5" width="17" height="16" rx="2.5"/>
+            <path d="M8 3v4M16 3v4M3.5 10h17"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_open">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 4h6v6"/>
+            <path d="M20 4L11 13"/>
+            <path d="M19 14v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h5"/>
+        </svg>
+    </t>
+    <t t-name="stock_transit_allocation.icon_user">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="8" r="3.6"/>
+            <path d="M5 20.5c1.3-3.4 4-5 7-5s5.7 1.6 7 5"/>
+        </svg>
+    </t>
+
+    <!-- ═══ Tarjeta de viaje ═══ -->
+    <t t-name="stock_transit_allocation.ReceptionCard">
+        <div t-attf-class="o_rcp_card {{ card.late_days ? 'late' : '' }}">
+            <div class="o_rcp_card_top">
+                <div class="o_rcp_card_name" t-esc="card.name"/>
+                <span t-if="card.late_days" class="o_rcp_badge red">
+                    <t t-call="stock_transit_allocation.icon_alert"/>
+                    <t t-esc="card.late_days"/> días
+                </span>
+                <span t-elif="card.phase !== 'done'"
+                      t-attf-class="o_rcp_badge {{ this.etaBadge(card).cls }}">
+                    <t t-call="stock_transit_allocation.icon_calendar"/>
+                    <t t-esc="this.etaBadge(card).text"/>
+                </span>
+                <span t-else="" class="o_rcp_badge green">Recibido</span>
+            </div>
+
+            <div class="o_rcp_card_sub">
+                <t t-if="card.supplier"><t t-esc="card.supplier"/></t>
+                <t t-if="card.po"> · <t t-esc="card.po"/></t>
+            </div>
+            <div class="o_rcp_card_sub muted" t-if="card.vessel or card.containers">
+                <t t-if="card.vessel"><t t-esc="card.vessel"/></t>
+                <t t-if="card.containers"> · <t t-esc="card.containers"/></t>
+            </div>
+
+            <div class="o_rcp_card_stats">
+                <span><b t-esc="card.m2"/> m²</span>
+                <span><b t-esc="card.lots"/> lotes</span>
+                <span><b t-esc="card.products"/> productos</span>
+                <span t-if="card.eta">ETA <b t-esc="card.eta"/></span>
+            </div>
+
+            <div t-if="card.published" class="o_rcp_pub">
+                <t t-call="stock_transit_allocation.icon_user"/>
+                <span>Publicado por <b t-esc="card.published_by"/> · <t t-esc="card.published_at"/></span>
+            </div>
+            <div t-if="card.reception_done" class="o_rcp_pub green">
+                <t t-call="stock_transit_allocation.icon_warehouse"/>
+                <span>Recepcionado <t t-esc="card.reception_done"/></span>
+            </div>
+
+            <div class="o_rcp_card_actions">
+                <button class="o_rcp_btn ghost" t-on-click="() => this.openVoyage(card.id)">
+                    Viaje <t t-call="stock_transit_allocation.icon_open"/>
+                </button>
+                <button t-if="card.reception_id" class="o_rcp_btn primary"
+                        t-on-click="() => this.openReception(card.reception_id)">
+                    Recepción <t t-esc="card.reception_name ? '· ' + card.reception_name : ''"/>
+                </button>
+            </div>
+        </div>
+    </t>
+
+    <!-- ═══ Tablero ═══ -->
+    <t t-name="stock_transit_allocation.ReceptionsDashboard">
+        <div class="o_receptions_dash">
+            <div class="o_rcp_topbar">
+                <div class="o_rcp_title">Recepciones</div>
+                <button class="o_rcp_btn ghost" t-on-click="openReceptionsList">
+                    Ver todas las recepciones <t t-call="stock_transit_allocation.icon_open"/>
+                </button>
+            </div>
+
+            <div t-if="state.loading" class="o_rcp_loading">Cargando…</div>
+
+            <t t-if="!state.loading and state.data">
+                <!-- KPIs -->
+                <div class="o_rcp_kpis">
+                    <div class="o_rcp_kpi sky">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_ship"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.sailing"/><div class="l">En camino</div></div>
+                    </div>
+                    <div class="o_rcp_kpi sky">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_calendar"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.arriving_week"/><div class="l">Llegan esta semana</div></div>
+                    </div>
+                    <div class="o_rcp_kpi blue">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_anchor"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.port"/><div class="l">En puerto</div></div>
+                    </div>
+                    <div class="o_rcp_kpi blue">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_boxcheck"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.ready"/><div class="l">Listos para recibir</div></div>
+                    </div>
+                    <div class="o_rcp_kpi blue">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_boxcheck"/></div>
+                        <div><div class="v"><t t-esc="state.data.kpis.ready_m2"/><small>m²</small></div><div class="l">Por recibir</div></div>
+                    </div>
+                    <div t-attf-class="o_rcp_kpi {{ state.data.kpis.late ? 'red' : 'green' }}">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_alert"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.late"/><div class="l">Atrasados</div></div>
+                    </div>
+                    <div class="o_rcp_kpi green">
+                        <div class="ic"><t t-call="stock_transit_allocation.icon_warehouse"/></div>
+                        <div><div class="v" t-esc="state.data.kpis.done_30d"/><div class="l">Recibidos 30 días</div></div>
+                    </div>
+                </div>
+
+                <!-- Pipeline -->
+                <div class="o_rcp_cols">
+                    <div class="o_rcp_col">
+                        <div class="o_rcp_col_head sky">
+                            <t t-call="stock_transit_allocation.icon_ship"/>
+                            <span>En camino</span>
+                            <b t-esc="state.data.sailing.length"/>
+                        </div>
+                        <t t-foreach="state.data.sailing" t-as="card" t-key="card.id">
+                            <t t-call="stock_transit_allocation.ReceptionCard"/>
+                        </t>
+                        <div t-if="!state.data.sailing.length" class="o_rcp_empty">Nada en camino</div>
+                    </div>
+                    <div class="o_rcp_col">
+                        <div class="o_rcp_col_head blue">
+                            <t t-call="stock_transit_allocation.icon_anchor"/>
+                            <span>En puerto</span>
+                            <b t-esc="state.data.port.length"/>
+                        </div>
+                        <t t-foreach="state.data.port" t-as="card" t-key="card.id">
+                            <t t-call="stock_transit_allocation.ReceptionCard"/>
+                        </t>
+                        <div t-if="!state.data.port.length" class="o_rcp_empty">Sin contenedores en puerto</div>
+                    </div>
+                    <div class="o_rcp_col">
+                        <div class="o_rcp_col_head strong">
+                            <t t-call="stock_transit_allocation.icon_boxcheck"/>
+                            <span>Listos para recibir</span>
+                            <b t-esc="state.data.ready.length"/>
+                        </div>
+                        <t t-foreach="state.data.ready" t-as="card" t-key="card.id">
+                            <t t-call="stock_transit_allocation.ReceptionCard"/>
+                        </t>
+                        <div t-if="!state.data.ready.length" class="o_rcp_empty">Nada pendiente de recibir</div>
+                    </div>
+                    <div class="o_rcp_col">
+                        <div class="o_rcp_col_head green">
+                            <t t-call="stock_transit_allocation.icon_warehouse"/>
+                            <span>Recepcionados</span>
+                            <b t-esc="state.data.done.length"/>
+                        </div>
+                        <t t-foreach="state.data.done" t-as="card" t-key="card.id">
+                            <t t-call="stock_transit_allocation.ReceptionCard"/>
+                        </t>
+                        <div t-if="!state.data.done.length" class="o_rcp_empty">Sin recepciones en 30 días</div>
+                    </div>
+                </div>
+
+                <!-- Reportería -->
+                <div class="o_rcp_report">
+                    <div class="o_rcp_card_panel wide">
+                        <div class="o_rcp_panel_title">Recepciones por semana — m² y número</div>
+                        <div class="o_rcp_chart"><canvas t-ref="chartWeekly"/></div>
+                    </div>
+                    <div class="o_rcp_card_panel">
+                        <div class="o_rcp_panel_title">Indicadores</div>
+                        <div class="o_rcp_ind">
+                            <div class="v"><t t-esc="state.data.kpis.avg_lead_days"/><small>días</small></div>
+                            <div class="l">Promedio ETA → recepción validada</div>
+                        </div>
+                        <div class="o_rcp_ind">
+                            <div class="v"><t t-esc="state.data.kpis.done_30d_m2"/><small>m²</small></div>
+                            <div class="l">Recibidos últimos 30 días</div>
+                        </div>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+</templates>

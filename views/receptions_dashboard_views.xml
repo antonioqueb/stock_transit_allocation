@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Tablero de Recepciones: client action OWL para el personal de
+         almacén (tránsito → existencias). Los datos van con sudo en el
+         servicio; el grupo Tránsito solo protege la UI de Torre de Control. -->
+    <record id="action_receptions_dashboard" model="ir.actions.client">
+        <field name="name">Recepciones</field>
+        <field name="tag">stock_transit_allocation.receptions_dashboard</field>
+    </record>
+
+    <record id="action_physical_receptions_list" model="ir.actions.act_window">
+        <field name="name">Recepciones físicas</field>
+        <field name="res_model">stock.picking</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('origin', '=like', '%(Recepción Física)')]</field>
+    </record>
+
+    <menuitem id="menu_receptions_root" name="Recepciones"
+              web_icon="stock_transit_allocation,static/description/receptions_icon.png"
+              sequence="33" groups="stock.group_stock_user"/>
+    <menuitem id="menu_receptions_dashboard" name="Tablero"
+              parent="menu_receptions_root"
+              action="action_receptions_dashboard" sequence="1"/>
+    <menuitem id="menu_physical_receptions_list" name="Recepciones físicas"
+              parent="menu_receptions_root"
+              action="action_physical_receptions_list" sequence="2"/>
+</odoo>

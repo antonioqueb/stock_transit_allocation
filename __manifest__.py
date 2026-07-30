@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.14.20.0',
+    'version': '19.0.15.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -89,11 +89,16 @@
         'wizard/sale_order_consolidate_purchase_views.xml',
         'wizard/transit_status_change_wizard_views.xml',
         'wizard/transit_label_print_wizard_views.xml',
+
+        'views/receptions_dashboard_views.xml',
     ],
     'assets': {
         # Bundle principal: SOLO lo que necesitan las vistas estándar
         # (widgets de campo/form del viaje) + los cargadores perezosos.
         'web.assets_backend': [
+            'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.scss',
+            'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.xml',
+            'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.js',
             'stock_transit_allocation/static/src/css/transit_style.css',
             'stock_transit_allocation/static/src/css/transit_voyage_lines.css',
 
