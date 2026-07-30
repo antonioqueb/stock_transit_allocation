@@ -77,7 +77,9 @@ class SaleOrder(models.Model):
 
     def unlink(self):
         for order in self:
-            transit_lines = self.env['stock.transit.line'].search([
+            # sudo(): plomería interna — el vendedor no necesita ACL de
+            # Torre de Control para que el guard de eliminación funcione.
+            transit_lines = self.env['stock.transit.line'].sudo().search([
                 ('order_id', '=', order.id),
                 ('lot_id', '!=', False),
             ])
@@ -2503,12 +2505,12 @@ class SaleOrderLine(models.Model):
                 line.transit_voyage_id = False
                 continue
 
-            allocation = self.env['purchase.order.line.allocation'].search([
+            allocation = self.env['purchase.order.line.allocation'].sudo().search([
                 ('sale_line_id', '=', line.id),
                 ('state', 'not in', ['cancelled', 'done']),
             ], order='id desc', limit=1)
 
-            transit_line = self.env['stock.transit.line'].search([
+            transit_line = self.env['stock.transit.line'].sudo().search([
                 ('order_id', '=', line.order_id.id),
                 ('product_id', '=', line.product_id.id),
             ], order='id desc', limit=1)
@@ -2522,7 +2524,7 @@ class SaleOrderLine(models.Model):
             if allocation:
                 po = allocation.purchase_order_id
                 if po:
-                    voyage = self.env['stock.transit.voyage'].search([
+                    voyage = self.env['stock.transit.voyage'].sudo().search([
                         ('purchase_id', '=', po.id),
                         ('custom_status', '!=', 'cancel'),
                     ], order='id desc', limit=1)

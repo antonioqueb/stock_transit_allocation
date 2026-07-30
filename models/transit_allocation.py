@@ -412,7 +412,9 @@ class TransitAllocationLogic(models.AbstractModel):
         sale_line = self.env['sale.order.line'].browse(sale_line_id).exists()
         pending_qty_before = self._tal_validate_sale_line_for_assignment(sale_line)
 
-        transit_lines = self.env['stock.transit.line'].browse(transit_line_ids or []).exists()
+        # sudo(): la asignación se dispara desde la orden de venta; el
+        # vendedor no necesita ACL de Torre de Control.
+        transit_lines = self.env['stock.transit.line'].sudo().browse(transit_line_ids or []).exists()
 
         # Parcialidades (FORMATOS/PIEZAS): partir las líneas seleccionadas para
         # asignar solo lo elegido y dejar el saldo disponible en tránsito. Tras
@@ -578,7 +580,7 @@ class StockTransitLineTransitAllocationSync(models.Model):
         breakdown = sale_line._tc_read_lot_breakdown() if hasattr(sale_line, '_tc_read_lot_breakdown') else {}
         breakdown = dict(breakdown or {})
 
-        active_transit_lot_ids = self.env['stock.transit.line'].search([
+        active_transit_lot_ids = self.env['stock.transit.line'].sudo().search([
             ('product_id', '=', sale_line.product_id.id),
             ('lot_id', '!=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),

@@ -30,17 +30,19 @@ class PurchaseOrder(models.Model):
     def button_confirm(self):
         res = super(PurchaseOrder, self).button_confirm()
         for po in self:
-            allocations = self.env['purchase.order.line.allocation'].search([
+            # sudo(): plomería interna al confirmar la OC — el comprador
+            # no necesita ACL de Torre de Control.
+            allocations = self.env['purchase.order.line.allocation'].sudo().search([
                 ('purchase_order_id', '=', po.id)
             ])
             if allocations:
-                existing_voyage = self.env['stock.transit.voyage'].search([
+                existing_voyage = self.env['stock.transit.voyage'].sudo().search([
                     ('purchase_id', '=', po.id),
                     ('custom_status', '!=', 'cancel'),
                 ], limit=1)
 
                 if not existing_voyage:
-                    voyage = self.env['stock.transit.voyage'].create({
+                    voyage = self.env['stock.transit.voyage'].sudo().create({
                         'purchase_id': po.id,
                         'custom_status': 'solicitud',
                         'vessel_name': 'Por Definir',

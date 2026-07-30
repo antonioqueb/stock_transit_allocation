@@ -196,7 +196,14 @@ class StockPicking(models.Model):
     def _get_linked_reception_voyage(self):
         self.ensure_one()
 
-        voyage = self.env['stock.transit.voyage'].search([
+        # sudo(): esto es plomería interna que corre al validar CUALQUIER
+        # traslado (button_validate). Un usuario de inventario sin el grupo
+        # 'Usuario Tránsito' no tiene ACL sobre stock.transit.voyage y sin
+        # sudo no podía validar ni un traslado interno normal. El grupo
+        # restringe la UI de Torre de Control, no el flujo de almacén.
+        Voyage = self.env['stock.transit.voyage'].sudo()
+
+        voyage = Voyage.search([
             ('reception_picking_id', '=', self.id),
         ], limit=1)
 
@@ -205,7 +212,7 @@ class StockPicking(models.Model):
             # VOY/0011 — un traslado ajeno podía cerrar/asignar el viaje
             # equivocado al validarse.
             origin_ref = self.origin.split(' ')[0]
-            voyage = self.env['stock.transit.voyage'].search([
+            voyage = Voyage.search([
                 ('name', '=', origin_ref),
             ], limit=1)
 
@@ -1149,7 +1156,10 @@ class StockPicking(models.Model):
 
         for line in reserved_lines:
             key = (line.order_id.id, line.product_id.id)
-            assignments_by_key.setdefault(key, self.env['stock.transit.line'])
+            # sudo(): la unión hereda el env del operando IZQUIERDO — con el
+            # placeholder sin sudo, las líneas (sudo) se degradaban y el
+            # usuario sin grupo Tránsito tronaba al leerlas/escribirlas.
+            assignments_by_key.setdefault(key, self.env['stock.transit.line'].sudo())
             assignments_by_key[key] |= line
 
         if not assignments_by_key:
@@ -1341,7 +1351,9 @@ class StockPicking(models.Model):
         No reutiliza voyages existentes de la misma OC.
         """
         self.ensure_one()
-        Voyage = self.env['stock.transit.voyage']
+        # sudo(): corre al validar recepciones a Tránsito; el usuario de
+        # almacén no necesita ACL de Torre de Control para este automatismo.
+        Voyage = self.env['stock.transit.voyage'].sudo()
 
         existing = Voyage.search([
             ('picking_id', '=', self.id),

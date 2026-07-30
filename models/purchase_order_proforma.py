@@ -17,13 +17,15 @@ class PurchaseOrderProformaLink(models.Model):
     )
 
     def _compute_proforma_header(self):
-        ProformaHeader = self.env['supplier.proforma.header']
+        # sudo(): compute visible para CUALQUIER usuario que abra la OC;
+        # sin sudo, quien no tiene grupo Tránsito no podía ni ver la orden.
+        ProformaHeader = self.env['supplier.proforma.header'].sudo()
         for po in self:
             header = ProformaHeader.search([('purchase_id', '=', po.id)], limit=1)
             po.proforma_header_id = header.id if header else False
 
     def _compute_proforma_shipment_count(self):
-        ProformaHeader = self.env['supplier.proforma.header']
+        ProformaHeader = self.env['supplier.proforma.header'].sudo()
         for po in self:
             header = ProformaHeader.search([('purchase_id', '=', po.id)], limit=1)
             po.proforma_shipment_count = len(header.shipment_ids) if header else 0
