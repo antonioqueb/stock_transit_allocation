@@ -297,7 +297,10 @@ $rcp-mut: #64748b;
 .o_rcp_modal {
     background: #fff;
     border-radius: 14px;
-    width: min(480px, 100%);
+    // OJO Sass/Odoo: min(px, %) revienta el bundle completo con
+    // "Incompatible units" — usar width + max-width.
+    width: 100%;
+    max-width: 480px;
     max-height: 82vh;
     display: flex;
     flex-direction: column;
