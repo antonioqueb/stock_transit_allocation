@@ -50,23 +50,45 @@ class StockTransitVoyageReceptionsDash(models.Model):
 
         def voyage_card(v):
             lines = v.line_ids
-            m2 = sum(lines.mapped('product_uom_qty'))
             products = len(set(lines.mapped('product_id').ids))
             lots = len(lines.filtered(lambda l: l.lot_id))
 
             # Desglose de materiales para el popup del tablero (el personal
             # de almacén NUNCA entra al viaje/embarque: esto es todo lo que
-            # necesita ver de lo que viene).
+            # necesita ver de lo que viene). OJO: NO todo son m² — también
+            # llegan piezas/formatos, así que cada material lleva SU unidad
+            # (la del producto) y los totales se separan por unidad.
             mat_map = {}
             for line in lines:
                 if not line.product_id:
                     continue
-                key = line.product_id.display_name
+                uom = line.product_id.uom_id.name or ''
+                key = (line.product_id.display_name, uom)
                 mat_map[key] = mat_map.get(key, 0.0) + (line.product_uom_qty or 0.0)
             materials = sorted(
-                ({'product': k, 'm2': round(qty, 1)} for k, qty in mat_map.items()),
-                key=lambda x: -x['m2'],
+                (
+                    {'product': k[0], 'qty': round(qty, 1), 'uom': k[1]}
+                    for k, qty in mat_map.items()
+                ),
+                key=lambda x: -x['qty'],
             )[:40]
+
+            def _is_area(uom_name):
+                return 'm²' in (uom_name or '') or 'm2' in (uom_name or '').lower()
+
+            # Totales por unidad ("120.5 m² · 35 Piezas") y m² reales aparte
+            # (para KPIs de superficie).
+            totals_by_uom = {}
+            for m in materials:
+                totals_by_uom[m['uom']] = totals_by_uom.get(m['uom'], 0.0) + m['qty']
+            qty_label = ' · '.join(
+                '%g %s' % (round(q, 1), u or 'uds')
+                for u, q in sorted(totals_by_uom.items(), key=lambda x: -x[1])
+            )
+            m2 = sum(
+                (line.product_uom_qty or 0.0) for line in lines
+                if line.product_id and _is_area(line.product_id.uom_id.name)
+            )
 
             picking = v.reception_picking_id
             eta = v.eta
@@ -133,6 +155,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'lots': lots,
                 'late_days': late_days,
                 'materials': materials,
+                'qty_label': qty_label,
             }
 
         cards = [voyage_card(v) for v in active]

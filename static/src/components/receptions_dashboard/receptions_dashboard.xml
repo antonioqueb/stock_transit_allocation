@@ -88,7 +88,7 @@
             </div>
 
             <div class="o_rcp_card_stats">
-                <span><b t-esc="card.m2"/> m²</span>
+                <span><b t-esc="card.qty_label or '0'"/></span>
                 <span><b t-esc="card.lots"/> lotes</span>
                 <span><b t-esc="card.products"/> productos</span>
                 <span t-if="card.eta">ETA <b t-esc="card.eta"/></span>
@@ -134,11 +134,11 @@
                 </div>
                 <div class="o_rcp_modal_body">
                     <div class="o_rcp_mat_row head">
-                        <span>Material</span><b>m²</b>
+                        <span>Material</span><b>Cantidad</b>
                     </div>
-                    <div class="o_rcp_mat_row" t-foreach="state.detail.materials" t-as="m" t-key="m.product">
+                    <div class="o_rcp_mat_row" t-foreach="state.detail.materials" t-as="m" t-key="m.product + m.uom">
                         <span t-att-title="m.product" t-esc="m.product"/>
-                        <b t-esc="m.m2"/>
+                        <b><t t-esc="m.qty"/> <small t-esc="m.uom"/></b>
                     </div>
                     <div t-if="!state.detail.materials.length" class="o_rcp_empty">
                         Sin materiales capturados aún
@@ -146,7 +146,7 @@
                 </div>
                 <div class="o_rcp_modal_foot">
                     <span><b t-esc="state.detail.lots"/> lotes · <b t-esc="state.detail.products"/> productos</span>
-                    <span class="tot">Total <b t-esc="state.detail.m2"/> m²</span>
+                    <span class="tot"><b t-esc="state.detail.qty_label"/></span>
                 </div>
             </div>
         </div>
