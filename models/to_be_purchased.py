@@ -1058,6 +1058,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             'id': line.id,
             'so_id': order.id,
             'so_name': order.name,
+            'client_ref': order.client_order_ref or '',
             'date': order.date_order.strftime('%Y-%m-%d') if order.date_order else '',
             'commitment_date': order.commitment_date.strftime('%Y-%m-%d') if order.commitment_date else 'N/A',
             'customer': order.partner_id.name,

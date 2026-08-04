@@ -271,6 +271,7 @@
                                         <tr>
                                             <th class="text-center" style="width: 42px;">Sel</th>
                                             <th style="width: 90px;">SO</th>
+                                            <th style="width: 120px;">Referencia</th>
                                             <th style="width: 88px;">Fecha</th>
                                             <th style="width: 98px;">Requerido</th>
                                             <th>Cliente</th>
@@ -299,6 +300,11 @@
                                                        t-on-click="(ev) => this.openSaleOrder(so.so_id, ev)">
                                                         <t t-esc="so.so_name"/>
                                                     </a>
+                                                </td>
+                                                <td>
+                                                    <div class="o_tbp_cell_sub" t-att-title="so.client_ref">
+                                                        <t t-esc="so.client_ref || '—'"/>
+                                                    </div>
                                                 </td>
                                                 <td><t t-esc="so.date"/></td>
                                                 <td><t t-esc="so.commitment_date"/></td>
@@ -378,6 +384,10 @@
                                             </a>
                                         </div>
                                         <div class="o_tbp_group_subtitle">
+                                            <t t-if="so.client_ref">
+                                                <span>Ref. <b><t t-esc="so.client_ref"/></b></span>
+                                                <span class="o_tbp_dot">•</span>
+                                            </t>
                                             <span><t t-esc="so.customer"/></span>
                                             <span class="o_tbp_dot">•</span>
                                             <span><t t-esc="so.location || 'Sin ubicación'"/></span>

@@ -93,6 +93,7 @@ export class ToBePurchased extends Component {
             result = result.filter((product) => {
                 const lineText = (product.so_lines || []).map((line) => [
                     line.so_name || "",
+                    line.client_ref || "",
                     line.customer || "",
                     line.description || "",
                     line.note || "",
@@ -214,6 +215,7 @@ export class ToBePurchased extends Component {
                     soMap[soKey] = {
                         id: soLine.so_id,
                         so_name: soLine.so_name,
+                        client_ref: soLine.client_ref || "",
                         so_id: soLine.so_id,
                         date: soLine.date,
                         commitment_date: soLine.commitment_date,
