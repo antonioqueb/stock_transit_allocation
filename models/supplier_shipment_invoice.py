@@ -55,6 +55,11 @@ class SupplierShipmentInvoice(models.Model):
     )
 
     invoice_number = fields.Char(string='Número de Invoice', required=True)
+    # Marcador de la FACTURA GLOBAL sincronizada desde la proforma: el folio
+    # y el monto se actualizan solos cuando cambia invoice_global_number.
+    # (Campo también declarado en la clase duplicada de stock_lot_packing_import
+    # — patrón _name duplicado: debe existir en AMBAS.)
+    is_global = fields.Boolean(string='Factura global', copy=False)
     invoice_date = fields.Date(string='Fecha del Invoice')
     amount = fields.Float(string='Monto', digits='Product Price')
     currency_id = fields.Many2one(

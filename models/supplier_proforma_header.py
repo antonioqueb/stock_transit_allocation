@@ -75,6 +75,73 @@ class SupplierProformaHeader(models.Model):
         for rec in self:
             rec.shipment_count = len(rec.shipment_ids)
 
+    # ------------------------------------------------------------------
+    # FACTURA GLOBAL → invoice del embarque (sin recapturar)
+    # ------------------------------------------------------------------
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        pending = records.filtered('invoice_global_number')
+        if pending:
+            pending._som_sync_global_invoice()
+        return records
+
+    def write(self, vals):
+        res = super().write(vals)
+        if 'invoice_global_number' in vals \
+                and not self.env.context.get('skip_global_invoice_sync'):
+            self._som_sync_global_invoice()
+        return res
+
+    def _som_sync_global_invoice(self):
+        """La factura global se captura UNA vez (aquí o en el portal) y se
+        refleja sola como invoice del embarque: mismo folio y el TOTAL de la
+        OC como monto, en la divisa de la OC. Si la OC aún no tiene embarque,
+        se crea uno por default. El invoice sincronizado queda marcado con
+        is_global y se actualiza en lugar de duplicarse."""
+        Invoice = self.env['supplier.shipment.invoice'].sudo()
+        Shipment = self.env['supplier.shipment'].sudo()
+        for header in self:
+            number = (header.invoice_global_number or '').strip()
+            if not number:
+                continue
+
+            shipment = header.shipment_ids[:1]
+            if not shipment:
+                shipment = Shipment.with_context(
+                    skip_date_sync=True,
+                ).create({'proforma_id': header.id})
+
+            po = header.purchase_id
+            vals = {
+                'invoice_number': number,
+                'amount': po.amount_total if po else 0.0,
+                'currency_id': po.currency_id.id if po else False,
+                'is_global': True,
+            }
+
+            existing_global = Invoice.search([
+                ('shipment_id', 'in', header.shipment_ids.ids),
+                ('is_global', '=', True),
+            ], limit=1)
+            if not existing_global:
+                # Adoptar un invoice ya capturado con ese mismo folio (evita
+                # chocar con la restricción de folio único por embarque).
+                existing_global = Invoice.search([
+                    ('shipment_id', 'in', header.shipment_ids.ids),
+                    ('invoice_number', '=ilike', number),
+                ], limit=1)
+
+            if existing_global:
+                existing_global.write(vals)
+            else:
+                Invoice.create({
+                    **vals,
+                    'shipment_id': shipment.id,
+                    'invoice_date': fields.Date.context_today(header),
+                    'scope': 'full_shipment',
+                })
+
     @api.depends('purchase_id.name')
     def _compute_display_name(self):
         # Odoo 19: reemplaza name_get (ya no lo invoca el ORM).
