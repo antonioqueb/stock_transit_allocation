@@ -27,6 +27,16 @@ class SupplierProformaHeader(models.Model):
     )
 
     proforma_number = fields.Char(string='Número de Proforma', tracking=True)
+    # OJO (patrón Odoo 19 documentado): esta clase RE-DECLARA el modelo con
+    # _name y REEMPLAZA los campos de stock_lot_packing_import — todo campo
+    # nuevo del portal debe existir en AMBAS clases o desaparece del registry
+    # (así se perdió portal_overall_pct: "Invalid field ... in write").
+    portal_overall_pct = fields.Integer(
+        string='Avance del portal (%)', copy=False,
+        help='Porcentaje de avance reportado por el PROPIO portal del '
+             'proveedor (el mismo número que él ve). Fuente de verdad del '
+             'avance de captura.',
+    )
     invoice_global_number = fields.Char(string='Factura Global', tracking=True)
     payment_terms = fields.Char(string='Condiciones de Pago')
     country_origin = fields.Char(string='País Origen')
