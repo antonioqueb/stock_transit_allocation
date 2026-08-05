@@ -1407,8 +1407,11 @@ class StockPicking(models.Model):
 
     def _create_automatic_transit_voyage(self):
         """
-        Crea SIEMPRE un nuevo voyage por picking.
-        No reutiliza voyages existentes de la misma OC.
+        Un embarque por recepción, SIN duplicar: si la OC ya tiene un viaje
+        sin recepción vinculada (el que nace al confirmar la compra o desde
+        el portal), se ADOPTA en lugar de crear un segundo — antes ese
+        viaje quedaba en el limbo. Solo se crea uno nuevo si no hay
+        huérfano (p.ej. segunda recepción de la misma OC).
         """
         self.ensure_one()
         # sudo(): corre al validar recepciones a Tránsito; el usuario de
@@ -1434,6 +1437,25 @@ class StockPicking(models.Model):
             or self.origin
             or self.name
         )
+
+        if self.purchase_id:
+            orphan = Voyage.search([
+                ('purchase_id', '=', self.purchase_id.id),
+                ('picking_id', '=', False),
+                ('custom_status', 'not in', ('cancel', 'delivered')),
+            ], order='id desc', limit=1)
+            if orphan:
+                vals = {'picking_id': self.id}
+                if not orphan.bl_number or orphan.bl_number == self.purchase_id.name:
+                    vals['bl_number'] = bl
+                orphan.write(vals)
+                _logger.info(
+                    "[TC] Voyage %s de la OC %s ADOPTADO por el picking %s "
+                    "(no se crea embarque duplicado).",
+                    orphan.name, self.purchase_id.name, self.name,
+                )
+                orphan.action_load_from_picking()
+                return
 
         voyage = Voyage.create({
             'picking_id': self.id,
