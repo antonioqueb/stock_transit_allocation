@@ -184,10 +184,11 @@ class SupplierShipmentPackingRowTrace(models.Model):
             for q in quants:
                 usage = q.location_id.usage
                 lid = q.lot_id.id
-                if usage == 'internal':
-                    internal_qty[lid] = internal_qty.get(lid, 0.0) + q.quantity
-                elif usage == 'transit':
+                # Tránsito primero: SOM/TRANSIT puede tener usage interno.
+                if q.location_id._som_is_transit():
                     transit_qty[lid] = transit_qty.get(lid, 0.0) + q.quantity
+                elif usage == 'internal':
+                    internal_qty[lid] = internal_qty.get(lid, 0.0) + q.quantity
                 elif usage == 'production':
                     production_qty[lid] = production_qty.get(lid, 0.0) + q.quantity
                 if getattr(q, 'x_tiene_hold', False):
@@ -327,11 +328,12 @@ class StockLotTraceState(models.Model):
         ]):
             usage = q.location_id.usage
             lid = q.lot_id.id
-            if usage == 'internal':
+            # Tránsito primero: SOM/TRANSIT puede tener usage interno.
+            if q.location_id._som_is_transit():
+                transit[lid] = transit.get(lid, 0.0) + q.quantity
+            elif usage == 'internal':
                 internal[lid] = internal.get(lid, 0.0) + q.quantity
                 quant_by_lot.setdefault(lid, q.id)
-            elif usage == 'transit':
-                transit[lid] = transit.get(lid, 0.0) + q.quantity
             elif usage == 'production':
                 production[lid] = production.get(lid, 0.0) + q.quantity
             if getattr(q, 'x_tiene_hold', False):

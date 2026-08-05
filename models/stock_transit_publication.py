@@ -98,7 +98,7 @@ class StockTransitLinePublication(models.Model):
             and quant.product_id.id == self.product_id.id
             and quant.lot_id.id == self.lot_id.id
             and quant.quantity > 0
-            and quant.location_id.usage == "transit"
+            and quant.location_id._som_is_transit()
         )
 
     def _tc_resolve_transit_quant(self):
@@ -115,8 +115,8 @@ class StockTransitLinePublication(models.Model):
             ("product_id", "=", self.product_id.id),
             ("lot_id", "=", self.lot_id.id),
             ("quantity", ">", 0),
-            ("location_id.usage", "=", "transit"),
-        ], order="id desc", limit=1)
+        ] + self.env["stock.location"]._som_transit_quant_leaf(),
+            order="id desc", limit=1)
 
         if quant:
             self.with_context(

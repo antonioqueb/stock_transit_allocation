@@ -84,7 +84,7 @@ class TransitAllocationLogic(models.AbstractModel):
         if not quant or not quant.exists():
             return False
 
-        if quant.location_id.usage != 'transit':
+        if not quant.location_id._som_is_transit():
             return False
 
         if quant.quantity <= 0:

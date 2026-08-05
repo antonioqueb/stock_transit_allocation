@@ -166,8 +166,8 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
             ("company_id", "=", self.picking_id.company_id.id),
             ("lot_id", "=", lot.id),
             ("product_id", "=", product.id),
-            ("location_id.usage", "=", "transit"),
-        ], order="id desc", limit=1)
+        ] + self.env["stock.location"]._som_transit_quant_leaf(),
+            order="id desc", limit=1)
 
     def _tc_set_quant_qty(self, product, lot, location, target_qty):
         Quant = self.env["stock.quant"].sudo()

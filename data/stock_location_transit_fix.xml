@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Normaliza a usage='transit' las ubicaciones nombradas como tránsito
+         pero creadas como internas (p.ej. SOM/TRANSIT). Corre en cada
+         instalación/actualización del módulo. -->
+    <function model="stock.location" name="_som_normalize_transit_locations"/>
+</odoo>

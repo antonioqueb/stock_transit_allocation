@@ -486,11 +486,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         domain = [
             ('product_id', 'in', list(product_ids)),
             ('quantity', '>', 0),
-            '|', '|',
-            ('location_id.usage', '=', 'transit'),
-            ('location_id.name', 'ilike', 'Transit'),
-            ('location_id.name', 'ilike', 'Tránsito'),
-        ]
+        ] + self.env['stock.location']._som_transit_quant_leaf()
 
         qty_map = defaultdict(float)
         for group in self._hub_get_quant_sum(domain, ['product_id']):
@@ -540,7 +536,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 and quant.product_id.id == line.product_id.id
                 and quant.lot_id.id == line.lot_id.id
                 and quant.quantity > 0
-                and quant.location_id.usage == 'transit'
+                and quant.location_id._som_is_transit()
                 and (
                     not quant.company_id
                     or not line.company_id
@@ -562,8 +558,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 ('product_id', 'in', missing_lines.mapped('product_id').ids),
                 ('lot_id', 'in', missing_lines.mapped('lot_id').ids),
                 ('quantity', '>', 0),
-                ('location_id.usage', '=', 'transit'),
-            ]
+            ] + self.env['stock.location']._som_transit_quant_leaf()
 
             if 'company_id' in Quant._fields and self.env.company:
                 quant_domain.append(('company_id', 'in', [False, self.env.company.id]))

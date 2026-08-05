@@ -1969,7 +1969,7 @@ class StockTransitVoyage(models.Model):
                 and quant.product_id.id == line.product_id.id
                 and quant.lot_id.id == line.lot_id.id
                 and quant.quantity > 0
-                and quant.location_id.usage == 'transit'
+                and quant.location_id._som_is_transit()
                 and quant.company_id.id == self.company_id.id
             )
 
@@ -1979,8 +1979,8 @@ class StockTransitVoyage(models.Model):
                     ('lot_id', '=', line.lot_id.id),
                     ('product_id', '=', line.product_id.id),
                     ('quantity', '>', 0),
-                    ('location_id.usage', '=', 'transit'),
-                ], order='id desc', limit=1)
+                ] + self.env['stock.location']._som_transit_quant_leaf(),
+                    order='id desc', limit=1)
 
                 if quant:
                     line.with_context(skip_reservation_logic=True).write({
