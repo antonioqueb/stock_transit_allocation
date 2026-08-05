@@ -2004,6 +2004,14 @@ class StockTransitVoyage(models.Model):
             by_quant.setdefault(quant.id, {'quant': quant, 'lines': []})
             by_quant[quant.id]['lines'].append(line)
 
+        # La CANTIDAD TEÓRICA es la del Packing List (línea del viaje) y es
+        # inviolable: el quant NUNCA la infla. Si el quant trae MÁS que el
+        # PL (quants duplicados por dobles validaciones/ajustes: caso
+        # S3-01..S3-11 con 45.40 en vez de 22.70), se recibe SOLO el PL y
+        # el excedente se denuncia en el chatter. Si trae MENOS, se recibe
+        # el físico real (faltante legítimo).
+        excess_alerts = []
+
         for data in by_quant.values():
             quant = data['quant']
             quant_lines = data['lines']
@@ -2023,14 +2031,28 @@ class StockTransitVoyage(models.Model):
 
             if len(quant_lines) == 1:
                 line = quant_lines[0]
-                if self._qty_differs(product, line.product_uom_qty, physical):
-                    line.with_context(skip_reservation_logic=True).write({
-                        'product_uom_qty': physical,
-                    })
+                pl_qty = self._normalize_product_qty(
+                    product, line.product_uom_qty)
+
+                if pl_qty > 0 and physical > pl_qty and self._qty_differs(
+                        product, physical, pl_qty):
+                    excess_alerts.append(
+                        "%s: quant en tránsito %.3f > PL %.3f" % (
+                            quant.lot_id.display_name, physical, pl_qty))
+                    take = pl_qty
+                else:
+                    take = min(physical, pl_qty) if pl_qty > 0 else physical
+                    # Solo se REDUCE la teórica por faltante físico real;
+                    # jamás se aumenta desde el quant.
+                    if self._qty_differs(product, line.product_uom_qty, take):
+                        line.with_context(skip_reservation_logic=True).write({
+                            'product_uom_qty': take,
+                        })
+
                 resolved_lines.append({
                     'line': line,
                     'quant': quant,
-                    'qty_to_receive': physical,
+                    'qty_to_receive': take,
                 })
                 continue
 
@@ -2050,16 +2072,39 @@ class StockTransitVoyage(models.Model):
 
             for index, line in enumerate(free_twins):
                 if index == 0 and remaining > 0:
-                    if self._qty_differs(product, line.product_uom_qty, remaining):
-                        line.with_context(skip_reservation_logic=True).write({
-                            'product_uom_qty': remaining,
-                        })
+                    pl_qty = self._normalize_product_qty(
+                        product, line.product_uom_qty)
+                    if pl_qty > 0 and remaining > pl_qty and self._qty_differs(
+                            product, remaining, pl_qty):
+                        excess_alerts.append(
+                            "%s: quant en tránsito %.3f > PL %.3f" % (
+                                quant.lot_id.display_name, remaining, pl_qty))
+                        take = pl_qty
+                    else:
+                        take = min(remaining, pl_qty) if pl_qty > 0 else remaining
+                        if self._qty_differs(product, line.product_uom_qty, take):
+                            line.with_context(skip_reservation_logic=True).write({
+                                'product_uom_qty': take,
+                            })
                     resolved_lines.append({
                         'line': line,
                         'quant': quant,
-                        'qty_to_receive': remaining,
+                        'qty_to_receive': take,
                     })
                     remaining = 0.0
+
+        if excess_alerts:
+            _logger.warning(
+                "[TC_RECEPTION_GUARD] Viaje %s: quants en tránsito EXCEDEN el "
+                "Packing List (posible duplicación de inventario): %s",
+                self.name or self.id, "; ".join(excess_alerts),
+            )
+            self.message_post(body=_(
+                "⚠️ <b>Inventario en tránsito excede el Packing List</b> — la "
+                "recepción se preparó con las cantidades del PL (correctas) y "
+                "el excedente quedó en tránsito. Revisar y ajustar los quants "
+                "de estos lotes:<br/><pre>%s</pre>"
+            ) % "\n".join(excess_alerts[:40]))
 
         if missing_lots:
             raise UserError(_(
