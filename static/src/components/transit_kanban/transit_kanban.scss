@@ -596,3 +596,17 @@ $tk-radius-pill:   20px;
     font-size: 10.5px;
     font-weight: 700;
 }
+
+// ─── Drag & drop: affordance de agarre ──────────────────────────────────────
+.tk-card {
+    cursor: grab;
+
+    &:active {
+        cursor: grabbing;
+    }
+}
+
+.tk-card--dragging {
+    opacity: 0.45;
+    cursor: grabbing;
+}

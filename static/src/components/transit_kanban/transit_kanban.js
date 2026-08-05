@@ -238,13 +238,21 @@ export class TransitKanbanView extends Component {
     onCardDragStart(card, ev) {
         if (!card || !card.id) return;
         ev.stopPropagation();
-        this.state.draggingId = card.id;
-        this.state.dragOverStage = false;
 
         if (ev.dataTransfer) {
             ev.dataTransfer.effectAllowed = "move";
             ev.dataTransfer.setData("text/plain", String(card.id));
         }
+
+        // DIFERIDO a propósito: mutar el estado reactivo DENTRO del
+        // dragstart re-renderiza la tarjeta en ese mismo instante y el
+        // navegador CANCELA el arrastre (la tarjeta "se suelta sola").
+        // Con el estado mutado un tick después, el drag ya está en curso
+        // y sobrevive al re-render.
+        setTimeout(() => {
+            this.state.draggingId = card.id;
+            this.state.dragOverStage = false;
+        }, 0);
     }
 
     onCardDragEnd() {
@@ -253,18 +261,25 @@ export class TransitKanbanView extends Component {
     }
 
     onColumnDragEnter(stageKey, ev) {
-        if (!this.state.draggingId) return;
+        // preventDefault siempre (ver onColumnDragOver).
         ev.preventDefault();
-        this.state.dragOverStage = stageKey;
+        if (this.state.draggingId) {
+            this.state.dragOverStage = stageKey;
+        }
     }
 
     onColumnDragOver(stageKey, ev) {
-        if (!this.state.draggingId) return;
+        // preventDefault SIEMPRE (no solo con draggingId ya seteado): el
+        // dragstart difiere la mutación del estado un tick, y sin el
+        // preventDefault temprano el navegador marca la columna como
+        // destino inválido y el drop jamás dispara.
         ev.preventDefault();
         if (ev.dataTransfer) {
             ev.dataTransfer.dropEffect = "move";
         }
-        this.state.dragOverStage = stageKey;
+        if (this.state.draggingId && this.state.dragOverStage !== stageKey) {
+            this.state.dragOverStage = stageKey;
+        }
     }
 
     onColumnDragLeave(stageKey, ev) {
