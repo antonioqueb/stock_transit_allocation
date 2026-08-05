@@ -13,11 +13,18 @@
              aplicar después de esa herencia para poder retocarlo. -->
         <field name="priority">300</field>
         <field name="arch" type="xml">
-            <xpath expr="//button[@name='action_view_picking']" position="attributes">
-                <attribute name="icon">fa-cube</attribute>
-            </xpath>
-            <xpath expr="//button[@name='action_view_picking']/field[@name='incoming_picking_count']" position="attributes">
-                <attribute name="string">Tránsito</attribute>
+            <!-- REPLACE completo (no attributes): garantiza que el nodo
+                 final —ícono incluido— sea este, pise lo que pise cualquier
+                 otra herencia aplicada antes o después. -->
+            <xpath expr="//button[@name='action_view_picking']" position="replace">
+                <button type="object"
+                        name="action_view_picking"
+                        class="oe_stat_button"
+                        icon="fa-cube"
+                        invisible="incoming_picking_count == 0"
+                        groups="stock.group_stock_user">
+                    <field name="incoming_picking_count" widget="statinfo" string="Tránsito" help="Recepciones en tránsito"/>
+                </button>
             </xpath>
         </field>
     </record>
