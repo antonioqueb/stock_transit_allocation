@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================
+         OC: el smart button de Recepción (camión) pasa a "Tránsito" con
+         ícono de contenedor.
+         ================================================================ -->
+    <record id="view_purchase_order_form_transit_button" model="ir.ui.view">
+        <field name="name">purchase.order.form.transit.button</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <!-- Prioridad alta: el botón lo agrega purchase_stock; hay que
+             aplicar después de esa herencia para poder retocarlo. -->
+        <field name="priority">300</field>
+        <field name="arch" type="xml">
+            <xpath expr="//button[@name='action_view_picking']" position="attributes">
+                <attribute name="icon">fa-cube</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_view_picking']/field[@name='incoming_picking_count']" position="attributes">
+                <attribute name="string">Tránsito</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         RECEPCIONES/TRASLADOS: 'Marcar como por realizar' → 'Comenzar';
+         Cancelar, Devolver y Comprobar disponibilidad salen del header
+         (viven en el engrane vía acciones de servidor, abajo).
+         ================================================================ -->
+    <record id="view_picking_form_som_header_tweaks" model="ir.ui.view">
+        <field name="name">stock.picking.form.som.header.tweaks</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="priority">300</field>
+        <field name="arch" type="xml">
+            <xpath expr="//button[@name='action_confirm']" position="attributes">
+                <attribute name="string">Comenzar</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_assign']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//button[@name='action_cancel']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+            <xpath expr="//header/button[@string='Return']" position="attributes">
+                <attribute name="invisible">1</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ================================================================
+         ENGRANE (menú Acciones) del picking: las tres acciones retiradas
+         del header.
+         ================================================================ -->
+    <record id="action_server_picking_check_availability" model="ir.actions.server">
+        <field name="name">Comprobar disponibilidad</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">
+if records:
+    records.action_assign()
+        </field>
+    </record>
+
+    <record id="action_server_picking_cancel" model="ir.actions.server">
+        <field name="name">Cancelar operación</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">
+if records:
+    records.action_cancel()
+        </field>
+    </record>
+
+    <record id="action_server_picking_return" model="ir.actions.server">
+        <field name="name">Devolver</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">
+if record:
+    action = env['ir.actions.act_window']._for_xml_id('stock.act_stock_return_picking')
+    action['context'] = {
+        'active_id': record.id,
+        'active_ids': record.ids,
+        'active_model': 'stock.picking',
+    }
+        </field>
+    </record>
+
+</odoo>

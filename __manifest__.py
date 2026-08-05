@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.15.8.0',
+    'version': '19.0.16.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -75,6 +75,7 @@
         'views/supplier_links_tracking_views.xml',
         'views/stock_transit_publication_views.xml',
         'views/stock_picking_views.xml',
+        'views/purchase_picking_ui_tweaks.xml',
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
         'views/to_be_purchased_views.xml',

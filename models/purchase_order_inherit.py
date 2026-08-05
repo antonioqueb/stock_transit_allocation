@@ -6,6 +6,25 @@ from odoo.exceptions import UserError
 class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
+    @api.model
+    def _som_transit_source_location(self):
+        """Ubicación de origen de TODAS las recepciones de compra:
+        SOM/TRANSIT. Se resuelve por ruta completa (sobrevive renombres de
+        hijos) con respaldo por id histórico (1019)."""
+        Location = self.env['stock.location']
+        loc = Location.search(
+            [('complete_name', '=ilike', 'SOM/TRANSIT')], limit=1)
+        if not loc:
+            loc = Location.browse(1019).exists()
+        return loc
+
+    def _prepare_picking(self):
+        vals = super()._prepare_picking()
+        loc = self._som_transit_source_location()
+        if loc:
+            vals['location_id'] = loc.id
+        return vals
+
     sale_order_ids = fields.Many2many(
         'sale.order',
         string='Órdenes de Venta Vinculadas',
