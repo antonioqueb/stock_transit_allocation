@@ -42,8 +42,8 @@
             <xpath expr="//button[@name='action_cancel']" position="attributes">
                 <attribute name="invisible">1</attribute>
             </xpath>
-            <!-- Botón Devolver: su name es %(act_stock_return_picking)d (se
-                 resuelve a un id numérico) y 'string' no es selector válido;
+            <!-- Botón Devolver: su name es una referencia de acción que se
+                 resuelve a un id numérico y 'string' no es selector válido;
                  el data-hotkey="k" es único en el header y estable. -->
             <xpath expr="//header/button[@data-hotkey='k']" position="attributes">
                 <attribute name="invisible">1</attribute>
