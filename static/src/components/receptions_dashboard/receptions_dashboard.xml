@@ -68,6 +68,9 @@
                         <t t-if="card.supplier"><t t-esc="card.supplier"/></t>
                         <t t-if="card.po"> · <t t-esc="card.po"/></t>
                     </div>
+                    <!-- Contenedor SIEMPRE visible, aun con la tarjeta
+                         compactada. -->
+                    <div class="o_rcp_card_cont" t-if="card.containers" t-esc="card.containers"/>
                 </div>
                 <span t-if="card.late_days" class="o_rcp_badge red">
                     <t t-call="stock_transit_allocation.icon_alert"/>
@@ -82,10 +85,7 @@
             </div>
 
             <div t-if="this.isExpanded(card)" class="o_rcp_card_body">
-                <div class="o_rcp_card_sub muted" t-if="card.vessel or card.containers">
-                    <t t-if="card.vessel"><t t-esc="card.vessel"/></t>
-                    <t t-if="card.containers"> · <t t-esc="card.containers"/></t>
-                </div>
+                <div class="o_rcp_card_sub muted" t-if="card.vessel" t-esc="card.vessel"/>
 
                 <div class="o_rcp_card_stats">
                     <span><b t-esc="card.qty_label or '0'"/></span>
