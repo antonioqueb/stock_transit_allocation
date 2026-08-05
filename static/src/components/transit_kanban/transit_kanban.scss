@@ -610,3 +610,14 @@ $tk-radius-pill:   20px;
     opacity: 0.45;
     cursor: grabbing;
 }
+
+// Proveedor en la tarjeta del kanban
+.tk-card__row--supplier {
+  .tk-card__supplier {
+    font-weight: 700;
+    color: #1e293b;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

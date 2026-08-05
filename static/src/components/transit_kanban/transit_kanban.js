@@ -122,7 +122,7 @@ export class TransitKanbanView extends Component {
                 "stock.transit.voyage",
                 [["custom_status", "!=", "cancel"]],
                 [
-                    "name", "custom_status", "purchase_id", "vessel_name",
+                    "name", "custom_status", "purchase_id", "tc_supplier_id", "vessel_name",
                     "shipping_line", "container_number", "bl_number",
                     "eta", "etd", "allocation_percent", "transit_progress",
                     "total_m2", "allocated_m2", "company_id",
@@ -165,6 +165,7 @@ export class TransitKanbanView extends Component {
                 const haystack = [
                     r.name,
                     this._str(r.purchase_id),
+                    this._str(r.tc_supplier_id),
                     r.vessel_name || "",
                     r.container_number || "",
                     r.bl_number || "",

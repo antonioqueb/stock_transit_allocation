@@ -110,6 +110,12 @@
                             </div>
 
                             <!-- OC Origen -->
+                            <!-- Proveedor -->
+                            <div t-if="card.tc_supplier_id" class="tk-card__row tk-card__row--supplier">
+                                <i class="fa fa-industry tk-card__row-icon"/>
+                                <span class="tk-card__supplier" t-esc="strOf(card.tc_supplier_id)"/>
+                            </div>
+
                             <div t-if="card.purchase_id" class="tk-card__row tk-card__row--po">
                                 <i class="fa fa-shopping-cart tk-card__row-icon"/>
                                 <span t-esc="strOf(card.purchase_id)"/>
