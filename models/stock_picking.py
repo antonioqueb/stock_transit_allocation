@@ -585,11 +585,21 @@ class StockPicking(models.Model):
             is_transit_loc = False
             dest_loc = pick.location_dest_id
 
-            if dest_loc and (
-                dest_loc.id == 128
-                or any(x in (dest_loc.name or '') for x in ['Transit', 'Tránsito', 'Trancit'])
-            ):
-                is_transit_loc = True
+            # Detección robusta de la ubicación de tránsito:
+            # - usage 'transit' (señal nativa de Odoo),
+            # - nombre O ruta completa conteniendo TRANSIT/TRANSITO/TRANCIT,
+            #   SIN distinguir mayúsculas ni acentos (cubre 'SOM/TRANSIT',
+            #   'Tránsito', 'Fisico/Transit', etc.),
+            # - id 128 (compatibilidad con la ubicación histórica).
+            if dest_loc:
+                loc_text = (
+                    '%s %s' % (dest_loc.name or '', dest_loc.complete_name or '')
+                ).upper().replace('Á', 'A')
+                is_transit_loc = (
+                    dest_loc.usage == 'transit'
+                    or dest_loc.id == 128
+                    or any(x in loc_text for x in ('TRANSIT', 'TRANSITO', 'TRANCIT'))
+                )
 
             if is_transit_loc and pick.picking_type_code == 'incoming':
                 _logger.info(
