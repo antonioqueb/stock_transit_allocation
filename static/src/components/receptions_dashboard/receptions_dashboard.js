@@ -1,12 +1,11 @@
 /** @odoo-module **/
-// Tablero de Recepciones — centraliza todo lo que viene de tránsito hacia
-// existencias: qué está por llegar (ETA de la API), qué ya publicó compras
-// (listo para trabajar), qué está atrasado y qué ya se recepcionó.
+// Tablero de Recepciones — pipeline operativo del almacén: En puerto,
+// Listos para recibir y Recepcionados (folios validados, 7 días).
+// Cards compactos: colapsados por default, click para desplegar.
 // Refresco automático cada 60 s con skip si el payload no cambió.
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
-import { loadBundle } from "@web/core/assets";
-import { Component, onMounted, onWillUnmount, useRef, useState } from "@odoo/owl";
+import { Component, onMounted, onWillUnmount, useState } from "@odoo/owl";
 
 export class ReceptionsDashboard extends Component {
     static template = "stock_transit_allocation.ReceptionsDashboard";
@@ -15,22 +14,16 @@ export class ReceptionsDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
-        this.state = useState({ loading: true, data: null, detail: null });
-        this.chartRef = useRef("chartWeekly");
-        this.chart = null;
+        this.state = useState({ loading: true, data: null, detail: null, expanded: {} });
         this.timer = null;
         this.lastPayload = null;
         onMounted(async () => {
-            await loadBundle("web.chartjs_lib");
             await this.load();
             this.timer = setInterval(() => this.load(), 60000);
         });
         onWillUnmount(() => {
             if (this.timer) {
                 clearInterval(this.timer);
-            }
-            if (this.chart) {
-                this.chart.destroy();
             }
         });
     }
@@ -54,55 +47,15 @@ export class ReceptionsDashboard extends Component {
         this.lastPayload = payload;
         this.state.data = data;
         this.state.loading = false;
-        await Promise.resolve();
-        requestAnimationFrame(() => this.renderChart());
     }
 
-    renderChart() {
-        const d = this.state.data;
-        if (!d || !this.chartRef.el || !window.Chart) {
-            return;
-        }
-        if (this.chart) {
-            this.chart.destroy();
-            this.chart = null;
-        }
-        this.chart = new window.Chart(this.chartRef.el.getContext("2d"), {
-            type: "bar",
-            data: {
-                labels: d.weekly.map((w) => w.week),
-                datasets: [
-                    {
-                        type: "line",
-                        label: "Recepciones",
-                        data: d.weekly.map((w) => w.count),
-                        borderColor: "#38BDF8",
-                        backgroundColor: "rgba(56,189,248,.18)",
-                        tension: 0.35,
-                        yAxisID: "y1",
-                        pointRadius: 3,
-                    },
-                    {
-                        label: "m² recibidos",
-                        data: d.weekly.map((w) => w.m2),
-                        backgroundColor: "rgba(11,87,208,.78)",
-                        borderRadius: 5,
-                        maxBarThickness: 30,
-                        yAxisID: "y",
-                    },
-                ],
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: "index", intersect: false },
-                scales: {
-                    y: { beginAtZero: true, grid: { color: "rgba(100,116,139,.12)" } },
-                    y1: { beginAtZero: true, position: "right", ticks: { precision: 0 }, grid: { display: false } },
-                    x: { grid: { display: false } },
-                },
-            },
-        });
+    // ── Cards colapsables ───────────────────────────────────────
+    toggleCard(card) {
+        this.state.expanded[card.id] = !this.state.expanded[card.id];
+    }
+
+    isExpanded(card) {
+        return !!this.state.expanded[card.id];
     }
 
     // ── Navegación ──────────────────────────────────────────────
