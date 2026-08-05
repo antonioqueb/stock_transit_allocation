@@ -27,6 +27,20 @@
             </field>
 
             <xpath expr="//header" position="inside">
+                <!-- Recepción equivocada (validada+devuelta o cancelada):
+                     libera el embarque para reasignar las placas del PL a
+                     una recepción NUEVA. Vive aquí (y no en
+                     stock_lot_packing_import) porque este módulo es el dueño
+                     de supplier_shipment_id. -->
+                <field name="supplier_shipment_id" invisible="1"/>
+                <button name="action_som_release_shipment_link"
+                        string="Reasignar PL a nueva recepción"
+                        type="object"
+                        icon="fa-refresh"
+                        confirm="Esta recepción se desvinculará del embarque del portal y las placas del PL se reasignarán a una recepción NUEVA. ¿Continuar?"
+                        invisible="state not in ('done', 'cancel') or not supplier_shipment_id"
+                        groups="stock.group_stock_user"/>
+
                 <button name="action_sync_from_voyage"
                         string="📲 Sincronizar con Embarque"
                         type="object"
