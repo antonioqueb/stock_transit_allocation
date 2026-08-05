@@ -47,6 +47,45 @@ class StockPicking(models.Model):
             pick.transit_count = len(pick.transit_voyage_ids)
 
     # -------------------------------------------------------------------------
+    # DESTINO FORZADO DE RECEPCIONES: SOM/TRANSIT
+    # -------------------------------------------------------------------------
+
+    def _som_force_transit_reception_dest(self):
+        """Toda recepción (tipo incoming) DEBE llegar a SOM/TRANSIT aunque el
+        usuario u otro flujo haya seleccionado otra ubicación. Excepciones:
+        devoluciones de cliente (return_id) y pickings ya done/cancel."""
+        loc = self.env['purchase.order']._som_transit_source_location()
+        if not loc:
+            return
+        for pick in self:
+            if pick.picking_type_code != 'incoming':
+                continue
+            if pick.state in ('done', 'cancel'):
+                continue
+            if 'return_id' in pick._fields and pick.return_id:
+                continue
+            if pick.location_dest_id.id != loc.id:
+                pick.with_context(
+                    som_skip_transit_dest=True).location_dest_id = loc.id
+            moves = pick.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel')
+                and m.location_dest_id.id != loc.id)
+            if moves:
+                moves.write({'location_dest_id': loc.id})
+            mls = pick.move_line_ids.filtered(
+                lambda l: l.state not in ('done', 'cancel')
+                and l.location_dest_id.id != loc.id)
+            if mls:
+                mls.write({'location_dest_id': loc.id})
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        pickings = super().create(vals_list)
+        if not self.env.context.get('som_skip_transit_dest'):
+            pickings._som_force_transit_reception_dest()
+        return pickings
+
+    # -------------------------------------------------------------------------
     # HELPERS GENERALES
     # -------------------------------------------------------------------------
 
@@ -547,7 +586,18 @@ class StockPicking(models.Model):
                 operation_label=_("write(state=done)"),
             )
 
-        return super(StockPicking, self).write(vals)
+        res = super(StockPicking, self).write(vals)
+
+        # Si alguien cambia el destino (o el tipo) de una recepción, se
+        # re-fuerza SOM/TRANSIT. El flag de contexto evita la recursión del
+        # propio forzado.
+        if (
+            ('location_dest_id' in vals or 'picking_type_id' in vals)
+            and not self.env.context.get('som_skip_transit_dest')
+        ):
+            self._som_force_transit_reception_dest()
+
+        return res
 
     def button_validate(self):
         """

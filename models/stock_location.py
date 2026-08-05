@@ -58,4 +58,21 @@ class StockLocation(models.Model):
                 '[SOM] Ubicaciones normalizadas a usage=transit: %s',
                 to_fix.mapped('complete_name'),
             )
+
+        # Tipos de operación de recepción: el destino default es SOM/TRANSIT,
+        # para que las recepciones creadas a mano ya nazcan con él en la UI
+        # (el forzado duro vive en stock.picking.create/write).
+        transit_loc = self.env['purchase.order']._som_transit_source_location()
+        if transit_loc:
+            picking_types = self.env['stock.picking.type'].sudo().search([
+                ('code', '=', 'incoming'),
+            ])
+            wrong = picking_types.filtered(
+                lambda p: p.default_location_dest_id.id != transit_loc.id)
+            if wrong:
+                wrong.write({'default_location_dest_id': transit_loc.id})
+                _logger.info(
+                    '[SOM] Tipos de recepción con destino default SOM/TRANSIT: %s',
+                    wrong.mapped('name'),
+                )
         return True
