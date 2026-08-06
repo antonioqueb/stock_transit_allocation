@@ -1756,7 +1756,7 @@ function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: Dri
 // ─────────────────────────────────────────────────────────────────────────────
 // App shell
 // ─────────────────────────────────────────────────────────────────────────────
-const PRESETS: Array<[string, string]> = [["mes", "Mes"], ["trim", "Trimestre"], ["anio", "Año"]];
+const PRESETS: Array<[string, string]> = [["hoy", "Hoy"], ["sem", "Semana"], ["mes", "Mes"], ["trim", "Trimestre"], ["anio", "Año"]];
 
 function App() {
   const boot = useMemo<Rec>(() => {
@@ -1789,7 +1789,9 @@ function App() {
   const applyPreset = useCallback((p: string) => {
     const to = new Date();
     const from = new Date(to);
-    if (p === "mes") from.setDate(1);
+    if (p === "hoy") { /* from = to: solo el día de hoy */ }
+    else if (p === "sem") from.setDate(from.getDate() - ((from.getDay() + 6) % 7)); // lunes de esta semana
+    else if (p === "mes") from.setDate(1);
     else if (p === "trim") from.setDate(from.getDate() - 90);
     else from.setFullYear(from.getFullYear() - 1);
     setPreset(p);
