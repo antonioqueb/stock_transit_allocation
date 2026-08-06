@@ -442,6 +442,40 @@ class SomAnalytics(models.AbstractModel):
         """, dt, default=[(0, 0)])[0]
         pack['kpis']['realizacion_pct'] = round(
             (row[0] or 0) / row[1] * 100, 1) if row[1] else 0.0
+
+        # 1.6b Reincidencias del piso autorizado (bajar de lo ya autorizado)
+        pack['kpis']['reincidencias_piso'] = (lambda r: r[0])(self._sq("""
+            SELECT COUNT(*) FROM mail_message
+            WHERE model = 'sale.order'
+              AND body ILIKE '%%Precio por debajo de lo autorizado%%'
+              AND create_date >= %s AND create_date <= %s
+        """, dt, default=[(0,)])[0])
+
+        # 2.3b Delta promedio precio solicitado vs autorizado
+        row = self._sq("""
+            SELECT AVG((requested_price - authorized_price)
+                / NULLIF(requested_price, 0)) * 100
+            FROM price_authorization_line
+            WHERE requested_price > 0 AND authorized_price > 0
+              AND create_date >= %s AND create_date <= %s
+        """, dt, default=[(None,)])[0]
+        pack['kpis']['auth_delta_pct'] = round(row[0] or 0.0, 1)
+
+        # 2.2b Ganancia/pérdida cambiaria realizada (TC entrega vs TC confirmación)
+        row = self._sq("""
+            SELECT COALESCE(SUM(so.amount_total
+                * (so.x_delivery_exchange_rate - so.x_confirm_exchange_rate)), 0),
+                   COUNT(*)
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state = 'sale' AND rc.name = 'USD'
+              AND COALESCE(so.x_confirm_exchange_rate, 0) > 0
+              AND COALESCE(so.x_delivery_exchange_rate, 0) > 0
+              AND so.date_order >= %s AND so.date_order <= %s
+        """, dt, default=[(0, 0)])[0]
+        pack['kpis']['fx_realizado_mxn'] = round(row[0] or 0.0, 2)
+        pack['kpis']['fx_ordenes'] = row[1]
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -636,6 +670,58 @@ class SomAnalytics(models.AbstractModel):
         pack['kpis']['bloques_rotos_m2'] = round(row[1] or 0, 1)
         pack['kpis']['bloques_activos'] = row[2]
 
+        # 3.1b Committed: m² internos seleccionados en OVs confirmadas
+        row = self._sq("""
+            SELECT COALESCE(SUM(q.quantity), 0)
+            FROM sale_order_line_stock_quant_rel rel
+            JOIN sale_order_line sol ON sol.id = rel.sale_order_line_id
+            JOIN sale_order so ON so.id = sol.order_id AND so.state = 'sale'
+            JOIN stock_quant q ON q.id = rel.stock_quant_id AND q.quantity > 0
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+        """, default=[(0,)])[0]
+        pack['kpis']['committed_m2'] = round(row[0] or 0.0, 1)
+
+        # 3.1c Tránsito publicado: T.Committed (con pedido) vs T.Available
+        row = self._sq("""
+            SELECT
+              COALESCE(SUM(l.product_uom_qty) FILTER (
+                  WHERE l.order_id IS NOT NULL), 0),
+              COALESCE(SUM(l.product_uom_qty) FILTER (
+                  WHERE l.order_id IS NULL), 0)
+            FROM stock_transit_line l
+            JOIN stock_transit_voyage v ON v.id = l.voyage_id
+                 AND v.custom_status NOT IN ('delivered','cancel')
+            WHERE v.transit_inventory_published = true
+        """, default=[(0, 0)])[0]
+        pack['kpis']['t_committed_m2'] = round(row[0] or 0.0, 1)
+        pack['kpis']['t_available_m2'] = round(row[1] or 0.0, 1)
+
+        # 3.5b m² disponibles "invisibles" (bloque sin foto)
+        m2_sin_foto = self._sq("""
+            SELECT COALESCE(SUM(q.quantity), 0)
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage='internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0 AND COALESCE(sl.x_bloque,'') != ''
+              AND UPPER(sl.x_bloque) NOT IN (
+                  SELECT DISTINCT UPPER(block_name)
+                  FROM supplier_shipment_block_image
+                  WHERE COALESCE(block_name,'') != '')
+        """, default=[(0,)])[0][0]
+        pack['kpis']['m2_sin_foto'] = round(m2_sin_foto or 0.0, 1)
+
+        # 3.6b Conversión de holds: vendidos vs liberados (histórico)
+        hrow = self._sq("""
+            SELECT COUNT(*) FILTER (WHERE state = 'done'),
+                   COUNT(*) FILTER (WHERE state IN ('cancelled','cancel'))
+            FROM stock_lot_hold_order
+        """, default=[(0, 0)])[0]
+        closed = (hrow[0] or 0) + (hrow[1] or 0)
+        pack['kpis']['holds_conversion_pct'] = round(
+            (hrow[0] or 0) / closed * 100, 1) if closed else 0.0
+
         # 3.7 Reservas débiles de carrito desplazadas por venta (periodo)
         date_from, date_to = self._dates(f)
         row = self._sq("""
@@ -735,6 +821,13 @@ class SomAnalytics(models.AbstractModel):
                 'lead_time_dias': lead_days,
                 'lead_time_ocs': lead_count,
                 'discrepancias': disc,
+                'pipeline_edad_dias': (lambda r: round(r[0] or 0.0, 1))(
+                    self._sq("""
+                    SELECT AVG(EXTRACT(EPOCH FROM (NOW() - create_date))
+                        / 86400.0)
+                    FROM purchase_order_line_allocation
+                    WHERE COALESCE(state,'draft') IN ('draft','pending')
+                """, default=[(None,)])[0]),
             },
             'by_month': by_month,
             'top_suppliers': top_prov,
@@ -977,6 +1070,21 @@ class SomAnalytics(models.AbstractModel):
               AND COALESCE(x_is_quote_backup,false) = false
               AND date_order < NOW() - INTERVAL '30 days'""")
 
+        add('Worksheets sin procesar', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
+                / 86400.0)
+            FROM stock_picking
+            WHERE COALESCE(packing_list_imported, false)
+              AND COALESCE(worksheet_imported, false) = false
+              AND state NOT IN ('done','cancel')""")
+        add('Alertas de inventario duplicado (quant > PL)', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - create_date))
+                / 86400.0)
+            FROM mail_message
+            WHERE model = 'stock.transit.voyage'
+              AND body ILIKE '%%excede el Packing List%%'
+              AND create_date >= NOW() - INTERVAL '90 days'""")
+
         # Viajes sin publicar (compute con search propio → ORM)
         try:
             pend_pub = self.env['stock.transit.voyage'].sudo().search_count(
@@ -1011,6 +1119,20 @@ class SomAnalytics(models.AbstractModel):
             {'campo': 'Contenedor', 'pct': round(row[4] / total * 100, 1)},
             {'campo': 'Pedimento', 'pct': round(row[5] / total * 100, 1)},
         ]
+        foto = self._sq("""
+            SELECT COUNT(DISTINCT sl.id) FILTER (
+                WHERE UPPER(COALESCE(sl.x_bloque,'')) IN (
+                    SELECT DISTINCT UPPER(block_name)
+                    FROM supplier_shipment_block_image
+                    WHERE COALESCE(block_name,'') != ''))
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+        """, default=[(0,)])[0][0]
+        ficha.append({'campo': 'Foto de bloque',
+                      'pct': round((foto or 0) / total * 100, 1)})
 
         # 10.2 Órdenes sin proyecto / sin referencia del cliente (periodo)
         date_from, date_to = self._dates(f)
@@ -1343,6 +1465,15 @@ class SomAnalytics(models.AbstractModel):
                 'efectivo_sin_aplicar': round(sin_aplicar[1], 2),
                 'recibos_sin_aplicar': sin_aplicar[0],
                 'efectivo_aplicado': round(aplicado[1], 2),
+                'comprobantes_pendientes': (lambda r: r[0])(self._sq("""
+                    SELECT COUNT(*) FROM sale_payment_proof
+                    WHERE state = 'pending'
+                """, default=[(0,)])[0]),
+                'comprobantes_monto': (lambda r: round(r[0] or 0, 2))(
+                    self._sq("""
+                    SELECT COALESCE(SUM(amount),0) FROM sale_payment_proof
+                    WHERE state = 'pending'
+                """, default=[(0,)])[0]),
             },
             'cash_month': self._cash_flow_months(),
             'ar_buckets': ar_buckets,

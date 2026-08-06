@@ -117,6 +117,9 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Autorizaciones de precio</t><t t-set="val" t-value="num(data.kpis.auth_aprobadas,0) + ' / ' + num(data.kpis.auth_solicitudes,0)"/><t t-set="sub" t-value="'Resolución ' + num(data.kpis.auth_horas_resolucion) + ' h prom.'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comisiones devengadas</t><t t-set="val" t-value="money(data.kpis.comisiones_mxn)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Realización de precio</t><t t-set="val" t-value="num(data.kpis.realizacion_pct) + '%'"/><t t-set="sub">precio cobrado vs N1 de lista</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Reincidencias de piso</t><t t-set="val" t-value="num(data.kpis.reincidencias_piso,0)"/><t t-set="sub">bajaron de lo YA autorizado</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Rescate del autorizador</t><t t-set="val" t-value="num(data.kpis.auth_delta_pct) + '%'"/><t t-set="sub">delta solicitado vs autorizado</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">FX realizado</t><t t-set="val" t-value="money(data.kpis.fx_realizado_mxn)"/><t t-set="sub" t-value="'TC entrega vs confirmación · ' + num(data.kpis.fx_ordenes,0) + ' órdenes'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide">
@@ -194,6 +197,10 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Rotación 12m</t><t t-set="val" t-value="num(data.kpis.rotacion,2) + 'x'"/><t t-set="sub" t-value="num(data.kpis.meses_inventario) + ' meses de inventario'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Salidas 12m</t><t t-set="val" t-value="num(data.kpis.salidas_12m_m2) + ' m²'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Edad de holds</t><t t-set="val" t-value="num(data.kpis.holds_edad_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.holds_eternos,0) + ' holds de +30 días'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Committed (en OV)</t><t t-set="val" t-value="num(data.kpis.committed_m2) + ' m²'"/><t t-set="sub">placas seleccionadas en ventas confirmadas</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Tránsito publicado</t><t t-set="val" t-value="num(data.kpis.t_available_m2) + ' / ' + num(data.kpis.t_committed_m2)"/><t t-set="sub">T.Available / T.Committed m²</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² sin foto</t><t t-set="val" t-value="num(data.kpis.m2_sin_foto)"/><t t-set="sub">material invisible para venta remota</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Conversión de holds</t><t t-set="val" t-value="num(data.kpis.holds_conversion_pct) + '%'"/><t t-set="sub">terminan en venta vs liberados</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Reservas de carrito desplazadas</t><t t-set="val" t-value="num(data.kpis.reservas_desplazadas,0)"/><t t-set="sub">colisión piso de venta vs almacén</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloques rotos</t><t t-set="val" t-value="num(data.kpis.bloques_rotos,0)"/><t t-set="sub" t-value="num(data.kpis.bloques_rotos_m2) + ' m² remanentes de ' + num(data.kpis.bloques_activos,0) + ' bloques'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloques con foto</t><t t-set="val" t-value="num(data.kpis.bloques_con_foto_pct) + '%'"/><t t-set="sub" t-value="'de ' + num(data.kpis.bloques_stock,0) + ' bloques en stock'"/></t>
@@ -234,6 +241,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Proveedores activos</t><t t-set="val" t-value="num(data.kpis.proveedores,0)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Lead time OC→recepción</t><t t-set="val" t-value="num(data.kpis.lead_time_dias) + ' días'"/><t t-set="sub" t-value="'sobre ' + num(data.kpis.lead_time_ocs,0) + ' OCs recibidas'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Discrepancias PL</t><t t-set="val" t-value="num(data.kpis.discrepancias,0)"/><t t-set="sub">portal vs recibido</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Edad del pipeline</t><t t-set="val" t-value="num(data.kpis.pipeline_edad_dias) + ' días'"/><t t-set="sub">allocations pendientes de comprar</t></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide">
@@ -341,6 +349,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Posición neta</t><t t-set="val" t-value="money(data.kpis.neto)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Efectivo sin aplicar</t><t t-set="val" t-value="money(data.kpis.efectivo_sin_aplicar)"/><t t-set="sub" t-value="num(data.kpis.recibos_sin_aplicar,0) + ' recibos entregados sin pago registrado'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Efectivo aplicado</t><t t-set="val" t-value="money(data.kpis.efectivo_aplicado)"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes sin aplicar</t><t t-set="val" t-value="money(data.kpis.comprobantes_monto)"/><t t-set="sub" t-value="num(data.kpis.comprobantes_pendientes,0) + ' comprobantes pendientes'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel">
