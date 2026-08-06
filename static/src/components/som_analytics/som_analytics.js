@@ -1,14 +1,11 @@
 /** @odoo-module **/
-// SOM Analytics — BI interactivo con drill-down (estilo Power BI).
+// SOM Analytics v2 — BI por DOMINIOS con PROFUNDIZACIÓN real.
 //
-// Principios:
-//  · Click en CUALQUIER segmento de un gráfico => se convierte en filtro
-//    global (cross-filtering) y TODO el tablero se recalcula.
-//  · Cada gráfico puede expandirse (modal grande con su tabla de datos y
-//    versiones alternativas del mismo gráfico: barras/línea/dona).
-//  · Utilidad SIEMPRE con costo all-in (backend som.analytics).
-//  · Chart.js vendorizado de Odoo (web.chartjs_lib): cero dependencias
-//    externas, funciona offline.
+//  · Pestañas: Resumen · Comercial · Inventario · Compras · Tránsito ·
+//    Entregas · Financiero. Cada una con su propio payload (SQL, rápido).
+//  · Click en un elemento = DRILL: panel lateral con la radiografía completa
+//    de ese elemento (tendencia, cortes por otras dimensiones, órdenes).
+//    Desde el drill se puede, opcionalmente, fijar como filtro global.
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { loadBundle } from "@web/core/assets";
@@ -19,11 +16,21 @@ const SKY = "#38bdf8";
 const GREEN = "#10b981";
 const AMBER = "#f59e0b";
 const RED = "#ef4444";
-const PALETTE = ["#0b57d0", "#38bdf8", "#10b981", "#f59e0b", "#8b5cf6", "#ef4444", "#0e7490", "#ec4899"];
+const VIOLET = "#8b5cf6";
+const PALETTE = [BLUE, SKY, GREEN, AMBER, VIOLET, RED, "#0e7490", "#ec4899"];
 const FONT = "'Inter', -apple-system, 'Segoe UI', Roboto, sans-serif";
-
 const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun",
     "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+
+const TABS = [
+    { key: "resumen", label: "Resumen" },
+    { key: "comercial", label: "Comercial" },
+    { key: "inventario", label: "Inventario" },
+    { key: "compras", label: "Compras" },
+    { key: "transito", label: "Tránsito" },
+    { key: "entregas", label: "Entregas" },
+    { key: "financiero", label: "Financiero" },
+];
 
 function fmtMoney(v) {
     return new Intl.NumberFormat("es-MX", {
@@ -46,7 +53,6 @@ function monthLabel(m) {
     return `${MONTHS_ES[parseInt(m.slice(5, 7), 10) - 1]} ${m.slice(2, 4)}`;
 }
 
-// Plugin: texto al centro de las donas (total + subtítulo).
 const somCenterText = {
     id: "somCenterText",
     afterDraw(chart) {
@@ -59,12 +65,12 @@ const somCenterText = {
         ctx.save();
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
-        ctx.font = `800 17px ${FONT}`;
+        ctx.font = `800 16px ${FONT}`;
         ctx.fillStyle = "#0f172a";
         ctx.fillText(opts.text, x, y - 7);
-        ctx.font = `600 10.5px ${FONT}`;
+        ctx.font = `600 10px ${FONT}`;
         ctx.fillStyle = "#64748b";
-        ctx.fillText(opts.sub || "", x, y + 11);
+        ctx.fillText(opts.sub || "", x, y + 10);
         ctx.restore();
     },
 };
@@ -76,15 +82,17 @@ export class SomAnalytics extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
-        this.notification = useService("notification");
+        this.tabs = TABS;
         this.state = useState({
+            tab: "resumen",
             loading: true,
             error: "",
-            data: null,
+            cache: {},          // {tabKey: payload}
             filters: this.defaultFilters(),
             chips: [],
             preset: "12m",
-            expanded: null,
+            drill: null,        // payload de get_drill
+            drillLoading: false,
         });
         this.charts = {};
         onMounted(async () => {
@@ -92,7 +100,7 @@ export class SomAnalytics extends Component {
             if (window.Chart && !window.Chart.registry.plugins.get("somCenterText")) {
                 window.Chart.register(somCenterText);
             }
-            await this.load();
+            await this.loadTab(this.state.tab);
         });
         onWillUnmount(() => this.destroyCharts());
     }
@@ -107,22 +115,39 @@ export class SomAnalytics extends Component {
         };
     }
 
-    // ── Data ────────────────────────────────────────────────────────────
-    async load() {
+    // ── Carga por pestaña (con caché por sesión de filtros) ─────────────
+    get data() {
+        return this.state.cache[this.state.tab];
+    }
+
+    async loadTab(tab, force = false) {
+        this.state.tab = tab;
+        if (this.state.cache[tab] && !force) {
+            await Promise.resolve();
+            requestAnimationFrame(() => this.renderTab());
+            return;
+        }
         this.state.loading = true;
         this.state.error = "";
         try {
             const data = await this.orm.call(
-                "som.analytics", "get_analytics_data", [this.state.filters]);
-            this.state.data = data;
+                "som.analytics", "get_dashboard", [tab, this.state.filters]);
+            if (data && data.error) {
+                this.state.error = data.error;
+            } else {
+                this.state.cache = { ...this.state.cache, [tab]: data };
+            }
         } catch (e) {
             this.state.error = (e.data && e.data.message) || String(e);
-            this.state.loading = false;
-            return;
         }
         this.state.loading = false;
         await Promise.resolve();
-        requestAnimationFrame(() => this.renderAllCharts());
+        requestAnimationFrame(() => this.renderTab());
+    }
+
+    reloadAll() {
+        this.state.cache = {};
+        this.loadTab(this.state.tab, true);
     }
 
     destroyCharts() {
@@ -132,14 +157,15 @@ export class SomAnalytics extends Component {
         this.charts = {};
     }
 
-    // ── Filtros / drill ─────────────────────────────────────────────────
+    // ── Filtros globales (secundarios al drill) ─────────────────────────
     addFilter(key, value, label) {
         this.state.filters = { ...this.state.filters, [key]: value };
         this.state.chips = [
             ...this.state.chips.filter((c) => c.key !== key),
             { key, label },
         ];
-        this.load();
+        this.closeDrill();
+        this.reloadAll();
     }
 
     removeFilter(key) {
@@ -147,14 +173,14 @@ export class SomAnalytics extends Component {
         delete f[key];
         this.state.filters = f;
         this.state.chips = this.state.chips.filter((c) => c.key !== key);
-        this.load();
+        this.reloadAll();
     }
 
     clearFilters() {
         this.state.filters = this.defaultFilters();
         this.state.chips = [];
         this.state.preset = "12m";
-        this.load();
+        this.reloadAll();
     }
 
     setPreset(preset) {
@@ -172,53 +198,64 @@ export class SomAnalytics extends Component {
         };
         delete this.state.filters.month;
         this.state.chips = this.state.chips.filter((c) => c.key !== "month");
-        this.load();
+        this.reloadAll();
     }
 
-    // ── Sparklines SVG de los KPI cards ─────────────────────────────────
-    sparkPoints(field) {
-        const rows = this.state.data?.by_month || [];
-        if (rows.length < 2) return "";
-        const vals = rows.map((r) => r[field] || 0);
-        const min = Math.min(...vals);
-        const max = Math.max(...vals);
-        const span = max - min || 1;
-        return vals.map((v, i) => {
-            const x = (i / (vals.length - 1)) * 100;
-            const y = 26 - ((v - min) / span) * 22;
-            return `${x.toFixed(1)},${y.toFixed(1)}`;
-        }).join(" ");
+    // ── DRILL: profundizar en un elemento ───────────────────────────────
+    async drill(entity, value, label) {
+        this.state.drillLoading = true;
+        this.state.drill = { entity, value, label, kpis: {} };
+        try {
+            const data = await this.orm.call(
+                "som.analytics", "get_drill",
+                [entity, value, label, this.state.filters]);
+            this.state.drill = data;
+        } catch (e) {
+            this.state.drill = null;
+            this.state.error = (e.data && e.data.message) || String(e);
+        }
+        this.state.drillLoading = false;
+        await Promise.resolve();
+        requestAnimationFrame(() => this.renderDrill());
     }
 
-    sparkArea(field) {
-        const pts = this.sparkPoints(field);
-        return pts ? `0,30 ${pts} 100,30` : "";
+    closeDrill() {
+        for (const k of Object.keys(this.charts)) {
+            if (k.startsWith("dr_")) {
+                this.charts[k].destroy();
+                delete this.charts[k];
+            }
+        }
+        this.state.drill = null;
     }
 
-    // ── Charts: helpers de estilo ───────────────────────────────────────
-    _grad(canvasId, from, to) {
-        const el = document.getElementById(canvasId);
-        if (!el) return from;
-        const g = el.getContext("2d").createLinearGradient(0, 0, 0, el.clientHeight || 300);
-        g.addColorStop(0, from);
-        g.addColorStop(1, to);
-        return g;
+    applyDrillAsFilter() {
+        const d = this.state.drill;
+        if (!d) return;
+        const keyMap = {
+            month: "month", product: "product_id",
+            seller: "user_id", customer: "partner_id", level: "level",
+        };
+        this.addFilter(keyMap[d.entity], d.value, d.label);
     }
 
+    // ── Fábrica de gráficos ─────────────────────────────────────────────
     baseOptions(onClickFn) {
         return {
             responsive: true,
             maintainAspectRatio: false,
-            onClick: onClickFn,
-            animation: { duration: 550, easing: "easeOutQuart" },
+            onClick: onClickFn || (() => {}),
+            animation: { duration: 450, easing: "easeOutQuart" },
             onHover: (ev, els) => {
-                ev.native.target.style.cursor = els.length ? "pointer" : "default";
+                ev.native.target.style.cursor =
+                    els.length && onClickFn ? "pointer" : "default";
             },
             plugins: {
                 legend: {
                     labels: {
                         boxWidth: 9, boxHeight: 9, usePointStyle: true,
-                        pointStyle: "circle", font: { size: 11, family: FONT, weight: "600" },
+                        pointStyle: "circle",
+                        font: { size: 11, family: FONT, weight: "600" },
                         color: "#475569",
                     },
                 },
@@ -228,17 +265,13 @@ export class SomAnalytics extends Component {
                     bodyColor: "#cbd5e1",
                     titleFont: { size: 12, weight: "700", family: FONT },
                     bodyFont: { size: 11.5, family: FONT },
-                    padding: 12,
-                    cornerRadius: 10,
-                    boxWidth: 8,
-                    boxHeight: 8,
-                    usePointStyle: true,
+                    padding: 12, cornerRadius: 10,
+                    boxWidth: 8, boxHeight: 8, usePointStyle: true,
                     callbacks: {
                         label: (ctx) => {
                             const ds = ctx.dataset.label || "";
-                            const v = ctx.parsed.y ?? ctx.parsed;
-                            const money = ctx.dataset.somMoney;
-                            return ` ${ds}: ${money ? fmtMoney(v) : fmtNum(v)}`;
+                            const v = ctx.parsed.y ?? ctx.parsed.x ?? ctx.parsed;
+                            return ` ${ds}: ${ctx.dataset.somMoney ? fmtMoney(v) : fmtNum(v)}`;
                         },
                     },
                 },
@@ -246,10 +279,9 @@ export class SomAnalytics extends Component {
         };
     }
 
-    _axisMoney() {
+    axMoney() {
         return {
-            beginAtZero: true,
-            border: { display: false },
+            beginAtZero: true, border: { display: false },
             grid: { color: "rgba(100,116,139,.10)" },
             ticks: {
                 font: { size: 10.5, family: FONT }, color: "#94a3b8",
@@ -258,408 +290,429 @@ export class SomAnalytics extends Component {
         };
     }
 
-    _axisPlain(size = 10.5) {
+    axPlain(size = 10.5) {
         return {
-            border: { display: false },
-            grid: { display: false },
+            border: { display: false }, grid: { display: false },
             ticks: { font: { size, family: FONT, weight: "600" }, color: "#64748b" },
         };
     }
 
-    makeChart(key, canvasId, config) {
+    mk(key, canvasId, config) {
         const el = document.getElementById(canvasId);
         if (!el || !window.Chart) return;
-        if (this.charts[key]) {
-            this.charts[key].destroy();
-        }
+        if (this.charts[key]) this.charts[key].destroy();
         this.charts[key] = new window.Chart(el.getContext("2d"), config);
     }
 
-    renderAllCharts() {
-        const d = this.state.data;
-        if (!d) return;
-        this.renderMonthly(d);
-        this.renderLevels(d);
-        this.renderProducts(d);
-        this.renderSellers(d);
-        this.renderAging(d);
-        this.renderTransit(d);
-        if (this.state.expanded) this.renderExpanded();
+    barChart(key, id, labels, datasets, { horizontal = false, click = null, stacked = false } = {}) {
+        this.mk(key, id, {
+            type: "bar",
+            data: { labels, datasets },
+            options: {
+                ...this.baseOptions(click),
+                indexAxis: horizontal ? "y" : "x",
+                interaction: { mode: "index", intersect: false },
+                scales: horizontal
+                    ? { x: { ...this.axMoney(), stacked }, y: { ...this.axPlain(10), stacked } }
+                    : { y: { ...this.axMoney(), stacked }, x: { ...this.axPlain(), stacked } },
+            },
+        });
     }
 
-    renderMonthly(d) {
-        const rows = d.by_month || [];
-        const clickFn = (ev, els) => {
-            if (!els.length) return;
-            const row = rows[els[0].index];
-            this.addFilter("month", row.key, `Mes: ${monthLabel(row.key)}`);
+    doughnut(key, id, labels, values, { click = null, center = "", sub = "", tooltips = null } = {}) {
+        const base = this.baseOptions(click);
+        this.mk(key, id, {
+            type: "doughnut",
+            data: {
+                labels,
+                datasets: [{
+                    data: values, backgroundColor: PALETTE, hoverOffset: 10,
+                    borderWidth: 3, borderColor: "#fff", borderRadius: 5,
+                }],
+            },
+            options: {
+                ...base,
+                cutout: "66%",
+                layout: { padding: 6 },
+                plugins: {
+                    ...base.plugins,
+                    somCenterText: { text: center, sub },
+                    legend: {
+                        position: "bottom",
+                        labels: {
+                            boxWidth: 8, boxHeight: 8, usePointStyle: true,
+                            pointStyle: "circle", padding: 9,
+                            font: { size: 10.5, family: FONT, weight: "600" },
+                            color: "#475569",
+                        },
+                    },
+                    tooltip: {
+                        ...base.plugins.tooltip,
+                        callbacks: tooltips || base.plugins.tooltip.callbacks,
+                    },
+                },
+            },
+        });
+    }
+
+    ds(label, data, color, money = true) {
+        return {
+            label, data, somMoney: money,
+            backgroundColor: color, hoverBackgroundColor: color,
+            borderRadius: 6, borderSkipped: false, maxBarThickness: 34,
         };
-        this.makeChart("monthly", "som_bi_monthly", {
+    }
+
+    // ── Render por pestaña ──────────────────────────────────────────────
+    renderTab() {
+        const d = this.data;
+        if (!d) return;
+        const t = this.state.tab;
+        if (t === "resumen") this.renderResumen(d);
+        else if (t === "comercial") this.renderComercial(d);
+        else if (t === "inventario") this.renderInventario(d);
+        else if (t === "compras") this.renderCompras(d);
+        else if (t === "transito") this.renderTransito(d);
+        else if (t === "entregas") this.renderEntregas(d);
+        else if (t === "financiero") this.renderFinanciero(d);
+    }
+
+    _monthlyCombo(key, id, rows, clickable = true) {
+        const click = clickable ? (ev, els) => {
+            if (!els.length) return;
+            const r = rows[els[0].index];
+            this.drill("month", r.key, `Mes ${monthLabel(r.key)}`);
+        } : null;
+        this.mk(key, id, {
             type: "bar",
             data: {
                 labels: rows.map((r) => monthLabel(r.key)),
                 datasets: [
+                    this.ds("Venta MXN", rows.map((r) => r.venta), "rgba(11,87,208,.82)"),
+                    this.ds("Utilidad all-in", rows.map((r) => r.utilidad), "rgba(16,185,129,.8)"),
                     {
-                        label: "Venta MXN", data: rows.map((r) => r.venta),
-                        backgroundColor: this._grad("som_bi_monthly", "rgba(11,87,208,.92)", "rgba(11,87,208,.55)"),
-                        hoverBackgroundColor: BLUE,
-                        borderRadius: 7, borderSkipped: false, maxBarThickness: 34,
-                        somMoney: true, yAxisID: "y", order: 2,
-                    },
-                    {
-                        label: "Utilidad all-in", data: rows.map((r) => r.utilidad),
-                        backgroundColor: this._grad("som_bi_monthly", "rgba(16,185,129,.9)", "rgba(16,185,129,.5)"),
-                        hoverBackgroundColor: GREEN,
-                        borderRadius: 7, borderSkipped: false, maxBarThickness: 34,
-                        somMoney: true, yAxisID: "y", order: 2,
-                    },
-                    {
-                        type: "line", label: "m² vendidos",
-                        data: rows.map((r) => r.m2),
+                        type: "line", label: "m²", data: rows.map((r) => r.m2),
                         borderColor: SKY, borderWidth: 2.5,
-                        backgroundColor: "rgba(56,189,248,.12)",
                         pointBackgroundColor: "#fff", pointBorderColor: SKY,
-                        pointBorderWidth: 2, pointRadius: 3.5, pointHoverRadius: 6,
-                        tension: 0.4, fill: true, yAxisID: "y1", order: 1,
+                        pointBorderWidth: 2, pointRadius: 3, pointHoverRadius: 6,
+                        tension: 0.4, yAxisID: "y1",
                     },
                 ],
             },
             options: {
-                ...this.baseOptions(clickFn),
+                ...this.baseOptions(click),
                 interaction: { mode: "index", intersect: false },
                 scales: {
-                    y: this._axisMoney(),
+                    y: this.axMoney(),
                     y1: {
                         beginAtZero: true, position: "right",
                         border: { display: false }, grid: { display: false },
                         ticks: { font: { size: 10, family: FONT }, color: "#7dd3fc" },
                     },
-                    x: this._axisPlain(),
+                    x: this.axPlain(),
                 },
             },
         });
     }
 
-    renderLevels(d) {
-        const rows = d.levels || [];
-        const total = rows.reduce((s, r) => s + r.venta, 0);
-        const clickFn = (ev, els) => {
-            if (!els.length) return;
-            const row = rows[els[0].index];
-            this.addFilter("level", row.key, `Nivel: ${row.name}`);
-        };
-        this.makeChart("levels", "som_bi_levels", {
-            type: "doughnut",
-            data: {
-                labels: rows.map((r) => r.name),
-                datasets: [{
-                    data: rows.map((r) => r.venta),
-                    backgroundColor: PALETTE,
-                    hoverOffset: 10,
-                    borderWidth: 3, borderColor: "#fff", borderRadius: 5,
-                }],
-            },
-            options: {
-                ...this.baseOptions(clickFn),
-                cutout: "68%",
-                layout: { padding: 8 },
-                plugins: {
-                    ...this.baseOptions(clickFn).plugins,
-                    somCenterText: { text: fmtCompact(total), sub: "venta MXN" },
-                    legend: {
-                        position: "bottom",
-                        labels: {
-                            boxWidth: 8, boxHeight: 8, usePointStyle: true,
-                            pointStyle: "circle",
-                            font: { size: 10.5, family: FONT, weight: "600" },
-                            color: "#475569", padding: 10,
-                        },
-                    },
-                    tooltip: {
-                        ...this.baseOptions(clickFn).plugins.tooltip,
-                        callbacks: {
-                            label: (ctx) => {
-                                const r = rows[ctx.dataIndex];
-                                const pct = total ? (r.venta / total * 100).toFixed(1) : 0;
-                                return ` ${r.name}: ${fmtMoney(r.venta)} (${pct}%) · ${fmtNum(r.m2)} m² · margen ${fmtNum(r.margen)}%`;
-                            },
-                        },
-                    },
-                },
-            },
-        });
+    renderResumen(d) {
+        this._monthlyCombo("r_m", "som_r_monthly", d.by_month || []);
+        const fin = d.finance || {};
+        this.barChart("r_f", "som_r_finance",
+            ["Me deben (por cobrar)", "Debo (por pagar)"],
+            [{
+                label: "MXN", data: [fin.por_cobrar || 0, fin.por_pagar || 0],
+                somMoney: true, backgroundColor: [GREEN, RED],
+                borderRadius: 8, borderSkipped: false, maxBarThickness: 70,
+            }]);
+        const ag = d.aging || [];
+        this.barChart("r_a", "som_r_aging",
+            ag.map((r) => r.bucket),
+            [{
+                label: "m²", data: ag.map((r) => r.m2), somMoney: false,
+                backgroundColor: [GREEN, SKY, AMBER, RED, "#94a3b8"],
+                borderRadius: 6, borderSkipped: false,
+            }]);
+        const tr = d.transit_status || [];
+        this.barChart("r_t", "som_r_transit",
+            tr.map((r) => r.label),
+            [{
+                label: "m²", data: tr.map((r) => r.m2), somMoney: false,
+                backgroundColor: "rgba(56,189,248,.8)",
+                borderRadius: 6, borderSkipped: false,
+            }]);
     }
 
-    renderProducts(d) {
-        const rows = d.top_products || [];
-        const clickFn = (ev, els) => {
-            if (!els.length) return;
-            const row = rows[els[0].index];
-            this.addFilter("product_id", row.key, `Material: ${row.name}`);
-        };
-        this.makeChart("products", "som_bi_products", {
-            type: "bar",
-            data: {
-                labels: rows.map((r) => r.name.length > 36 ? r.name.slice(0, 35) + "…" : r.name),
-                datasets: [{
-                    label: "Utilidad all-in", data: rows.map((r) => r.utilidad),
-                    backgroundColor: rows.map((r) => r.utilidad >= 0
-                        ? "rgba(16,185,129,.82)" : "rgba(239,68,68,.82)"),
-                    hoverBackgroundColor: rows.map((r) => r.utilidad >= 0 ? GREEN : RED),
-                    borderRadius: 6, borderSkipped: false, maxBarThickness: 20,
-                    somMoney: true,
-                }],
-            },
-            options: {
-                ...this.baseOptions(clickFn),
-                indexAxis: "y",
-                plugins: {
-                    ...this.baseOptions(clickFn).plugins,
-                    legend: { display: false },
-                    tooltip: {
-                        ...this.baseOptions(clickFn).plugins.tooltip,
-                        callbacks: {
-                            title: (items) => rows[items[0].dataIndex]?.name || "",
-                            label: (ctx) => {
-                                const r = rows[ctx.dataIndex];
-                                return [
-                                    ` Utilidad: ${fmtMoney(r.utilidad)}  (margen ${fmtNum(r.margen)}%)`,
-                                    ` Venta: ${fmtMoney(r.venta)} · ${fmtNum(r.m2)} m²`,
-                                ];
-                            },
-                        },
+    renderComercial(d) {
+        this._monthlyCombo("c_m", "som_c_monthly", d.by_month || []);
+        const lv = d.levels || [];
+        const totalLv = lv.reduce((s, r) => s + r.venta, 0);
+        this.doughnut("c_l", "som_c_levels",
+            lv.map((r) => r.name), lv.map((r) => r.venta), {
+                center: fmtCompact(totalLv), sub: "venta MXN",
+                click: (ev, els) => {
+                    if (!els.length) return;
+                    const r = lv[els[0].index];
+                    this.drill("level", r.key, `Nivel ${r.name}`);
+                },
+                tooltips: {
+                    label: (ctx) => {
+                        const r = lv[ctx.dataIndex];
+                        const pct = totalLv ? (r.venta / totalLv * 100).toFixed(1) : 0;
+                        return ` ${r.name}: ${fmtMoney(r.venta)} (${pct}%) · margen ${fmtNum(r.margen)}%`;
                     },
                 },
-                scales: {
-                    x: this._axisMoney(),
-                    y: {
-                        border: { display: false }, grid: { display: false },
-                        ticks: { font: { size: 10, family: FONT, weight: "600" }, color: "#475569" },
-                    },
+            });
+        const se = d.by_seller || [];
+        this.barChart("c_s", "som_c_sellers",
+            se.map((r) => (r.name || "").split(" ")[0]),
+            [
+                this.ds("Venta", se.map((r) => r.venta), "rgba(11,87,208,.82)"),
+                this.ds("Utilidad", se.map((r) => r.utilidad), "rgba(16,185,129,.8)"),
+            ],
+            {
+                click: (ev, els) => {
+                    if (!els.length) return;
+                    const r = se[els[0].index];
+                    this.drill("seller", r.key, r.name);
                 },
-            },
-        });
+            });
+        const tp = d.top_products || [];
+        this.barChart("c_p", "som_c_products",
+            tp.map((r) => r.name.length > 34 ? r.name.slice(0, 33) + "…" : r.name),
+            [{
+                label: "Utilidad all-in", data: tp.map((r) => r.utilidad),
+                somMoney: true,
+                backgroundColor: tp.map((r) => r.utilidad >= 0
+                    ? "rgba(16,185,129,.82)" : "rgba(239,68,68,.82)"),
+                borderRadius: 6, borderSkipped: false, maxBarThickness: 18,
+            }],
+            {
+                horizontal: true,
+                click: (ev, els) => {
+                    if (!els.length) return;
+                    const r = tp[els[0].index];
+                    this.drill("product", r.key, r.name);
+                },
+            });
     }
 
-    renderSellers(d) {
-        const rows = d.by_salesperson || [];
-        const clickFn = (ev, els) => {
-            if (!els.length) return;
-            const row = rows[els[0].index];
-            this.addFilter("user_id", row.key, `Vendedor: ${row.name}`);
-        };
-        this.makeChart("sellers", "som_bi_sellers", {
-            type: "bar",
+    renderInventario(d) {
+        const k = d.kpis || {};
+        this.doughnut("i_s", "som_i_states",
+            ["Disponible", "En hold"], [k.disponible_m2 || 0, k.hold_m2 || 0],
+            { center: fmtNum((k.disponible_m2 || 0) + (k.hold_m2 || 0)), sub: "m² totales" });
+        const ag = d.aging || [];
+        this.barChart("i_a", "som_i_aging",
+            ag.map((r) => r.bucket),
+            [{
+                label: "m²", data: ag.map((r) => r.m2), somMoney: false,
+                backgroundColor: [GREEN, SKY, AMBER, RED, "#94a3b8"],
+                borderRadius: 6, borderSkipped: false,
+            }]);
+        const ts = d.top_stock || [];
+        this.barChart("i_t", "som_i_top",
+            ts.map((r) => r.name.length > 34 ? r.name.slice(0, 33) + "…" : r.name),
+            [{
+                label: "m² en stock", data: ts.map((r) => r.m2), somMoney: false,
+                backgroundColor: "rgba(11,87,208,.8)",
+                borderRadius: 6, borderSkipped: false, maxBarThickness: 18,
+            }],
+            {
+                horizontal: true,
+                click: (ev, els) => {
+                    if (!els.length) return;
+                    const r = ts[els[0].index];
+                    this.drill("product", r.key, r.name);
+                },
+            });
+    }
+
+    renderCompras(d) {
+        const rows = d.by_month || [];
+        this.barChart("p_m", "som_p_monthly",
+            rows.map((r) => monthLabel(r.key)),
+            [
+                { ...this.ds("USD (original)", rows.map((r) => r.usd), "rgba(16,185,129,.8)") },
+                { ...this.ds("MXN (original)", rows.map((r) => r.mxn), "rgba(11,87,208,.82)") },
+            ],
+            { stacked: false });
+        const sp = d.top_suppliers || [];
+        this.barChart("p_s", "som_p_suppliers",
+            sp.map((r) => r.name.length > 30 ? r.name.slice(0, 29) + "…" : r.name),
+            [{
+                label: "Compras (MXN norm.)", data: sp.map((r) => r.mxn),
+                somMoney: true, backgroundColor: "rgba(139,92,246,.8)",
+                borderRadius: 6, borderSkipped: false, maxBarThickness: 18,
+            }],
+            { horizontal: true });
+        const al = d.allocations || [];
+        this.doughnut("p_a", "som_p_alloc",
+            al.map((r) => r.state), al.map((r) => r.qty),
+            {
+                center: fmtNum(al.reduce((s, r) => s + r.qty, 0)), sub: "m² asignados",
+                tooltips: {
+                    label: (ctx) => {
+                        const r = al[ctx.dataIndex];
+                        return ` ${r.state}: ${fmtNum(r.qty)} m² · ${r.count} allocations`;
+                    },
+                },
+            });
+    }
+
+    renderTransito(d) {
+        const tr = d.by_status || [];
+        this.barChart("t_s", "som_t_status",
+            tr.map((r) => r.label),
+            [{
+                label: "m²", data: tr.map((r) => r.m2), somMoney: false,
+                backgroundColor: "rgba(56,189,248,.82)",
+                borderRadius: 7, borderSkipped: false,
+            }]);
+    }
+
+    renderEntregas(d) {
+        if (d.unavailable) return;
+        const st = d.by_status || [];
+        const map = { preparacion: "En preparación", en_ruta: "En ruta", entregada: "Entregada", cancelada: "Cancelada" };
+        this.doughnut("e_s", "som_e_status",
+            st.map((r) => map[r.status] || r.status), st.map((r) => r.count),
+            { center: fmtNum(st.reduce((s, r) => s + r.count, 0), 0), sub: "remisiones" });
+        const k = d.kpis || {};
+        this.doughnut("e_f", "som_e_sign",
+            ["Firmadas en app", "Manuales"], [k.firmadas_app || 0, k.manuales || 0],
+            { center: fmtNum((k.firmadas_app || 0) + (k.manuales || 0), 0), sub: "cerradas" });
+    }
+
+    renderFinanciero(d) {
+        const ab = d.ar_buckets || [];
+        this.barChart("f_ar", "som_f_ar",
+            ab.map((r) => r.bucket),
+            [{
+                label: "Por cobrar", data: ab.map((r) => r.monto), somMoney: true,
+                backgroundColor: ["#10b981", "#a3e635", "#f59e0b", "#fb923c", "#ef4444"],
+                borderRadius: 6, borderSkipped: false,
+            }]);
+        const pb = d.ap_buckets || [];
+        this.barChart("f_ap", "som_f_ap",
+            pb.map((r) => r.bucket),
+            [{
+                label: "Por pagar", data: pb.map((r) => r.monto), somMoney: true,
+                backgroundColor: ["#38bdf8", "#818cf8", "#a78bfa", "#f472b6", "#ef4444"],
+                borderRadius: 6, borderSkipped: false,
+            }]);
+        const bm = d.by_month || [];
+        this.mk("f_m", "som_f_month", {
+            type: "line",
             data: {
-                labels: rows.map((r) => (r.name || "").split(" ")[0]),
+                labels: bm.map((r) => monthLabel(r.key)),
                 datasets: [
                     {
-                        label: "Venta MXN", data: rows.map((r) => r.venta),
-                        backgroundColor: this._grad("som_bi_sellers", "rgba(11,87,208,.9)", "rgba(11,87,208,.5)"),
-                        borderRadius: 6, borderSkipped: false, maxBarThickness: 26,
-                        somMoney: true,
+                        label: "Facturado a clientes", data: bm.map((r) => r.facturado),
+                        borderColor: GREEN, backgroundColor: "rgba(16,185,129,.09)",
+                        borderWidth: 2.5, tension: 0.4, fill: true, somMoney: true,
+                        pointBackgroundColor: "#fff", pointBorderColor: GREEN, pointBorderWidth: 2,
                     },
                     {
-                        label: "Utilidad all-in", data: rows.map((r) => r.utilidad),
-                        backgroundColor: this._grad("som_bi_sellers", "rgba(16,185,129,.9)", "rgba(16,185,129,.5)"),
-                        borderRadius: 6, borderSkipped: false, maxBarThickness: 26,
-                        somMoney: true,
+                        label: "Comprado a proveedores", data: bm.map((r) => r.comprado),
+                        borderColor: RED, backgroundColor: "rgba(239,68,68,.07)",
+                        borderWidth: 2.5, tension: 0.4, fill: true, somMoney: true,
+                        pointBackgroundColor: "#fff", pointBorderColor: RED, pointBorderWidth: 2,
                     },
                 ],
             },
             options: {
-                ...this.baseOptions(clickFn),
+                ...this.baseOptions(null),
                 interaction: { mode: "index", intersect: false },
-                scales: { y: this._axisMoney(), x: this._axisPlain(10) },
+                scales: { y: this.axMoney(), x: this.axPlain() },
             },
         });
     }
 
-    renderAging(d) {
-        const rows = d.aging || [];
-        this.makeChart("aging", "som_bi_aging", {
-            type: "bar",
+    // ── Render del panel de PROFUNDIZACIÓN ──────────────────────────────
+    renderDrill() {
+        const d = this.state.drill;
+        if (!d || !d.by_month) return;
+        const bm = d.by_month || [];
+        this.mk("dr_m", "som_dr_month", {
+            type: "line",
             data: {
-                labels: rows.map((r) => r.bucket),
-                datasets: [{
-                    label: "m² en stock", data: rows.map((r) => r.m2),
-                    backgroundColor: [GREEN, SKY, AMBER, RED, "#94a3b8"],
-                    borderRadius: 7, borderSkipped: false, maxBarThickness: 46,
-                }],
-            },
-            options: {
-                ...this.baseOptions(() => {}),
-                plugins: {
-                    ...this.baseOptions(() => {}).plugins,
-                    legend: { display: false },
-                    tooltip: {
-                        ...this.baseOptions(() => {}).plugins.tooltip,
-                        callbacks: {
-                            label: (ctx) => {
-                                const r = rows[ctx.dataIndex];
-                                return [
-                                    ` ${fmtNum(r.m2)} m² en ${r.lots} lotes`,
-                                    ` Valor all-in inmovilizado: ${fmtMoney(r.valor)}`,
-                                ];
-                            },
-                        },
+                labels: bm.map((r) => monthLabel(r.key)),
+                datasets: [
+                    {
+                        label: "Venta MXN", data: bm.map((r) => r.venta),
+                        borderColor: BLUE, backgroundColor: "rgba(11,87,208,.10)",
+                        borderWidth: 2.5, tension: 0.4, fill: true, somMoney: true,
+                        pointBackgroundColor: "#fff", pointBorderColor: BLUE, pointBorderWidth: 2,
                     },
-                },
-                scales: { y: this._axisMoney(), x: this._axisPlain(9.5) },
-            },
-        });
-    }
-
-    renderTransit(d) {
-        const rows = d.transit || [];
-        this.makeChart("transit", "som_bi_transit", {
-            type: "bar",
-            data: {
-                labels: rows.map((r) => r.label),
-                datasets: [{
-                    label: "m² en el agua", data: rows.map((r) => r.m2),
-                    backgroundColor: this._grad("som_bi_transit", "rgba(56,189,248,.92)", "rgba(56,189,248,.45)"),
-                    hoverBackgroundColor: SKY,
-                    borderRadius: 7, borderSkipped: false, maxBarThickness: 46,
-                }],
-            },
-            options: {
-                ...this.baseOptions(() => {}),
-                plugins: {
-                    ...this.baseOptions(() => {}).plugins,
-                    legend: { display: false },
-                    tooltip: {
-                        ...this.baseOptions(() => {}).plugins.tooltip,
-                        callbacks: {
-                            label: (ctx) => {
-                                const r = rows[ctx.dataIndex];
-                                return [
-                                    ` ${fmtNum(r.m2)} m² en ${r.count} embarques`,
-                                    ` Costo all-in flotante: ${fmtMoney(r.valor)}`,
-                                ];
-                            },
-                        },
+                    {
+                        label: "Utilidad all-in", data: bm.map((r) => r.utilidad),
+                        borderColor: GREEN, backgroundColor: "rgba(16,185,129,.09)",
+                        borderWidth: 2.5, tension: 0.4, fill: true, somMoney: true,
+                        pointBackgroundColor: "#fff", pointBorderColor: GREEN, pointBorderWidth: 2,
                     },
-                },
-                scales: { y: this._axisMoney(), x: this._axisPlain(9) },
-            },
-        });
-    }
-
-    // ── Expansión (modal con versiones del gráfico + tabla) ─────────────
-    expandChart(chartKey) {
-        this.state.expanded = { chartKey, variant: "bar" };
-        requestAnimationFrame(() => this.renderExpanded());
-    }
-
-    closeExpanded() {
-        if (this.charts.expanded) {
-            this.charts.expanded.destroy();
-            delete this.charts.expanded;
-        }
-        this.state.expanded = null;
-    }
-
-    setVariant(variant) {
-        if (!this.state.expanded) return;
-        this.state.expanded = { ...this.state.expanded, variant };
-        requestAnimationFrame(() => this.renderExpanded());
-    }
-
-    expandedRows() {
-        const d = this.state.data;
-        if (!d || !this.state.expanded) return [];
-        const key = this.state.expanded.chartKey;
-        if (key === "monthly") {
-            return (d.by_month || []).map((r) => ({
-                name: monthLabel(r.key), venta: r.venta, utilidad: r.utilidad,
-                m2: r.m2, margen: r.margen,
-            }));
-        }
-        const src = {
-            levels: d.levels, products: d.top_products,
-            sellers: d.by_salesperson, customers: d.top_customers,
-        }[key] || [];
-        return src.map((r) => ({
-            name: r.name, venta: r.venta, utilidad: r.utilidad,
-            m2: r.m2, margen: r.margen,
-        }));
-    }
-
-    expandedTitle() {
-        return {
-            monthly: "Venta y utilidad por mes",
-            levels: "Mezcla de niveles de precio",
-            products: "Top materiales por utilidad all-in",
-            sellers: "Desempeño por vendedor",
-            customers: "Top clientes",
-        }[this.state.expanded?.chartKey] || "";
-    }
-
-    renderExpanded() {
-        if (!this.state.expanded) return;
-        const rows = this.expandedRows();
-        const variant = this.state.expanded.variant;
-        const type = variant === "dona" ? "doughnut" : variant === "linea" ? "line" : "bar";
-        const total = rows.reduce((s, r) => s + (r.venta || 0), 0);
-        const cfg = {
-            type,
-            data: {
-                labels: rows.map((r) => r.name),
-                datasets: type === "doughnut"
-                    ? [{
-                        data: rows.map((r) => r.venta),
-                        backgroundColor: PALETTE, hoverOffset: 10,
-                        borderWidth: 3, borderColor: "#fff", borderRadius: 5,
-                    }]
-                    : [
-                        {
-                            label: "Venta MXN", data: rows.map((r) => r.venta),
-                            backgroundColor: type === "line" ? "rgba(11,87,208,.10)" : this._grad("som_bi_expanded", "rgba(11,87,208,.9)", "rgba(11,87,208,.5)"),
-                            borderColor: BLUE, borderWidth: type === "line" ? 2.5 : 0,
-                            pointBackgroundColor: "#fff", pointBorderColor: BLUE, pointBorderWidth: 2,
-                            tension: 0.4, somMoney: true,
-                            fill: type === "line", borderRadius: 6, borderSkipped: false,
-                        },
-                        {
-                            label: "Utilidad all-in", data: rows.map((r) => r.utilidad),
-                            backgroundColor: type === "line" ? "rgba(16,185,129,.10)" : this._grad("som_bi_expanded", "rgba(16,185,129,.9)", "rgba(16,185,129,.5)"),
-                            borderColor: GREEN, borderWidth: type === "line" ? 2.5 : 0,
-                            pointBackgroundColor: "#fff", pointBorderColor: GREEN, pointBorderWidth: 2,
-                            tension: 0.4, somMoney: true,
-                            fill: type === "line", borderRadius: 6, borderSkipped: false,
-                        },
-                    ],
+                ],
             },
             options: {
-                ...this.baseOptions(() => {}),
-                cutout: type === "doughnut" ? "66%" : undefined,
-                plugins: {
-                    ...this.baseOptions(() => {}).plugins,
-                    somCenterText: type === "doughnut"
-                        ? { text: fmtCompact(total), sub: "venta MXN" } : undefined,
-                },
-                scales: type === "doughnut" ? undefined : {
-                    y: this._axisMoney(),
-                    x: this._axisPlain(),
-                },
+                ...this.baseOptions(null),
+                interaction: { mode: "index", intersect: false },
+                scales: { y: this.axMoney(), x: this.axPlain(10) },
             },
-        };
-        this.makeChart("expanded", "som_bi_expanded", cfg);
+        });
+
+        // Corte 1: la dimensión complementaria más útil según la entidad
+        const dim1 = d.entity === "product" || d.entity === "level"
+            ? { rows: d.by_seller, title: "seller" }
+            : { rows: d.by_product, title: "product" };
+        const r1 = dim1.rows || [];
+        this.barChart("dr_1", "som_dr_dim1",
+            r1.map((r) => r.name.length > 28 ? r.name.slice(0, 27) + "…" : r.name),
+            [{
+                label: "Venta MXN", data: r1.map((r) => r.venta), somMoney: true,
+                backgroundColor: "rgba(11,87,208,.8)",
+                borderRadius: 6, borderSkipped: false, maxBarThickness: 16,
+            }],
+            {
+                horizontal: true,
+                click: (ev, els) => {
+                    if (!els.length) return;
+                    const r = r1[els[0].index];
+                    this.drill(dim1.title === "seller" ? "seller" : "product",
+                        r.key, r.name);
+                },
+            });
+
+        const lv = d.levels || [];
+        this.doughnut("dr_l", "som_dr_levels",
+            lv.map((r) => r.name), lv.map((r) => r.venta),
+            { center: fmtCompact(lv.reduce((s, r) => s + r.venta, 0)), sub: "venta" });
+    }
+
+    drillDim1Title() {
+        const d = this.state.drill;
+        if (!d) return "";
+        return (d.entity === "product" || d.entity === "level")
+            ? "Quién lo vende" : "Qué materiales lleva";
     }
 
     // ── Navegación ──────────────────────────────────────────────────────
     openOrder(id) {
         this.action.doAction({
             type: "ir.actions.act_window",
-            res_model: "sale.order",
-            res_id: id,
-            views: [[false, "form"]],
-            target: "current",
+            res_model: "sale.order", res_id: id,
+            views: [[false, "form"]], target: "current",
         });
     }
 
-    // ── Formatters expuestos al template ────────────────────────────────
+    openVoyage(id) {
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "stock.transit.voyage", res_id: id,
+            views: [[false, "form"]], target: "current",
+        });
+    }
+
+    // ── Formatters ──────────────────────────────────────────────────────
     money(v) { return fmtMoney(v); }
     compact(v) { return fmtCompact(v); }
     num(v, dec = 1) { return fmtNum(v, dec); }
