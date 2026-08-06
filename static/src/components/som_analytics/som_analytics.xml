@@ -4,142 +4,184 @@
     <t t-name="stock_transit_allocation.SomAnalytics">
         <div class="som_bi">
 
-            <!-- ═══ Barra superior: título + presets + chips de filtros ═══ -->
-            <div class="som_bi__topbar">
-                <div class="som_bi__title">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-                        <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
-                    </svg>
-                    SOM Analytics
+            <!-- ═══ HERO: identidad + KPIs glass con sparklines ═══ -->
+            <div class="som_bi__hero">
+                <div class="som_bi__hero_top">
+                    <div class="som_bi__title">
+                        <span class="ic">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                                <path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>
+                            </svg>
+                        </span>
+                        <span>
+                            SOM Analytics
+                            <small>Utilidad con costo all-in · TC Banorte real</small>
+                        </span>
+                    </div>
+
+                    <div class="som_bi__presets">
+                        <button t-attf-class="som_bi__preset #{state.preset === 'mes' ? 'active' : ''}" t-on-click="() => this.setPreset('mes')">Mes</button>
+                        <button t-attf-class="som_bi__preset #{state.preset === '30d' ? 'active' : ''}" t-on-click="() => this.setPreset('30d')">30 días</button>
+                        <button t-attf-class="som_bi__preset #{state.preset === '90d' ? 'active' : ''}" t-on-click="() => this.setPreset('90d')">Trimestre</button>
+                        <button t-attf-class="som_bi__preset #{state.preset === '12m' ? 'active' : ''}" t-on-click="() => this.setPreset('12m')">12 meses</button>
+                    </div>
                 </div>
 
-                <div class="som_bi__presets">
-                    <button t-attf-class="som_bi__preset #{state.preset === 'mes' ? 'active' : ''}" t-on-click="() => this.setPreset('mes')">Mes</button>
-                    <button t-attf-class="som_bi__preset #{state.preset === '30d' ? 'active' : ''}" t-on-click="() => this.setPreset('30d')">30 días</button>
-                    <button t-attf-class="som_bi__preset #{state.preset === '90d' ? 'active' : ''}" t-on-click="() => this.setPreset('90d')">Trimestre</button>
-                    <button t-attf-class="som_bi__preset #{state.preset === '12m' ? 'active' : ''}" t-on-click="() => this.setPreset('12m')">12 meses</button>
-                </div>
+                <t t-if="state.data and !state.error">
+                    <div class="som_bi__kpis" t-att-style="state.loading ? 'opacity:.5' : ''">
+                        <div class="som_bi__kpi">
+                            <div class="l">Venta <span class="tag">MXN · TC real</span></div>
+                            <div class="v" t-esc="money(state.data.kpis.venta_mxn)"/>
+                            <div class="s"><t t-esc="num(state.data.kpis.ordenes, 0)"/> órdenes · ticket <t t-esc="compact(state.data.kpis.ticket_mxn)"/></div>
+                            <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+                                <polygon t-att-points="sparkArea('venta')" class="area blue"/>
+                                <polyline t-att-points="sparkPoints('venta')" class="line blue"/>
+                            </svg>
+                        </div>
+                        <div class="som_bi__kpi">
+                            <div class="l">Utilidad all-in</div>
+                            <div class="v" t-esc="money(state.data.kpis.utilidad_mxn)"/>
+                            <div class="s">Margen <b t-attf-class="pill #{marginClass(state.data.kpis.margen_pct)}" t-esc="num(state.data.kpis.margen_pct) + '%'"/></div>
+                            <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+                                <polygon t-att-points="sparkArea('utilidad')" class="area green"/>
+                                <polyline t-att-points="sparkPoints('utilidad')" class="line green"/>
+                            </svg>
+                        </div>
+                        <div class="som_bi__kpi">
+                            <div class="l">Volumen vendido</div>
+                            <div class="v"><t t-esc="num(state.data.kpis.m2_vendidos)"/> <em>m²</em></div>
+                            <div class="s"><t t-esc="num(state.data.kpis.piezas_vendidas, 0)"/> piezas</div>
+                            <svg class="spark" viewBox="0 0 100 30" preserveAspectRatio="none">
+                                <polygon t-att-points="sparkArea('m2')" class="area sky"/>
+                                <polyline t-att-points="sparkPoints('m2')" class="line sky"/>
+                            </svg>
+                        </div>
+                        <div class="som_bi__kpi">
+                            <div class="l">Inventario disponible</div>
+                            <div class="v"><t t-esc="num(state.data.kpis.inv_disponible_m2)"/> <em>m²</em></div>
+                            <div class="s">En hold: <b t-esc="num(state.data.kpis.inv_hold_m2)"/> m²</div>
+                        </div>
+                        <div class="som_bi__kpi">
+                            <div class="l">En el agua</div>
+                            <div class="v"><t t-esc="num(state.data.kpis.transit_m2)"/> <em>m²</em></div>
+                            <div class="s">Tránsito activo</div>
+                        </div>
+                    </div>
+                </t>
+            </div>
 
-                <div class="som_bi__chips">
-                    <span class="som_bi__hint" t-if="!state.chips.length">
-                        Da click en cualquier barra, mes o segmento para filtrar todo el tablero
-                    </span>
+            <!-- ═══ Barra de filtros activos ═══ -->
+            <div class="som_bi__filterbar">
+                <span class="som_bi__hint" t-if="!state.chips.length">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M13 2L4 14h6l-1 8 9-12h-6l1-8z"/></svg>
+                    Click en cualquier mes, barra o segmento para filtrar todo el tablero
+                </span>
+                <t t-if="state.chips.length">
+                    <span class="som_bi__chiplbl">Filtros:</span>
                     <span t-foreach="state.chips" t-as="chip" t-key="chip.key"
                           class="som_bi__chip" t-on-click="() => this.removeFilter(chip.key)">
-                        <t t-esc="chip.label"/> ✕
+                        <t t-esc="chip.label"/> <b>✕</b>
                     </span>
-                    <button t-if="state.chips.length" class="som_bi__clear" t-on-click="clearFilters">
-                        Limpiar todo
-                    </button>
-                </div>
+                    <button class="som_bi__clear" t-on-click="clearFilters">Limpiar todo</button>
+                </t>
+                <span t-if="state.loading" class="som_bi__spinner"/>
             </div>
 
             <div t-if="state.error" class="som_bi__error" t-esc="state.error"/>
-            <div t-if="state.loading" class="som_bi__loading">Calculando…</div>
+
+            <!-- Skeleton primera carga -->
+            <div t-if="state.loading and !state.data" class="som_bi__skeleton">
+                <div class="sk sk-kpis"/>
+                <div class="sk sk-panel wide"/>
+                <div class="sk sk-panel"/>
+                <div class="sk sk-panel wide"/>
+                <div class="sk sk-panel"/>
+            </div>
 
             <t t-if="state.data and !state.error">
-                <!-- ═══ KPI cards ═══ -->
-                <div class="som_bi__kpis" t-att-style="state.loading ? 'opacity:.45' : ''">
-                    <div class="som_bi__kpi blue">
-                        <div class="l">Venta (MXN, TC real)</div>
-                        <div class="v" t-esc="money(state.data.kpis.venta_mxn)"/>
-                        <div class="s"><t t-esc="num(state.data.kpis.ordenes, 0)"/> órdenes · ticket <t t-esc="money(state.data.kpis.ticket_mxn)"/></div>
-                    </div>
-                    <div class="som_bi__kpi green">
-                        <div class="l">Utilidad all-in</div>
-                        <div class="v" t-esc="money(state.data.kpis.utilidad_mxn)"/>
-                        <div class="s">Margen <b t-esc="num(state.data.kpis.margen_pct) + '%'"/></div>
-                    </div>
-                    <div class="som_bi__kpi sky">
-                        <div class="l">Volumen vendido</div>
-                        <div class="v"><t t-esc="num(state.data.kpis.m2_vendidos)"/> m²</div>
-                        <div class="s"><t t-esc="num(state.data.kpis.piezas_vendidas, 0)"/> piezas</div>
-                    </div>
-                    <div class="som_bi__kpi ink">
-                        <div class="l">Inventario disponible</div>
-                        <div class="v"><t t-esc="num(state.data.kpis.inv_disponible_m2)"/> m²</div>
-                        <div class="s">En hold: <t t-esc="num(state.data.kpis.inv_hold_m2)"/> m²</div>
-                    </div>
-                    <div class="som_bi__kpi amber">
-                        <div class="l">En el agua</div>
-                        <div class="v"><t t-esc="num(state.data.kpis.transit_m2)"/> m²</div>
-                        <div class="s">Tránsito activo</div>
-                    </div>
-                </div>
-
-                <!-- ═══ Fila 1: mensual + niveles ═══ -->
-                <div class="som_bi__grid" t-att-style="state.loading ? 'opacity:.45' : ''">
+                <!-- ═══ Grid de paneles ═══ -->
+                <div class="som_bi__grid" t-att-style="state.loading ? 'opacity:.5' : ''">
                     <div class="som_bi__panel wide">
                         <div class="som_bi__panel_head">
-                            <span>Venta y utilidad por mes <small>(click en un mes = filtrar)</small></span>
-                            <button class="som_bi__expand" title="Expandir con tabla y otras vistas"
-                                    t-on-click="() => this.expandChart('monthly')">⤢</button>
+                            <span class="t"><i class="dot blue"/> Venta y utilidad por mes</span>
+                            <span class="drill">click en un mes = filtrar</span>
+                            <button class="som_bi__expand" title="Expandir: tabla + otras vistas"
+                                    t-on-click="() => this.expandChart('monthly')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                            </button>
                         </div>
                         <div class="som_bi__canvas tall"><canvas id="som_bi_monthly"/></div>
                     </div>
 
                     <div class="som_bi__panel">
                         <div class="som_bi__panel_head">
-                            <span>Mezcla de niveles <small>(click = filtrar)</small></span>
-                            <button class="som_bi__expand" t-on-click="() => this.expandChart('levels')">⤢</button>
+                            <span class="t"><i class="dot violet"/> Mezcla de niveles</span>
+                            <button class="som_bi__expand" t-on-click="() => this.expandChart('levels')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                            </button>
                         </div>
                         <div class="som_bi__canvas tall"><canvas id="som_bi_levels"/></div>
                     </div>
 
-                    <!-- Fila 2: materiales + vendedores -->
                     <div class="som_bi__panel wide">
                         <div class="som_bi__panel_head">
-                            <span>Top materiales por utilidad all-in <small>(click = filtrar)</small></span>
-                            <button class="som_bi__expand" t-on-click="() => this.expandChart('products')">⤢</button>
+                            <span class="t"><i class="dot green"/> Top materiales por utilidad all-in</span>
+                            <span class="drill">click = filtrar</span>
+                            <button class="som_bi__expand" t-on-click="() => this.expandChart('products')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                            </button>
                         </div>
                         <div class="som_bi__canvas tall"><canvas id="som_bi_products"/></div>
                     </div>
 
                     <div class="som_bi__panel">
                         <div class="som_bi__panel_head">
-                            <span>Vendedores <small>(click = filtrar)</small></span>
-                            <button class="som_bi__expand" t-on-click="() => this.expandChart('sellers')">⤢</button>
+                            <span class="t"><i class="dot blue"/> Vendedores</span>
+                            <button class="som_bi__expand" t-on-click="() => this.expandChart('sellers')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                            </button>
                         </div>
                         <div class="som_bi__canvas tall"><canvas id="som_bi_sellers"/></div>
                     </div>
 
-                    <!-- Fila 3: aging + tránsito -->
                     <div class="som_bi__panel">
                         <div class="som_bi__panel_head">
-                            <span>Antigüedad del inventario (m²)</span>
+                            <span class="t"><i class="dot amber"/> Antigüedad del inventario</span>
                         </div>
                         <div class="som_bi__canvas"><canvas id="som_bi_aging"/></div>
                     </div>
 
                     <div class="som_bi__panel">
                         <div class="som_bi__panel_head">
-                            <span>Material en el agua por estatus</span>
+                            <span class="t"><i class="dot sky"/> Material en el agua</span>
                         </div>
                         <div class="som_bi__canvas"><canvas id="som_bi_transit"/></div>
                     </div>
 
-                    <!-- Top clientes (tabla compacta clickeable) -->
                     <div class="som_bi__panel">
                         <div class="som_bi__panel_head">
-                            <span>Top clientes <small>(click = filtrar)</small></span>
-                            <button class="som_bi__expand" t-on-click="() => this.expandChart('customers')">⤢</button>
+                            <span class="t"><i class="dot ink"/> Top clientes</span>
+                            <button class="som_bi__expand" t-on-click="() => this.expandChart('customers')">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/></svg>
+                            </button>
                         </div>
                         <div class="som_bi__minitable">
                             <div class="row head"><span>Cliente</span><b>Venta</b><b>Margen</b></div>
                             <div t-foreach="state.data.top_customers" t-as="c" t-key="c.key"
                                  class="row" t-on-click="() => this.addFilter('partner_id', c.key, 'Cliente: ' + c.name)">
                                 <span t-att-title="c.name" t-esc="c.name"/>
-                                <b t-esc="money(c.venta)"/>
-                                <b t-attf-class="#{c.margen &lt; 15 ? 'bad' : 'good'}" t-esc="num(c.margen) + '%'"/>
+                                <b t-esc="compact(c.venta)"/>
+                                <b t-attf-class="pill #{marginClass(c.margen)}" t-esc="num(c.margen) + '%'"/>
                             </div>
                         </div>
                     </div>
                 </div>
 
                 <!-- ═══ Detalle drill: órdenes bajo los filtros activos ═══ -->
-                <div class="som_bi__panel som_bi__detail" t-att-style="state.loading ? 'opacity:.45' : ''">
+                <div class="som_bi__panel som_bi__detail" t-att-style="state.loading ? 'opacity:.5' : ''">
                     <div class="som_bi__panel_head">
-                        <span>Órdenes del corte actual <small>(click = abrir la orden)</small></span>
+                        <span class="t"><i class="dot blue"/> Órdenes del corte actual</span>
+                        <span class="drill">click en una fila = abrir la orden</span>
                         <span class="som_bi__count"><t t-esc="state.data.orders_detail.length"/> órdenes</span>
                     </div>
                     <div class="som_bi__table_wrap">
@@ -155,14 +197,14 @@
                                 <tr t-foreach="state.data.orders_detail" t-as="o" t-key="o.id"
                                     t-on-click="() => this.openOrder(o.id)">
                                     <td class="mono" t-esc="o.name"/>
-                                    <td t-esc="o.date"/>
+                                    <td class="muted" t-esc="o.date"/>
                                     <td class="ellipsis" t-att-title="o.partner" t-esc="o.partner"/>
-                                    <td class="ellipsis" t-esc="o.seller"/>
-                                    <td t-esc="o.currency"/>
+                                    <td class="ellipsis muted" t-esc="o.seller"/>
+                                    <td><span t-attf-class="cur #{o.currency === 'USD' ? 'usd' : 'mxn'}" t-esc="o.currency"/></td>
                                     <td class="r" t-esc="num(o.m2)"/>
-                                    <td class="r" t-esc="money(o.venta)"/>
-                                    <td t-attf-class="r #{o.utilidad &lt; 0 ? 'bad' : ''}" t-esc="money(o.utilidad)"/>
-                                    <td t-attf-class="r #{o.margen &lt; 15 ? 'bad' : 'good'}" t-esc="num(o.margen) + '%'"/>
+                                    <td class="r strong" t-esc="money(o.venta)"/>
+                                    <td t-attf-class="r #{o.utilidad &lt; 0 ? 'neg' : ''}" t-esc="money(o.utilidad)"/>
+                                    <td class="r"><span t-attf-class="pill #{marginClass(o.margen)}" t-esc="num(o.margen) + '%'"/></td>
                                 </tr>
                             </tbody>
                         </table>
@@ -170,7 +212,7 @@
                 </div>
             </t>
 
-            <!-- ═══ Modal de expansión: gráfico grande + variantes + tabla ═══ -->
+            <!-- ═══ Modal de expansión ═══ -->
             <div t-if="state.expanded" class="som_bi__modal_bg" t-on-click="closeExpanded">
                 <div class="som_bi__modal" t-on-click.stop="">
                     <div class="som_bi__modal_head">
@@ -191,10 +233,10 @@
                             <tbody>
                                 <tr t-foreach="expandedRows()" t-as="r" t-key="r_index">
                                     <td class="ellipsis" t-att-title="r.name" t-esc="r.name"/>
-                                    <td class="r" t-esc="money(r.venta)"/>
-                                    <td t-attf-class="r #{r.utilidad &lt; 0 ? 'bad' : ''}" t-esc="money(r.utilidad)"/>
+                                    <td class="r strong" t-esc="money(r.venta)"/>
+                                    <td t-attf-class="r #{r.utilidad &lt; 0 ? 'neg' : ''}" t-esc="money(r.utilidad)"/>
                                     <td class="r" t-esc="num(r.m2)"/>
-                                    <td t-attf-class="r #{r.margen &lt; 15 ? 'bad' : 'good'}" t-esc="num(r.margen) + '%'"/>
+                                    <td class="r"><span t-attf-class="pill #{marginClass(r.margen)}" t-esc="num(r.margen) + '%'"/></td>
                                 </tr>
                             </tbody>
                         </table>

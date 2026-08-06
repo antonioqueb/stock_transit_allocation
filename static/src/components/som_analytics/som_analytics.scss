@@ -1,176 +1,383 @@
-// SOM Analytics — BI drill-down. Branding SOM: azul #0B57D0 / cielo #38BDF8.
+// ═══════════════════════════════════════════════════════════════════════
+// SOM Analytics — BI premium. Hero oscuro + glass KPIs + paneles suaves.
+// Branding SOM: azul #0B57D0 / cielo #38BDF8 / tinta #0F172A.
+// ═══════════════════════════════════════════════════════════════════════
 $bi-blue: #0b57d0;
 $bi-sky: #38bdf8;
-$bi-green: #159957;
-$bi-red: #e5484d;
+$bi-green: #10b981;
+$bi-amber: #f59e0b;
+$bi-red: #ef4444;
 $bi-ink: #0f172a;
 $bi-mut: #64748b;
+$bi-panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(11, 87, 208, 0.07);
 
 .som_bi {
     height: 100%;
     overflow-y: auto;
-    padding: 14px 18px 26px;
-    background: #f2f6fc;
+    background:
+        radial-gradient(1200px 400px at 80% -100px, rgba(56, 189, 248, 0.08), transparent),
+        #f4f7fc;
+    font-variant-numeric: tabular-nums;
 
-    // ── Topbar ──────────────────────────────────────────────
-    .som_bi__topbar {
+    // ── HERO ────────────────────────────────────────────────
+    .som_bi__hero {
+        background:
+            radial-gradient(900px 320px at 85% -60px, rgba(56, 189, 248, 0.25), transparent),
+            radial-gradient(700px 300px at 8% 120%, rgba(11, 87, 208, 0.55), transparent),
+            linear-gradient(150deg, #0c1b33 0%, #0f2a55 55%, #0b57d0 140%);
+        padding: 18px 22px 20px;
+        color: #fff;
+    }
+    .som_bi__hero_top {
         display: flex;
         align-items: center;
+        justify-content: space-between;
         flex-wrap: wrap;
-        gap: 10px 14px;
-        margin-bottom: 12px;
+        gap: 12px;
+        margin-bottom: 16px;
     }
     .som_bi__title {
         display: inline-flex;
         align-items: center;
-        gap: 8px;
-        font-size: 19px;
-        font-weight: 800;
-        color: $bi-ink;
+        gap: 12px;
 
-        svg { width: 20px; height: 20px; color: $bi-blue; }
+        .ic {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 40px;
+            height: 40px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+
+            svg { width: 20px; height: 20px; color: #7dd3fc; }
+        }
+        > span {
+            display: flex;
+            flex-direction: column;
+            font-size: 19px;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            line-height: 1.15;
+
+            small {
+                font-size: 11px;
+                font-weight: 600;
+                color: rgba(203, 225, 255, 0.75);
+                letter-spacing: 0.02em;
+            }
+        }
     }
     .som_bi__presets {
         display: inline-flex;
-        gap: 4px;
-        background: #fff;
-        border: 1px solid #d3dcea;
-        border-radius: 10px;
+        gap: 3px;
+        background: rgba(255, 255, 255, 0.10);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 11px;
         padding: 3px;
+        backdrop-filter: blur(6px);
     }
     .som_bi__preset {
         border: none;
         background: transparent;
         border-radius: 8px;
-        padding: 4px 11px;
+        padding: 5px 13px;
         font-size: 12px;
         font-weight: 700;
-        color: #475569;
+        color: rgba(226, 240, 255, 0.85);
         cursor: pointer;
+        transition: all 0.15s ease;
 
-        &.active { background: $bi-blue; color: #fff; }
-        &:hover:not(.active) { background: #eaf1fb; }
-    }
-    .som_bi__chips {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 6px;
-        margin-left: auto;
-    }
-    .som_bi__hint { font-size: 11.5px; color: $bi-mut; font-style: italic; }
-    .som_bi__chip {
-        background: $bi-blue;
-        color: #fff;
-        border-radius: 999px;
-        padding: 3px 11px;
-        font-size: 11.5px;
-        font-weight: 700;
-        cursor: pointer;
-
-        &:hover { background: darken($bi-blue, 8%); }
-    }
-    .som_bi__clear {
-        border: 1px solid #d3dcea;
-        background: #fff;
-        border-radius: 999px;
-        padding: 3px 11px;
-        font-size: 11.5px;
-        font-weight: 700;
-        color: #475569;
-        cursor: pointer;
-
-        &:hover { background: #fde8e8; color: $bi-red; }
-    }
-    .som_bi__loading { padding: 8px 2px; color: $bi-mut; font-size: 12.5px; }
-    .som_bi__error {
-        background: #fdecec;
-        border: 1px solid #f1b5b9;
-        border-radius: 10px;
-        padding: 12px 14px;
-        color: #7a1c24;
-        font-size: 13px;
+        &.active { background: #fff; color: $bi-blue; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25); }
+        &:hover:not(.active) { background: rgba(255, 255, 255, 0.10); }
     }
 
-    // ── KPI cards ───────────────────────────────────────────
+    // KPIs glass sobre el hero
     .som_bi__kpis {
         display: grid;
         grid-template-columns: repeat(5, 1fr);
-        gap: 10px;
-        margin-bottom: 12px;
+        gap: 12px;
+        transition: opacity 0.2s ease;
 
-        @media (max-width: 1200px) { grid-template-columns: repeat(3, 1fr); }
-        @media (max-width: 720px)  { grid-template-columns: repeat(2, 1fr); }
+        @media (max-width: 1250px) { grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 760px)  { grid-template-columns: repeat(2, 1fr); }
     }
     .som_bi__kpi {
-        background: #fff;
-        border-radius: 12px;
-        padding: 11px 14px;
-        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
-        border-top: 3px solid #c7d7f2;
+        position: relative;
+        overflow: hidden;
+        border-radius: 14px;
+        padding: 12px 14px 10px;
+        background: linear-gradient(160deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.07));
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
+        backdrop-filter: blur(8px);
+        transition: transform 0.15s ease, background 0.15s ease;
 
-        &.blue  { border-top-color: $bi-blue; }
-        &.green { border-top-color: $bi-green; }
-        &.sky   { border-top-color: $bi-sky; }
-        &.ink   { border-top-color: $bi-ink; }
-        &.amber { border-top-color: #d97706; }
+        &:hover { transform: translateY(-2px); background: linear-gradient(160deg, rgba(255, 255, 255, 0.19), rgba(255, 255, 255, 0.09)); }
 
-        .l { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: $bi-mut; }
-        .v { font-size: 21px; font-weight: 800; color: $bi-ink; font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 2px; }
-        .s { font-size: 11.5px; color: $bi-mut; margin-top: 2px; b { color: $bi-ink; } }
+        .l {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            color: rgba(203, 225, 255, 0.82);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+
+            .tag {
+                font-size: 8.5px;
+                letter-spacing: 0.04em;
+                background: rgba(125, 211, 252, 0.2);
+                color: #bae6fd;
+                border-radius: 999px;
+                padding: 1px 7px;
+            }
+        }
+        .v {
+            font-size: 22px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: #fff;
+            line-height: 1.25;
+            margin-top: 3px;
+
+            em { font-style: normal; font-size: 13px; color: rgba(203, 225, 255, 0.8); }
+        }
+        .s {
+            font-size: 11px;
+            color: rgba(203, 225, 255, 0.72);
+            margin-top: 1px;
+
+            b { color: #fff; }
+        }
+        .spark {
+            position: absolute;
+            right: 0;
+            bottom: 0;
+            width: 46%;
+            height: 30px;
+            opacity: 0.9;
+
+            .line { fill: none; stroke-width: 1.8; vector-effect: non-scaling-stroke; }
+            .line.blue { stroke: #7dd3fc; }
+            .line.green { stroke: #6ee7b7; }
+            .line.sky { stroke: #bae6fd; }
+            .area { stroke: none; }
+            .area.blue { fill: rgba(125, 211, 252, 0.18); }
+            .area.green { fill: rgba(110, 231, 183, 0.16); }
+            .area.sky { fill: rgba(186, 230, 253, 0.14); }
+        }
     }
+
+    // ── Barra de filtros ────────────────────────────────────
+    .som_bi__filterbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px 22px;
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(8px);
+        border-bottom: 1px solid #e3eaf5;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        min-height: 44px;
+    }
+    .som_bi__hint {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12px;
+        font-weight: 600;
+        color: $bi-mut;
+
+        svg { width: 14px; height: 14px; color: $bi-amber; }
+    }
+    .som_bi__chiplbl { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; color: $bi-mut; }
+    .som_bi__chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        background: linear-gradient(135deg, $bi-blue, #2563eb);
+        color: #fff;
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 11.5px;
+        font-weight: 700;
+        cursor: pointer;
+        box-shadow: 0 3px 10px rgba(11, 87, 208, 0.28);
+        transition: transform 0.12s ease;
+
+        b { opacity: 0.75; font-weight: 800; }
+        &:hover { transform: translateY(-1px); b { opacity: 1; } }
+    }
+    .som_bi__clear {
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #475569;
+        cursor: pointer;
+
+        &:hover { background: #fef2f2; border-color: #fecaca; color: $bi-red; }
+    }
+    .som_bi__spinner {
+        width: 14px;
+        height: 14px;
+        margin-left: auto;
+        border: 2px solid #dbeafe;
+        border-top-color: $bi-blue;
+        border-radius: 50%;
+        animation: som-bi-spin 0.7s linear infinite;
+    }
+    @keyframes som-bi-spin { to { transform: rotate(360deg); } }
+
+    .som_bi__error {
+        margin: 16px 22px;
+        background: #fef2f2;
+        border: 1px solid #fecaca;
+        border-left: 4px solid $bi-red;
+        border-radius: 10px;
+        padding: 12px 14px;
+        color: #7f1d1d;
+        font-size: 13px;
+    }
+
+    // ── Skeleton de primera carga ───────────────────────────
+    .som_bi__skeleton {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 14px;
+        padding: 18px 22px;
+
+        .sk {
+            border-radius: 16px;
+            background: linear-gradient(100deg, #e8eef8 40%, #f4f8ff 50%, #e8eef8 60%);
+            background-size: 200% 100%;
+            animation: som-bi-shimmer 1.2s linear infinite;
+        }
+        .sk-kpis { grid-column: 1 / -1; height: 90px; }
+        .sk-panel { height: 300px; }
+    }
+    @keyframes som-bi-shimmer { to { background-position: -200% 0; } }
 
     // ── Grid de paneles ─────────────────────────────────────
     .som_bi__grid {
         display: grid;
         grid-template-columns: 2fr 1fr;
-        gap: 12px;
-        margin-bottom: 12px;
+        gap: 14px;
+        padding: 16px 22px 0;
+        transition: opacity 0.2s ease;
 
         @media (max-width: 1100px) { grid-template-columns: 1fr; }
     }
     .som_bi__panel {
         background: #fff;
-        border-radius: 12px;
-        padding: 12px 14px;
-        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+        border-radius: 16px;
+        padding: 14px 16px;
+        border: 1px solid #e8eef8;
+        box-shadow: $bi-panel-shadow;
         min-width: 0;
+        transition: box-shadow 0.2s ease;
 
-        &.wide { grid-column: auto; }
+        &:hover { box-shadow: 0 2px 4px rgba(15, 23, 42, 0.05), 0 16px 40px rgba(11, 87, 208, 0.11); }
     }
     .som_bi__panel_head {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-        font-size: 12.5px;
-        font-weight: 800;
-        text-transform: uppercase;
-        letter-spacing: 0.03em;
-        color: #374151;
-        margin-bottom: 8px;
+        gap: 10px;
+        margin-bottom: 10px;
 
-        small { font-weight: 600; text-transform: none; letter-spacing: 0; color: $bi-mut; }
+        .t {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            font-weight: 800;
+            letter-spacing: 0.01em;
+            color: #1e293b;
+            flex: 1 1 auto;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 3px;
+            flex: 0 0 auto;
+
+            &.blue { background: $bi-blue; box-shadow: 0 0 0 3px rgba(11, 87, 208, 0.15); }
+            &.sky { background: $bi-sky; box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.18); }
+            &.green { background: $bi-green; box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.16); }
+            &.amber { background: $bi-amber; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+            &.violet { background: #8b5cf6; box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.16); }
+            &.ink { background: $bi-ink; box-shadow: 0 0 0 3px rgba(15, 23, 42, 0.12); }
+        }
+        .drill {
+            font-size: 10.5px;
+            font-weight: 600;
+            color: #94a3b8;
+            background: #f1f5f9;
+            border-radius: 999px;
+            padding: 2px 9px;
+            white-space: nowrap;
+        }
     }
     .som_bi__expand {
-        border: 1px solid #d3dcea;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #e2e8f0;
         background: #fff;
-        border-radius: 8px;
-        width: 26px;
-        height: 26px;
-        font-size: 13px;
-        color: #475569;
+        border-radius: 9px;
+        width: 27px;
+        height: 27px;
+        color: #64748b;
         cursor: pointer;
         flex: 0 0 auto;
+        transition: all 0.13s ease;
 
-        &:hover { background: #eaf1fb; color: $bi-blue; }
+        svg { width: 13px; height: 13px; }
+        &:hover { background: $bi-blue; border-color: $bi-blue; color: #fff; }
     }
-    .som_bi__count { font-size: 11.5px; font-weight: 700; color: $bi-mut; text-transform: none; }
+    .som_bi__count { font-size: 11.5px; font-weight: 700; color: $bi-mut; white-space: nowrap; }
     .som_bi__canvas {
         position: relative;
-        height: 230px;
+        height: 235px;
 
-        &.tall { height: 290px; }
+        &.tall { height: 295px; }
+    }
+
+    // ── Pills / badges ──────────────────────────────────────
+    .pill {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 1px 9px;
+        font-size: 10.5px;
+        font-weight: 800;
+
+        &.good { background: rgba(16, 185, 129, 0.12); color: #047857; }
+        &.mid { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+        &.bad { background: rgba(239, 68, 68, 0.12); color: #b91c1c; }
+    }
+    .cur {
+        display: inline-block;
+        border-radius: 6px;
+        padding: 1px 7px;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.03em;
+
+        &.usd { background: rgba(16, 185, 129, 0.12); color: #047857; }
+        &.mxn { background: rgba(11, 87, 208, 0.10); color: $bi-blue; }
     }
 
     // ── Mini tabla clientes ─────────────────────────────────
@@ -179,29 +386,38 @@ $bi-mut: #64748b;
             display: grid;
             grid-template-columns: 1fr auto auto;
             gap: 10px;
-            padding: 5px 4px;
-            border-bottom: 1px dashed #eef1f6;
+            padding: 6px 6px;
+            border-radius: 8px;
             font-size: 12px;
             cursor: pointer;
             align-items: center;
 
             &:hover:not(.head) { background: #f0f6ff; }
-            &.head { cursor: default; font-size: 10.5px; text-transform: uppercase; color: $bi-mut; font-weight: 800; }
-            span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1f2937; }
-            b { font-variant-numeric: tabular-nums; color: $bi-ink; }
-            b.bad { color: $bi-red; }
-            b.good { color: $bi-green; }
+            &.head {
+                cursor: default;
+                font-size: 10px;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                color: $bi-mut;
+                font-weight: 800;
+                border-bottom: 1px solid #eef2f7;
+                border-radius: 0;
+            }
+            span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1f2937; font-weight: 600; }
+            > b { color: $bi-ink; font-weight: 700; }
         }
     }
 
     // ── Tabla de detalle ────────────────────────────────────
-    .som_bi__detail { margin-bottom: 8px; }
+    .som_bi__detail { margin: 14px 22px 26px; }
     .som_bi__table_wrap {
         overflow-x: auto;
-        max-height: 420px;
+        max-height: 430px;
         overflow-y: auto;
+        border-radius: 10px;
+        border: 1px solid #eef2f7;
 
-        &.modal { max-height: 240px; }
+        &.modal { max-height: 235px; }
     }
     .som_bi__table {
         width: 100%;
@@ -213,27 +429,30 @@ $bi-mut: #64748b;
             top: 0;
             background: #f8fafc;
             text-align: left;
-            padding: 6px 8px;
-            font-size: 10.5px;
+            padding: 8px 10px;
+            font-size: 10px;
             text-transform: uppercase;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.06em;
             color: $bi-mut;
+            font-weight: 800;
             border-bottom: 1px solid #e2e8f0;
             z-index: 1;
         }
         td {
-            padding: 5px 8px;
-            border-bottom: 1px solid #f1f4f9;
+            padding: 6px 10px;
+            border-bottom: 1px solid #f4f7fb;
             color: #1f2937;
             white-space: nowrap;
         }
-        tbody tr { cursor: pointer; }
-        tbody tr:hover { background: #f0f6ff; }
-        .r { text-align: right; font-variant-numeric: tabular-nums; }
-        .mono { font-family: SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; }
-        .ellipsis { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-        .bad { color: $bi-red; font-weight: 700; }
-        .good { color: $bi-green; font-weight: 700; }
+        tbody tr { cursor: pointer; transition: background 0.1s ease; }
+        tbody tr:nth-child(even) { background: #fbfcfe; }
+        tbody tr:hover { background: #eef5ff; }
+        .r { text-align: right; }
+        .mono { font-family: SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; color: $bi-blue; }
+        .muted { color: $bi-mut; }
+        .strong { font-weight: 700; color: $bi-ink; }
+        .neg { color: $bi-red; font-weight: 700; }
+        .ellipsis { max-width: 230px; overflow: hidden; text-overflow: ellipsis; }
     }
 }
 
@@ -241,73 +460,81 @@ $bi-mut: #64748b;
 .som_bi__modal_bg {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.5);
+    background: rgba(12, 27, 51, 0.55);
+    backdrop-filter: blur(3px);
     z-index: 1060;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 24px;
+    padding: 26px;
+    animation: som-bi-fade 0.15s ease;
 }
+@keyframes som-bi-fade { from { opacity: 0; } }
+
 .som_bi__modal {
     background: #fff;
-    border-radius: 14px;
+    border-radius: 18px;
     width: 100%;
-    max-width: 1050px;
+    max-width: 1080px;
     max-height: 90vh;
     display: flex;
     flex-direction: column;
-    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.35);
+    box-shadow: 0 24px 70px rgba(12, 27, 51, 0.45);
     overflow: hidden;
-    padding: 14px 18px;
+    padding: 16px 20px;
+    animation: som-bi-pop 0.18s ease;
 
     .som_bi__modal_head {
         display: flex;
         align-items: center;
         gap: 12px;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 800;
+        letter-spacing: -0.01em;
         color: #0f172a;
-        margin-bottom: 8px;
+        margin-bottom: 10px;
 
         > span { flex: 1 1 auto; }
     }
     .som_bi__variants {
         display: inline-flex;
-        gap: 4px;
+        gap: 3px;
         background: #f1f5f9;
-        border-radius: 9px;
+        border-radius: 10px;
         padding: 3px;
 
         button {
             border: none;
             background: transparent;
-            border-radius: 7px;
-            padding: 3px 11px;
+            border-radius: 8px;
+            padding: 4px 13px;
             font-size: 11.5px;
             font-weight: 700;
             color: #475569;
             cursor: pointer;
 
-            &.active { background: #0b57d0; color: #fff; }
+            &.active { background: #0b57d0; color: #fff; box-shadow: 0 2px 8px rgba(11, 87, 208, 0.3); }
         }
     }
     .som_bi__modal_x {
         border: none;
         background: #f1f5f9;
-        border-radius: 8px;
-        width: 28px;
-        height: 28px;
+        border-radius: 9px;
+        width: 29px;
+        height: 29px;
         cursor: pointer;
         color: #475569;
+        font-weight: 700;
 
-        &:hover { background: #fde8e8; color: #e5484d; }
+        &:hover { background: #fef2f2; color: #ef4444; }
     }
     .som_bi__modal_canvas {
         position: relative;
-        height: 340px;
-        margin-bottom: 10px;
+        height: 345px;
+        margin-bottom: 12px;
     }
 }
+@keyframes som-bi-pop { from { transform: scale(0.97); opacity: 0; } }
 
 // Altura completa de la client action
 .o_action_manager .o_action:has(.som_bi) {
