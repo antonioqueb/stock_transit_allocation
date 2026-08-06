@@ -1,9 +1,14 @@
 // SOM Dashboard Ejecutivo — bundle React standalone (patrón portal proveedores).
 // Tres niveles de lectura: titular (ticker) → contexto (vistas) → explicación
 // (drill con breadcrumbs: venta → líneas por material → material → historia).
-import { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { rpc, arr, num, money, n0, n1, pct, monthLabel, marginTone, Rec } from "./api";
+import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
+import {
+  arr, num, money, n0, n1, pct, monthLabel, marginTone, Rec,
+  fetchExec, fetchBanks, fetchOrderLines, fetchTimeToSell,
+  fetchDashboard, fetchDrill,
+} from "./api";
 import { ChartBox, baseOptions, axisMoney, axisPlain, C, PALETTE } from "./charts";
 import "./styles.css";
 
@@ -106,23 +111,16 @@ function Pill(props: { tone: "good" | "mid" | "bad"; children: React.ReactNode }
   return <span className={"pill " + props.tone}>{props.children}</span>;
 }
 
-// Hook de carga por bloque: cada widget vive o muere solo.
-function useData<T>(fn: () => Promise<T>, deps: unknown[]): { data: T | null; loading: boolean; error: string; retry: () => void } {
-  const [state, setState] = useState<{ data: T | null; loading: boolean; error: string }>({ data: null, loading: true, error: "" });
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    setState((s) => ({ ...s, loading: true, error: "" }));
-    fn().then(
-      (data) => alive && setState({ data, loading: false, error: "" }),
-      (e: Error) => alive && setState({ data: null, loading: false, error: e.message }),
-    );
-    return () => {
-      alive = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...deps, tick]);
-  return { ...state, retry: () => setTick((t) => t + 1) };
+// Hook de carga por bloque sobre TanStack Query: caché + dedupe + retry.
+// Volver atrás en el drill o entre vistas es instantáneo (staleTime 60s).
+function useData<T>(key: unknown[], fn: () => Promise<T>): { data: T | null; loading: boolean; error: string; retry: () => void } {
+  const q = useQuery({ queryKey: key, queryFn: fn, staleTime: 60_000, retry: 1, refetchOnWindowFocus: false });
+  return {
+    data: q.data ?? null,
+    loading: q.isPending,
+    error: q.error ? (q.error as Error).message : "",
+    retry: () => void q.refetch(),
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -134,7 +132,7 @@ function ExecTicker() {
 
   useEffect(() => {
     let alive = true;
-    const load = () => rpc<Rec>("exec").then((d) => alive && setData(d)).catch(() => undefined);
+    const load = () => fetchExec().then((d) => alive && setData(d as unknown as Rec)).catch(() => undefined);
     load();
     const poll = setInterval(load, 60_000);
     const rotate = setInterval(() => setFocus((f) => f + 1), 7_000);
@@ -243,7 +241,7 @@ function MiniTable(props: { head: [string, string, string]; rows: Array<{ key: R
 // Vistas
 // ─────────────────────────────────────────────────────────────────────────────
 function ResumenView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
-  const q = useData(() => rpc<Rec>("dashboard", ["resumen", props.filters]), [JSON.stringify(props.filters)]);
+  const q = useData(["dashboard", "resumen", props.filters], () => fetchDashboard("resumen", props.filters as Rec));
   if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /><Skeleton /></div>;
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const d = q.data!;
@@ -307,7 +305,7 @@ function ResumenView(props: { filters: Filters; drill: (n: DrillNode) => void })
 }
 
 function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
-  const q = useData(() => rpc<Rec>("dashboard", ["comercial", props.filters]), [JSON.stringify(props.filters)]);
+  const q = useData(["dashboard", "comercial", props.filters], () => fetchDashboard("comercial", props.filters as Rec));
   if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /><Skeleton /></div>;
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const d = q.data!;
@@ -401,7 +399,7 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
 }
 
 function MaterialesView(props: { drill: (n: DrillNode) => void }) {
-  const q = useData(() => rpc<Rec[]>("time_to_sell", [{}]), []);
+  const q = useData(["time_to_sell"], fetchTimeToSell);
   if (q.loading) return <div className="grid"><Skeleton h={480} /></div>;
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const rows = arr(q.data);
@@ -462,7 +460,7 @@ function MaterialesView(props: { drill: (n: DrillNode) => void }) {
 }
 
 function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
-  const q = useData(() => rpc<Rec>("dashboard", ["inventario", props.filters]), [JSON.stringify(props.filters)]);
+  const q = useData(["dashboard", "inventario", props.filters], () => fetchDashboard("inventario", props.filters as Rec));
   if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /></div>;
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const d = q.data!;
@@ -515,7 +513,7 @@ function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void
 }
 
 function TransitoView() {
-  const q = useData(() => rpc<Rec>("dashboard", ["transito", {}]), []);
+  const q = useData(["dashboard", "transito"], () => fetchDashboard("transito", {}));
   if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /></div>;
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const d = q.data!;
@@ -551,14 +549,14 @@ function TransitoView() {
 }
 
 function FinanzasView() {
-  const banks = useData(() => rpc<Rec>("banks"), []);
-  const fin = useData(() => rpc<Rec>("dashboard", ["financiero", {}]), []);
+  const banks = useData(["banks"], fetchBanks);
+  const fin = useData(["dashboard", "financiero"], () => fetchDashboard("financiero", {}));
   return (
     <>
       {banks.loading ? <Skeleton h={90} /> : banks.error ? <ErrorBox msg={banks.error} retry={banks.retry} /> : (
         <div className="stats">
-          <Stat label="Dinero en bancos y cajas" value={money((banks.data as Rec).total)} tone="good" />
-          {arr((banks.data as Rec).journals).slice(0, 5).map((j) => (
+          <Stat label="Dinero en bancos y cajas" value={money(banks.data!.total)} tone="good" />
+          {banks.data!.journals.slice(0, 5).map((j) => (
             <Stat key={String(j.id)} label={String(j.name)} value={money(j.balance)} sub={j.type === "cash" ? "caja" : "banco"} />
           ))}
         </div>
@@ -622,11 +620,12 @@ function FinanzasView() {
 // ─────────────────────────────────────────────────────────────────────────────
 function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: DrillNode) => void; popTo: (i: number) => void; close: () => void }) {
   const node = props.stack[props.stack.length - 1];
-  const key = node.kind === "order" ? `o${node.orderId}` : `${node.entity}:${node.value}`;
-  const q = useData<Rec>(() => {
-    if (node.kind === "order") return rpc<Rec>("order_lines", [node.orderId]);
-    return rpc<Rec>("drill", [node.entity, node.value, node.label, props.filters]);
-  }, [key]);
+  const key = node.kind === "order" ? ["order_lines", node.orderId] : ["drill", node.entity, node.value, props.filters];
+  const q = useData<Rec>(key, () =>
+    node.kind === "order"
+      ? (fetchOrderLines(node.orderId) as unknown as Promise<Rec>)
+      : (fetchDrill(node.entity, node.value, node.label, props.filters as Rec) as Promise<Rec>),
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && props.close();
@@ -840,11 +839,15 @@ function App() {
   );
 }
 
+const queryClient = new QueryClient();
+
 const rootEl = document.getElementById("som-root");
 if (rootEl) {
   createRoot(rootEl).render(
     <StrictMode>
-      <App />
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
     </StrictMode>,
   );
 }

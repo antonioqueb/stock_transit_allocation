@@ -61,3 +61,58 @@ export function monthLabel(m: unknown): string {
 export function marginTone(m: number): "good" | "mid" | "bad" {
   return m < 0 ? "bad" : m < 15 ? "mid" : "good";
 }
+
+// ── Contratos Zod en el borde: si el backend cambia, el error aparece aquí ──
+import { z } from "zod";
+
+const zn = z.coerce.number().catch(0);
+const zs = z.coerce.string().catch("");
+const znn = z.number().nullable().catch(null);
+
+export const ExecSummarySchema = z.object({
+  venta_hoy: zn, venta_mes: zn, venta_mes_prev: zn, venta_mom_pct: zn,
+  utilidad_mes: zn, margen_mes: zn, m2_mes: zn, bancos_mxn: zn,
+  por_cobrar: zn, por_pagar: zn, contenedores_agua: zn, m2_agua: zn,
+  inv_m2: zn, holds_activos: zn, auth_pendientes: zn, tc_banorte: zn,
+});
+export type ExecSummary = z.infer<typeof ExecSummarySchema>;
+
+export const BanksSchema = z.object({
+  journals: z.array(z.object({ id: zn, name: zs, type: zs, balance: zn })).catch([]),
+  total: zn,
+});
+export type Banks = z.infer<typeof BanksSchema>;
+
+export const OrderLinesSchema = z.object({
+  order: z.object({
+    id: zn, name: zs, partner: zs, date: zs, seller: zs,
+    currency: zs, amount_total: zn,
+  }),
+  lines: z.array(z.object({
+    product: zs, categ: zs, qty: zn, is_area: z.boolean().catch(false),
+    level: zs, price_unit: zn, venta: zn, costo: zn, utilidad: zn,
+    margen: zn, tmpl_id: zn,
+  })).catch([]),
+});
+export type OrderLines = z.infer<typeof OrderLinesSchema>;
+
+export const TimeToSellSchema = z.array(z.object({
+  tmpl_id: zn, name: zs, dias_venta: znn, m2_vendidos: zn,
+  lots_vendidos: zn, edad_stock: znn, m2_stock: zn, lots_stock: zn,
+})).catch([]);
+export type TimeToSellRow = z.infer<typeof TimeToSellSchema>[number];
+
+// Los packs de dashboard/drill son heterogéneos por dominio: contrato laxo
+// (record) + acceso defensivo con arr()/num() en los componentes.
+const LoosePack = z.record(z.string(), z.unknown());
+
+export const fetchExec = () => rpc<Rec>("exec").then((r) => ExecSummarySchema.parse(r));
+export const fetchBanks = () => rpc<Rec>("banks").then((r) => BanksSchema.parse(r));
+export const fetchOrderLines = (orderId: number) =>
+  rpc<Rec>("order_lines", [orderId]).then((r) => OrderLinesSchema.parse(r));
+export const fetchTimeToSell = () =>
+  rpc<Rec[]>("time_to_sell", [{}]).then((r) => TimeToSellSchema.parse(r));
+export const fetchDashboard = (domain: string, filters: Rec) =>
+  rpc<Rec>("dashboard", [domain, filters]).then((r) => LoosePack.parse(r));
+export const fetchDrill = (entity: string, value: string | number, label: string, filters: Rec) =>
+  rpc<Rec>("drill", [entity, value, label, filters]).then((r) => LoosePack.parse(r));
