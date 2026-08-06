@@ -1970,6 +1970,8 @@ class SomAnalytics(models.AbstractModel):
         Los materiales más lentos primero — capital estancado."""
         self._check_access()
         uoms = tuple(self._area_uom_ids())
+        if not uoms:
+            return []
         sold = {r[0]: r for r in self._sq("""
             SELECT pt.id,
                    COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
@@ -1990,7 +1992,7 @@ class SomAnalytics(models.AbstractModel):
               AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
               AND ml.date > sl.create_date
             GROUP BY pt.id, name
-        """, (uoms,))}
+        """, (uoms,), default=[])}
         stock = {r[0]: r for r in self._sq("""
             SELECT pt.id,
                    COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
@@ -2007,7 +2009,7 @@ class SomAnalytics(models.AbstractModel):
                  AND pt.uom_id IN %s
             WHERE q.quantity > 0
             GROUP BY pt.id, name
-        """, (uoms,))}
+        """, (uoms,), default=[])}
         out = []
         for tid in set(sold) | set(stock):
             sr, qr = sold.get(tid), stock.get(tid)
