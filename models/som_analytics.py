@@ -476,6 +476,18 @@ class SomAnalytics(models.AbstractModel):
         """, dt, default=[(0, 0)])[0]
         pack['kpis']['fx_realizado_mxn'] = round(row[0] or 0.0, 2)
         pack['kpis']['fx_ordenes'] = row[1]
+
+        # 1.5b Resultado de autorizaciones de descuento + descuento evitado
+        row = self._sq("""
+            SELECT COUNT(*) FILTER (WHERE x_discount_auth_result = 'approved'),
+                   COUNT(*) FILTER (WHERE x_discount_auth_result = 'rejected'),
+                   COALESCE(SUM(x_discount_rejected_amount), 0)
+            FROM sale_order
+            WHERE date_order >= %s AND date_order <= %s
+        """, dt, default=[(0, 0, 0)])[0]
+        pack['kpis']['desc_aprobados'] = row[0]
+        pack['kpis']['desc_rechazados'] = row[1]
+        pack['kpis']['descuento_evitado_mxn'] = round(row[2] or 0.0, 2)
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -821,6 +833,29 @@ class SomAnalytics(models.AbstractModel):
                 'lead_time_dias': lead_days,
                 'lead_time_ocs': lead_count,
                 'discrepancias': disc,
+                'costo_log_m2_mxn': (lambda r: round(r[0] or 0.0, 2))(
+                    self._sq("""
+                    SELECT AVG(t.all_in * %s / NULLIF(m2.total, 0))
+                    FROM supplier_shipment sh
+                    JOIN LATERAL (
+                        SELECT ft.all_in
+                        FROM freight_tariff ft
+                        WHERE ft.pol_id = sh.pol_id AND ft.pod_id = sh.pod_id
+                          AND COALESCE(ft.all_in, 0) > 0
+                        ORDER BY ft.id DESC LIMIT 1
+                    ) t ON true
+                    JOIN LATERAL (
+                        SELECT SUM(ml.quantity) AS total
+                        FROM stock_picking sp
+                        JOIN stock_move_line ml ON ml.picking_id = sp.id
+                             AND ml.state = 'done'
+                        WHERE sp.supplier_shipment_id = sh.id
+                          AND sp.state = 'done'
+                          AND ml.product_uom_id IN %s
+                    ) m2 ON m2.total > 0
+                    WHERE sh.pol_id IS NOT NULL AND sh.pod_id IS NOT NULL
+                """, (rate, tuple(self._area_uom_ids())),
+                    default=[(None,)])[0]),
                 'pipeline_edad_dias': (lambda r: round(r[0] or 0.0, 1))(
                     self._sq("""
                     SELECT AVG(EXTRACT(EPOCH FROM (NOW() - create_date))
@@ -1027,6 +1062,16 @@ class SomAnalytics(models.AbstractModel):
             'by_state': states,
             'weekly_done': [{'week': a[5:], 'count': b}
                             for (a, b) in weekly],
+            'pasadas': [
+                {'label': lbl, 'count': (lambda r: r[0])(self._sq(
+                    "SELECT COUNT(*) FROM stock_lot WHERE name ~ %s",
+                    (rx,), default=[(0,)])[0])}
+                for (lbl, rx) in [
+                    ('2ª pasada (-R2)', '-R2$'),
+                    ('3ª pasada (-R3)', '-R3$'),
+                    ('4ª o más (-R4+)', '-R([4-9]|[1-9][0-9])$'),
+                ]
+            ],
         }
 
     # ── CONTROL (dominio 10: bandeja cero y calidad de datos) ──────────

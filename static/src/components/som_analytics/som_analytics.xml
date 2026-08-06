@@ -119,6 +119,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Realización de precio</t><t t-set="val" t-value="num(data.kpis.realizacion_pct) + '%'"/><t t-set="sub">precio cobrado vs N1 de lista</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Reincidencias de piso</t><t t-set="val" t-value="num(data.kpis.reincidencias_piso,0)"/><t t-set="sub">bajaron de lo YA autorizado</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Rescate del autorizador</t><t t-set="val" t-value="num(data.kpis.auth_delta_pct) + '%'"/><t t-set="sub">delta solicitado vs autorizado</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Descuento evitado</t><t t-set="val" t-value="money(data.kpis.descuento_evitado_mxn)"/><t t-set="sub" t-value="num(data.kpis.desc_aprobados,0) + ' aprobados / ' + num(data.kpis.desc_rechazados,0) + ' rechazados'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">FX realizado</t><t t-set="val" t-value="money(data.kpis.fx_realizado_mxn)"/><t t-set="sub" t-value="'TC entrega vs confirmación · ' + num(data.kpis.fx_ordenes,0) + ' órdenes'"/></t>
                         </div>
                         <div class="som_bi__grid">
@@ -241,6 +242,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Proveedores activos</t><t t-set="val" t-value="num(data.kpis.proveedores,0)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Lead time OC→recepción</t><t t-set="val" t-value="num(data.kpis.lead_time_dias) + ' días'"/><t t-set="sub" t-value="'sobre ' + num(data.kpis.lead_time_ocs,0) + ' OCs recibidas'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Discrepancias PL</t><t t-set="val" t-value="num(data.kpis.discrepancias,0)"/><t t-set="sub">portal vs recibido</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Costo logístico / m²</t><t t-set="val" t-value="money(data.kpis.costo_log_m2_mxn)"/><t t-set="sub">tarifario × ruta del embarque</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Edad del pipeline</t><t t-set="val" t-value="num(data.kpis.pipeline_edad_dias) + ' días'"/><t t-set="sub">allocations pendientes de comprar</t></t>
                         </div>
                         <div class="som_bi__grid">
@@ -422,6 +424,9 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Reclasificaciones</t><t t-set="val" t-value="num(data.kpis.reclasificaciones,0)"/><t t-set="sub">catálogo/calidad heterogénea</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Merma de proceso</t><t t-set="val" t-value="num(data.kpis.merma_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.merma_m2) + ' m² perdidos de ' + num(data.kpis.area_in_m2) + ' m² procesados'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Área útil producida</t><t t-set="val" t-value="num(data.kpis.area_out_m2) + ' m²'"/></t>
+                            <t t-foreach="data.pasadas" t-as="ps" t-key="ps_index">
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl" t-value="ps.label"/><t t-set="val" t-value="num(ps.count,0) + ' lotes'"/></t>
+                            </t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel">
