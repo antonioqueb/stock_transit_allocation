@@ -488,6 +488,41 @@ class SomAnalytics(models.AbstractModel):
         pack['kpis']['desc_aprobados'] = row[0]
         pack['kpis']['desc_rechazados'] = row[1]
         pack['kpis']['descuento_evitado_mxn'] = round(row[2] or 0.0, 2)
+
+        # 1.3b Antigüedad media de cotizaciones abiertas + m² cotizados vs
+        # confirmados en el periodo
+        row = self._sq("""
+            SELECT AVG(EXTRACT(EPOCH FROM (NOW() - date_order)) / 86400.0)
+            FROM sale_order
+            WHERE state IN ('draft','sent')
+              AND COALESCE(x_is_quote_backup, false) = false
+        """, default=[(None,)])[0]
+        pack['kpis']['cotiz_edad_media'] = round(row[0] or 0.0, 1)
+
+        row = self._sq("""
+            SELECT
+              COALESCE(SUM(sol.product_uom_qty) FILTER (
+                  WHERE so.state IN ('draft','sent')), 0),
+              COALESCE(SUM(sol.product_uom_qty) FILTER (
+                  WHERE so.state = 'sale'), 0)
+            FROM sale_order_line sol
+            JOIN sale_order so ON so.id = sol.order_id
+            WHERE sol.display_type IS NULL
+              AND sol.product_uom_id IN %s
+              AND COALESCE(so.x_is_quote_backup, false) = false
+              AND so.date_order >= %s AND so.date_order <= %s
+        """, (tuple(self._area_uom_ids()), dt[0], dt[1]),
+            default=[(0, 0)])[0]
+        pack['kpis']['m2_cotizados'] = round(row[0] or 0.0, 1)
+        pack['kpis']['m2_confirmados'] = round(row[1] or 0.0, 1)
+
+        # 1.6c Edad promedio de los bloqueos de precio vivos
+        row = self._sq("""
+            SELECT AVG(EXTRACT(EPOCH FROM (NOW() - write_date)) / 86400.0)
+            FROM sale_order
+            WHERE COALESCE(x_has_low_prices, false) AND state != 'cancel'
+        """, default=[(None,)])[0]
+        pack['kpis']['bloqueo_edad_dias'] = round(row[0] or 0.0, 1)
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -1271,6 +1306,8 @@ class SomAnalytics(models.AbstractModel):
                     WHERE last_access IS NULL
                        OR last_access < NOW() - INTERVAL '7 days'
                 """, default=[(0,)])[0]),
+                'ligas_avance_pct': self._portal_avg_progress()[0],
+                'ligas_terminadas': self._portal_avg_progress()[1],
             },
             'by_status': [
                 {'status': st, 'label': labels.get(st, st),
@@ -1278,6 +1315,38 @@ class SomAnalytics(models.AbstractModel):
                 for st in order_st if st in acc],
             'voyages': sorted(cards, key=lambda c: c['eta'] or '9999')[:30],
         }
+
+    def _portal_avg_progress(self):
+        """5.4: % de avance promedio de las ligas de portal activas y
+        cuántas están terminadas (avance 100). El avance vive en un compute
+        del proforma header, por eso se resuelve vía ORM acotado."""
+        if getattr(self, '_portal_prog_cache', None) is not None:
+            return self._portal_prog_cache
+        result = (0.0, 0)
+        try:
+            Access = self.env['supplier.access'].sudo()
+            Header = self.env['supplier.proforma.header'].sudo()
+            headers = Header.search([], order='id desc', limit=60)
+            vals = []
+            for h in headers:
+                try:
+                    p = h._portal_progress()
+                    if isinstance(p, dict):
+                        p = p.get('overall') or p.get('percent') or 0
+                    vals.append(float(p or 0))
+                except Exception:
+                    continue
+            if vals:
+                result = (
+                    round(sum(vals) / len(vals), 1),
+                    len([v for v in vals if v >= 100]),
+                )
+            elif Access.search_count([]) == 0:
+                result = (0.0, 0)
+        except Exception:
+            _logger.exception('[SOM Analytics] portal progress')
+        self._portal_prog_cache = result
+        return result
 
     def _dom_transito(self, f):
         return self._transit_pack(f)
@@ -1520,6 +1589,32 @@ class SomAnalytics(models.AbstractModel):
                     WHERE state = 'pending'
                 """, default=[(0,)])[0]),
             },
+            'pago_post_entrega': [
+                {'name': a, 'dias': round(float(b or 0), 1), 'entregas': c}
+                for (a, b, c) in self._sq("""
+                SELECT p.name,
+                       AVG(EXTRACT(EPOCH FROM (pr.paid_at - d.signed_at))
+                           / 86400.0) AS dias,
+                       COUNT(*) AS entregas
+                FROM sale_delivery_document d
+                JOIN sale_order so ON so.id = d.sale_order_id
+                JOIN res_partner p ON p.id = so.partner_id
+                JOIN account_move m ON m.invoice_origin = so.name
+                    AND m.move_type = 'out_invoice' AND m.state = 'posted'
+                    AND m.payment_state IN ('paid','in_payment')
+                JOIN LATERAL (
+                    SELECT MAX(apr.create_date) AS paid_at
+                    FROM account_partial_reconcile apr
+                    JOIN account_move_line aml
+                         ON aml.id = apr.debit_move_id
+                    WHERE aml.move_id = m.id
+                ) pr ON pr.paid_at IS NOT NULL
+                WHERE d.document_type = 'remission'
+                  AND d.signed_at IS NOT NULL
+                  AND pr.paid_at > d.signed_at
+                GROUP BY p.name
+                ORDER BY dias DESC LIMIT 10
+            """, default=[])],
             'cash_month': self._cash_flow_months(),
             'ar_buckets': ar_buckets,
             'ap_buckets': ap_buckets,

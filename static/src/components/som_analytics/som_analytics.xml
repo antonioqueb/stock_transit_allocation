@@ -107,11 +107,12 @@
                         <div class="som_bi__stats">
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Venta</t><t t-set="val" t-value="money(data.kpis.venta_mxn)"/><t t-set="sub" t-value="num(data.kpis.ordenes,0) + ' órdenes'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Utilidad all-in</t><t t-set="val" t-value="money(data.kpis.utilidad_mxn)"/><t t-set="sub" t-value="'Margen ' + num(data.kpis.margen_pct) + '%'"/></t>
-                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Conversión cot→orden</t><t t-set="val" t-value="num(data.kpis.conversion_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.cotizaciones_abiertas,0) + ' cotizaciones abiertas'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Conversión cot→orden</t><t t-set="val" t-value="num(data.kpis.conversion_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.cotizaciones_abiertas,0) + ' abiertas · ' + num(data.kpis.cotiz_edad_media) + ' días prom.'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² cotizados vs confirmados</t><t t-set="val" t-value="num(data.kpis.m2_cotizados) + ' / ' + num(data.kpis.m2_confirmados)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Descuentos otorgados</t><t t-set="val" t-value="money(data.kpis.descuento_mxn)"/><t t-set="sub" t-value="num(data.kpis.descuentos_con_auth,0) + ' requirieron autorización'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² vendidos</t><t t-set="val" t-value="num(data.kpis.m2_vendidos)"/><t t-set="sub" t-value="num(data.kpis.piezas_vendidas,0) + ' piezas'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Vía arquitecto</t><t t-set="val" t-value="num(data.kpis.pct_via_arquitecto) + '%'"/><t t-set="sub">de las órdenes</t></t>
-                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloqueadas por precio</t><t t-set="val" t-value="num(data.kpis.bloqueadas_precio,0)"/><t t-set="sub" t-value="compact(data.kpis.bloqueadas_monto) + ' detenidos'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloqueadas por precio</t><t t-set="val" t-value="num(data.kpis.bloqueadas_precio,0)"/><t t-set="sub" t-value="compact(data.kpis.bloqueadas_monto) + ' detenidos · ' + num(data.kpis.bloqueo_edad_dias) + ' días prom.'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exenciones IVA</t><t t-set="val" t-value="num(data.kpis.iva_aprobadas,0) + ' / ' + num(data.kpis.iva_solicitadas,0)"/><t t-set="sub">aprobadas / solicitadas</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exposición cambiaria</t><t t-set="val" t-value="compact(data.kpis.exposicion_mxn)"/><t t-set="sub" t-value="num(data.kpis.exposicion_ordenes,0) + ' órdenes USD sin TC congelado'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Autorizaciones de precio</t><t t-set="val" t-value="num(data.kpis.auth_aprobadas,0) + ' / ' + num(data.kpis.auth_solicitudes,0)"/><t t-set="sub" t-value="'Resolución ' + num(data.kpis.auth_horas_resolucion) + ' h prom.'"/></t>
@@ -269,7 +270,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Pendientes de publicar</t><t t-set="val" t-value="num(data.kpis.pendientes_publicar,0)"/><t t-set="sub">meta: 0</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Desviación de ETA</t><t t-set="val" t-value="num(data.kpis.eta_desviacion_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.eta_desviados,0) + ' viajes con ETA movida'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Días a publicar</t><t t-set="val" t-value="num(data.kpis.dias_a_publicar)"/><t t-set="sub">creación del viaje → publicación</t></t>
-                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Ligas de portal</t><t t-set="val" t-value="num(data.kpis.ligas_portal,0)"/><t t-set="sub" t-value="num(data.kpis.ligas_sin_acceso_7d,0) + ' sin acceso en 7 días'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Ligas de portal</t><t t-set="val" t-value="num(data.kpis.ligas_avance_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.ligas_portal,0) + ' ligas · ' + num(data.kpis.ligas_terminadas,0) + ' terminadas · ' + num(data.kpis.ligas_sin_acceso_7d,0) + ' sin acceso 7d'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide">
@@ -380,6 +381,18 @@
                                         <b t-esc="compact(c.monto)"/>
                                         <b t-esc="num(c.facturas,0)"/>
                                     </div>
+                                </div>
+                            </div>
+                            <div class="som_bi__panel">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Días de pago post-entrega (peores)</span></div>
+                                <div class="som_bi__minitable">
+                                    <div class="row head"><span>Cliente</span><b>Días prom.</b><b>Entregas</b></div>
+                                    <div t-foreach="data.pago_post_entrega" t-as="pp" t-key="pp_index" class="row">
+                                        <span t-esc="pp.name"/>
+                                        <b t-attf-class="pill #{pp.dias > 30 ? 'bad' : pp.dias > 7 ? 'mid' : 'good'}" t-esc="num(pp.dias)"/>
+                                        <b t-esc="num(pp.entregas,0)"/>
+                                    </div>
+                                    <div t-if="!data.pago_post_entrega.length" class="row"><span class="muted">Sin entregas con pago posterior aún</span><b/><b/></div>
                                 </div>
                             </div>
                             <div class="som_bi__panel">
