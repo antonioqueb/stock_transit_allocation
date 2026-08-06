@@ -187,6 +187,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         # tránsito reservada, ese material llegó y se fue a otro lado — la
         # allocation jamás se resolverá y contarla como cobertura OCULTABA la
         # demanda del cliente para siempre.
+        pos_alive = set()
         if allocations:
             Voyage = self.env['stock.transit.voyage'].sudo()
             po_ids = allocations.mapped('purchase_order_id').ids
@@ -211,6 +212,29 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                     or alloc.id in reserved_alloc_ids
             )
 
+            # OC "viva" = todavía puede llegar material: tiene viaje activo
+            # o recepciones entrantes sin validar/cancelar.
+            pos_alive = set(pos_with_active_voyage)
+            for po in self.env['purchase.order'].sudo().browse(
+                    list(set(allocations.mapped('purchase_order_id').ids))):
+                if any(p.picking_type_id.code == 'incoming'
+                       and p.state not in ('done', 'cancel')
+                       for p in po.picking_ids):
+                    pos_alive.add(po.id)
+
+        def _alloc_cover_qty(alloc):
+            # RECEPCIÓN CORTA: si el embarque ya terminó y la OC no tiene
+            # nada más por llegar, lo que no llegó YA NO VA A LLEGAR — una
+            # allocation parcial/en tránsito solo cubre lo realmente
+            # recibido, y el faltante REGRESA a To Be Purchased para poder
+            # mandarlo a pedir de nuevo.
+            if (
+                alloc.state in ('partial', 'in_transit')
+                and alloc.purchase_order_id.id not in pos_alive
+            ):
+                return max(float(alloc.qty_received or 0.0), 0.0)
+            return max(float(alloc.quantity or 0.0), 0.0)
+
         coverage_by_line = defaultdict(float)
         allocations_by_po_line = defaultdict(lambda: self.env['purchase.order.line.allocation'].sudo())
 
@@ -222,7 +246,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             po_capacity = max(float(po_line.product_qty or 0.0), 0.0)
 
             # Nunca una línea de OC puede cubrir más que lo comprado realmente.
-            total_declared = sum(max(float(alloc.quantity or 0.0), 0.0) for alloc in po_allocations)
+            total_declared = sum(_alloc_cover_qty(alloc) for alloc in po_allocations)
 
             if po_capacity <= 0.0 or total_declared <= 0.0:
                 continue
@@ -230,7 +254,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             if total_declared <= po_capacity:
                 for alloc in po_allocations:
                     if alloc.sale_line_id:
-                        coverage_by_line[alloc.sale_line_id.id] += max(float(alloc.quantity or 0.0), 0.0)
+                        coverage_by_line[alloc.sale_line_id.id] += _alloc_cover_qty(alloc)
                 continue
 
             # Caso defensivo: allocations infladas contra una PO line menor.
@@ -238,7 +262,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             factor = po_capacity / total_declared
             for alloc in po_allocations:
                 if alloc.sale_line_id:
-                    coverage_by_line[alloc.sale_line_id.id] += max(float(alloc.quantity or 0.0), 0.0) * factor
+                    coverage_by_line[alloc.sale_line_id.id] += _alloc_cover_qty(alloc) * factor
 
         return dict(coverage_by_line)
 
