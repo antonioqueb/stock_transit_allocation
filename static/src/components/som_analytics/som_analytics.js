@@ -29,6 +29,7 @@ const TABS = [
     { key: "compras", label: "Compras" },
     { key: "transito", label: "Tránsito" },
     { key: "recepciones", label: "Recepciones" },
+    { key: "taller", label: "Taller" },
     { key: "entregas", label: "Entregas" },
     { key: "financiero", label: "Financiero" },
     { key: "control", label: "Control" },
@@ -376,6 +377,7 @@ export class SomAnalytics extends Component {
         else if (t === "compras") this.renderCompras(d);
         else if (t === "transito") this.renderTransito(d);
         else if (t === "recepciones") this.renderRecepciones(d);
+        else if (t === "taller") this.renderTaller(d);
         else if (t === "entregas") this.renderEntregas(d);
         else if (t === "financiero") this.renderFinanciero(d);
         else if (t === "control") this.renderControl(d);
@@ -615,6 +617,22 @@ export class SomAnalytics extends Component {
         });
     }
 
+    renderTaller(d) {
+        const st = d.by_state || [];
+        this.doughnut("tl_s", "som_tl_states",
+            st.map((r) => r.state), st.map((r) => r.count),
+            { center: fmtNum(st.reduce((s2, r) => s2 + r.count, 0), 0), sub: "OTs activas" });
+        const wk = d.weekly_done || [];
+        this.barChart("tl_w", "som_tl_weekly",
+            wk.map((r) => r.week),
+            [{
+                label: "OTs terminadas", data: wk.map((r) => r.count),
+                somMoney: false,
+                backgroundColor: "rgba(16,185,129,.8)",
+                borderRadius: 6, borderSkipped: false,
+            }]);
+    }
+
     renderControl(d) {
         const rows = d.bandeja || [];
         this.barChart("ct_b", "som_ct_bandeja",
@@ -660,6 +678,13 @@ export class SomAnalytics extends Component {
                 backgroundColor: ["#38bdf8", "#818cf8", "#a78bfa", "#f472b6", "#ef4444"],
                 borderRadius: 6, borderSkipped: false,
             }]);
+        const cm = d.cash_month || [];
+        this.barChart("f_c", "som_f_cash",
+            cm.map((r) => monthLabel(r.key)),
+            [
+                this.ds("Entradas de caja", cm.map((r) => r.entradas), "rgba(16,185,129,.8)"),
+                this.ds("Salidas de caja", cm.map((r) => r.salidas), "rgba(239,68,68,.75)"),
+            ]);
         const bm = d.by_month || [];
         this.mk("f_m", "som_f_month", {
             type: "line",

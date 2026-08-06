@@ -54,6 +54,12 @@ class TransitLabelPrintWizard(models.TransientModel):
         if not hasattr(self.env['stock.quant'], 'generate_zpl_labels'):
             raise UserError(_("El módulo de impresión de etiquetas (generate_zpl_labels) no está disponible."))
 
+        # Bitácora de etiquetado (KPI): estampar la PRIMERA impresión del lote.
+        lots = self.env['stock.quant'].browse(quant_ids).mapped('lot_id')
+        lots.filtered(lambda l: not l.x_zpl_printed_at).sudo().write({
+            'x_zpl_printed_at': fields.Datetime.now(),
+        })
+
         # Llamar a la función existente en el sistema
         res = self.env['stock.quant'].generate_zpl_labels(quant_ids, self.label_format)
         
