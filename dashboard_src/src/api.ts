@@ -62,12 +62,13 @@ export function marginTone(m: number): "good" | "mid" | "bad" {
   return m < 0 ? "bad" : m < 15 ? "mid" : "good";
 }
 
-// ── Contratos Zod en el borde: si el backend cambia, el error aparece aquí ──
-import { z } from "zod";
+// ── Contratos Zod (zod/mini: tree-shakeable) en el borde de datos ──
+import * as z from "zod/mini";
 
-const zn = z.coerce.number().catch(0);
-const zs = z.coerce.string().catch("");
-const znn = z.number().nullable().catch(null);
+const zn = z.catch(z.coerce.number(), 0);
+const zs = z.catch(z.coerce.string(), "");
+const znn = z.catch(z.nullable(z.number()), null);
+const zb = z.catch(z.boolean(), false);
 
 export const ExecSummarySchema = z.object({
   venta_hoy: zn, venta_mes: zn, venta_mes_prev: zn, venta_mom_pct: zn,
@@ -78,7 +79,7 @@ export const ExecSummarySchema = z.object({
 export type ExecSummary = z.infer<typeof ExecSummarySchema>;
 
 export const BanksSchema = z.object({
-  journals: z.array(z.object({ id: zn, name: zs, type: zs, balance: zn })).catch([]),
+  journals: z.catch(z.array(z.object({ id: zn, name: zs, type: zs, balance: zn })), []),
   total: zn,
 });
 export type Banks = z.infer<typeof BanksSchema>;
@@ -88,21 +89,21 @@ export const OrderLinesSchema = z.object({
     id: zn, name: zs, partner: zs, date: zs, seller: zs,
     currency: zs, amount_total: zn,
   }),
-  lines: z.array(z.object({
-    product: zs, categ: zs, qty: zn, is_area: z.boolean().catch(false),
+  lines: z.catch(z.array(z.object({
+    product: zs, categ: zs, qty: zn, is_area: zb,
     level: zs, price_unit: zn, venta: zn, costo: zn, utilidad: zn,
     margen: zn, tmpl_id: zn,
-  })).catch([]),
+  })), []),
 });
 export type OrderLines = z.infer<typeof OrderLinesSchema>;
 
-export const TimeToSellSchema = z.array(z.object({
+export const TimeToSellSchema = z.catch(z.array(z.object({
   tmpl_id: zn, name: zs, dias_venta: znn, m2_vendidos: zn,
   lots_vendidos: zn, edad_stock: znn, m2_stock: zn, lots_stock: zn,
-})).catch([]);
+})), []);
 export type TimeToSellRow = z.infer<typeof TimeToSellSchema>[number];
 
-// Los packs de dashboard/drill son heterogéneos por dominio: contrato laxo
+// Packs de dashboard/drill: heterogéneos por dominio → contrato laxo
 // (record) + acceso defensivo con arr()/num() en los componentes.
 const LoosePack = z.record(z.string(), z.unknown());
 
