@@ -15,7 +15,7 @@
     </record>
 
     <record id="action_to_be_loading_client" model="ir.actions.client">
-        <field name="name">To Be Loading</field>
+        <field name="name">To Load</field>
         <field name="tag">action_to_be_loading</field>
     </record>
 
@@ -39,7 +39,7 @@
               groups="purchase.group_purchase_user"/>
 
     <menuitem id="menu_app_to_be_loading_root"
-              name="To Be Loading"
+              name="To Load"
               action="action_to_be_loading_client"
               web_icon="stock_transit_allocation,static/description/tobeloading.svg"
               sequence="4"

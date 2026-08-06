@@ -58,12 +58,8 @@ export class ToBeLoading extends Component {
 
     fmt(n) {
         return new Intl.NumberFormat("en-US", {
-            maximumFractionDigits: 1,
+            maximumFractionDigits: 2,
         }).format(Number(n) || 0);
-    }
-
-    barW(pct) {
-        return Math.max(0, Math.min(100, Number(pct) || 0));
     }
 
     openOrder(row) {
