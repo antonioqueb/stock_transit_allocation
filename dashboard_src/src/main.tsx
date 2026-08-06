@@ -81,7 +81,9 @@ function defaultRange(): Filters {
 // ─────────────────────────────────────────────────────────────────────────────
 type DrillNode =
   | { kind: "entity"; entity: "month" | "seller" | "customer" | "product" | "category" | "level"; value: string | number; label: string }
-  | { kind: "order"; orderId: number; label: string };
+  | { kind: "order"; orderId: number; label: string }
+  | { kind: "bucket"; mode: "date" | "folio"; value: string; label: string }
+  | { kind: "finpartner"; side: "ar" | "ap"; partnerId: number; label: string };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Bloques UI base
@@ -225,14 +227,14 @@ function TvExec() {
   const mom = d.venta_mom_pct;
   return (
     <div className="tv-stats">
-      <TvStat label="Venta de hoy" value={money(d.venta_hoy)} />
+      <TvStat label="Venta de hoy" value={money(d.venta_hoy)} sub="MXN" />
       <TvStat label="Venta del mes" value={money(d.venta_mes)}
         sub={`${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs mes anterior`} tone={mom >= 0 ? "good" : "bad"} />
       <TvStat label="Utilidad del mes" value={money(d.utilidad_mes)} sub={`Margen ${pct(d.margen_mes)}`} tone={marginTone(d.margen_mes)} />
       <TvStat label="m² vendidos del mes" value={n1(d.m2_mes)} />
       <TvStat label="Dinero en bancos" value={money(d.bancos_mxn)} tone="good" />
-      <TvStat label="Me deben" value={money(d.por_cobrar)} />
-      <TvStat label="Debo" value={money(d.por_pagar)} tone="bad" />
+      <TvStat label="Me deben" value={money(d.por_cobrar)} sub="MXN al TC del día de registro" />
+      <TvStat label="Debo" value={money(d.por_pagar)} sub="MXN al TC del día de registro" tone="bad" />
       <TvStat label="Inventario en patio" value={`${n1(d.inv_m2)} m²`} sub={`${n0(d.holds_activos)} holds activos`} />
       <TvStat label="Antigüedad de inventario" value={`${n0(d.inv_edad_dias)} días`} sub="promedio desde creación del lote" tone={d.inv_edad_dias > 365 ? "bad" : d.inv_edad_dias > 180 ? "mid" : "good"} />
       <TvStat label="En el agua" value={`${n1(d.m2_agua)} m²`} sub={`${n0(d.contenedores_agua)} contenedores`} />
@@ -292,8 +294,8 @@ function TvInventario(props: { filters: Filters }) {
       <Panel title="Antigüedad del inventario por fecha de creación del lote" wide>
         <ChartBox height={340} deps={[agingDate]} config={{
           type: "bar",
-          data: { labels: agingDate.map((r) => String(r.bucket)), datasets: [{ label: "m²", data: agingDate.map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, "#f97316", C.red], borderRadius: 8 }] },
-          options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(13) } },
+          data: { labels: agingDate.map((r) => String(r.bucket)), datasets: [{ label: "m²", data: agingDate.map((r) => num(r.m2)), backgroundColor: [C.green, "#22c55e", C.sky, C.amber, "#f97316", C.red, "#b91c1c", "#7f1d1d"], borderRadius: 8 }] },
+          options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(12) } },
         }} />
       </Panel>
     </>
@@ -444,6 +446,7 @@ function ResumenView(props: { filters: Filters; paused: boolean }) {
       <div className="tv-head">
         <span className="tv-title">{slide.label}</span>
         <span className="tv-clock">{clock}</span>
+        <span className="cur-chip" title="Los importes en USD se convierten al tipo de cambio que quedó registrado al facturar o entregar, no al de hoy">Cifras en MXN · USD al TC registrado</span>
         <div className="tv-dots" role="tablist" aria-label="Secciones del resumen">
           {TV_SLIDES.map((s, i) => (
             <button key={s.key} role="tab" aria-selected={i === idx} className={i === idx ? "on" : ""}
@@ -556,6 +559,25 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
             onClick: () => props.drill({ kind: "entity", entity: "customer", value: num(c.key), label: String(c.name) }),
           }))} />
         </Panel>
+        <Panel title="Rendimiento del catálogo compartido" hint="links de galería, reservas que generó y clientes que compraron en 30 días" wide>
+          {(() => {
+            const cat = (d.catalogo ?? {}) as Rec;
+            const bySeller = arr(d.catalogo_by_seller);
+            return (
+              <>
+                <div className="stats" style={{ marginBottom: 12 }}>
+                  <Stat label="Links creados" value={n0(cat.links)} sub={`${n0(cat.links_activos)} vigentes`} />
+                  <Stat label="Reservas desde el catálogo" value={n0(cat.reservas)} sub={`${n0(cat.reservas_concretadas)} concretadas`} />
+                  <Stat label="Clientes que compraron" value={n0(cat.clientes_compraron)} sub="con venta en 30 días tras el link" />
+                  <Stat label="Conversión link → venta" value={pct(cat.conversion_pct)} tone={num(cat.conversion_pct) >= 30 ? "good" : num(cat.conversion_pct) > 0 ? "mid" : ""} />
+                </div>
+                <MiniTable head={["Vendedor", "Links", "Clientes que compraron"]} rows={bySeller.map((sr, i) => ({
+                  key: i, a: String(sr.name), b: n0(sr.links), c: n0(sr.compraron),
+                }))} />
+              </>
+            );
+          })()}
+        </Panel>
         <Panel title="Órdenes del corte" hint="click = utilidad por material" wide>
           <OrdersTable orders={arr(d.orders)} onOrder={(id, name) => props.drill({ kind: "order", orderId: id, label: name })} />
         </Panel>
@@ -578,7 +600,7 @@ function MaterialesView(props: { filters: Filters; drill: (n: DrillNode) => void
   return (
     <>
       <div className="stats">
-        <Stat label="Materiales analizados" value={n0(rows.length)} sub="ventas 12 meses + stock actual" />
+        <Stat label="Materiales analizados" value={n0(rows.length)} sub="con venta en 12 meses o stock con lote (top 200)" />
         <Stat label="Más lento en patio" value={slow[0] ? `${n1(slow[0].edad_stock)} días` : "—"} sub={slow[0] ? String(slow[0].name).slice(0, 40) : ""} tone="bad" />
         <Stat label="m² en stock (analizados)" value={n1(rows.reduce((s, r) => s + num(r.m2_stock), 0))} />
         <Stat label="m² vendidos 12 meses" value={n1(rows.reduce((s, r) => s + num(r.m2_vendidos), 0))} />
@@ -701,18 +723,30 @@ function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void
             },
           }} />
         </Panel>
-        <Panel title="Antigüedad por fecha de creación del lote" hint="la antigüedad real del inventario">
+        <Panel title="Antigüedad por fecha de creación del lote" hint="click en una barra = qué materiales son">
           <ChartBox height={340} deps={[arr(d.aging_by_date)]} config={{
             type: "bar",
-            data: { labels: arr(d.aging_by_date).map((r) => String(r.bucket)), datasets: [{ label: "m²", data: arr(d.aging_by_date).map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, "#f97316", C.red], borderRadius: 6 }] },
-            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10) } },
+            data: { labels: arr(d.aging_by_date).map((r) => String(r.bucket)), datasets: [{ label: "m²", data: arr(d.aging_by_date).map((r) => num(r.m2)), backgroundColor: [C.green, "#22c55e", C.sky, C.amber, "#f97316", C.red, "#b91c1c", "#7f1d1d"], borderRadius: 6 }] },
+            options: {
+              ...baseOptions((i) => {
+                const r = arr(d.aging_by_date)[i];
+                props.drill({ kind: "bucket", mode: "date", value: String(r.bucket), label: `Antigüedad ${r.bucket}` });
+              }),
+              plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(9.5) },
+            },
           }} />
         </Panel>
-        <Panel title="Antigüedad por folio (regla Stone Profit)" wide>
+        <Panel title="Antigüedad por folio (regla Stone Profit)" hint="click en una barra = qué materiales son" wide>
           <ChartBox height={260} deps={[aging]} config={{
             type: "bar",
             data: { labels: aging.map((r) => String(r.bucket)), datasets: [{ label: "m²", data: aging.map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, C.red, "#64748b"], borderRadius: 6 }] },
-            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10) } },
+            options: {
+              ...baseOptions((i) => {
+                const r = aging[i];
+                props.drill({ kind: "bucket", mode: "folio", value: String(r.bucket), label: `Folios: ${r.bucket}` });
+              }),
+              plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10) },
+            },
           }} />
         </Panel>
         <Panel title="Merma dimensional por proveedor (PL vs medidas reales)" hint="m² facturados por el proveedor vs m² medidos en patio" wide>
@@ -790,6 +824,36 @@ function ComprasView(props: { filters: Filters }) {
             key: i, a: prettyStatus(a.state), b: n0(a.count), c: n1(a.qty),
           }))} />
         </Panel>
+        <Panel title="Top materiales comprados en el periodo" hint="normalizado a MXN">
+          <ChartBox height={320} deps={[arr(d.top_products)]} config={{
+            type: "bar",
+            data: { labels: arr(d.top_products).map((r) => String(r.name).slice(0, 34)), datasets: [{ label: "MXN", data: arr(d.top_products).map((r) => num(r.mxn)), backgroundColor: "rgba(11,87,208,.8)", borderRadius: 5, maxBarThickness: 18, isMoney: true }] },
+            options: { ...baseOptions(), indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { x: axisMoney(), y: axisPlain(10.5) } },
+          }} />
+        </Panel>
+        <Panel title="OCs abiertas con material pendiente de recibir" hint="el backlog vivo de compras" wide>
+          {!arr(d.open_pos).length ? <Empty msg="Todo lo comprado ya se recibió" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr><th>Orden</th><th>Proveedor</th><th>Confirmada</th><th>Divisa</th><th className="r">Monto</th><th className="r">% recibido</th></tr>
+                </thead>
+                <tbody>
+                  {arr(d.open_pos).map((o) => (
+                    <tr key={String(o.id)}>
+                      <td className="mono">{String(o.name)}</td>
+                      <td className="ell">{String(o.partner)}</td>
+                      <td className="mut">{String(o.date)}</td>
+                      <td>{String(o.currency)}</td>
+                      <td className="r strong">{money(o.total)}</td>
+                      <td className="r"><Pill tone={num(o.recibido_pct) >= 75 ? "good" : num(o.recibido_pct) > 0 ? "mid" : "bad"}>{pct(o.recibido_pct)}</Pill></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
       </div>
     </>
   );
@@ -829,6 +893,33 @@ function TransitoView() {
               ],
             },
             options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), y1: { beginAtZero: true, position: "right", grid: { display: false }, border: { display: false }, ticks: { color: C.amber, font: { size: 11 } } }, x: axisPlain(10.5) } },
+          }} />
+        </Panel>
+        <Panel title="m² en el agua por proveedor" hint="quién trae qué tanto material">
+          <ChartBox height={280} deps={[arr(d.by_supplier)]} config={{
+            type: "bar",
+            data: { labels: arr(d.by_supplier).map((r) => String(r.name).slice(0, 28)), datasets: [{ label: "m²", data: arr(d.by_supplier).map((r) => num(r.m2)), backgroundColor: "rgba(124,58,237,.75)", borderRadius: 5, maxBarThickness: 18 }] },
+            options: { ...baseOptions(), indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { x: axisMoney(), y: axisPlain(10.5) } },
+          }} />
+        </Panel>
+        <Panel title="Cuándo llega: m² por mes de ETA" hint="lo que viene en camino">
+          <ChartBox height={280} deps={[arr(d.eta_months)]} config={{
+            type: "bar",
+            data: {
+              labels: arr(d.eta_months).map((r) => monthLabel(r.key)),
+              datasets: [
+                { label: "m²", data: arr(d.eta_months).map((r) => num(r.m2)), backgroundColor: "rgba(2,132,199,.8)", borderRadius: 6, maxBarThickness: 40 },
+                { type: "line", label: "Contenedores", data: arr(d.eta_months).map((r) => num(r.count)), borderColor: C.amber, borderWidth: 2.5, pointRadius: 4, tension: 0.3, yAxisID: "y1" },
+              ],
+            },
+            options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), y1: { beginAtZero: true, position: "right", grid: { display: false }, border: { display: false }, ticks: { color: C.amber, font: { size: 11 } } }, x: axisPlain(11) } },
+          }} />
+        </Panel>
+        <Panel title="Lo que ya llegó: m² recibidos por mes (12 meses)" wide>
+          <ChartBox height={260} deps={[arr(d.arrived_monthly)]} config={{
+            type: "bar",
+            data: { labels: arr(d.arrived_monthly).map((r) => monthLabel(r.key)), datasets: [{ label: "m²", data: arr(d.arrived_monthly).map((r) => num(r.m2)), backgroundColor: "rgba(5,150,105,.75)", borderRadius: 6, maxBarThickness: 36 }] },
+            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
           }} />
         </Panel>
         <Panel title="Embarques activos — proveedor, contenedor, ETA y avance de venta" wide>
@@ -895,6 +986,40 @@ function RecepcionesView(props: { filters: Filters }) {
             },
             options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), y1: { beginAtZero: true, position: "right", grid: { display: false }, border: { display: false }, ticks: { color: C.blue, font: { size: 11 } } }, x: axisPlain(10.5) } },
           }} />
+        </Panel>
+        <Panel title="m² recibidos por proveedor (periodo)">
+          <ChartBox height={280} deps={[arr(d.by_supplier)]} config={{
+            type: "bar",
+            data: { labels: arr(d.by_supplier).map((r) => String(r.name).slice(0, 28)), datasets: [{ label: "m²", data: arr(d.by_supplier).map((r) => num(r.m2)), backgroundColor: "rgba(11,87,208,.8)", borderRadius: 5, maxBarThickness: 18 }] },
+            options: { ...baseOptions(), indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { x: axisMoney(), y: axisPlain(10.5) } },
+          }} />
+        </Panel>
+        <Panel title="Tendencia anual de recepciones">
+          <ChartBox height={280} deps={[arr(d.by_month12)]} config={{
+            type: "line",
+            data: { labels: arr(d.by_month12).map((r) => monthLabel(r.key)), datasets: [{ label: "m²", data: arr(d.by_month12).map((r) => num(r.m2)), borderColor: C.green, backgroundColor: "rgba(5,150,105,.08)", borderWidth: 2.5, tension: 0.4, fill: true }] },
+            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10.5) } },
+          }} />
+        </Panel>
+        <Panel title="Últimas recepciones validadas" wide>
+          {!arr(d.recent).length ? <Empty msg="Sin recepciones aún" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Folio</th><th>Proveedor</th><th>Origen</th><th>Fecha</th><th className="r">m²</th></tr></thead>
+                <tbody>
+                  {arr(d.recent).map((r) => (
+                    <tr key={String(r.id)}>
+                      <td className="mono">{String(r.name)}</td>
+                      <td className="ell">{String(r.partner)}</td>
+                      <td className="ell mut">{String(r.origin)}</td>
+                      <td className="mut">{String(r.date)}</td>
+                      <td className="r strong">{n1(r.m2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </Panel>
       </div>
     </>
@@ -1017,7 +1142,7 @@ function EntregasView(props: { filters: Filters }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // FINANZAS
 // ─────────────────────────────────────────────────────────────────────────────
-function FinanzasView(props: { filters: Filters }) {
+function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
   const banks = useData(["banks"], fetchBanks);
   const fin = useData(["dashboard", "financiero", props.filters], () => fetchDashboard("financiero", props.filters as Rec));
   if (fin.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /></div>;
@@ -1029,39 +1154,155 @@ function FinanzasView(props: { filters: Filters }) {
   const bm = arr(d.by_month);
   const cash = arr(d.cash_month);
   const pago = arr(d.pago_post_entrega);
+  const arCur = arr(d.ar_currency);
+  const apCur = arr(d.ap_currency);
+  const due = arr(d.due_flow);
+  const arTop = arr(d.ar_top);
+  const apTop = arr(d.ap_top);
+
+  // Narrativa ejecutiva: las frases que un director le pediría a su CFO.
+  const mom = num(k.facturado_mom_pct);
+  const entra30 = due.filter((r) => ["Ya venció", "Esta semana", "8-30 días"].includes(String(r.bucket))).reduce((s, r) => s + num(r.entra), 0);
+  const sale30 = due.filter((r) => ["Ya venció", "Esta semana", "8-30 días"].includes(String(r.bucket))).reduce((s, r) => s + num(r.sale), 0);
+  const story: Array<{ t: string; tone: "good" | "bad" | "mid" | "" }> = [
+    { t: `Te deben ${money(k.por_cobrar)} y debes ${money(k.por_pagar)}: posición neta de ${money(k.neto)}.`, tone: num(k.neto) >= 0 ? "good" : "bad" },
+    { t: `${money(k.vencido_mxn)} de tu cartera ya venció (${pct(k.vencido_pct)} del total).`, tone: num(k.vencido_pct) > 30 ? "bad" : num(k.vencido_pct) > 10 ? "mid" : "good" },
+    { t: `Tu cartera tarda ${n0(k.dso_dias)} días en convertirse en efectivo.`, tone: num(k.dso_dias) > 60 ? "bad" : num(k.dso_dias) > 30 ? "mid" : "good" },
+    { t: `Este mes has facturado ${money(k.facturado_mes)} (${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs el mes pasado).`, tone: mom >= 0 ? "good" : "bad" },
+    { t: `En los próximos 30 días vencen cobros por ${money(entra30)} y pagos por ${money(sale30)}: flujo esperado de ${money(entra30 - sale30)}.`, tone: entra30 - sale30 >= 0 ? "good" : "bad" },
+  ];
+  if (arTop.length) story.splice(2, 0, { t: `Tu mayor deudor es ${String(arTop[0].name)} con ${money(arTop[0].monto)} — da click en su fila para ver factura por factura.`, tone: "mid" });
+
   return (
     <>
       <div className="stats">
-        <Stat label="ME DEBEN" value={money(k.por_cobrar)} sub={`${n0(k.clientes_deudores)} clientes con saldo`} tone="good" />
-        <Stat label="DEBO" value={money(k.por_pagar)} tone="bad" />
+        <Stat label="ME DEBEN" value={money(k.por_cobrar)} sub={`${n0(k.clientes_deudores)} clientes · MXN al TC de registro`} tone="good" />
+        <Stat label="DEBO" value={money(k.por_pagar)} sub="MXN al TC de registro" tone="bad" />
         <Stat label="Posición neta" value={money(k.neto)} tone={num(k.neto) >= 0 ? "good" : "bad"} />
-        <Stat label="Dinero en bancos y cajas" value={banks.data ? money(banks.data.total) : "…"} tone="good" />
-        <Stat label="Efectivo sin aplicar" value={money(k.efectivo_sin_aplicar)} sub={`${n0(k.recibos_sin_aplicar)} recibos entregados`} tone={num(k.efectivo_sin_aplicar) > 0 ? "mid" : ""} />
-        <Stat label="Efectivo aplicado" value={money(k.efectivo_aplicado)} />
+        <Stat label="Cartera vencida" value={money(k.vencido_mxn)} sub={`${pct(k.vencido_pct)} del total`} tone={num(k.vencido_pct) > 30 ? "bad" : num(k.vencido_pct) > 10 ? "mid" : "good"} />
+        <Stat label="Días de cobro (DSO)" value={`${n0(k.dso_dias)} días`} tone={num(k.dso_dias) > 60 ? "bad" : num(k.dso_dias) > 30 ? "mid" : "good"} />
+        <Stat label="Facturado este mes" value={money(k.facturado_mes)} sub={`${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs mes anterior`} tone={mom >= 0 ? "good" : "bad"} />
+        <Stat label="Bancos y cajas" value={banks.data ? money(banks.data.total) : "…"} tone="good" />
+        <Stat label="Efectivo sin aplicar" value={money(k.efectivo_sin_aplicar)} sub={`${n0(k.recibos_sin_aplicar)} recibos · aplicado ${money(k.efectivo_aplicado)}`} tone={num(k.efectivo_sin_aplicar) > 0 ? "mid" : ""} />
         <Stat label="Comprobantes por validar" value={n0(k.comprobantes_pendientes)} sub={money(k.comprobantes_monto)} tone={num(k.comprobantes_pendientes) > 0 ? "mid" : "good"} />
       </div>
-      {!banks.loading && !banks.error && banks.data && banks.data.journals.length > 0 && (
-        <div className="stats">
-          {banks.data.journals.map((j) => (
-            <Stat key={String(j.id)} label={String(j.name)} value={money(j.balance)} sub={j.type === "cash" ? "caja" : "banco"} />
+
+      <Panel title="Lectura ejecutiva" hint="lo que estos números significan" wide>
+        <div className="story">
+          {story.map((sLine, i) => (
+            <div key={i} className={"story-line " + sLine.tone}><i /><span>{sLine.t}</span></div>
           ))}
         </div>
-      )}
-      <div className="grid">
-        <Panel title="Por cobrar por antigüedad" hint="lo que me deben, por edad de la deuda">
+      </Panel>
+
+      <div className="grid" style={{ marginTop: 12 }}>
+        <Panel title="Me deben — por divisa original" hint="el MXN es al TC del día de registro, no al de hoy">
+          {!arCur.length ? <Empty msg="Sin cartera abierta" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Divisa</th><th className="r">Saldo en divisa</th><th className="r">Equivale MXN</th><th className="r">Facturas</th></tr></thead>
+                <tbody>
+                  {arCur.map((c, i) => (
+                    <tr key={i}>
+                      <td className="strong">{String(c.currency)}</td>
+                      <td className="r">{money(c.monto_divisa)}</td>
+                      <td className="r strong">{money(c.monto_mxn)}</td>
+                      <td className="r mut">{n0(c.facturas)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+        <Panel title="Debo — por divisa original" hint="mismo criterio: TC del registro">
+          {!apCur.length ? <Empty msg="Sin deudas abiertas" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Divisa</th><th className="r">Saldo en divisa</th><th className="r">Equivale MXN</th><th className="r">Facturas</th></tr></thead>
+                <tbody>
+                  {apCur.map((c, i) => (
+                    <tr key={i}>
+                      <td className="strong">{String(c.currency)}</td>
+                      <td className="r">{money(c.monto_divisa)}</td>
+                      <td className="r strong">{money(c.monto_mxn)}</td>
+                      <td className="r mut">{n0(c.facturas)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
+        <Panel title="Flujo por vencimiento: qué entra vs qué sale" hint="cobros y pagos según cuándo vencen" wide>
+          <ChartBox height={300} deps={[due]} config={{
+            type: "bar",
+            data: {
+              labels: due.map((r) => String(r.bucket)),
+              datasets: [
+                { label: "Entra (por cobrar)", data: due.map((r) => num(r.entra)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 6, maxBarThickness: 46, isMoney: true },
+                { label: "Sale (por pagar)", data: due.map((r) => num(r.sale)), backgroundColor: "rgba(220,38,38,.75)", borderRadius: 6, maxBarThickness: 46, isMoney: true },
+              ],
+            },
+            options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(12) } },
+          }} />
+        </Panel>
+
+        <Panel title="Por cobrar por antigüedad" hint="edad de lo que me deben">
           <ChartBox height={260} deps={[arb]} config={{
             type: "bar",
             data: { labels: arb.map((r) => String(r.bucket)), datasets: [{ label: "MXN", data: arb.map((r) => num(r.monto)), backgroundColor: [C.green, "#84cc16", C.amber, "#f97316", C.red], borderRadius: 6, isMoney: true }] },
             options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
           }} />
         </Panel>
-        <Panel title="Por pagar por antigüedad" hint="lo que yo debo, por edad">
+        <Panel title="Por pagar por antigüedad" hint="edad de lo que debo">
           <ChartBox height={260} deps={[apb]} config={{
             type: "bar",
             data: { labels: apb.map((r) => String(r.bucket)), datasets: [{ label: "MXN", data: apb.map((r) => num(r.monto)), backgroundColor: [C.sky, "#818cf8", C.violet, "#f472b6", C.red], borderRadius: 6, isMoney: true }] },
             options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
           }} />
         </Panel>
+
+        <Panel title="Quién me debe" hint="click en un cliente = factura por factura">
+          {!arTop.length ? <Empty msg="Nadie me debe" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Cliente</th><th className="r">Saldo</th><th className="r">Facturas</th><th>Vence desde</th></tr></thead>
+                <tbody>
+                  {arTop.map((c) => (
+                    <tr key={String(c.key)} className="click" onClick={() => props.drill({ kind: "finpartner", side: "ar", partnerId: num(c.key), label: String(c.name) })}>
+                      <td className="ell">{String(c.name)}</td>
+                      <td className="r strong">{money(c.monto)}</td>
+                      <td className="r mut">{n0(c.facturas)}</td>
+                      <td className="mut">{String(c.oldest ?? "")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+        <Panel title="A quién le debo" hint="click en un proveedor = factura por factura">
+          {!apTop.length ? <Empty msg="No debo nada" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Proveedor</th><th className="r">Saldo</th><th className="r">Facturas</th><th>Vence desde</th></tr></thead>
+                <tbody>
+                  {apTop.map((pv) => (
+                    <tr key={String(pv.key)} className="click" onClick={() => props.drill({ kind: "finpartner", side: "ap", partnerId: num(pv.key), label: String(pv.name) })}>
+                      <td className="ell">{String(pv.name)}</td>
+                      <td className="r strong">{money(pv.monto)}</td>
+                      <td className="r mut">{n0(pv.facturas)}</td>
+                      <td className="mut">{String(pv.oldest ?? "")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+
         <Panel title="Facturado vs comprado (12 meses)" wide>
           <ChartBox height={280} deps={[bm]} config={{
             type: "line",
@@ -1090,48 +1331,19 @@ function FinanzasView(props: { filters: Filters }) {
             }} />
           </Panel>
         )}
-        <Panel title="Quién me debe" hint="saldo vivo por cliente">
-          {!arr(d.ar_top).length ? <Empty msg="Nadie me debe" /> : (
-            <div className="tablewrap">
-              <table>
-                <thead><tr><th>Cliente</th><th className="r">Saldo</th><th className="r">Facturas</th><th>Vence desde</th></tr></thead>
-                <tbody>
-                  {arr(d.ar_top).map((c) => (
-                    <tr key={String(c.key)}>
-                      <td className="ell">{String(c.name)}</td>
-                      <td className="r strong">{money(c.monto)}</td>
-                      <td className="r mut">{n0(c.facturas)}</td>
-                      <td className="mut">{String(c.oldest ?? "")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+        {!banks.loading && !banks.error && banks.data && banks.data.journals.length > 0 && (
+          <Panel title="Dónde está el dinero" hint="balance contable por diario, incluye pagos sin conciliar" wide>
+            <div className="stats" style={{ marginBottom: 0 }}>
+              {banks.data.journals.map((j) => (
+                <Stat key={String(j.id)} label={String(j.name)} value={money(j.balance)} sub={j.type === "cash" ? "caja" : "banco"} />
+              ))}
             </div>
-          )}
-        </Panel>
-        <Panel title="A quién le debo" hint="saldo vivo por proveedor">
-          {!arr(d.ap_top).length ? <Empty msg="No debo nada" /> : (
-            <div className="tablewrap">
-              <table>
-                <thead><tr><th>Proveedor</th><th className="r">Saldo</th><th className="r">Facturas</th><th>Vence desde</th></tr></thead>
-                <tbody>
-                  {arr(d.ap_top).map((p) => (
-                    <tr key={String(p.key)}>
-                      <td className="ell">{String(p.name)}</td>
-                      <td className="r strong">{money(p.monto)}</td>
-                      <td className="r mut">{n0(p.facturas)}</td>
-                      <td className="mut">{String(p.oldest ?? "")}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Panel>
+          </Panel>
+        )}
         {pago.length > 0 && (
           <Panel title="Días de pago después de la entrega (los más lentos)" wide>
-            <MiniTable head={["Cliente", "Entregas", "Días promedio"]} rows={pago.map((p, i) => ({
-              key: i, a: String(p.name), b: n0(p.entregas), c: `${n1(p.dias)} días`,
+            <MiniTable head={["Cliente", "Entregas", "Días promedio"]} rows={pago.map((pp, i) => ({
+              key: i, a: String(pp.name), b: n0(pp.entregas), c: `${n1(pp.dias)} días`,
             }))} />
           </Panel>
         )}
@@ -1156,6 +1368,8 @@ function ControlView(props: { filters: Filters }) {
       <div className="stats">
         <Stat label="Pendientes totales" value={n0(k.pendientes_total)} sub="meta: bandeja en cero" tone={num(k.pendientes_total) > 0 ? "mid" : "good"} />
         <Stat label="Lotes en stock" value={n0(k.lotes_en_stock)} />
+        <Stat label="Placas con fotografía" value={pct(k.placas_foto_pct)} sub={`${n0(k.placas_con_foto)} de ${n0(k.placas)} lotes de placa`} tone={num(k.placas_foto_pct) < 70 ? "bad" : num(k.placas_foto_pct) < 90 ? "mid" : "good"} />
+        <Stat label="Fotos subidas este mes" value={n0(k.fotos_mes)} sub={`${n0(k.fotos_total)} en total`} />
         <Stat label="Órdenes sin proyecto" value={pct(k.sin_proyecto_pct)} tone={num(k.sin_proyecto_pct) > 30 ? "mid" : ""} />
         <Stat label="Sin referencia del cliente" value={pct(k.sin_referencia_pct)} tone={num(k.sin_referencia_pct) > 30 ? "mid" : ""} />
       </div>
@@ -1190,6 +1404,32 @@ function ControlView(props: { filters: Filters }) {
             })}
           </div>
         </Panel>
+        <Panel title="Quién sube las fotos" hint="ranking de capturadores de fotografía de bloque">
+          {!arr(d.photo_uploaders).length ? <Empty msg="Aún no hay fotos de bloque registradas" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Quién</th><th className="r">Este mes</th><th className="r">Total</th><th>Última foto</th></tr></thead>
+                <tbody>
+                  {arr(d.photo_uploaders).map((u, i) => (
+                    <tr key={i}>
+                      <td className="ell">{String(u.name)}</td>
+                      <td className="r strong">{n0(u.mes)}</td>
+                      <td className="r">{n0(u.total)}</td>
+                      <td className="mut">{String(u.ultima ?? "")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+        <Panel title="Fotos subidas por mes (12 meses)">
+          <ChartBox height={280} deps={[arr(d.photos_by_month)]} config={{
+            type: "bar",
+            data: { labels: arr(d.photos_by_month).map((r) => monthLabel(r.key)), datasets: [{ label: "Fotos", data: arr(d.photos_by_month).map((r) => num(r.fotos)), backgroundColor: "rgba(11,87,208,.8)", borderRadius: 6, maxBarThickness: 34 }] },
+            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10.5) } },
+          }} />
+        </Panel>
       </div>
     </>
   );
@@ -1200,11 +1440,19 @@ function ControlView(props: { filters: Filters }) {
 // ─────────────────────────────────────────────────────────────────────────────
 function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: DrillNode) => void; popTo: (i: number) => void; close: () => void }) {
   const node = props.stack[props.stack.length - 1];
-  const key = node.kind === "order" ? ["order_lines", node.orderId] : ["drill", node.entity, node.value, props.filters];
+  const key =
+    node.kind === "order" ? ["order_lines", node.orderId]
+    : node.kind === "bucket" ? ["drill", "aging", node.mode, node.value]
+    : node.kind === "finpartner" ? ["drill", "fin", node.side, node.partnerId]
+    : ["drill", node.entity, node.value, props.filters];
   const q = useData<Rec>(key, () =>
     node.kind === "order"
       ? (fetchOrderLines(node.orderId) as unknown as Promise<Rec>)
-      : (fetchDrill(node.entity, node.value, node.label, props.filters as Rec) as Promise<Rec>),
+      : node.kind === "bucket"
+        ? fetchDrill(node.mode === "date" ? "aging_date" : "aging_folio", node.value, node.label, {})
+        : node.kind === "finpartner"
+          ? fetchDrill(node.side === "ar" ? "partner_ar" : "partner_ap", node.partnerId, node.label, {})
+          : (fetchDrill(node.entity, node.value, node.label, props.filters as Rec) as Promise<Rec>),
   );
 
   useEffect(() => {
@@ -1268,6 +1516,88 @@ function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: Dri
                     </tbody>
                   </table>
                 </div>
+              </Panel>
+            </>
+          );
+        })()}
+
+        {!q.loading && !q.error && node.kind === "bucket" && (() => {
+          const d = q.data!;
+          const k = (d.kpis ?? {}) as Rec;
+          const mats = arr(d.materials);
+          const cats = arr(d.categories);
+          return (
+            <>
+              <div className="stats drill-stats">
+                <Stat label="m² en el bucket" value={n1(k.m2)} />
+                <Stat label="Lotes" value={n0(k.lots)} />
+                <Stat label="Valor all-in" value={money(k.valor)} />
+                <Stat label="Materiales distintos" value={n0(k.materiales)} />
+              </div>
+              <Panel title="Qué materiales son" hint="click = historia completa del material">
+                {!mats.length ? <Empty msg="Nada en este rango de antigüedad" /> : (
+                  <div className="tablewrap tall">
+                    <table>
+                      <thead><tr><th>Material</th><th className="r">m²</th><th className="r">Lotes</th><th className="r">Valor all-in</th></tr></thead>
+                      <tbody>
+                        {mats.map((m) => (
+                          <tr key={String(m.key)} className="click" onClick={() => props.push({ kind: "entity", entity: "product", value: num(m.key), label: String(m.name) })}>
+                            <td className="ell">{String(m.name)}</td>
+                            <td className="r strong">{n1(m.m2)}</td>
+                            <td className="r mut">{n0(m.lots)}</td>
+                            <td className="r">{money(m.valor)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </Panel>
+              <Panel title="Por categoría">
+                <MiniTable head={["Categoría", "m²", "Valor"]} rows={cats.map((c, i) => ({
+                  key: i, a: String(c.name), b: n1(c.m2), c: money(c.valor),
+                }))} />
+              </Panel>
+            </>
+          );
+        })()}
+
+        {!q.loading && !q.error && node.kind === "finpartner" && (() => {
+          const d = q.data!;
+          const k = (d.kpis ?? {}) as Rec;
+          const invs = arr(d.invoices);
+          const deuda = node.side === "ar";
+          return (
+            <>
+              <div className="stats drill-stats">
+                <Stat label={deuda ? "Me debe" : "Le debo"} value={money(k.total_mxn)} sub="MXN al TC de registro" />
+                <Stat label="Ya vencido" value={money(k.vencido_mxn)} sub={pct(k.vencido_pct)} tone={num(k.vencido_mxn) > 0 ? "bad" : "good"} />
+                <Stat label="Facturas abiertas" value={n0(k.facturas)} />
+                <Stat label={deuda ? "Me paga en" : "Le pago en"} value={num(k.pago_prom_dias) ? `${n1(k.pago_prom_dias)} días` : "—"} sub="promedio últimos 12 meses" />
+              </div>
+              <Panel title="Factura por factura" hint="saldo en su divisa original y en MXN al TC del día de registro">
+                {!invs.length ? <Empty msg="Sin facturas abiertas" /> : (
+                  <div className="tablewrap tall">
+                    <table>
+                      <thead>
+                        <tr><th>Factura</th><th>Fecha</th><th>Vence</th><th className="r">Atraso</th><th>Divisa</th><th className="r">Saldo divisa</th><th className="r">Saldo MXN</th></tr>
+                      </thead>
+                      <tbody>
+                        {invs.map((i, ix) => (
+                          <tr key={ix}>
+                            <td className="mono">{String(i.name)}</td>
+                            <td className="mut">{String(i.date ?? "")}</td>
+                            <td className="mut">{String(i.due ?? "")}</td>
+                            <td className={"r " + (num(i.atraso) > 0 ? "neg" : "")}>{num(i.atraso) > 0 ? `${n0(i.atraso)} días` : "Al corriente"}</td>
+                            <td>{String(i.currency)}</td>
+                            <td className="r">{money(i.residual_divisa)}</td>
+                            <td className="r strong">{money(i.residual_mxn)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </Panel>
             </>
           );
@@ -1438,7 +1768,7 @@ function App() {
           {view === "recepciones" && <RecepcionesView filters={filters} />}
           {view === "taller" && <TallerView filters={filters} />}
           {view === "entregas" && <EntregasView filters={filters} />}
-          {view === "finanzas" && <FinanzasView filters={filters} />}
+          {view === "finanzas" && <FinanzasView filters={filters} drill={drill} />}
           {view === "control" && <ControlView filters={filters} />}
         </main>
       </div>

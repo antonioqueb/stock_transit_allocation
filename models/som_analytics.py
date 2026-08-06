@@ -550,6 +550,59 @@ class SomAnalytics(models.AbstractModel):
             WHERE COALESCE(x_has_low_prices, false) AND state != 'cancel'
         """, default=[(None,)])[0]
         pack['kpis']['bloqueo_edad_dias'] = round(row[0] or 0.0, 1)
+
+        # Rendimiento del CATÁLOGO compartido (galería pública):
+        # links creados, reservas cerradas desde el catálogo y cuántas
+        # terminaron en venta del cliente dentro de los 30 días.
+        cat_row = self._sq("""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE expiration_date > NOW()),
+                   COUNT(*) FILTER (WHERE EXISTS (
+                       SELECT 1 FROM sale_order so
+                       WHERE so.partner_id = gs.partner_id
+                         AND so.state = 'sale'
+                         AND so.date_order >= gs.create_date
+                         AND so.date_order
+                             <= gs.create_date + INTERVAL '30 days'))
+            FROM gallery_share gs
+            WHERE gs.create_date >= %s AND gs.create_date <= %s
+        """, (dt[0], dt[1]), default=[(0, 0, 0)])[0]
+        res_row = self._sq("""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE state = 'done')
+            FROM stock_lot_hold_order
+            WHERE notas LIKE
+                'Reserva creada automáticamente desde Galería Pública%%'
+              AND create_date >= %s AND create_date <= %s
+        """, (dt[0], dt[1]), default=[(0, 0)])[0]
+        links = cat_row[0] or 0
+        pack['catalogo'] = {
+            'links': links,
+            'links_activos': cat_row[1] or 0,
+            'clientes_compraron': cat_row[2] or 0,
+            'conversion_pct': round(
+                (cat_row[2] or 0) / links * 100, 1) if links else 0.0,
+            'reservas': res_row[0] or 0,
+            'reservas_concretadas': res_row[1] or 0,
+        }
+        pack['catalogo_by_seller'] = [
+            {'name': a, 'links': b, 'compraron': c}
+            for (a, b, c) in self._sq("""
+                SELECT COALESCE(p.name, u.login, 'Sin vendedor'),
+                       COUNT(*),
+                       COUNT(*) FILTER (WHERE EXISTS (
+                           SELECT 1 FROM sale_order so
+                           WHERE so.partner_id = gs.partner_id
+                             AND so.state = 'sale'
+                             AND so.date_order >= gs.create_date
+                             AND so.date_order
+                                 <= gs.create_date + INTERVAL '30 days'))
+                FROM gallery_share gs
+                LEFT JOIN res_users u ON u.id = gs.user_id
+                LEFT JOIN res_partner p ON p.id = u.partner_id
+                WHERE gs.create_date >= %s AND gs.create_date <= %s
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 10
+            """, (dt[0], dt[1]), default=[])]
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -634,19 +687,10 @@ class SomAnalytics(models.AbstractModel):
             key=lambda x: -x['m2'])[:12]
 
         # Antigüedad REAL del inventario: días desde la creación del lote
-        # (stock.lot.create_date). Promedio ponderado por m² + buckets.
+        # (stock.lot.create_date). Promedio ponderado por m² + buckets
+        # extendidos hasta +10 años (capital dormido de años atrás).
         edad_rows = self._sq("""
-            SELECT CASE
-                     WHEN NOW() - sl.create_date <= INTERVAL '30 days'
-                         THEN '0-30 días'
-                     WHEN NOW() - sl.create_date <= INTERVAL '90 days'
-                         THEN '31-90 días'
-                     WHEN NOW() - sl.create_date <= INTERVAL '180 days'
-                         THEN '91-180 días'
-                     WHEN NOW() - sl.create_date <= INTERVAL '365 days'
-                         THEN '181-365 días'
-                     ELSE 'Más de 1 año'
-                   END AS bucket,
+            SELECT {age} AS bucket,
                    SUM(q.quantity) AS m2,
                    COUNT(DISTINCT sl.id) AS lots
             FROM stock_quant q
@@ -655,10 +699,24 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_lot sl ON sl.id = q.lot_id
             WHERE q.quantity > 0
             GROUP BY 1
-        """, default=[])
-        order_edad = ['0-30 días', '31-90 días', '91-180 días',
-                      '181-365 días', 'Más de 1 año']
+        """.format(age=self._AGE_CASE), default=[])
+        order_edad = self._AGE_ORDER
         edad_map = {a: (b, c) for (a, b, c) in edad_rows}
+
+        # Hold m²: la fuente canónica es stock.lot.hold (estado activo),
+        # no el flag del quant (no está almacenado y siempre daba 0).
+        hold_real = self._sq("""
+            SELECT COALESCE(SUM(q.quantity), 0)
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot_hold h ON h.quant_id = q.id
+                 AND h.estado = 'activo'
+            WHERE q.quantity > 0
+        """, default=[(0,)])[0][0]
+        if hold_real:
+            holdm = float(hold_real)
+            disp = max(sum(r['m2'] for r in rows) - holdm, 0.0)
         edad_prom = self._sq("""
             SELECT COALESCE(
                 SUM(q.quantity * EXTRACT(EPOCH FROM (NOW() - sl.create_date))
@@ -931,6 +989,47 @@ class SomAnalytics(models.AbstractModel):
             'SELECT COUNT(*) FROM purchase_discrepancy',
             default=[(0,)])[0][0]
 
+        # Top materiales comprados en el periodo (normalizado a MXN)
+        top_products = [
+            {'key': a, 'name': b, 'qty': round(c or 0, 1),
+             'mxn': round(d or 0, 2)}
+            for (a, b, c, d) in self._sq("""
+                SELECT pt.id,
+                       COALESCE(pt.name->>'es_MX', pt.name->>'en_US',''),
+                       SUM(pol.product_qty),
+                       SUM(pol.price_subtotal
+                           * CASE WHEN rc.name = 'USD' THEN %s ELSE 1 END)
+                FROM purchase_order_line pol
+                JOIN purchase_order po ON po.id = pol.order_id
+                     AND po.state IN ('purchase', 'done')
+                LEFT JOIN res_currency rc ON rc.id = po.currency_id
+                JOIN product_product pp ON pp.id = pol.product_id
+                JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                WHERE po.date_approve >= %s AND po.date_approve <= %s
+                GROUP BY 1, 2 ORDER BY 4 DESC LIMIT 12
+            """, (rate, date_from, date_to + ' 23:59:59'), default=[])]
+
+        # OCs abiertas con material pendiente de recibir (backlog vivo)
+        open_pos = [
+            {'id': a, 'name': b, 'partner': c_, 'date': d_,
+             'total': round(e or 0, 2), 'currency': f_,
+             'recibido_pct': round((h or 0) / g * 100, 1) if g else 0.0}
+            for (a, b, c_, d_, e, f_, g, h) in self._sq("""
+                SELECT po.id, po.name, COALESCE(p.name, ''),
+                       po.date_approve::date::text,
+                       po.amount_total, COALESCE(rc.name, 'MXN'),
+                       SUM(pol.product_qty), SUM(pol.qty_received)
+                FROM purchase_order po
+                JOIN purchase_order_line pol ON pol.order_id = po.id
+                LEFT JOIN res_partner p ON p.id = po.partner_id
+                LEFT JOIN res_currency rc ON rc.id = po.currency_id
+                WHERE po.state = 'purchase'
+                GROUP BY po.id, po.name, p.name, po.date_approve,
+                         po.amount_total, rc.name
+                HAVING SUM(pol.product_qty) > SUM(pol.qty_received) + 0.01
+                ORDER BY po.date_approve LIMIT 15
+            """, default=[])]
+
         return {
             'kpis': {
                 'compras_mxn': round(total_norm, 2),
@@ -974,6 +1073,8 @@ class SomAnalytics(models.AbstractModel):
             'by_month': by_month,
             'top_suppliers': top_prov,
             'allocations': alloc,
+            'top_products': top_products,
+            'open_pos': open_pos,
         }
 
     # ── RECEPCIONES ────────────────────────────────────────────────────
@@ -1099,6 +1200,62 @@ class SomAnalytics(models.AbstractModel):
                 """, dt, default=[(None,)])[0]),
             },
             'by_week': by_week,
+            'by_supplier': [
+                {'name': a, 'count': b, 'm2': round(c or 0, 1)}
+                for (a, b, c) in self._sq("""
+                    SELECT COALESCE(p.name, 'Sin proveedor'),
+                           COUNT(DISTINCT sp.id),
+                           SUM(ml.quantity) FILTER (
+                               WHERE ml.product_uom_id IN %s)
+                    FROM stock_picking sp
+                    JOIN stock_picking_type spt
+                         ON spt.id = sp.picking_type_id
+                         AND spt.code = 'incoming'
+                    JOIN stock_move_line ml ON ml.picking_id = sp.id
+                         AND ml.state = 'done'
+                    LEFT JOIN res_partner p ON p.id = sp.partner_id
+                    WHERE sp.state = 'done'
+                      AND sp.date_done >= %s AND sp.date_done <= %s
+                    GROUP BY 1 ORDER BY 3 DESC NULLS LAST LIMIT 10
+                """, (area, dt[0], dt[1]), default=[])],
+            'recent': [
+                {'id': a, 'name': b, 'partner': c, 'date': d,
+                 'm2': round(e or 0, 1), 'origin': f_ or ''}
+                for (a, b, c, d, e, f_) in self._sq("""
+                    SELECT sp.id, sp.name, COALESCE(p.name, ''),
+                           sp.date_done::date::text,
+                           SUM(ml.quantity) FILTER (
+                               WHERE ml.product_uom_id IN %s),
+                           sp.origin
+                    FROM stock_picking sp
+                    JOIN stock_picking_type spt
+                         ON spt.id = sp.picking_type_id
+                         AND spt.code = 'incoming'
+                    JOIN stock_move_line ml ON ml.picking_id = sp.id
+                         AND ml.state = 'done'
+                    LEFT JOIN res_partner p ON p.id = sp.partner_id
+                    WHERE sp.state = 'done'
+                    GROUP BY sp.id, sp.name, p.name, sp.date_done, sp.origin
+                    ORDER BY sp.date_done DESC LIMIT 12
+                """, (area,), default=[])],
+            'by_month12': [
+                {'key': a, 'm2': round(b or 0, 1), 'count': c}
+                for (a, b, c) in self._sq("""
+                    SELECT to_char(sp.date_done, 'YYYY-MM'),
+                           SUM(ml.quantity) FILTER (
+                               WHERE ml.product_uom_id IN %s),
+                           COUNT(DISTINCT sp.id)
+                    FROM stock_picking sp
+                    JOIN stock_picking_type spt
+                         ON spt.id = sp.picking_type_id
+                         AND spt.code = 'incoming'
+                    JOIN stock_move_line ml ON ml.picking_id = sp.id
+                         AND ml.state = 'done'
+                    WHERE sp.state = 'done'
+                      AND sp.date_done
+                          >= (CURRENT_DATE - INTERVAL '12 months')
+                    GROUP BY 1 ORDER BY 1
+                """, (area,), default=[])],
         }
 
     # ── TALLER ─────────────────────────────────────────────────────────
@@ -1296,6 +1453,49 @@ class SomAnalytics(models.AbstractModel):
             WHERE state = 'sale' AND date_order >= %s AND date_order <= %s
         """, (date_from, date_to + ' 23:59:59'), default=[(0, 0, 0)])[0]
 
+        # FOTOS: % de lotes de placa (UdM de área) en stock con fotografía
+        # de su bloque + quién sube las fotos (ranking y serie mensual).
+        area = tuple(self._area_uom_ids())
+        foto_row = self._sq("""
+            SELECT COUNT(DISTINCT sl.id),
+                   COUNT(DISTINCT sl.id) FILTER (
+                       WHERE UPPER(COALESCE(sl.x_bloque,'')) IN (
+                           SELECT DISTINCT UPPER(block_name)
+                           FROM supplier_shipment_block_image
+                           WHERE COALESCE(block_name,'') != ''))
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.uom_id IN %s
+            WHERE q.quantity > 0
+        """, (area,), default=[(0, 0)])[0]
+        placas, placas_foto = foto_row[0] or 0, foto_row[1] or 0
+
+        photo_uploaders = [
+            {'name': a, 'total': b, 'mes': c, 'ultima': d}
+            for (a, b, c, d) in self._sq("""
+                SELECT COALESCE(p.name, u.login, 'Sistema / Portal'),
+                       COUNT(*),
+                       COUNT(*) FILTER (WHERE i.create_date
+                           >= date_trunc('month', CURRENT_DATE)),
+                       MAX(i.create_date)::date::text
+                FROM supplier_shipment_block_image i
+                LEFT JOIN res_users u ON u.id = i.create_uid
+                LEFT JOIN res_partner p ON p.id = u.partner_id
+                GROUP BY 1 ORDER BY 2 DESC LIMIT 12
+            """, default=[])]
+        photos_by_month = [
+            {'key': a, 'fotos': b}
+            for (a, b) in self._sq("""
+                SELECT to_char(create_date, 'YYYY-MM'), COUNT(*)
+                FROM supplier_shipment_block_image
+                WHERE create_date >= (CURRENT_DATE - INTERVAL '12 months')
+                GROUP BY 1 ORDER BY 1
+            """, default=[])]
+
         return {
             'kpis': {
                 'pendientes_total': sum(p['count'] for p in pend),
@@ -1304,9 +1504,17 @@ class SomAnalytics(models.AbstractModel):
                     row[1] / row[0] * 100, 1) if row[0] else 0.0,
                 'sin_referencia_pct': round(
                     row[2] / row[0] * 100, 1) if row[0] else 0.0,
+                'placas': placas,
+                'placas_con_foto': placas_foto,
+                'placas_foto_pct': round(
+                    placas_foto / placas * 100, 1) if placas else 0.0,
+                'fotos_total': sum(u['total'] for u in photo_uploaders),
+                'fotos_mes': sum(u['mes'] for u in photo_uploaders),
             },
             'bandeja': pend,
             'ficha': ficha,
+            'photo_uploaders': photo_uploaders,
+            'photos_by_month': photos_by_month,
         }
 
     # ── TRÁNSITO ───────────────────────────────────────────────────────
@@ -1356,6 +1564,44 @@ class SomAnalytics(models.AbstractModel):
               AND custom_status NOT IN ('cancel')
         """, default=[(None, 0)])[0]
 
+        # m² activos por proveedor + arribos por mes de ETA (de los mismos
+        # viajes ya cargados — sin SQL extra)
+        sup_acc = defaultdict(lambda: {'m2': 0.0, 'count': 0})
+        eta_acc = defaultdict(lambda: {'m2': 0.0, 'count': 0})
+        for c in cards:
+            s = sup_acc[c['supplier'] or 'Sin proveedor']
+            s['m2'] += c['m2']
+            s['count'] += 1
+            if c['eta']:
+                e = eta_acc[c['eta'][:7]]
+                e['m2'] += c['m2']
+                e['count'] += 1
+        by_supplier = sorted(
+            ({'name': k, 'm2': round(v['m2'], 1), 'count': v['count']}
+             for k, v in sup_acc.items()), key=lambda x: -x['m2'])[:12]
+        eta_months = [
+            {'key': k, 'm2': round(eta_acc[k]['m2'], 1),
+             'count': eta_acc[k]['count']}
+            for k in sorted(eta_acc)]
+
+        # m² que YA llegaron por mes (12 meses): la película histórica
+        arrived_monthly = [
+            {'key': a, 'm2': round(b or 0, 1), 'count': c}
+            for (a, b, c) in self._sq("""
+                SELECT to_char(sp.date_done, 'YYYY-MM'),
+                       SUM(ml.quantity) FILTER (
+                           WHERE ml.product_uom_id IN %s),
+                       COUNT(DISTINCT sp.id)
+                FROM stock_picking sp
+                JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
+                     AND spt.code = 'incoming'
+                JOIN stock_move_line ml ON ml.picking_id = sp.id
+                     AND ml.state = 'done'
+                WHERE sp.state = 'done'
+                  AND sp.date_done >= (CURRENT_DATE - INTERVAL '12 months')
+                GROUP BY 1 ORDER BY 1
+            """, (tuple(self._area_uom_ids()),), default=[])]
+
         return {
             'kpis': {
                 'total_m2': round(total, 1),
@@ -1387,6 +1633,9 @@ class SomAnalytics(models.AbstractModel):
                  'm2': round(acc[st]['m2'], 1), 'count': acc[st]['count']}
                 for st in order_st if st in acc],
             'voyages': sorted(cards, key=lambda c: c['eta'] or '9999')[:30],
+            'by_supplier': by_supplier,
+            'eta_months': eta_months,
+            'arrived_monthly': arrived_monthly,
         }
 
     def _portal_avg_progress(self):
@@ -1483,7 +1732,9 @@ class SomAnalytics(models.AbstractModel):
               AND d.signed_at >= %s AND d.signed_at <= %s
         """, (date_from, date_to + ' 23:59:59'), default=[(None, 0)])[0]
 
-        # 7.5 Devoluciones por motivo
+        # 7.5 Devoluciones por motivo. Cubre DOS caminos: documentos de
+        # devolución del módulo de entregas Y devoluciones hechas directo
+        # en almacén (picking de retorno sobre una salida a cliente).
         devs = self._sq("""
             SELECT COALESCE(r.name, 'Sin motivo'), COUNT(*)
             FROM sale_delivery_document d
@@ -1492,6 +1743,19 @@ class SomAnalytics(models.AbstractModel):
               AND d.create_date >= %s AND d.create_date <= %s
             GROUP BY 1 ORDER BY 2 DESC LIMIT 8
         """, (date_from, date_to + ' 23:59:59'))
+        dev_pickings = self._sq("""
+            SELECT COUNT(*) FROM stock_picking ret
+            JOIN stock_picking orig ON orig.id = ret.return_id
+            JOIN stock_picking_type spt ON spt.id = orig.picking_type_id
+                 AND spt.code = 'outgoing'
+            WHERE ret.state = 'done'
+              AND ret.date_done >= %s AND ret.date_done <= %s
+        """, (date_from, date_to + ' 23:59:59'), default=[(0,)])[0][0] or 0
+        dev_docs = sum(b for (_a, b) in devs)
+        if dev_pickings > dev_docs:
+            devs = list(devs) + [(
+                'Devolución de almacén (sin motivo capturado)',
+                dev_pickings - dev_docs)]
 
         return {
             'kpis': {
@@ -1640,12 +1904,96 @@ class SomAnalytics(models.AbstractModel):
         sin_aplicar = cash_map.get('delivered', (0, 0.0))
         aplicado = cash_map.get('paid', (0, 0.0))
 
+        # Cartera por DIVISA ORIGINAL: residual en la divisa de la factura
+        # + su equivalente MXN al TC del día de registro (el residual
+        # signed ya quedó congelado a ese TC — no se re-convierte).
+        def by_currency(move_type, sign):
+            return [
+                {'currency': a, 'monto_divisa': round(b or 0, 2),
+                 'monto_mxn': round(c or 0, 2), 'facturas': d}
+                for (a, b, c, d) in self._sq("""
+                    SELECT COALESCE(rc.name, 'MXN'),
+                           SUM(m.amount_residual),
+                           SUM({s} m.amount_residual_signed),
+                           COUNT(*)
+                    FROM account_move m
+                    LEFT JOIN res_currency rc ON rc.id = m.currency_id
+                    WHERE m.state = 'posted' AND m.move_type = %s
+                      AND m.amount_residual != 0
+                    GROUP BY 1 ORDER BY 3 DESC
+                """.format(s=sign), (move_type,), default=[])]
+
+        ar_currency = by_currency('out_invoice', '')
+        ap_currency = by_currency('in_invoice', '-')
+
+        # Flujo por vencimiento: cuánto ENTRA (por cobrar) y cuánto SALE
+        # (por pagar) según cuándo vence — la película del efectivo.
+        due_rows = self._sq("""
+            SELECT CASE
+                     WHEN COALESCE(m.invoice_date_due, m.date) < CURRENT_DATE
+                         THEN 'Ya venció'
+                     WHEN COALESCE(m.invoice_date_due, m.date)
+                         <= CURRENT_DATE + 7 THEN 'Esta semana'
+                     WHEN COALESCE(m.invoice_date_due, m.date)
+                         <= CURRENT_DATE + 30 THEN '8-30 días'
+                     WHEN COALESCE(m.invoice_date_due, m.date)
+                         <= CURRENT_DATE + 60 THEN '31-60 días'
+                     WHEN COALESCE(m.invoice_date_due, m.date)
+                         <= CURRENT_DATE + 90 THEN '61-90 días'
+                     ELSE 'Más de 90 días'
+                   END AS bucket,
+                   COALESCE(SUM(m.amount_residual_signed) FILTER (
+                       WHERE m.move_type = 'out_invoice'), 0) AS entra,
+                   COALESCE(SUM(-m.amount_residual_signed) FILTER (
+                       WHERE m.move_type = 'in_invoice'), 0) AS sale
+            FROM account_move m
+            WHERE m.state = 'posted'
+              AND m.move_type IN ('out_invoice', 'in_invoice')
+              AND m.amount_residual != 0
+            GROUP BY 1
+        """, default=[])
+        due_order = ['Ya venció', 'Esta semana', '8-30 días', '31-60 días',
+                     '61-90 días', 'Más de 90 días']
+        due_map = {a: (b, c) for (a, b, c) in due_rows}
+        due_flow = [
+            {'bucket': b, 'entra': round(due_map[b][0] or 0, 2),
+             'sale': round(due_map[b][1] or 0, 2)}
+            for b in due_order if b in due_map]
+
+        # DSO (días de calle de la cartera) y % vencida
+        fact_12m = self._sq("""
+            SELECT COALESCE(SUM(amount_total_signed), 0)
+            FROM account_move
+            WHERE state = 'posted' AND move_type = 'out_invoice'
+              AND date >= (CURRENT_DATE - INTERVAL '12 months')
+        """, default=[(0,)])[0][0] or 0.0
+        ar_vencido = self._sq("""
+            SELECT COALESCE(SUM(amount_residual_signed), 0)
+            FROM account_move
+            WHERE state = 'posted' AND move_type = 'out_invoice'
+              AND amount_residual != 0
+              AND COALESCE(invoice_date_due, date) < CURRENT_DATE
+        """, default=[(0,)])[0][0] or 0.0
+        fact_mes = by_month[-1]['facturado'] if by_month else 0.0
+        fact_prev = by_month[-2]['facturado'] if len(by_month) > 1 else 0.0
+
         return {
             'kpis': {
                 'por_cobrar': tot['por_cobrar'],
                 'por_pagar': tot['por_pagar'],
                 'neto': round(tot['por_cobrar'] - tot['por_pagar'], 2),
                 'clientes_deudores': len(ar_top),
+                'dso_dias': round(
+                    tot['por_cobrar'] / fact_12m * 365, 1) if fact_12m else 0.0,
+                'vencido_mxn': round(ar_vencido, 2),
+                'vencido_pct': round(
+                    ar_vencido / tot['por_cobrar'] * 100, 1
+                ) if tot['por_cobrar'] else 0.0,
+                'facturado_mes': round(fact_mes, 2),
+                'facturado_mes_prev': round(fact_prev, 2),
+                'facturado_mom_pct': round(
+                    (fact_mes - fact_prev) / fact_prev * 100, 1
+                ) if fact_prev else 0.0,
                 'efectivo_sin_aplicar': round(sin_aplicar[1], 2),
                 'recibos_sin_aplicar': sin_aplicar[0],
                 'efectivo_aplicado': round(aplicado[1], 2),
@@ -1691,6 +2039,9 @@ class SomAnalytics(models.AbstractModel):
             'ar_top': ar_top,
             'ap_top': ap_top,
             'by_month': by_month,
+            'ar_currency': ar_currency,
+            'ap_currency': ap_currency,
+            'due_flow': due_flow,
         }
 
     def _cash_flow_months(self):
@@ -1720,6 +2071,15 @@ class SomAnalytics(models.AbstractModel):
     def get_drill(self, entity, value, label, filters=None):
         self._check_access()
         f = dict(filters or {})
+        if entity == 'aging_date':
+            return self._drill_aging_date(str(value))
+        if entity == 'aging_folio':
+            return self._drill_aging_folio(str(value))
+        if entity in ('partner_ar', 'partner_ap'):
+            return self._drill_partner_fin(int(value),
+                                           'out_invoice'
+                                           if entity == 'partner_ar'
+                                           else 'in_invoice')
         where_map = {
             'month': ("to_char(so.date_order,'YYYY-MM') = %(dv)s", str(value)),
             'product': ('pt.id = %(dv)s', int(value)),
@@ -1792,6 +2152,177 @@ class SomAnalytics(models.AbstractModel):
                 self.env.cr.execute('SELECT 1')
                 out['por_cobrar'] = 0.0
         return out
+
+    _AGE_CASE = """CASE
+        WHEN NOW() - sl.create_date <= INTERVAL '30 days' THEN '0-30 días'
+        WHEN NOW() - sl.create_date <= INTERVAL '90 days' THEN '31-90 días'
+        WHEN NOW() - sl.create_date <= INTERVAL '180 days' THEN '91-180 días'
+        WHEN NOW() - sl.create_date <= INTERVAL '365 days' THEN '181-365 días'
+        WHEN NOW() - sl.create_date <= INTERVAL '2 years' THEN '1-2 años'
+        WHEN NOW() - sl.create_date <= INTERVAL '5 years' THEN '2-5 años'
+        WHEN NOW() - sl.create_date <= INTERVAL '10 years' THEN '5-10 años'
+        ELSE 'Más de 10 años'
+    END"""
+    _AGE_ORDER = ['0-30 días', '31-90 días', '91-180 días', '181-365 días',
+                  '1-2 años', '2-5 años', '5-10 años', 'Más de 10 años']
+
+    def _drill_aging_date(self, bucket):
+        """Qué hay adentro de un bucket de antigüedad (por fecha de
+        creación del lote): materiales, categorías y totales."""
+        self.env.cr.execute("""
+            SELECT pt.id,
+                   COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS pname,
+                   COALESCE(pc.complete_name, pc.name, 'Sin categoría')
+                       AS cname,
+                   SUM(q.quantity) AS m2,
+                   COUNT(DISTINCT sl.id) AS lots,
+                   SUM(q.quantity
+                       * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0))
+                       AS valor
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+            LEFT JOIN product_category pc ON pc.id = pt.categ_id
+            WHERE q.quantity > 0 AND {age} = %(bucket)s
+            GROUP BY pt.id, pname, cname
+        """.format(age=self._AGE_CASE),
+            {'cid': self._cid(), 'bucket': bucket})
+        rows = self.env.cr.dictfetchall()
+        return self._aging_drill_pack(bucket, rows)
+
+    def _drill_aging_folio(self, bucket):
+        """Qué hay adentro de un bucket Stone Profit (por folio del lote):
+        los cortes numéricos se recalculan igual que en el pack."""
+        self.env.cr.execute("""
+            SELECT pt.id,
+                   COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS pname,
+                   COALESCE(pc.complete_name, pc.name, 'Sin categoría')
+                       AS cname,
+                   COALESCE(sl.name, '') AS lot_name,
+                   SUM(q.quantity) AS m2,
+                   SUM(q.quantity
+                       * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0))
+                       AS valor
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+            LEFT JOIN product_category pc ON pc.id = pt.categ_id
+            WHERE q.quantity > 0
+            GROUP BY pt.id, pname, cname, lot_name
+        """, {'cid': self._cid()})
+        raw = self.env.cr.dictfetchall()
+        keys = [self._lot_bucket_key(r['lot_name']) for r in raw]
+        numeric = sorted({k[1] for k in keys if k[0] == 0 and k[1] >= 0})
+        cut_old = numeric[len(numeric) // 3] if numeric else 0
+        cut_mid = numeric[2 * len(numeric) // 3] if numeric else 0
+
+        def bname(k):
+            if k[0] == 1:
+                return 'Serie S (recientes)'
+            if k[1] < 0:
+                return 'Sin folio'
+            if k[1] <= cut_old:
+                return 'Antiguo (liquidar)'
+            if k[1] <= cut_mid:
+                return 'Medio'
+            return 'Reciente'
+
+        rows = []
+        for r, k in zip(raw, keys):
+            if bname(k) == bucket:
+                r['lots'] = 1
+                rows.append(r)
+        return self._aging_drill_pack(bucket, rows)
+
+    def _aging_drill_pack(self, bucket, rows):
+        mats = defaultdict(lambda: {'m2': 0.0, 'lots': 0, 'valor': 0.0})
+        cats = defaultdict(lambda: {'m2': 0.0, 'valor': 0.0})
+        for r in rows:
+            m = mats[(r['id'], r['pname'])]
+            m['m2'] += r['m2'] or 0
+            m['lots'] += r['lots'] or 0
+            m['valor'] += r['valor'] or 0
+            c = cats[r['cname']]
+            c['m2'] += r['m2'] or 0
+            c['valor'] += r['valor'] or 0
+        return {
+            'bucket': bucket,
+            'kpis': {
+                'm2': round(sum(v['m2'] for v in mats.values()), 1),
+                'lots': sum(v['lots'] for v in mats.values()),
+                'valor': round(sum(v['valor'] for v in mats.values()), 2),
+                'materiales': len(mats),
+            },
+            'materials': sorted(
+                ({'key': k[0], 'name': k[1], 'm2': round(v['m2'], 1),
+                  'lots': v['lots'], 'valor': round(v['valor'], 2)}
+                 for k, v in mats.items()), key=lambda x: -x['m2'])[:40],
+            'categories': sorted(
+                ({'name': k, 'm2': round(v['m2'], 1),
+                  'valor': round(v['valor'], 2)}
+                 for k, v in cats.items()), key=lambda x: -x['m2'])[:12],
+        }
+
+    def _drill_partner_fin(self, partner_id, move_type):
+        """Cartera viva de un cliente/proveedor: factura por factura, con
+        edad, divisa original y MXN al TC del día de registro."""
+        sign = '' if move_type == 'out_invoice' else '-'
+        self.env.cr.execute("""
+            SELECT m.name, m.invoice_date::text,
+                   COALESCE(m.invoice_date_due, m.date)::text,
+                   GREATEST((CURRENT_DATE
+                       - COALESCE(m.invoice_date_due, m.date)), 0) AS atraso,
+                   {s} m.amount_residual_signed AS residual_mxn,
+                   m.amount_residual AS residual_divisa,
+                   COALESCE(rc.name, 'MXN') AS currency,
+                   {s} m.amount_total_signed AS total_mxn
+            FROM account_move m
+            LEFT JOIN res_currency rc ON rc.id = m.currency_id
+            WHERE m.state = 'posted' AND m.move_type = %s
+              AND m.amount_residual != 0 AND m.partner_id = %s
+            ORDER BY COALESCE(m.invoice_date_due, m.date)
+        """.format(s=sign), (move_type, partner_id))
+        invs = [{'name': a, 'date': b, 'due': c, 'atraso': int(d or 0),
+                 'residual_mxn': round(e or 0, 2),
+                 'residual_divisa': round(f_ or 0, 2), 'currency': g,
+                 'total_mxn': round(h or 0, 2)}
+                for (a, b, c, d, e, f_, g, h) in self.env.cr.fetchall()]
+        total = sum(i['residual_mxn'] for i in invs)
+        vencido = sum(i['residual_mxn'] for i in invs if i['atraso'] > 0)
+        pago_prom = self._sq("""
+            SELECT AVG(pr.paid_at::date - m.invoice_date)
+            FROM account_move m
+            JOIN LATERAL (
+                SELECT MAX(apr.create_date) AS paid_at
+                FROM account_partial_reconcile apr
+                JOIN account_move_line aml ON aml.id = {col}
+                WHERE aml.move_id = m.id
+            ) pr ON pr.paid_at IS NOT NULL
+            WHERE m.state = 'posted' AND m.move_type = %s
+              AND m.partner_id = %s
+              AND m.payment_state IN ('paid', 'in_payment')
+              AND m.invoice_date >= (CURRENT_DATE - INTERVAL '12 months')
+        """.format(col='apr.debit_move_id'
+                   if move_type == 'out_invoice' else 'apr.credit_move_id'),
+            (move_type, partner_id), default=[(None,)])[0][0]
+        return {
+            'fin_side': 'ar' if move_type == 'out_invoice' else 'ap',
+            'kpis': {
+                'total_mxn': round(total, 2),
+                'vencido_mxn': round(vencido, 2),
+                'vencido_pct': round(
+                    vencido / total * 100, 1) if total else 0.0,
+                'facturas': len(invs),
+                'pago_prom_dias': round(float(pago_prom or 0), 1),
+            },
+            'invoices': invs[:60],
+        }
 
     # ==================================================================
     # ENDPOINTS DEL DASHBOARD EJECUTIVO STANDALONE (/som/analytics)
@@ -1932,19 +2463,31 @@ class SomAnalytics(models.AbstractModel):
 
     @api.model
     def get_bank_balances(self):
-        """Dinero en bancos y cajas: balance contable por diario."""
+        """Dinero en bancos y cajas: balance contable por diario.
+
+        Suma la cuenta default del diario Y las cuentas puente de pago
+        (outstanding receipts/payments de sus métodos): los pagos
+        registrados viven ahí hasta conciliarse con el estado de cuenta —
+        contarlas es lo que hace que el saldo refleje los pagos ya
+        registrados y no marque 0."""
         self._check_access()
         rows = self._sq("""
             SELECT j.id,
                    COALESCE(j.name->>'es_MX', j.name->>'en_US', '') AS name,
                    j.type,
-                   COALESCE(SUM(aml.balance), 0) AS balance
+                   COALESCE((
+                       SELECT SUM(aml.balance)
+                       FROM account_move_line aml
+                       WHERE aml.parent_state = 'posted'
+                         AND (aml.account_id = j.default_account_id
+                              OR aml.account_id IN (
+                                  SELECT apml.payment_account_id
+                                  FROM account_payment_method_line apml
+                                  WHERE apml.journal_id = j.id
+                                    AND apml.payment_account_id IS NOT NULL))
+                   ), 0) AS balance
             FROM account_journal j
-            LEFT JOIN account_move_line aml
-                 ON aml.account_id = j.default_account_id
-                 AND aml.parent_state = 'posted'
-            WHERE j.type IN ('bank', 'cash')
-            GROUP BY j.id, name, j.type
+            WHERE j.type IN ('bank', 'cash') AND j.active
             ORDER BY balance DESC
         """)
         out = [{'id': a, 'name': b, 'type': c, 'balance': round(d or 0, 2)}
@@ -2085,4 +2628,4 @@ class SomAnalytics(models.AbstractModel):
                 'lots_stock': qr[4] if qr else 0,
             })
         out.sort(key=lambda x: -(x['edad_stock'] or x['dias_venta'] or 0))
-        return out[:60]
+        return out[:200]
