@@ -27,5 +27,5 @@
     <menuitem id="menu_som_dashboard_exec" name="Dashboard Ejecutivo ↗"
               parent="menu_som_analytics_root"
               action="action_som_dashboard_url" sequence="0"
-              groups="inventory_shopping_cart.group_price_authorizer"/>
+              groups="inventory_shopping_cart.group_dashboard_viewer,inventory_shopping_cart.group_price_authorizer"/>
 </odoo>

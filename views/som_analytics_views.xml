@@ -10,7 +10,7 @@
     <menuitem id="menu_som_analytics_root" name="Analytics"
               web_icon="stock_transit_allocation,static/description/analytics_icon.svg"
               sequence="32"
-              groups="inventory_shopping_cart.group_price_authorizer"/>
+              groups="inventory_shopping_cart.group_dashboard_viewer,inventory_shopping_cart.group_price_authorizer"/>
     <menuitem id="menu_som_analytics_dashboard" name="Tablero"
               parent="menu_som_analytics_root"
               action="action_som_analytics" sequence="1"/>

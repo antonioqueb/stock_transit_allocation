@@ -15,7 +15,8 @@ from markupsafe import Markup
 from odoo import http
 from odoo.http import request
 
-GROUP = 'inventory_shopping_cart.group_price_authorizer'
+GROUPS = ('inventory_shopping_cart.group_dashboard_viewer',
+          'inventory_shopping_cart.group_price_authorizer')
 
 _RPC_WHITELIST = {
     'dashboard': ('get_dashboard', 2),
@@ -30,7 +31,7 @@ _RPC_WHITELIST = {
 class SomDashboardController(http.Controller):
 
     def _check_group(self):
-        return request.env.user.has_group(GROUP)
+        return any(request.env.user.has_group(g) for g in GROUPS)
 
     @http.route('/som/analytics', type='http', auth='user')
     def dashboard_page(self, **kw):

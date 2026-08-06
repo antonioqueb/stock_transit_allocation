@@ -43,11 +43,16 @@ class SomAnalytics(models.AbstractModel):
     # ==================================================================
 
     def _check_access(self):
-        if not self.env.user.has_group(
-                'inventory_shopping_cart.group_price_authorizer'):
+        # Visor del Dashboard (nivel 1) o Autorizador (nivel 2, lo implica).
+        # El doble check cubre bases con el implied aún sin aplicar.
+        u = self.env.user
+        if not (u.has_group('inventory_shopping_cart.group_dashboard_viewer')
+                or u.has_group(
+                    'inventory_shopping_cart.group_price_authorizer')):
             raise AccessError(_(
-                'SOM Analytics muestra utilidad con costo all-in: requiere el '
-                'permiso de Autorizador de Precios.'))
+                'SOM Analytics muestra utilidad con costo all-in: requiere '
+                'el permiso Visor del Dashboard Personalizado o Autorizador '
+                'de Precios.'))
 
     def _area_uom_ids(self):
         ids = []
