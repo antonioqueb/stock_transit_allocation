@@ -35,19 +35,20 @@ const TABS = [
     { key: "control", label: "Control" },
 ];
 
+// Números CRUDOS en formato anglosajón (1,234,567.89): sin abreviar
+// miles con "k" ni millones con "M" — regla del negocio.
 function fmtMoney(v) {
-    return new Intl.NumberFormat("es-MX", {
-        style: "currency", currency: "MXN", maximumFractionDigits: 0,
+    return "$" + new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 0, maximumFractionDigits: 0,
     }).format(v || 0);
 }
 function fmtCompact(v) {
-    const n = Math.abs(v || 0);
-    if (n >= 1e6) return (v / 1e6).toFixed(1) + " M";
-    if (n >= 1e3) return (v / 1e3).toFixed(0) + " k";
-    return String(Math.round(v || 0));
+    return new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 0, maximumFractionDigits: 0,
+    }).format(v || 0);
 }
 function fmtNum(v, dec = 1) {
-    return new Intl.NumberFormat("es-MX", {
+    return new Intl.NumberFormat("en-US", {
         minimumFractionDigits: 0, maximumFractionDigits: dec,
     }).format(v || 0);
 }
