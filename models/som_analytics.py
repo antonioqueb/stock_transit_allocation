@@ -633,17 +633,59 @@ class SomAnalytics(models.AbstractModel):
              for k, v in prods.items()),
             key=lambda x: -x['m2'])[:12]
 
+        # Antigüedad REAL del inventario: días desde la creación del lote
+        # (stock.lot.create_date). Promedio ponderado por m² + buckets.
+        edad_rows = self._sq("""
+            SELECT CASE
+                     WHEN NOW() - sl.create_date <= INTERVAL '30 days'
+                         THEN '0-30 días'
+                     WHEN NOW() - sl.create_date <= INTERVAL '90 days'
+                         THEN '31-90 días'
+                     WHEN NOW() - sl.create_date <= INTERVAL '180 days'
+                         THEN '91-180 días'
+                     WHEN NOW() - sl.create_date <= INTERVAL '365 days'
+                         THEN '181-365 días'
+                     ELSE 'Más de 1 año'
+                   END AS bucket,
+                   SUM(q.quantity) AS m2,
+                   COUNT(DISTINCT sl.id) AS lots
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+            GROUP BY 1
+        """, default=[])
+        order_edad = ['0-30 días', '31-90 días', '91-180 días',
+                      '181-365 días', 'Más de 1 año']
+        edad_map = {a: (b, c) for (a, b, c) in edad_rows}
+        edad_prom = self._sq("""
+            SELECT COALESCE(
+                SUM(q.quantity * EXTRACT(EPOCH FROM (NOW() - sl.create_date))
+                    / 86400.0) / NULLIF(SUM(q.quantity), 0), 0)
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+        """, default=[(0,)])[0][0]
+
         return {
             'kpis': {
                 'disponible_m2': round(disp, 1),
                 'hold_m2': round(holdm, 1),
                 'valor_mxn': round(valor, 2),
                 'lotes': len(rows),
+                'edad_prom_dias': round(float(edad_prom or 0.0), 1),
             },
             'aging': [
                 {'bucket': b, 'm2': round(ag[b]['m2'], 1),
                  'lots': ag[b]['lots'], 'valor': round(ag[b]['valor'], 2)}
                 for b in order_b if b in ag],
+            'aging_by_date': [
+                {'bucket': b, 'm2': round(edad_map[b][0] or 0.0, 1),
+                 'lots': edad_map[b][1]}
+                for b in order_edad if b in edad_map],
             'top_stock': top,
         }
 
@@ -1843,6 +1885,19 @@ class SomAnalytics(models.AbstractModel):
             WHERE q.quantity > 0
         """, (tuple(self._area_uom_ids()),), default=[(0,)])[0][0]
 
+        # Antigüedad de inventario: días desde la CREACIÓN del lote
+        # (stock.lot.create_date), promedio ponderado por m² en stock.
+        inv_edad = self._sq("""
+            SELECT COALESCE(
+                SUM(q.quantity * EXTRACT(EPOCH FROM (NOW() - sl.create_date))
+                    / 86400.0) / NULLIF(SUM(q.quantity), 0), 0)
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+        """, default=[(0,)])[0][0]
+
         holds = self._sq(
             "SELECT COUNT(*) FROM stock_lot_hold_order "
             "WHERE state NOT IN ('cancelled','cancel','done')",
@@ -1868,6 +1923,7 @@ class SomAnalytics(models.AbstractModel):
             'contenedores_agua': agua[1] or 0,
             'm2_agua': round(agua[0] or 0.0, 1),
             'inv_m2': round(inv or 0.0, 1),
+            'inv_edad_dias': round(float(inv_edad or 0.0), 1),
             'holds_activos': holds,
             'auth_pendientes': pend_precio,
             'tc_banorte': rate,
@@ -1969,14 +2025,18 @@ class SomAnalytics(models.AbstractModel):
         antes de salir a cliente (12 meses) + edad y m² del stock actual.
         Los materiales más lentos primero — capital estancado."""
         self._check_access()
+        # Filtro de UdM de área TOLERANTE: si no se identifica ninguna UdM
+        # m², no se filtra (mejor mostrar todo que mostrar cero). Y las
+        # consultas corren SIN _sq: si algo falla, el error llega al
+        # dashboard con su mensaje real en vez de degradar a ceros mudos.
         uoms = tuple(self._area_uom_ids())
-        if not uoms:
-            return []
-        sold = {r[0]: r for r in self._sq("""
+        uom_filter = 'AND pt.uom_id IN %(uoms)s' if uoms != (0,) else ''
+        params = {'uoms': uoms}
+        self.env.cr.execute("""
             SELECT pt.id,
                    COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
-                   AVG(EXTRACT(EPOCH FROM (ml.date - sl.create_date))
-                       / 86400.0) AS dias,
+                   AVG(GREATEST(EXTRACT(EPOCH FROM (ml.date - sl.create_date))
+                       / 86400.0, 0)) AS dias,
                    SUM(ml.quantity) AS m2,
                    COUNT(DISTINCT sl.id) AS lots
             FROM stock_move_line ml
@@ -1987,13 +2047,13 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_lot sl ON sl.id = ml.lot_id
             JOIN product_product pp ON pp.id = ml.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                 AND pt.uom_id IN %s
+                 {uom_filter}
             WHERE ml.state = 'done'
               AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
-              AND ml.date > sl.create_date
-            GROUP BY pt.id, name
-        """, (uoms,), default=[])}
-        stock = {r[0]: r for r in self._sq("""
+            GROUP BY pt.id, pt.name
+        """.format(uom_filter=uom_filter), params)
+        sold = {r[0]: r for r in self.env.cr.fetchall()}
+        self.env.cr.execute("""
             SELECT pt.id,
                    COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
                    AVG(EXTRACT(EPOCH FROM (NOW() - sl.create_date))
@@ -2006,10 +2066,11 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_lot sl ON sl.id = q.lot_id
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                 AND pt.uom_id IN %s
+                 {uom_filter}
             WHERE q.quantity > 0
-            GROUP BY pt.id, name
-        """, (uoms,), default=[])}
+            GROUP BY pt.id, pt.name
+        """.format(uom_filter=uom_filter), params)
+        stock = {r[0]: r for r in self.env.cr.fetchall()}
         out = []
         for tid in set(sold) | set(stock):
             sr, qr = sold.get(tid), stock.get(tid)

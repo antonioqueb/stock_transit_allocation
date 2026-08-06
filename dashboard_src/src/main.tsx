@@ -201,14 +201,17 @@ function MiniTable(props: { head: [string, string, string]; rows: Array<{ key: R
 // RESUMEN: pantalla de dirección — rotación lenta entre dominios, cifras
 // grandes, datos que se refrescan solos. Pensada para dejarse en un monitor.
 // ─────────────────────────────────────────────────────────────────────────────
-const TV_ROTATE_MS = 90_000;
+const TV_ROTATE_MS = 60_000;
 const TV_REFRESH_MS = 300_000;
 
+// La cifra completa SIEMPRE: si es larga, baja el tamaño de fuente en
+// escalones (sz2/sz3) en vez de recortarla con elipsis.
 function TvStat(props: { label: string; value: string; sub?: string; tone?: "good" | "bad" | "mid" | "" }) {
+  const sz = props.value.length >= 15 ? " sz3" : props.value.length >= 11 ? " sz2" : "";
   return (
     <div className={"tv-stat " + (props.tone ?? "")}>
       <div className="l">{props.label}</div>
-      <div className="v">{props.value}</div>
+      <div className={"v" + sz}>{props.value}</div>
       {props.sub && <div className="s">{props.sub}</div>}
     </div>
   );
@@ -230,6 +233,9 @@ function TvExec() {
       <TvStat label="Dinero en bancos" value={money(d.bancos_mxn)} tone="good" />
       <TvStat label="Me deben" value={money(d.por_cobrar)} />
       <TvStat label="Debo" value={money(d.por_pagar)} tone="bad" />
+      <TvStat label="Inventario en patio" value={`${n1(d.inv_m2)} m²`} sub={`${n0(d.holds_activos)} holds activos`} />
+      <TvStat label="Antigüedad de inventario" value={`${n0(d.inv_edad_dias)} días`} sub="promedio desde creación del lote" tone={d.inv_edad_dias > 365 ? "bad" : d.inv_edad_dias > 180 ? "mid" : "good"} />
+      <TvStat label="En el agua" value={`${n1(d.m2_agua)} m²`} sub={`${n0(d.contenedores_agua)} contenedores`} />
       <TvStat label="TC Banorte" value={n1(d.tc_banorte)} sub={`Autorizaciones pendientes: ${n0(d.auth_pendientes)}`} />
     </div>
   );
@@ -273,19 +279,20 @@ function TvInventario(props: { filters: Filters }) {
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const d = q.data!;
   const k = (d.kpis ?? {}) as Rec;
-  const aging = arr(d.aging);
+  const agingDate = arr(d.aging_by_date);
   return (
     <>
       <div className="tv-stats">
         <TvStat label="Disponible" value={`${n1(k.disponible_m2)} m²`} sub={`${n0(k.lotes)} lotes`} />
+        <TvStat label="Antigüedad de inventario" value={`${n0(k.edad_prom_dias)} días`} sub="promedio desde creación del lote" tone={num(k.edad_prom_dias) > 365 ? "bad" : num(k.edad_prom_dias) > 180 ? "mid" : "good"} />
         <TvStat label="En hold" value={`${n1(k.hold_m2)} m²`} sub={`${n0(k.holds_activos)} apartados`} />
         <TvStat label="Valor inmovilizado" value={money(k.valor_mxn)} />
         <TvStat label="Rotación 12 meses" value={`${n1(k.rotacion)}x`} sub={`${n1(k.meses_inventario)} meses de inventario`} tone={num(k.rotacion) < 2 ? "bad" : "good"} />
       </div>
-      <Panel title="Antigüedad del inventario (regla Stone Profit)" wide>
-        <ChartBox height={340} deps={[aging]} config={{
+      <Panel title="Antigüedad del inventario por fecha de creación del lote" wide>
+        <ChartBox height={340} deps={[agingDate]} config={{
           type: "bar",
-          data: { labels: aging.map((r) => String(r.bucket)), datasets: [{ label: "m²", data: aging.map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, C.red, "#64748b"], borderRadius: 8 }] },
+          data: { labels: agingDate.map((r) => String(r.bucket)), datasets: [{ label: "m²", data: agingDate.map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, "#f97316", C.red], borderRadius: 8 }] },
           options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(13) } },
         }} />
       </Panel>
@@ -669,6 +676,7 @@ function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void
     <>
       <div className="stats">
         <Stat label="Disponible" value={`${n1(k.disponible_m2)} m²`} sub={`${n0(k.lotes)} lotes`} />
+        <Stat label="Antigüedad de inventario" value={`${n0(k.edad_prom_dias)} días`} sub="promedio desde creación del lote" tone={num(k.edad_prom_dias) > 365 ? "bad" : num(k.edad_prom_dias) > 180 ? "mid" : "good"} />
         <Stat label="En hold" value={`${n1(k.hold_m2)} m²`} sub={`${n0(k.holds_activos)} apartados · ${n1(k.holds_edad_dias)} días prom.`} />
         <Stat label="Valor all-in inmovilizado" value={money(k.valor_mxn)} />
         <Stat label="Rotación 12m" value={`${n1(k.rotacion)}x`} sub={`${n1(k.meses_inventario)} meses de inventario`} tone={num(k.rotacion) < 2 ? "bad" : "good"} />
@@ -693,8 +701,15 @@ function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void
             },
           }} />
         </Panel>
-        <Panel title="Antigüedad (regla Stone Profit)">
-          <ChartBox height={340} deps={[aging]} config={{
+        <Panel title="Antigüedad por fecha de creación del lote" hint="la antigüedad real del inventario">
+          <ChartBox height={340} deps={[arr(d.aging_by_date)]} config={{
+            type: "bar",
+            data: { labels: arr(d.aging_by_date).map((r) => String(r.bucket)), datasets: [{ label: "m²", data: arr(d.aging_by_date).map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, "#f97316", C.red], borderRadius: 6 }] },
+            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10) } },
+          }} />
+        </Panel>
+        <Panel title="Antigüedad por folio (regla Stone Profit)" wide>
+          <ChartBox height={260} deps={[aging]} config={{
             type: "bar",
             data: { labels: aging.map((r) => String(r.bucket)), datasets: [{ label: "m²", data: aging.map((r) => num(r.m2)), backgroundColor: [C.green, C.sky, C.amber, C.red, "#64748b"], borderRadius: 6 }] },
             options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10) } },

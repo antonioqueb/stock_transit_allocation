@@ -24,6 +24,7 @@ body {
   font: 400 15px/1.5 'Inter', 'SF Pro Display', -apple-system, 'Segoe UI', sans-serif;
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+  text-transform: uppercase; /* política de la casa: TODO en mayúsculas */
 }
 button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; }
 b, strong { font-weight: 600; }
@@ -159,11 +160,15 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
 .tv-progress { height: 4px; border-radius: 999px; background: var(--panel2); overflow: hidden; margin-bottom: 18px; }
 .tv-progress i { display: block; height: 100%; background: var(--blue); animation: tvbar linear forwards; transform-origin: left; }
 @keyframes tvbar { from { transform: scaleX(0); } to { transform: scaleX(1); } }
-.tv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 14px; margin-bottom: 16px; }
-.tv-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 22px 24px; min-width: 0; box-shadow: var(--shadow); }
-.tv-stat .l { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--mut2); }
-.tv-stat .v { font-size: clamp(32px, 3vw, 46px); font-weight: 700; letter-spacing: -.025em; margin-top: 6px; line-height: 1.1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tv-stat .s { font-size: 15px; color: var(--mut); margin-top: 6px; }
+.tv-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(310px, 1fr)); gap: 16px; margin-bottom: 18px; }
+.tv-stat { background: var(--panel); border: 1px solid var(--line); border-radius: 20px; padding: 26px 28px; min-width: 0; box-shadow: var(--shadow); }
+.tv-stat .l { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; color: var(--mut2); }
+/* La cifra NUNCA se recorta: el tamaño baja por longitud (sz2/sz3), no
+   se pone elipsis. Un número mocho no sirve de nada en dirección. */
+.tv-stat .v { font-size: clamp(38px, 3.6vw, 60px); font-weight: 700; letter-spacing: -.025em; margin-top: 8px; line-height: 1.1; white-space: nowrap; }
+.tv-stat .v.sz2 { font-size: clamp(30px, 2.8vw, 46px); }
+.tv-stat .v.sz3 { font-size: clamp(24px, 2.2vw, 36px); }
+.tv-stat .s { font-size: 16px; color: var(--mut); margin-top: 8px; }
 .tv-stat.good .v { color: var(--good); }
 .tv-stat.bad .v { color: var(--bad); }
 .tv-stat.mid .v { color: var(--mid); }

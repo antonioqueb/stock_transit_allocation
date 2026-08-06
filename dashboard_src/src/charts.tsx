@@ -108,6 +108,11 @@ export function ChartBox(props: { config: unknown | (() => unknown); height?: nu
     }
     chartRef.current?.destroy();
     const cfg = typeof props.config === "function" ? (props.config as () => unknown)() : props.config;
+    // Todo el texto de la casa va en MAYÚSCULAS; el canvas de Chart.js no
+    // hereda text-transform del CSS, así que se aplica aquí, centralizado.
+    const data = (cfg as { data?: { labels?: unknown[]; datasets?: Array<{ label?: string }> } })?.data;
+    if (data?.labels) data.labels = data.labels.map((l) => String(l).toUpperCase());
+    data?.datasets?.forEach((ds) => { if (ds.label) ds.label = String(ds.label).toUpperCase(); });
     chartRef.current = new window.Chart(ref.current.getContext("2d"), cfg);
     return () => {
       chartRef.current?.destroy();
