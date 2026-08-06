@@ -80,14 +80,17 @@ class SomAnalytics(models.AbstractModel):
         return str(self.env.company.id)
 
     def _sq(self, sql, params=None, default=None):
-        """Consulta segura: cualquier error regresa default y no rompe la
-        pestaña (tablas de módulos opcionales, columnas versionadas, etc.)."""
+        """Consulta segura: corre dentro de un SAVEPOINT. Si falla (tabla
+        de módulo opcional, columna versionada), el savepoint se revierte y
+        la transacción sigue sana — sin esto, un solo error abortaba la
+        transacción y TODO lo posterior tronaba con 'current transaction
+        is aborted'."""
         try:
-            self.env.cr.execute(sql, params or ())
-            return self.env.cr.fetchall()
+            with self.env.cr.savepoint():
+                self.env.cr.execute(sql, params or ())
+                return self.env.cr.fetchall()
         except Exception as exc:
             _logger.warning('[SOM Analytics] SQL omitida: %s', exc)
-            self.env.cr.execute('SELECT 1')
             return default if default is not None else []
 
     @api.model
