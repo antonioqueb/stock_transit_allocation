@@ -7,13 +7,13 @@
                 <meta name="viewport" content="width=device-width, initial-scale=1"/>
                 <title>SOM · Dashboard Ejecutivo</title>
                 <link rel="icon" href="/stock_transit_allocation/static/description/analytics_icon.svg"/>
-                <link rel="stylesheet" href="/stock_transit_allocation/static/dashboard/som_dashboard.css"/>
+                <link rel="stylesheet" t-att-href="'/stock_transit_allocation/static/dashboard/som_dashboard.css?v=%s' % asset_v"/>
             </head>
             <body>
                 <div id="som-root"></div>
                 <script id="som-boot" type="application/json"><t t-out="boot_json"/></script>
                 <script src="/web/static/lib/Chart/Chart.js"></script>
-                <script src="/stock_transit_allocation/static/dashboard/som_dashboard.js"></script>
+                <script t-att-src="'/stock_transit_allocation/static/dashboard/som_dashboard.js?v=%s' % asset_v"></script>
             </body>
         </html>
     </template>

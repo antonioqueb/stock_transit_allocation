@@ -42,11 +42,18 @@ class SomDashboardController(http.Controller):
             'company': user.company_id.name,
             'uid': user.id,
         }
+        # Cache-bust: la URL del bundle lleva la versión instalada del
+        # módulo; sin esto el navegador retiene el JS/CSS viejo aunque el
+        # servidor ya tenga el nuevo (los /static/ se sirven cacheables).
+        mod = request.env['ir.module.module'].sudo().search(
+            [('name', '=', 'stock_transit_allocation')], limit=1)
+        asset_v = (mod.installed_version or mod.latest_version or '0')
         # Markup + escape de '<' : el JSON entra crudo al <script> sin que
         # QWeb lo html-escapee (JSON.parse truena con &amp;).
         payload = json.dumps(boot).replace('<', '\\u003c')
         return request.render('stock_transit_allocation.som_dashboard_page', {
             'boot_json': Markup(payload),
+            'asset_v': asset_v,
         })
 
     @http.route('/som/analytics/rpc', type='jsonrpc', auth='user')
