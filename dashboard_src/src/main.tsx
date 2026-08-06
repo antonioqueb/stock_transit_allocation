@@ -149,7 +149,12 @@ function ExecTicker() {
     if (!data) return [];
     return [
       { l: "Venta hoy", v: money(data.venta_hoy) },
-      { l: "Venta del mes", v: money(data.venta_mes) },
+      {
+        l: "Venta del mes",
+        v: money(data.venta_mes),
+        d: `${num(data.venta_mom_pct) >= 0 ? "▲" : "▼"} ${pct(Math.abs(num(data.venta_mom_pct)))} vs mes anterior`,
+        t: num(data.venta_mom_pct) >= 0 ? ("good" as const) : ("bad" as const),
+      },
       { l: "Utilidad del mes", v: money(data.utilidad_mes), t: marginTone(num(data.margen_mes)) },
       { l: "Margen", v: pct(data.margen_mes), t: marginTone(num(data.margen_mes)) },
       { l: "m² del mes", v: n1(data.m2_mes) },
@@ -171,6 +176,7 @@ function ExecTicker() {
       <div className="ticker-focus" key={focus}>
         <span className="tf-l">{f.l}</span>
         <span className={"tf-v " + ((f as { t?: string }).t ?? "")}>{f.v}</span>
+        {(f as { d?: string }).d && <span className={"tf-d " + ((f as { t?: string }).t ?? "")}>{(f as { d?: string }).d}</span>}
       </div>
       <div className="ticker-rest">
         {items.map((it, i) => (

@@ -1808,6 +1808,19 @@ class SomAnalytics(models.AbstractModel):
               'cid': cid, 'm': month}, default=[(0, 0)])[0]
         m2_mes, utilidad_mes = row[0] or 0.0, row[1] or 0.0
 
+        prev_month = ('%04d-%02d' % ((int(month[:4]) - 1, 12)
+                      if month[5:7] == '01'
+                      else (int(month[:4]), int(month[5:7]) - 1)))
+        venta_mes_prev = one("""
+            SELECT COALESCE(SUM(CASE WHEN rc.name='USD'
+                THEN so.amount_total * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
+                ELSE so.amount_total END), 0)
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state='sale' AND to_char(so.date_order,'YYYY-MM') = %(m)s
+        """, {'rate': rate, 'm': prev_month})
+
         fin = self._finance_totals()
         banks = self.get_bank_balances()
 
@@ -1841,6 +1854,10 @@ class SomAnalytics(models.AbstractModel):
         return {
             'venta_hoy': round(venta_hoy, 2),
             'venta_mes': round(venta_mes, 2),
+            'venta_mes_prev': round(venta_mes_prev, 2),
+            'venta_mom_pct': round(
+                (venta_mes - venta_mes_prev) / venta_mes_prev * 100, 1
+            ) if venta_mes_prev else 0.0,
             'utilidad_mes': round(utilidad_mes, 2),
             'margen_mes': round(
                 utilidad_mes / venta_mes * 100, 1) if venta_mes else 0.0,

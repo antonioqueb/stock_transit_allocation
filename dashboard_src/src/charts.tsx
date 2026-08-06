@@ -80,7 +80,11 @@ export function ChartBox(props: { config: unknown; height?: number; deps: unknow
   const chartRef = useRef<any>(null);
 
   useEffect(() => {
-    if (!ref.current || !window.Chart) return;
+    if (!ref.current) return;
+    if (!window.Chart) {
+      ref.current.parentElement?.classList.add("nochart");
+      return;
+    }
     chartRef.current?.destroy();
     chartRef.current = new window.Chart(ref.current.getContext("2d"), props.config);
     return () => {
