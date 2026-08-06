@@ -296,6 +296,7 @@ class SomAnalytics(models.AbstractModel):
             'entregas': self._dom_entregas,
             'control': self._dom_control,
             'financiero': self._dom_financiero,
+            'pronosticos': self._dom_pronosticos,
         }.get(domain, self._dom_resumen)
         try:
             return fn(f)
@@ -717,6 +718,20 @@ class SomAnalytics(models.AbstractModel):
         if hold_real:
             holdm = float(hold_real)
             disp = max(sum(r['m2'] for r in rows) - holdm, 0.0)
+
+        # % de LOTES en stock con fotografía propia (stock.lot.image)
+        foto_lote = self._sq("""
+            SELECT COUNT(DISTINCT sl.id),
+                   COUNT(DISTINCT sl.id) FILTER (WHERE EXISTS (
+                       SELECT 1 FROM stock_lot_image li
+                       WHERE li.lot_id = sl.id))
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+        """, default=[(0, 0)])[0]
+        fl_total, fl_con = foto_lote[0] or 0, foto_lote[1] or 0
         edad_prom = self._sq("""
             SELECT COALESCE(
                 SUM(q.quantity * EXTRACT(EPOCH FROM (NOW() - sl.create_date))
@@ -735,6 +750,10 @@ class SomAnalytics(models.AbstractModel):
                 'valor_mxn': round(valor, 2),
                 'lotes': len(rows),
                 'edad_prom_dias': round(float(edad_prom or 0.0), 1),
+                'lotes_foto_pct': round(
+                    fl_con / fl_total * 100, 1) if fl_total else 0.0,
+                'lotes_con_foto': fl_con,
+                'lotes_sin_foto': fl_total - fl_con,
             },
             'aging': [
                 {'bucket': b, 'm2': round(ag[b]['m2'], 1),
@@ -1474,27 +1493,51 @@ class SomAnalytics(models.AbstractModel):
         """, (area,), default=[(0, 0)])[0]
         placas, placas_foto = foto_row[0] or 0, foto_row[1] or 0
 
-        photo_uploaders = [
-            {'name': a, 'total': b, 'mes': c, 'ultima': d}
-            for (a, b, c, d) in self._sq("""
-                SELECT COALESCE(p.name, u.login, 'Sistema / Portal'),
-                       COUNT(*),
-                       COUNT(*) FILTER (WHERE i.create_date
-                           >= date_trunc('month', CURRENT_DATE)),
-                       MAX(i.create_date)::date::text
-                FROM supplier_shipment_block_image i
-                LEFT JOIN res_users u ON u.id = i.create_uid
-                LEFT JOIN res_partner p ON p.id = u.partner_id
-                GROUP BY 1 ORDER BY 2 DESC LIMIT 12
-            """, default=[])]
-        photos_by_month = [
-            {'key': a, 'fotos': b}
-            for (a, b) in self._sq("""
-                SELECT to_char(create_date, 'YYYY-MM'), COUNT(*)
-                FROM supplier_shipment_block_image
-                WHERE create_date >= (CURRENT_DATE - INTERVAL '12 months')
-                GROUP BY 1 ORDER BY 1
-            """, default=[])]
+        def uploader_rank(table):
+            return [
+                {'name': a, 'total': b, 'mes': c, 'ultima': d}
+                for (a, b, c, d) in self._sq("""
+                    SELECT COALESCE(p.name, u.login, 'Sistema / Portal'),
+                           COUNT(*),
+                           COUNT(*) FILTER (WHERE i.create_date
+                               >= date_trunc('month', CURRENT_DATE)),
+                           MAX(i.create_date)::date::text
+                    FROM {t} i
+                    LEFT JOIN res_users u ON u.id = i.create_uid
+                    LEFT JOIN res_partner p ON p.id = u.partner_id
+                    GROUP BY 1 ORDER BY 3 DESC, 2 DESC LIMIT 12
+                """.format(t=table), default=[])]
+
+        def photos_monthly(table):
+            return [
+                {'key': a, 'fotos': b}
+                for (a, b) in self._sq("""
+                    SELECT to_char(create_date, 'YYYY-MM'), COUNT(*)
+                    FROM {t}
+                    WHERE create_date
+                        >= (CURRENT_DATE - INTERVAL '12 months')
+                    GROUP BY 1 ORDER BY 1
+                """.format(t=table), default=[])]
+
+        # FOTOS DE LOTE: la métrica a premiar — quién sube más fotos de
+        # lote (stock.lot.image). Las de bloque quedan como secundarias.
+        lot_uploaders = uploader_rank('stock_lot_image')
+        lot_photos_by_month = photos_monthly('stock_lot_image')
+        photo_uploaders = uploader_rank('supplier_shipment_block_image')
+        photos_by_month = photos_monthly('supplier_shipment_block_image')
+
+        lot_foto = self._sq("""
+            SELECT COUNT(DISTINCT sl.id),
+                   COUNT(DISTINCT sl.id) FILTER (WHERE EXISTS (
+                       SELECT 1 FROM stock_lot_image li
+                       WHERE li.lot_id = sl.id))
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+        """, default=[(0, 0)])[0]
+        lotes_stock, lotes_foto = lot_foto[0] or 0, lot_foto[1] or 0
 
         return {
             'kpis': {
@@ -1510,11 +1553,18 @@ class SomAnalytics(models.AbstractModel):
                     placas_foto / placas * 100, 1) if placas else 0.0,
                 'fotos_total': sum(u['total'] for u in photo_uploaders),
                 'fotos_mes': sum(u['mes'] for u in photo_uploaders),
+                'lotes_foto_pct': round(
+                    lotes_foto / lotes_stock * 100, 1) if lotes_stock else 0.0,
+                'lotes_con_foto': lotes_foto,
+                'fotos_lote_total': sum(u['total'] for u in lot_uploaders),
+                'fotos_lote_mes': sum(u['mes'] for u in lot_uploaders),
             },
             'bandeja': pend,
             'ficha': ficha,
             'photo_uploaders': photo_uploaders,
             'photos_by_month': photos_by_month,
+            'lot_photo_uploaders': lot_uploaders,
+            'lot_photos_by_month': lot_photos_by_month,
         }
 
     # ── TRÁNSITO ───────────────────────────────────────────────────────
@@ -2062,6 +2112,133 @@ class SomAnalytics(models.AbstractModel):
         months = sorted(set(ent) | set(sal))
         return [{'key': m, 'entradas': round(ent.get(m, 0) or 0, 2),
                  'salidas': round(sal.get(m, 0) or 0, 2)} for m in months]
+
+    # ── PRONÓSTICOS ────────────────────────────────────────────────────
+    def _dom_pronosticos(self, f):
+        """Proyecciones simples y honestas sobre la historia disponible:
+        tendencia lineal de venta (12m) a 3 meses con banda de ±1 desv.
+        de los residuos, flujo de caja a 90 días por vencimientos y
+        cobertura de inventario por material. Mejoran solas conforme se
+        acumule más historia."""
+        rate = self._current_usd_rate()
+
+        hist = self._sq("""
+            SELECT to_char(so.date_order, 'YYYY-MM') AS m,
+                   SUM(CASE WHEN rc.name = 'USD'
+                       THEN so.amount_total
+                            * COALESCE(NULLIF(so.x_delivery_exchange_rate, 0),
+                                       %s)
+                       ELSE so.amount_total END) AS venta
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state = 'sale'
+              AND so.date_order >= date_trunc(
+                  'month', CURRENT_DATE - INTERVAL '11 months')
+            GROUP BY 1 ORDER BY 1
+        """, (rate,), default=[])
+
+        ys = [float(v or 0) for (_m, v) in hist]
+        n = len(ys)
+        forecast = [{'key': m, 'real': round(v or 0, 2)} for (m, v) in hist]
+        proy = []
+        if n >= 3:
+            xm = (n - 1) / 2.0
+            ym = sum(ys) / n
+            den = sum((i - xm) ** 2 for i in range(n)) or 1.0
+            slope = sum((i - xm) * (ys[i] - ym) for i in range(n)) / den
+            intercept = ym - slope * xm
+            resid = [ys[i] - (intercept + slope * i) for i in range(n)]
+            std = (sum(r * r for r in resid) / n) ** 0.5
+            last = hist[-1][0]
+            y_, m_ = int(last[:4]), int(last[5:7])
+            for step in range(1, 4):
+                m_ += 1
+                if m_ > 12:
+                    m_, y_ = 1, y_ + 1
+                val = max(intercept + slope * (n - 1 + step), 0.0)
+                proy.append({
+                    'key': '%04d-%02d' % (y_, m_),
+                    'proyectado': round(val, 2),
+                    'banda_sup': round(val + std, 2),
+                    'banda_inf': round(max(val - std, 0.0), 2),
+                })
+        tendencia = 0.0
+        if n >= 3 and ys[-3:] and sum(ys[:3]):
+            prom_ini = sum(ys[:3]) / 3
+            prom_fin = sum(ys[-3:]) / 3
+            tendencia = round(
+                (prom_fin - prom_ini) / prom_ini * 100, 1) if prom_ini else 0.0
+
+        flujo = self._sq("""
+            SELECT
+              COALESCE(SUM(m.amount_residual_signed) FILTER (
+                  WHERE m.move_type = 'out_invoice'
+                    AND COALESCE(m.invoice_date_due, m.date)
+                        <= CURRENT_DATE + 90), 0),
+              COALESCE(SUM(-m.amount_residual_signed) FILTER (
+                  WHERE m.move_type = 'in_invoice'
+                    AND COALESCE(m.invoice_date_due, m.date)
+                        <= CURRENT_DATE + 90), 0)
+            FROM account_move m
+            WHERE m.state = 'posted'
+              AND m.move_type IN ('out_invoice', 'in_invoice')
+              AND m.amount_residual != 0
+        """, default=[(0, 0)])[0]
+        entra90, sale90 = float(flujo[0] or 0), float(flujo[1] or 0)
+
+        # Cobertura por material: a este ritmo de venta, ¿para cuántos
+        # meses alcanza el stock? Los que se agotan primero = comprar.
+        area = tuple(self._area_uom_ids())
+        cobertura = [
+            {'key': a, 'name': b, 'm2_stock': round(c or 0, 1),
+             'venta_mensual': round((d or 0) / 12.0, 1),
+             'meses': round((c or 0) / ((d or 0) / 12.0), 1)
+             if d else None}
+            for (a, b, c, d) in self._sq("""
+                SELECT pt.id,
+                       COALESCE(pt.name->>'es_MX', pt.name->>'en_US',''),
+                       stock.m2, ventas.m2
+                FROM product_template pt
+                JOIN LATERAL (
+                    SELECT SUM(q.quantity) AS m2
+                    FROM stock_quant q
+                    JOIN stock_location loc ON loc.id = q.location_id
+                         AND loc.usage = 'internal'
+                    JOIN product_product pp ON pp.id = q.product_id
+                    WHERE pp.product_tmpl_id = pt.id AND q.quantity > 0
+                ) stock ON stock.m2 > 0
+                JOIN LATERAL (
+                    SELECT SUM(ml.quantity) AS m2
+                    FROM stock_move_line ml
+                    JOIN stock_location src ON src.id = ml.location_id
+                         AND src.usage = 'internal'
+                    JOIN stock_location dst ON dst.id = ml.location_dest_id
+                         AND dst.usage = 'customer'
+                    JOIN product_product pp ON pp.id = ml.product_id
+                    WHERE pp.product_tmpl_id = pt.id AND ml.state = 'done'
+                      AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
+                ) ventas ON ventas.m2 > 0
+                WHERE pt.uom_id IN %s
+                ORDER BY stock.m2 / (ventas.m2 / 12.0) ASC
+                LIMIT 15
+            """, (area,), default=[])]
+
+        prox = proy[0]['proyectado'] if proy else 0.0
+        return {
+            'kpis': {
+                'venta_proximo_mes': round(prox, 2),
+                'venta_3m': round(sum(p['proyectado'] for p in proy), 2),
+                'tendencia_pct': tendencia,
+                'entra_90d': round(entra90, 2),
+                'sale_90d': round(sale90, 2),
+                'flujo_90d': round(entra90 - sale90, 2),
+                'meses_historia': n,
+            },
+            'forecast': forecast,
+            'proyeccion': proy,
+            'cobertura': cobertura,
+        }
 
     # ==================================================================
     # RPC 2: PROFUNDIZACIÓN (drill real de un elemento)

@@ -180,14 +180,14 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   padding: 5px 13px; white-space: nowrap;
 }
 
-/* ── Lectura ejecutiva (Finanzas) ── */
-.story { display: flex; flex-direction: column; gap: 10px; }
-.story-line { display: flex; align-items: baseline; gap: 12px; font-size: 16px; line-height: 1.45; }
-.story-line i { flex: none; width: 10px; height: 10px; border-radius: 999px; background: var(--mut2); transform: translateY(1px); }
-.story-line.good i { background: var(--green); }
-.story-line.bad i { background: var(--red); }
-.story-line.mid i { background: var(--amber); }
-.story-line span b { font-weight: 700; }
+/* ── Bento de indicadores (Finanzas): 1 héroe a doble fila + 4×2 ── */
+.bento { display: grid; grid-template-columns: 1.55fr repeat(4, minmax(0, 1fr)); grid-auto-rows: 1fr; gap: 12px; margin-bottom: 14px; }
+.bento .hero { grid-row: 1 / 3; display: flex; flex-direction: column; justify-content: center; }
+.bento .stat { display: flex; flex-direction: column; justify-content: center; }
+@media (max-width: 1250px) {
+  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bento .hero { grid-row: auto; grid-column: 1 / -1; }
+}
 
 /* ── Drill panel ── */
 .drill-bg { position: fixed; inset: 0; background: rgba(4, 8, 16, .45); backdrop-filter: blur(2px); z-index: 50; display: flex; justify-content: flex-end; animation: fade .15s ease; }

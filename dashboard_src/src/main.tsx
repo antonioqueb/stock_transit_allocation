@@ -29,7 +29,8 @@ function initTheme(): Theme {
 // ─────────────────────────────────────────────────────────────────────────────
 type ViewKey =
   | "resumen" | "ventas" | "materiales" | "inventario" | "compras"
-  | "transito" | "recepciones" | "taller" | "entregas" | "finanzas" | "control";
+  | "transito" | "recepciones" | "taller" | "entregas" | "finanzas"
+  | "pronosticos" | "control";
 
 const VIEWS: Array<{ key: ViewKey; label: string }> = [
   { key: "resumen", label: "Resumen" },
@@ -42,6 +43,7 @@ const VIEWS: Array<{ key: ViewKey; label: string }> = [
   { key: "taller", label: "Taller" },
   { key: "entregas", label: "Entregas" },
   { key: "finanzas", label: "Finanzas" },
+  { key: "pronosticos", label: "Pronósticos" },
   { key: "control", label: "Control" },
 ];
 
@@ -70,9 +72,10 @@ function writeHash(view: ViewKey, filters: Filters) {
 }
 
 function defaultRange(): Filters {
+  // Default: el MES en curso (del día 1 a hoy).
   const to = new Date();
   const from = new Date(to);
-  from.setFullYear(from.getFullYear() - 1);
+  from.setDate(1);
   return { date_from: from.toISOString().slice(0, 10), date_to: to.toISOString().slice(0, 10) };
 }
 
@@ -705,7 +708,7 @@ function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void
         <Stat label="Committed en OV" value={`${n1(k.committed_m2)} m²`} />
         <Stat label="Conversión de holds" value={pct(k.holds_conversion_pct)} sub={`${n0(k.reservas_desplazadas)} reservas desplazadas`} />
         <Stat label="Bloques rotos" value={n0(k.bloques_rotos)} sub={`${n1(k.bloques_rotos_m2)} m² afectados de ${n0(k.bloques_activos)} bloques`} tone={num(k.bloques_rotos) > 0 ? "mid" : "good"} />
-        <Stat label="Bloques con foto" value={pct(k.bloques_con_foto_pct)} sub={`${n1(k.m2_sin_foto)} m² invisibles`} tone={num(k.bloques_con_foto_pct) < 70 ? "bad" : "good"} />
+        <Stat label="Lotes con fotografía" value={pct(k.lotes_foto_pct)} sub={`${n0(k.lotes_con_foto)} con foto · ${n0(k.lotes_sin_foto)} sin foto`} tone={num(k.lotes_foto_pct) < 70 ? "bad" : num(k.lotes_foto_pct) < 90 ? "mid" : "good"} />
       </div>
       <div className="grid">
         <Panel title="Top materiales en stock" hint="click = profundizar">
@@ -1160,25 +1163,18 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
   const arTop = arr(d.ar_top);
   const apTop = arr(d.ap_top);
 
-  // Narrativa ejecutiva: las frases que un director le pediría a su CFO.
   const mom = num(k.facturado_mom_pct);
-  const entra30 = due.filter((r) => ["Ya venció", "Esta semana", "8-30 días"].includes(String(r.bucket))).reduce((s, r) => s + num(r.entra), 0);
-  const sale30 = due.filter((r) => ["Ya venció", "Esta semana", "8-30 días"].includes(String(r.bucket))).reduce((s, r) => s + num(r.sale), 0);
-  const story: Array<{ t: string; tone: "good" | "bad" | "mid" | "" }> = [
-    { t: `Te deben ${money(k.por_cobrar)} y debes ${money(k.por_pagar)}: posición neta de ${money(k.neto)}.`, tone: num(k.neto) >= 0 ? "good" : "bad" },
-    { t: `${money(k.vencido_mxn)} de tu cartera ya venció (${pct(k.vencido_pct)} del total).`, tone: num(k.vencido_pct) > 30 ? "bad" : num(k.vencido_pct) > 10 ? "mid" : "good" },
-    { t: `Tu cartera tarda ${n0(k.dso_dias)} días en convertirse en efectivo.`, tone: num(k.dso_dias) > 60 ? "bad" : num(k.dso_dias) > 30 ? "mid" : "good" },
-    { t: `Este mes has facturado ${money(k.facturado_mes)} (${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs el mes pasado).`, tone: mom >= 0 ? "good" : "bad" },
-    { t: `En los próximos 30 días vencen cobros por ${money(entra30)} y pagos por ${money(sale30)}: flujo esperado de ${money(entra30 - sale30)}.`, tone: entra30 - sale30 >= 0 ? "good" : "bad" },
-  ];
-  if (arTop.length) story.splice(2, 0, { t: `Tu mayor deudor es ${String(arTop[0].name)} con ${money(arTop[0].monto)} — da click en su fila para ver factura por factura.`, tone: "mid" });
 
   return (
     <>
-      <div className="stats">
-        <Stat label="ME DEBEN" value={money(k.por_cobrar)} sub={`${n0(k.clientes_deudores)} clientes · MXN al TC de registro`} tone="good" />
-        <Stat label="DEBO" value={money(k.por_pagar)} sub="MXN al TC de registro" tone="bad" />
-        <Stat label="Posición neta" value={money(k.neto)} tone={num(k.neto) >= 0 ? "good" : "bad"} />
+      <div className="bento">
+        <div className={"tv-stat hero " + (num(k.neto) >= 0 ? "good" : "bad")}>
+          <div className="l">Posición neta</div>
+          <div className="v">{money(k.neto)}</div>
+          <div className="s">Me deben {money(k.por_cobrar)} · Debo {money(k.por_pagar)} — MXN al TC de registro</div>
+        </div>
+        <Stat label="ME DEBEN" value={money(k.por_cobrar)} sub={`${n0(k.clientes_deudores)} clientes`} tone="good" />
+        <Stat label="DEBO" value={money(k.por_pagar)} tone="bad" />
         <Stat label="Cartera vencida" value={money(k.vencido_mxn)} sub={`${pct(k.vencido_pct)} del total`} tone={num(k.vencido_pct) > 30 ? "bad" : num(k.vencido_pct) > 10 ? "mid" : "good"} />
         <Stat label="Días de cobro (DSO)" value={`${n0(k.dso_dias)} días`} tone={num(k.dso_dias) > 60 ? "bad" : num(k.dso_dias) > 30 ? "mid" : "good"} />
         <Stat label="Facturado este mes" value={money(k.facturado_mes)} sub={`${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs mes anterior`} tone={mom >= 0 ? "good" : "bad"} />
@@ -1186,14 +1182,6 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
         <Stat label="Efectivo sin aplicar" value={money(k.efectivo_sin_aplicar)} sub={`${n0(k.recibos_sin_aplicar)} recibos · aplicado ${money(k.efectivo_aplicado)}`} tone={num(k.efectivo_sin_aplicar) > 0 ? "mid" : ""} />
         <Stat label="Comprobantes por validar" value={n0(k.comprobantes_pendientes)} sub={money(k.comprobantes_monto)} tone={num(k.comprobantes_pendientes) > 0 ? "mid" : "good"} />
       </div>
-
-      <Panel title="Lectura ejecutiva" hint="lo que estos números significan" wide>
-        <div className="story">
-          {story.map((sLine, i) => (
-            <div key={i} className={"story-line " + sLine.tone}><i /><span>{sLine.t}</span></div>
-          ))}
-        </div>
-      </Panel>
 
       <div className="grid" style={{ marginTop: 12 }}>
         <Panel title="Me deben — por divisa original" hint="el MXN es al TC del día de registro, no al de hoy">
@@ -1353,6 +1341,75 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// PRONÓSTICOS — proyecciones honestas sobre la historia disponible
+// ─────────────────────────────────────────────────────────────────────────────
+function PronosticosView() {
+  const q = useData(["dashboard", "pronosticos", {}], () => fetchDashboard("pronosticos", {}));
+  if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /></div>;
+  if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
+  const d = q.data!;
+  const k = (d.kpis ?? {}) as Rec;
+  const hist = arr(d.forecast);
+  const proy = arr(d.proyeccion);
+  const cob = arr(d.cobertura);
+  const labels = [...hist.map((r) => monthLabel(r.key)), ...proy.map((r) => monthLabel(r.key))];
+  const nulls = (n: number) => Array.from({ length: n }, () => null);
+  return (
+    <>
+      <div className="stats">
+        <Stat label="Venta esperada próximo mes" value={money(k.venta_proximo_mes)} sub="tendencia lineal sobre 12 meses" />
+        <Stat label="Venta esperada 3 meses" value={money(k.venta_3m)} />
+        <Stat label="Tendencia de venta" value={`${num(k.tendencia_pct) >= 0 ? "▲" : "▼"} ${pct(Math.abs(num(k.tendencia_pct)))}`} sub="primeros 3 meses vs últimos 3" tone={num(k.tendencia_pct) >= 0 ? "good" : "bad"} />
+        <Stat label="Entra en 90 días" value={money(k.entra_90d)} sub="cobros por vencer" tone="good" />
+        <Stat label="Sale en 90 días" value={money(k.sale_90d)} sub="pagos por vencer" tone="bad" />
+        <Stat label="Flujo neto esperado 90 días" value={money(k.flujo_90d)} tone={num(k.flujo_90d) >= 0 ? "good" : "bad"} />
+        <Stat label="Historia disponible" value={`${n0(k.meses_historia)} meses`} sub="la proyección afina sola con más historia" />
+      </div>
+      <div className="grid">
+        <Panel title="Venta: historia y proyección a 3 meses" hint="banda = ±1 desviación de los residuos de la tendencia" wide>
+          <ChartBox height={340} deps={[hist, proy]} config={{
+            type: "line",
+            data: {
+              labels,
+              datasets: [
+                { label: "Venta real", data: [...hist.map((r) => num(r.real)), ...nulls(proy.length)], borderColor: C.blue, backgroundColor: "rgba(11,87,208,.08)", borderWidth: 2.5, tension: 0.35, fill: true, isMoney: true },
+                { label: "Proyección", data: [...nulls(Math.max(hist.length - 1, 0)), ...(hist.length ? [num(hist[hist.length - 1].real)] : []), ...proy.map((r) => num(r.proyectado))], borderColor: C.violet, borderDash: [6, 5], borderWidth: 2.5, pointRadius: 4, tension: 0.2, isMoney: true },
+                { label: "Escenario alto", data: [...nulls(hist.length), ...proy.map((r) => num(r.banda_sup))], borderColor: "rgba(124,58,237,.35)", borderDash: [3, 4], borderWidth: 1.5, pointRadius: 0, isMoney: true },
+                { label: "Escenario bajo", data: [...nulls(hist.length), ...proy.map((r) => num(r.banda_inf))], borderColor: "rgba(124,58,237,.35)", borderDash: [3, 4], borderWidth: 1.5, pointRadius: 0, isMoney: true },
+              ],
+            },
+            options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(11) } },
+          }} />
+        </Panel>
+        <Panel title="Qué comprar primero: cobertura de inventario por material" hint="meses que dura el stock al ritmo de venta de 12 meses — los de arriba se agotan antes" wide>
+          {!cob.length ? <Empty msg="Sin historia suficiente de ventas por material" /> : (
+            <div className="tablewrap tall">
+              <table>
+                <thead>
+                  <tr><th>Material</th><th className="r">m² en stock</th><th className="r">Venta mensual (m²)</th><th className="r">Cobertura</th></tr>
+                </thead>
+                <tbody>
+                  {cob.map((r) => (
+                    <tr key={String(r.key)}>
+                      <td className="ell">{String(r.name)}</td>
+                      <td className="r">{n1(r.m2_stock)}</td>
+                      <td className="r">{n1(r.venta_mensual)}</td>
+                      <td className="r">
+                        {r.meses == null ? "—" : <Pill tone={num(r.meses) < 2 ? "bad" : num(r.meses) < 4 ? "mid" : "good"}>{`${n1(r.meses)} meses`}</Pill>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // CONTROL
 // ─────────────────────────────────────────────────────────────────────────────
 function ControlView(props: { filters: Filters }) {
@@ -1368,8 +1425,9 @@ function ControlView(props: { filters: Filters }) {
       <div className="stats">
         <Stat label="Pendientes totales" value={n0(k.pendientes_total)} sub="meta: bandeja en cero" tone={num(k.pendientes_total) > 0 ? "mid" : "good"} />
         <Stat label="Lotes en stock" value={n0(k.lotes_en_stock)} />
-        <Stat label="Placas con fotografía" value={pct(k.placas_foto_pct)} sub={`${n0(k.placas_con_foto)} de ${n0(k.placas)} lotes de placa`} tone={num(k.placas_foto_pct) < 70 ? "bad" : num(k.placas_foto_pct) < 90 ? "mid" : "good"} />
-        <Stat label="Fotos subidas este mes" value={n0(k.fotos_mes)} sub={`${n0(k.fotos_total)} en total`} />
+        <Stat label="Lotes con fotografía" value={pct(k.lotes_foto_pct)} sub={`${n0(k.lotes_con_foto)} lotes en stock con foto`} tone={num(k.lotes_foto_pct) < 70 ? "bad" : num(k.lotes_foto_pct) < 90 ? "mid" : "good"} />
+        <Stat label="Fotos de lote este mes" value={n0(k.fotos_lote_mes)} sub={`${n0(k.fotos_lote_total)} en total`} />
+        <Stat label="Fotos de bloque este mes" value={n0(k.fotos_mes)} sub={`${n0(k.fotos_total)} en total · ${pct(k.placas_foto_pct)} placas con foto de bloque`} />
         <Stat label="Órdenes sin proyecto" value={pct(k.sin_proyecto_pct)} tone={num(k.sin_proyecto_pct) > 30 ? "mid" : ""} />
         <Stat label="Sin referencia del cliente" value={pct(k.sin_referencia_pct)} tone={num(k.sin_referencia_pct) > 30 ? "mid" : ""} />
       </div>
@@ -1404,7 +1462,26 @@ function ControlView(props: { filters: Filters }) {
             })}
           </div>
         </Panel>
-        <Panel title="Quién sube las fotos" hint="ranking de capturadores de fotografía de bloque">
+        <Panel title="Quién sube fotos de LOTE — el ranking a premiar" hint="fotos en la ficha del lote (stock.lot.image)" wide>
+          {!arr(d.lot_photo_uploaders).length ? <Empty msg="Aún no hay fotos de lote registradas" /> : (
+            <div className="tablewrap">
+              <table>
+                <thead><tr><th>Quién</th><th className="r">Este mes</th><th className="r">Total histórico</th><th>Última foto</th></tr></thead>
+                <tbody>
+                  {arr(d.lot_photo_uploaders).map((u, i) => (
+                    <tr key={i}>
+                      <td className="ell">{i === 0 && num(u.mes) > 0 ? "🏆 " : ""}{String(u.name)}</td>
+                      <td className="r strong">{n0(u.mes)}</td>
+                      <td className="r">{n0(u.total)}</td>
+                      <td className="mut">{String(u.ultima ?? "")}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
+        <Panel title="Quién sube fotos de bloque" hint="fotos de bloque del embarque (portal y torre)">
           {!arr(d.photo_uploaders).length ? <Empty msg="Aún no hay fotos de bloque registradas" /> : (
             <div className="tablewrap">
               <table>
@@ -1424,11 +1501,24 @@ function ControlView(props: { filters: Filters }) {
           )}
         </Panel>
         <Panel title="Fotos subidas por mes (12 meses)">
-          <ChartBox height={280} deps={[arr(d.photos_by_month)]} config={{
-            type: "bar",
-            data: { labels: arr(d.photos_by_month).map((r) => monthLabel(r.key)), datasets: [{ label: "Fotos", data: arr(d.photos_by_month).map((r) => num(r.fotos)), backgroundColor: "rgba(11,87,208,.8)", borderRadius: 6, maxBarThickness: 34 }] },
-            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(10.5) } },
-          }} />
+          <ChartBox height={280} deps={[arr(d.lot_photos_by_month), arr(d.photos_by_month)]} config={(() => {
+            const lot = arr(d.lot_photos_by_month);
+            const blk = arr(d.photos_by_month);
+            const keys = Array.from(new Set([...lot.map((r) => String(r.key)), ...blk.map((r) => String(r.key))])).sort();
+            const lm = new Map(lot.map((r) => [String(r.key), num(r.fotos)]));
+            const bm2 = new Map(blk.map((r) => [String(r.key), num(r.fotos)]));
+            return {
+              type: "bar",
+              data: {
+                labels: keys.map(monthLabel),
+                datasets: [
+                  { label: "Fotos de lote", data: keys.map((kk) => lm.get(kk) ?? 0), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 22 },
+                  { label: "Fotos de bloque", data: keys.map((kk) => bm2.get(kk) ?? 0), backgroundColor: "rgba(124,58,237,.7)", borderRadius: 5, maxBarThickness: 22 },
+                ],
+              },
+              options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(10.5) } },
+            };
+          })()} />
         </Panel>
       </div>
     </>
@@ -1681,7 +1771,7 @@ function App() {
   const [view, setView] = useState<ViewKey>(initial.view);
   const [filters, setFilters] = useState<Filters>({ ...defaultRange(), ...initial.filters });
   const [drillStack, setDrillStack] = useState<DrillNode[]>([]);
-  const [preset, setPreset] = useState("anio");
+  const [preset, setPreset] = useState("mes");
   const [theme, setTheme] = useState<Theme>(initTheme);
 
   useEffect(() => writeHash(view, filters), [view, filters]);
@@ -1769,6 +1859,7 @@ function App() {
           {view === "taller" && <TallerView filters={filters} />}
           {view === "entregas" && <EntregasView filters={filters} />}
           {view === "finanzas" && <FinanzasView filters={filters} drill={drill} />}
+          {view === "pronosticos" && <PronosticosView />}
           {view === "control" && <ControlView filters={filters} />}
         </main>
       </div>
