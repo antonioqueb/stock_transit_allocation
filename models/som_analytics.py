@@ -1260,6 +1260,7 @@ class SomAnalytics(models.AbstractModel):
 
     # ── TRÁNSITO ───────────────────────────────────────────────────────
     def _transit_pack(self, f):
+        portal_avance, portal_terminadas = self._portal_avg_progress()
         Voyage = self.env['stock.transit.voyage'].sudo()
         voyages = Voyage.search_read(
             [('custom_status', 'not in', ('delivered', 'cancel'))],
@@ -1327,8 +1328,8 @@ class SomAnalytics(models.AbstractModel):
                     WHERE last_access IS NULL
                        OR last_access < NOW() - INTERVAL '7 days'
                 """, default=[(0,)])[0]),
-                'ligas_avance_pct': self._portal_avg_progress()[0],
-                'ligas_terminadas': self._portal_avg_progress()[1],
+                'ligas_avance_pct': portal_avance,
+                'ligas_terminadas': portal_terminadas,
             },
             'by_status': [
                 {'status': st, 'label': labels.get(st, st),
@@ -1341,8 +1342,6 @@ class SomAnalytics(models.AbstractModel):
         """5.4: % de avance promedio de las ligas de portal activas y
         cuántas están terminadas (avance 100). El avance vive en un compute
         del proforma header, por eso se resuelve vía ORM acotado."""
-        if getattr(self, '_portal_prog_cache', None) is not None:
-            return self._portal_prog_cache
         result = (0.0, 0)
         try:
             Access = self.env['supplier.access'].sudo()
@@ -1366,7 +1365,6 @@ class SomAnalytics(models.AbstractModel):
                 result = (0.0, 0)
         except Exception:
             _logger.exception('[SOM Analytics] portal progress')
-        self._portal_prog_cache = result
         return result
 
     def _dom_transito(self, f):
