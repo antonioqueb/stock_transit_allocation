@@ -699,3 +699,11 @@ $bi-panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px rgba(11, 87, 208
 
     &:hover { background: #0b57d0; color: #fff; border-color: #0b57d0; }
 }
+
+// Mini tabla de 4 columnas (merma dimensional)
+.som_bi__minitable {
+    .row.row4, .row.head4 {
+        grid-template-columns: 1fr auto auto auto;
+    }
+    .row .muted { color: #94a3b8; font-weight: 500; }
+}

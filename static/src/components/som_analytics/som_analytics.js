@@ -28,8 +28,10 @@ const TABS = [
     { key: "inventario", label: "Inventario" },
     { key: "compras", label: "Compras" },
     { key: "transito", label: "Tránsito" },
+    { key: "recepciones", label: "Recepciones" },
     { key: "entregas", label: "Entregas" },
     { key: "financiero", label: "Financiero" },
+    { key: "control", label: "Control" },
 ];
 
 function fmtMoney(v) {
@@ -373,8 +375,10 @@ export class SomAnalytics extends Component {
         else if (t === "inventario") this.renderInventario(d);
         else if (t === "compras") this.renderCompras(d);
         else if (t === "transito") this.renderTransito(d);
+        else if (t === "recepciones") this.renderRecepciones(d);
         else if (t === "entregas") this.renderEntregas(d);
         else if (t === "financiero") this.renderFinanciero(d);
+        else if (t === "control") this.renderControl(d);
     }
 
     _monthlyCombo(key, id, rows, clickable = true) {
@@ -569,6 +573,61 @@ export class SomAnalytics extends Component {
                 backgroundColor: "rgba(56,189,248,.82)",
                 borderRadius: 7, borderSkipped: false,
             }]);
+    }
+
+    renderRecepciones(d) {
+        const rows = d.by_week || [];
+        this.mk("rc_w", "som_rc_weekly", {
+            type: "bar",
+            data: {
+                labels: rows.map((r) => r.week),
+                datasets: [
+                    {
+                        label: "m² recibidos", data: rows.map((r) => r.m2),
+                        somMoney: false,
+                        backgroundColor: "rgba(11,87,208,.82)",
+                        borderRadius: 6, borderSkipped: false, maxBarThickness: 34,
+                        yAxisID: "y",
+                    },
+                    {
+                        type: "line", label: "Recepciones",
+                        data: rows.map((r) => r.count),
+                        borderColor: SKY, borderWidth: 2.5,
+                        pointBackgroundColor: "#fff", pointBorderColor: SKY,
+                        pointBorderWidth: 2, pointRadius: 3.5,
+                        tension: 0.4, yAxisID: "y1",
+                    },
+                ],
+            },
+            options: {
+                ...this.baseOptions(null),
+                interaction: { mode: "index", intersect: false },
+                scales: {
+                    y: this.axMoney(),
+                    y1: {
+                        beginAtZero: true, position: "right",
+                        border: { display: false }, grid: { display: false },
+                        ticks: { precision: 0, font: { size: 10, family: FONT }, color: "#7dd3fc" },
+                    },
+                    x: this.axPlain(9.5),
+                },
+            },
+        });
+    }
+
+    renderControl(d) {
+        const rows = d.bandeja || [];
+        this.barChart("ct_b", "som_ct_bandeja",
+            rows.map((r) => r.label),
+            [{
+                label: "Pendientes", data: rows.map((r) => r.count),
+                somMoney: false,
+                backgroundColor: rows.map((r) =>
+                    r.count === 0 ? "rgba(16,185,129,.75)"
+                    : r.age > 7 ? "rgba(239,68,68,.8)" : "rgba(245,158,11,.8)"),
+                borderRadius: 6, borderSkipped: false, maxBarThickness: 20,
+            }],
+            { horizontal: true });
     }
 
     renderEntregas(d) {

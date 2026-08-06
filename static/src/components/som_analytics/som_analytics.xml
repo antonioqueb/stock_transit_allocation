@@ -110,11 +110,28 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Conversión cot→orden</t><t t-set="val" t-value="num(data.kpis.conversion_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.cotizaciones_abiertas,0) + ' cotizaciones abiertas'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Descuentos otorgados</t><t t-set="val" t-value="money(data.kpis.descuento_mxn)"/><t t-set="sub" t-value="num(data.kpis.descuentos_con_auth,0) + ' requirieron autorización'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² vendidos</t><t t-set="val" t-value="num(data.kpis.m2_vendidos)"/><t t-set="sub" t-value="num(data.kpis.piezas_vendidas,0) + ' piezas'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Vía arquitecto</t><t t-set="val" t-value="num(data.kpis.pct_via_arquitecto) + '%'"/><t t-set="sub">de las órdenes</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloqueadas por precio</t><t t-set="val" t-value="num(data.kpis.bloqueadas_precio,0)"/><t t-set="sub" t-value="compact(data.kpis.bloqueadas_monto) + ' detenidos'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exenciones IVA</t><t t-set="val" t-value="num(data.kpis.iva_aprobadas,0) + ' / ' + num(data.kpis.iva_solicitadas,0)"/><t t-set="sub">aprobadas / solicitadas</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exposición cambiaria</t><t t-set="val" t-value="compact(data.kpis.exposicion_mxn)"/><t t-set="sub" t-value="num(data.kpis.exposicion_ordenes,0) + ' órdenes USD sin TC congelado'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Autorizaciones de precio</t><t t-set="val" t-value="num(data.kpis.auth_aprobadas,0) + ' / ' + num(data.kpis.auth_solicitudes,0)"/><t t-set="sub" t-value="'Resolución ' + num(data.kpis.auth_horas_resolucion) + ' h prom.'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide">
                                 <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Venta y utilidad por mes</span><span class="drill">click = profundizar</span></div>
                                 <div class="som_bi__canvas tall"><canvas id="som_c_monthly"/></div>
+                            </div>
+                            <div class="som_bi__panel">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot violet"/> Canal arquitecto</span></div>
+                                <div class="som_bi__minitable">
+                                    <div class="row head"><span>Arquitecto</span><b>Órdenes</b><b>Monto</b></div>
+                                    <div t-foreach="data.architects" t-as="a" t-key="a_index" class="row">
+                                        <span t-att-title="a.name" t-esc="a.name"/>
+                                        <b t-esc="num(a.ordenes,0)"/>
+                                        <b t-esc="compact(a.monto)"/>
+                                    </div>
+                                    <div t-if="!data.architects.length" class="row"><span class="muted">Sin ventas vía arquitecto en el periodo</span><b/><b/></div>
+                                </div>
                             </div>
                             <div class="som_bi__panel">
                                 <div class="som_bi__panel_head"><span class="t"><i class="dot violet"/> Mezcla de niveles</span><span class="drill">click = profundizar</span></div>
@@ -164,6 +181,8 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Valor all-in inmovilizado</t><t t-set="val" t-value="money(data.kpis.valor_mxn)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Rotación 12m</t><t t-set="val" t-value="num(data.kpis.rotacion,2) + 'x'"/><t t-set="sub" t-value="num(data.kpis.meses_inventario) + ' meses de inventario'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Salidas 12m</t><t t-set="val" t-value="num(data.kpis.salidas_12m_m2) + ' m²'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Edad de holds</t><t t-set="val" t-value="num(data.kpis.holds_edad_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.holds_eternos,0) + ' holds de +30 días'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloques con foto</t><t t-set="val" t-value="num(data.kpis.bloques_con_foto_pct) + '%'"/><t t-set="sub" t-value="'de ' + num(data.kpis.bloques_stock,0) + ' bloques en stock'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel">
@@ -178,6 +197,19 @@
                                 <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Antigüedad (regla Stone Profit)</span></div>
                                 <div class="som_bi__canvas tall"><canvas id="som_i_aging"/></div>
                             </div>
+                            <div class="som_bi__panel wide">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Merma dimensional por proveedor (PL vs medidas reales)</span></div>
+                                <div class="som_bi__minitable">
+                                    <div class="row head4"><span>Proveedor</span><b>m² PL</b><b>m² reales</b><b>Merma</b></div>
+                                    <div t-foreach="data.merma" t-as="m" t-key="m_index" class="row row4">
+                                        <span t-att-title="m.name" t-esc="m.name"/>
+                                        <b t-esc="num(m.teorico)"/>
+                                        <b t-esc="num(m.real)"/>
+                                        <b t-attf-class="pill #{m.merma_pct > 2 ? 'bad' : m.merma_pct > 0.5 ? 'mid' : 'good'}" t-esc="num(m.merma_pct,2) + '%'"/>
+                                    </div>
+                                    <div t-if="!data.merma.length" class="row"><span class="muted">Aún sin worksheets con medidas reales capturadas</span><b/><b/></div>
+                                </div>
+                            </div>
                         </div>
                     </t>
 
@@ -186,6 +218,8 @@
                         <div class="som_bi__stats">
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Compras (MXN norm.)</t><t t-set="val" t-value="money(data.kpis.compras_mxn)"/><t t-set="sub" t-value="'TC ' + num(data.kpis.tc_usado, 4)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Proveedores activos</t><t t-set="val" t-value="num(data.kpis.proveedores,0)"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Lead time OC→recepción</t><t t-set="val" t-value="num(data.kpis.lead_time_dias) + ' días'"/><t t-set="sub" t-value="'sobre ' + num(data.kpis.lead_time_ocs,0) + ' OCs recibidas'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Discrepancias PL</t><t t-set="val" t-value="num(data.kpis.discrepancias,0)"/><t t-set="sub">portal vs recibido</t></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide">
@@ -241,6 +275,8 @@
                                 <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Firmadas en app</t><t t-set="val" t-value="num(data.kpis.firmadas_app,0)"/></t>
                                 <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Manuales</t><t t-set="val" t-value="num(data.kpis.manuales,0)"/><t t-set="sub">meta: 0 al desplegar la app</t></t>
                                 <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Crédito informal</t><t t-set="val" t-value="money(data.kpis.credito_informal_mxn)"/><t t-set="sub">entregas autorizadas sin pago total</t></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Ciclo pedido→entrega</t><t t-set="val" t-value="num(data.kpis.ciclo_dias) + ' días'"/><t t-set="sub" t-value="'sobre ' + num(data.kpis.ciclo_muestras,0) + ' entregas'"/></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Devoluciones</t><t t-set="val" t-value="num(data.kpis.devoluciones,0)"/></t>
                             </div>
                             <div class="som_bi__grid">
                                 <div class="som_bi__panel">
@@ -250,6 +286,16 @@
                                 <div class="som_bi__panel">
                                     <div class="som_bi__panel_head"><span class="t"><i class="dot green"/> App vs manual</span></div>
                                     <div class="som_bi__canvas tall"><canvas id="som_e_sign"/></div>
+                                </div>
+                                <div class="som_bi__panel">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Devoluciones por motivo</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head"><span>Motivo</span><b>#</b><b/></div>
+                                        <div t-foreach="data.returns" t-as="r" t-key="r_index" class="row">
+                                            <span t-esc="r.reason"/><b t-esc="num(r.count,0)"/><b/>
+                                        </div>
+                                        <div t-if="!data.returns.length" class="row"><span class="muted">Sin devoluciones en el periodo</span><b/><b/></div>
+                                    </div>
                                 </div>
                                 <div class="som_bi__panel wide">
                                     <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Entregado sin pago completo</span></div>
@@ -273,6 +319,8 @@
                             <div class="som_bi__stat big good"><div class="l">ME DEBEN (por cobrar)</div><div class="v" t-esc="money(data.kpis.por_cobrar)"/></div>
                             <div class="som_bi__stat big bad"><div class="l">DEBO (por pagar)</div><div class="v" t-esc="money(data.kpis.por_pagar)"/></div>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Posición neta</t><t t-set="val" t-value="money(data.kpis.neto)"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Efectivo sin aplicar</t><t t-set="val" t-value="money(data.kpis.efectivo_sin_aplicar)"/><t t-set="sub" t-value="num(data.kpis.recibos_sin_aplicar,0) + ' recibos entregados sin pago registrado'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Efectivo aplicado</t><t t-set="val" t-value="money(data.kpis.efectivo_aplicado)"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel">
@@ -307,6 +355,58 @@
                                         <span t-att-title="'Vencimiento más viejo: ' + p.oldest" t-esc="p.name"/>
                                         <b t-esc="compact(p.monto)"/>
                                         <b t-esc="num(p.facturas,0)"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- ════════ RECEPCIONES ════════ -->
+                    <t t-if="state.tab === 'recepciones'">
+                        <div class="som_bi__stats">
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Recepciones físicas</t><t t-set="val" t-value="num(data.kpis.fisicas_periodo,0)"/><t t-set="sub" t-value="num(data.kpis.m2_recibidos) + ' m² al patio'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Entradas de compra</t><t t-set="val" t-value="num(data.kpis.entradas_compra,0)"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Pedimento completo</t><t t-set="val" t-value="num(data.kpis.pedimento_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.lotes_sin_pedimento,0) + ' lotes SIN pedimento'"/></t>
+                        </div>
+                        <div class="som_bi__grid">
+                            <div class="som_bi__panel wide" style="grid-column: 1 / -1;">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Throughput semanal del patio (m² y recepciones)</span></div>
+                                <div class="som_bi__canvas tall"><canvas id="som_rc_weekly"/></div>
+                            </div>
+                        </div>
+                    </t>
+
+                    <!-- ════════ CONTROL (bandeja cero + calidad de datos) ════════ -->
+                    <t t-if="state.tab === 'control'">
+                        <div class="som_bi__stats">
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Pendientes de decisión</t><t t-set="val" t-value="num(data.kpis.pendientes_total,0)"/><t t-set="sub">meta: bandeja cero</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">OVs sin proyecto</t><t t-set="val" t-value="num(data.kpis.sin_proyecto_pct) + '%'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">OVs sin referencia</t><t t-set="val" t-value="num(data.kpis.sin_referencia_pct) + '%'"/></t>
+                        </div>
+                        <div class="som_bi__grid">
+                            <div class="som_bi__panel wide">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Bandeja de pendientes (nadie ha apretado el botón)</span></div>
+                                <div class="som_bi__canvas tall"><canvas id="som_ct_bandeja"/></div>
+                            </div>
+                            <div class="som_bi__panel">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Detalle con antigüedad</span></div>
+                                <div class="som_bi__minitable">
+                                    <div class="row head"><span>Cola</span><b>#</b><b>Más viejo</b></div>
+                                    <div t-foreach="data.bandeja" t-as="b" t-key="b_index" class="row">
+                                        <span t-esc="b.label"/>
+                                        <b t-attf-class="pill #{b.count === 0 ? 'good' : b.age > 7 ? 'bad' : 'mid'}" t-esc="num(b.count,0)"/>
+                                        <b t-esc="b.count ? num(b.age) + ' d' : '—'"/>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="som_bi__panel">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot green"/> Completitud de ficha de lote</span></div>
+                                <div class="som_bi__minitable">
+                                    <div class="row head"><span>Campo</span><b>Completo</b><b/></div>
+                                    <div t-foreach="data.ficha" t-as="fch" t-key="fch_index" class="row">
+                                        <span t-esc="fch.campo"/>
+                                        <b t-attf-class="pill #{fch.pct >= 95 ? 'good' : fch.pct >= 70 ? 'mid' : 'bad'}" t-esc="num(fch.pct) + '%'"/>
+                                        <b/>
                                     </div>
                                 </div>
                             </div>

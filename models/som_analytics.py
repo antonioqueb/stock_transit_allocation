@@ -70,6 +70,17 @@ class SomAnalytics(models.AbstractModel):
             today - timedelta(days=365))
         return date_from, date_to
 
+    def _sq(self, sql, params=None, default=None):
+        """Consulta segura: cualquier error regresa default y no rompe la
+        pestaña (tablas de módulos opcionales, columnas versionadas, etc.)."""
+        try:
+            self.env.cr.execute(sql, params or ())
+            return self.env.cr.fetchall()
+        except Exception as exc:
+            _logger.warning('[SOM Analytics] SQL omitida: %s', exc)
+            self.env.cr.execute('SELECT 1')
+            return default if default is not None else []
+
     @api.model
     def _lot_bucket_key(self, lot_name):
         m = re.match(r'^([A-Za-z]*)(\d+)', (lot_name or '').strip())
@@ -258,7 +269,9 @@ class SomAnalytics(models.AbstractModel):
             'inventario': self._dom_inventario,
             'compras': self._dom_compras,
             'transito': self._dom_transito,
+            'recepciones': self._dom_recepciones,
             'entregas': self._dom_entregas,
+            'control': self._dom_control,
             'financiero': self._dom_financiero,
         }.get(domain, self._dom_resumen)
         try:
@@ -318,6 +331,77 @@ class SomAnalytics(models.AbstractModel):
         desc, desc_auth = self.env.cr.fetchone()
         pack['kpis']['descuento_mxn'] = round(desc or 0.0, 2)
         pack['kpis']['descuentos_con_auth'] = desc_auth or 0
+
+        dt = (date_from, date_to + ' 23:59:59')
+
+        # 1.4 Canal arquitecto: % de la venta y top especificadores
+        arch = self._sq("""
+            SELECT COALESCE(rp.name,''), COUNT(DISTINCT so.id),
+                   SUM(so.amount_total)
+            FROM sale_order so
+            JOIN res_partner rp ON rp.id = so.x_architect_id
+            WHERE so.state='sale' AND so.x_architect_id IS NOT NULL
+              AND so.date_order >= %s AND so.date_order <= %s
+            GROUP BY 1 ORDER BY 3 DESC LIMIT 8
+        """, dt)
+        pack['architects'] = [
+            {'name': a, 'ordenes': b, 'monto': round(c or 0, 2)}
+            for (a, b, c) in arch]
+        row = self._sq("""
+            SELECT COUNT(*) FILTER (WHERE x_architect_id IS NOT NULL), COUNT(*)
+            FROM sale_order WHERE state='sale'
+              AND date_order >= %s AND date_order <= %s
+        """, dt, default=[(0, 0)])[0]
+        pack['kpis']['pct_via_arquitecto'] = round(
+            row[0] / row[1] * 100, 1) if row[1] else 0.0
+
+        # 1.6 Órdenes bloqueadas por control de precios (vivas)
+        row = self._sq("""
+            SELECT COUNT(*), COALESCE(SUM(amount_total),0) FROM sale_order
+            WHERE COALESCE(x_has_low_prices,false) AND state != 'cancel'
+        """, default=[(0, 0)])[0]
+        pack['kpis']['bloqueadas_precio'] = row[0]
+        pack['kpis']['bloqueadas_monto'] = round(row[1] or 0, 2)
+
+        # 1.7 Exenciones de IVA
+        iva = dict(self._sq("""
+            SELECT COALESCE(x_iva_exempt_state,'none'), COUNT(*)
+            FROM sale_order
+            WHERE date_order >= %s AND date_order <= %s
+              AND COALESCE(x_iva_exempt_state,'none') != 'none'
+            GROUP BY 1
+        """, dt))
+        pack['kpis']['iva_solicitadas'] = sum(iva.values())
+        pack['kpis']['iva_aprobadas'] = iva.get('approved', 0)
+
+        # 2.2 Exposición cambiaria: USD confirmado SIN TC congelado
+        row = self._sq("""
+            SELECT COALESCE(SUM(so.amount_total),0), COUNT(*)
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state='sale' AND rc.name='USD'
+              AND COALESCE(so.x_delivery_exchange_rate,0) = 0
+        """, default=[(0, 0)])[0]
+        pack['kpis']['exposicion_usd'] = round(row[0] or 0, 2)
+        pack['kpis']['exposicion_mxn'] = round(
+            (row[0] or 0) * self._current_usd_rate(), 2)
+        pack['kpis']['exposicion_ordenes'] = row[1]
+
+        # 2.3 Autorizaciones de precio: volumen y agilidad
+        row = self._sq("""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE state='approved'),
+                   COUNT(*) FILTER (WHERE state='pending'),
+                   AVG(EXTRACT(EPOCH FROM (authorization_date - create_date))
+                       / 3600.0) FILTER (WHERE authorization_date IS NOT NULL)
+            FROM price_authorization
+            WHERE create_date >= %s AND create_date <= %s
+        """, dt, default=[(0, 0, 0, None)])[0]
+        pack['kpis']['auth_solicitudes'] = row[0]
+        pack['kpis']['auth_aprobadas'] = row[1]
+        pack['kpis']['auth_pendientes'] = row[2]
+        pack['kpis']['auth_horas_resolucion'] = round(row[3] or 0.0, 1)
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -436,14 +520,58 @@ class SomAnalytics(models.AbstractModel):
             stock / (out_12m / 12), 1) if out_12m else 0.0
 
         # Holds activos (conteo de órdenes de apartado confirmadas)
-        try:
-            self.env.cr.execute(
-                "SELECT COUNT(*) FROM stock_lot_hold_order WHERE state NOT IN "
-                "('cancelled','cancel','done')")
-            pack['kpis']['holds_activos'] = self.env.cr.fetchone()[0]
-        except Exception:
-            self.env.cr.execute('SELECT 1')
-            pack['kpis']['holds_activos'] = 0
+        row = self._sq("""
+            SELECT COUNT(*),
+                   AVG(EXTRACT(EPOCH FROM (NOW() - create_date)) / 86400.0),
+                   COUNT(*) FILTER (WHERE create_date
+                       < NOW() - INTERVAL '30 days')
+            FROM stock_lot_hold_order
+            WHERE state NOT IN ('cancelled','cancel','done')
+        """, default=[(0, None, 0)])[0]
+        pack['kpis']['holds_activos'] = row[0]
+        pack['kpis']['holds_edad_dias'] = round(row[1] or 0.0, 1)
+        pack['kpis']['holds_eternos'] = row[2]
+
+        # 3.5 Cobertura fotográfica: bloques en stock con foto
+        blocks_stock = {b for (b,) in self._sq("""
+            SELECT DISTINCT UPPER(sl.x_bloque)
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage='internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0 AND COALESCE(sl.x_bloque,'') != ''
+        """)}
+        blocks_photo = {b for (b,) in self._sq(
+            "SELECT DISTINCT UPPER(block_name) "
+            "FROM supplier_shipment_block_image "
+            "WHERE COALESCE(block_name,'') != ''")}
+        pack['kpis']['bloques_stock'] = len(blocks_stock)
+        pack['kpis']['bloques_con_foto_pct'] = round(
+            len(blocks_stock & blocks_photo) / len(blocks_stock) * 100, 1
+        ) if blocks_stock else 0.0
+
+        # 3.8 MERMA DIMENSIONAL: PL del proveedor vs medidas reales del WS
+        merma = self._sq("""
+            SELECT COALESCE(rp.name,'Sin proveedor'),
+                   SUM(ml.x_alto_temp * ml.x_ancho_temp) AS teorico,
+                   SUM(sl.x_alto * sl.x_ancho) AS real
+            FROM stock_move_line ml
+            JOIN stock_picking sp ON sp.id = ml.picking_id
+            LEFT JOIN res_partner rp ON rp.id = sp.partner_id
+            JOIN stock_lot sl ON sl.id = ml.lot_id
+            WHERE ml.state = 'done'
+              AND COALESCE(ml.x_alto_temp,0) > 0
+              AND COALESCE(ml.x_ancho_temp,0) > 0
+              AND COALESCE(sl.x_alto,0) > 0
+              AND COALESCE(sl.x_ancho,0) > 0
+            GROUP BY 1 HAVING SUM(ml.x_alto_temp * ml.x_ancho_temp) > 0
+            ORDER BY 2 DESC LIMIT 10
+        """)
+        pack['merma'] = [
+            {'name': a, 'teorico': round(b or 0, 1), 'real': round(c or 0, 1),
+             'merma_m2': round((b or 0) - (c or 0), 1),
+             'merma_pct': round(((b or 0) - (c or 0)) / b * 100, 2) if b else 0}
+            for (a, b, c) in merma]
         return pack
 
     # ── COMPRAS ────────────────────────────────────────────────────────
@@ -497,16 +625,199 @@ class SomAnalytics(models.AbstractModel):
         except Exception:
             self.env.cr.execute('SELECT 1')
 
+        # 4.3 Lead time OC confirmada → primera recepción validada
+        row = self._sq("""
+            SELECT AVG(dias), COUNT(*) FROM (
+                SELECT EXTRACT(EPOCH FROM (MIN(sp.date_done)
+                    - po.date_approve)) / 86400.0 AS dias
+                FROM purchase_order po
+                JOIN stock_picking sp ON sp.purchase_id = po.id
+                    AND sp.state = 'done'
+                JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
+                    AND spt.code = 'incoming'
+                WHERE po.date_approve >= %s AND po.date_approve <= %s
+                GROUP BY po.id, po.date_approve
+            ) t
+        """, (date_from, date_to + ' 23:59:59'), default=[(None, 0)])[0]
+        lead_days = round(row[0] or 0.0, 1)
+        lead_count = row[1]
+
+        # 4.6 Discrepancias PL portal vs recibido
+        disc = self._sq(
+            'SELECT COUNT(*) FROM purchase_discrepancy',
+            default=[(0,)])[0][0]
+
         return {
             'kpis': {
                 'compras_mxn': round(total_norm, 2),
                 'ordenes': len({(r['partner_id'], r['month']) for r in rows}),
                 'proveedores': len(provs),
                 'tc_usado': rate,
+                'lead_time_dias': lead_days,
+                'lead_time_ocs': lead_count,
+                'discrepancias': disc,
             },
             'by_month': by_month,
             'top_suppliers': top_prov,
             'allocations': alloc,
+        }
+
+    # ── RECEPCIONES ────────────────────────────────────────────────────
+    def _dom_recepciones(self, f):
+        date_from, date_to = self._dates(f)
+        dt = (date_from, date_to + ' 23:59:59')
+        area = tuple(self._area_uom_ids())
+
+        weekly = self._sq("""
+            SELECT to_char(date_trunc('week', sp.date_done), 'YYYY-MM-DD'),
+                   COUNT(DISTINCT sp.id),
+                   COALESCE(SUM(ml.quantity) FILTER (
+                       WHERE ml.product_uom_id IN %s), 0)
+            FROM stock_picking sp
+            JOIN stock_move_line ml ON ml.picking_id = sp.id
+                 AND ml.state = 'done'
+            WHERE sp.state = 'done'
+              AND sp.origin LIKE %s
+              AND sp.date_done >= %s AND sp.date_done <= %s
+            GROUP BY 1 ORDER BY 1
+        """, (area, '%(Recepción Física)', dt[0], dt[1]))
+        by_week = [{'week': a[5:], 'count': b, 'm2': round(c or 0, 1)}
+                   for (a, b, c) in weekly]
+
+        # 6.5 Pedimento completo (lotes de área en stock interno)
+        row = self._sq("""
+            SELECT COUNT(DISTINCT sl.id),
+                   COUNT(DISTINCT sl.id) FILTER (
+                       WHERE COALESCE(sl.x_pedimento,'') != '')
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.uom_id IN %s
+            WHERE q.quantity > 0
+        """, (area,), default=[(0, 0)])[0]
+        total_lots, with_ped = row
+
+        # Recepciones de compra validadas (contenedores absorbidos)
+        rec = self._sq("""
+            SELECT COUNT(*) FROM stock_picking sp
+            JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
+                 AND spt.code = 'incoming'
+            WHERE sp.state = 'done'
+              AND sp.date_done >= %s AND sp.date_done <= %s
+        """, dt, default=[(0,)])[0][0]
+
+        return {
+            'kpis': {
+                'fisicas_periodo': sum(w['count'] for w in by_week),
+                'm2_recibidos': round(sum(w['m2'] for w in by_week), 1),
+                'entradas_compra': rec,
+                'pedimento_pct': round(
+                    with_ped / total_lots * 100, 1) if total_lots else 0.0,
+                'lotes_sin_pedimento': total_lots - with_ped,
+            },
+            'by_week': by_week,
+        }
+
+    # ── CONTROL (dominio 10: bandeja cero y calidad de datos) ──────────
+    def _dom_control(self, f):
+        pend = []
+
+        def add(label, sql, params=None):
+            row = self._sq(sql, params, default=[(0, None)])[0]
+            count = row[0] or 0
+            age = round(row[1] or 0.0, 1)
+            pend.append({'label': label, 'count': count, 'age': age})
+
+        add('Autorizaciones de precio pendientes', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - create_date))
+                / 86400.0)
+            FROM price_authorization WHERE state = 'pending'""")
+        add('Solicitudes de entrega sin resolver', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - request_date))
+                / 86400.0)
+            FROM delivery_auth_request WHERE state = 'requested'""")
+        add('Exenciones de IVA en espera', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
+                / 86400.0)
+            FROM sale_order WHERE x_iva_exempt_state = 'requested'""")
+        add('Órdenes bloqueadas por precios', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
+                / 86400.0)
+            FROM sale_order
+            WHERE COALESCE(x_has_low_prices,false) AND state != 'cancel'""")
+        add('Descuentos esperando autorización', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
+                / 86400.0)
+            FROM sale_order
+            WHERE COALESCE(x_discount_auth_requested,false)
+              AND state != 'cancel'""")
+        add('Cotizaciones abiertas +30 días', """
+            SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - date_order))
+                / 86400.0)
+            FROM sale_order
+            WHERE state IN ('draft','sent')
+              AND COALESCE(x_is_quote_backup,false) = false
+              AND date_order < NOW() - INTERVAL '30 days'""")
+
+        # Viajes sin publicar (compute con search propio → ORM)
+        try:
+            pend_pub = self.env['stock.transit.voyage'].sudo().search_count(
+                [('tc_publication_pending', '=', True)])
+        except Exception:
+            pend_pub = 0
+        pend.append({'label': 'Viajes con inventario sin publicar',
+                     'count': pend_pub, 'age': 0.0})
+
+        # 10.1 Completitud de ficha de lote (lotes en stock interno)
+        row = self._sq("""
+            SELECT COUNT(DISTINCT sl.id),
+              COUNT(DISTINCT sl.id) FILTER (WHERE COALESCE(sl.x_bloque,'') != ''),
+              COUNT(DISTINCT sl.id) FILTER (
+                  WHERE COALESCE(sl.x_alto,0) > 0 AND COALESCE(sl.x_ancho,0) > 0),
+              COUNT(DISTINCT sl.id) FILTER (WHERE COALESCE(sl.x_color,'') != ''),
+              COUNT(DISTINCT sl.id) FILTER (
+                  WHERE COALESCE(sl.x_contenedor,'') != ''),
+              COUNT(DISTINCT sl.id) FILTER (
+                  WHERE COALESCE(sl.x_pedimento,'') != '')
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            WHERE q.quantity > 0
+        """, default=[(0, 0, 0, 0, 0, 0)])[0]
+        total = row[0] or 1
+        ficha = [
+            {'campo': 'Bloque', 'pct': round(row[1] / total * 100, 1)},
+            {'campo': 'Dimensiones', 'pct': round(row[2] / total * 100, 1)},
+            {'campo': 'Color', 'pct': round(row[3] / total * 100, 1)},
+            {'campo': 'Contenedor', 'pct': round(row[4] / total * 100, 1)},
+            {'campo': 'Pedimento', 'pct': round(row[5] / total * 100, 1)},
+        ]
+
+        # 10.2 Órdenes sin proyecto / sin referencia del cliente (periodo)
+        date_from, date_to = self._dates(f)
+        row = self._sq("""
+            SELECT COUNT(*),
+                   COUNT(*) FILTER (WHERE x_project_id IS NULL),
+                   COUNT(*) FILTER (WHERE COALESCE(client_order_ref,'') = '')
+            FROM sale_order
+            WHERE state = 'sale' AND date_order >= %s AND date_order <= %s
+        """, (date_from, date_to + ' 23:59:59'), default=[(0, 0, 0)])[0]
+
+        return {
+            'kpis': {
+                'pendientes_total': sum(p['count'] for p in pend),
+                'lotes_en_stock': row and total or 0,
+                'sin_proyecto_pct': round(
+                    row[1] / row[0] * 100, 1) if row[0] else 0.0,
+                'sin_referencia_pct': round(
+                    row[2] / row[0] * 100, 1) if row[0] else 0.0,
+            },
+            'bandeja': pend,
+            'ficha': ficha,
         }
 
     # ── TRÁNSITO ───────────────────────────────────────────────────────
@@ -617,15 +928,39 @@ class SomAnalytics(models.AbstractModel):
                         'date': str(req.approval_date or '')[:10],
                     })
 
+        # 7.1 Ciclo pedido → entrega (confirmación OV → firma/entrega)
+        row = self._sq("""
+            SELECT AVG(EXTRACT(EPOCH FROM (d.signed_at - so.date_order))
+                / 86400.0), COUNT(*)
+            FROM sale_delivery_document d
+            JOIN sale_order so ON so.id = d.sale_order_id
+            WHERE d.document_type = 'remission' AND d.signed_at IS NOT NULL
+              AND d.signed_at >= %s AND d.signed_at <= %s
+        """, (date_from, date_to + ' 23:59:59'), default=[(None, 0)])[0]
+
+        # 7.5 Devoluciones por motivo
+        devs = self._sq("""
+            SELECT COALESCE(r.name, 'Sin motivo'), COUNT(*)
+            FROM sale_delivery_document d
+            LEFT JOIN sale_return_reason r ON r.id = d.return_reason_id
+            WHERE d.document_type = 'return' AND d.state != 'cancelled'
+              AND d.create_date >= %s AND d.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 8
+        """, (date_from, date_to + ' 23:59:59'))
+
         return {
             'kpis': {
                 'firmadas_app': app_signed or 0,
                 'manuales': manual or 0,
                 'en_ruta': en_ruta or 0,
                 'credito_informal_mxn': round(auth_total, 2),
+                'ciclo_dias': round(row[0] or 0.0, 1),
+                'ciclo_muestras': row[1],
+                'devoluciones': sum(b for (_a, b) in devs),
             },
             'by_status': by_status,
             'auth_sin_pago': auth_rows,
+            'returns': [{'reason': a, 'count': b} for (a, b) in devs],
         }
 
     # ── FINANCIERO ─────────────────────────────────────────────────────
@@ -714,12 +1049,27 @@ class SomAnalytics(models.AbstractModel):
         by_month = [{'key': a, 'facturado': round(b, 2), 'comprado': round(c, 2)}
                     for (a, b, c) in self.env.cr.fetchall()]
 
+        # 9.1 Efectivo: recibos entregados al cliente vs con pago aplicado
+        date_from, date_to = self._dates(f)
+        cash = self._sq("""
+            SELECT state, COUNT(*), COALESCE(SUM(amount_mxn), 0)
+            FROM cash_receipt
+            WHERE date >= %s AND date <= %s AND state != 'cancelled'
+            GROUP BY 1
+        """, (date_from, date_to + ' 23:59:59'))
+        cash_map = {a: (b, c) for (a, b, c) in cash}
+        sin_aplicar = cash_map.get('delivered', (0, 0.0))
+        aplicado = cash_map.get('paid', (0, 0.0))
+
         return {
             'kpis': {
                 'por_cobrar': tot['por_cobrar'],
                 'por_pagar': tot['por_pagar'],
                 'neto': round(tot['por_cobrar'] - tot['por_pagar'], 2),
                 'clientes_deudores': len(ar_top),
+                'efectivo_sin_aplicar': round(sin_aplicar[1], 2),
+                'recibos_sin_aplicar': sin_aplicar[0],
+                'efectivo_aplicado': round(aplicado[1], 2),
             },
             'ar_buckets': ar_buckets,
             'ap_buckets': ap_buckets,
