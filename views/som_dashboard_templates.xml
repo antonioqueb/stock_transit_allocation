@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="som_dashboard_page" name="SOM Dashboard Ejecutivo">
+        <html t-att-lang="'es-MX'">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>SOM · Dashboard Ejecutivo</title>
+                <link rel="icon" href="/stock_transit_allocation/static/description/analytics_icon.svg"/>
+                <link rel="stylesheet" href="/stock_transit_allocation/static/dashboard/som_dashboard.css"/>
+            </head>
+            <body>
+                <div id="som-root"></div>
+                <script id="som-boot" type="application/json"><t t-out="boot_json"/></script>
+                <script src="/web/static/lib/Chart/Chart.js"></script>
+                <script src="/stock_transit_allocation/static/dashboard/som_dashboard.js"></script>
+            </body>
+        </html>
+    </template>
+
+    <!-- Acceso desde el webclient: abre en pestaña nueva -->
+    <record id="action_som_dashboard_url" model="ir.actions.act_url">
+        <field name="name">Dashboard Ejecutivo</field>
+        <field name="url">/som/analytics</field>
+        <field name="target">new</field>
+    </record>
+    <menuitem id="menu_som_dashboard_exec" name="Dashboard Ejecutivo ↗"
+              parent="menu_som_analytics_root"
+              action="action_som_dashboard_url" sequence="0"
+              groups="inventory_shopping_cart.group_price_authorizer"/>
+</odoo>

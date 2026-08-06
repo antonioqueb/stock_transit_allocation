@@ -123,6 +123,9 @@ class SomAnalytics(models.AbstractModel):
         if f.get('product_id'):
             where.append('pt.id = %(tmpl_id)s')
             params['tmpl_id'] = int(f['product_id'])
+        if f.get('categ_id'):
+            where.append('pt.categ_id = %(categ_id)s')
+            params['categ_id'] = int(f['categ_id'])
         if f.get('level'):
             where.append("COALESCE(sol.x_price_selector,'custom') = %(level)s")
             params['level'] = f['level']
@@ -149,6 +152,8 @@ class SomAnalytics(models.AbstractModel):
                 COALESCE(rc.name, 'MXN') AS currency,
                 pt.id            AS tmpl_id,
                 COALESCE(pt.name->>'es_MX', pt.name->>'en_US', '') AS product_name,
+                COALESCE(pt.categ_id, 0) AS categ_id,
+                COALESCE(pc.complete_name, 'Sin categoría') AS categ_name,
                 COALESCE(sol.x_price_selector, 'custom') AS level,
                 COALESCE(sol.product_uom_qty, 0) AS qty,
                 (sol.product_uom_id IN %(area_uoms)s) AS is_area,
@@ -163,6 +168,7 @@ class SomAnalytics(models.AbstractModel):
             JOIN sale_order so        ON so.id = sol.order_id
             JOIN product_product pp   ON pp.id = sol.product_id
             JOIN product_template pt  ON pt.id = pp.product_tmpl_id
+            LEFT JOIN product_category pc ON pc.id = pt.categ_id
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             LEFT JOIN res_users ru    ON ru.id = so.user_id
@@ -265,6 +271,9 @@ class SomAnalytics(models.AbstractModel):
             'top_customers': self._agg(
                 rows, lambda r: r['partner_id'], lambda r: r['partner_name'],
                 order='venta', limit=10),
+            'by_category': self._agg(
+                rows, lambda r: r['categ_id'], lambda r: r['categ_name'],
+                order='venta', limit=14),
             'orders': self._orders_from(rows),
         }
 
@@ -1676,6 +1685,7 @@ class SomAnalytics(models.AbstractModel):
             'customer': ('so.partner_id = %(dv)s', int(value)),
             'level': ("COALESCE(sol.x_price_selector,'custom') = %(dv)s",
                       str(value)),
+            'category': ('pt.categ_id = %(dv)s', int(value) if str(value).isdigit() else 0),
         }
         if entity not in where_map:
             return {'error': 'entidad desconocida'}
@@ -1710,6 +1720,9 @@ class SomAnalytics(models.AbstractModel):
             'by_customer': self._agg(rows, lambda r: r['partner_id'],
                                      lambda r: r['partner_name'],
                                      order='venta', limit=10),
+            'by_category': self._agg(rows, lambda r: r['categ_id'],
+                                     lambda r: r['categ_name'],
+                                     order='venta', limit=12),
             'levels': sorted(
                 self._agg(rows, lambda r: r['level'],
                           lambda r: _LEVELS.get(r['level'], r['level'])),
@@ -1737,3 +1750,259 @@ class SomAnalytics(models.AbstractModel):
                 self.env.cr.execute('SELECT 1')
                 out['por_cobrar'] = 0.0
         return out
+
+    # ==================================================================
+    # ENDPOINTS DEL DASHBOARD EJECUTIVO STANDALONE (/som/analytics)
+    # ==================================================================
+
+    @api.model
+    def get_exec_summary(self):
+        """Ticker ejecutivo: los números vitales del negocio en una sola
+        llamada ligera. Se refresca solo en el dashboard."""
+        self._check_access()
+        cid = self._cid()
+        today = fields.Date.to_string(fields.Date.context_today(self))
+        month = today[:7]
+        rate = self._current_usd_rate()
+
+        def one(sql, params=None, default=0.0):
+            row = self._sq(sql, params, default=[(default,)])[0]
+            return row[0] or default
+
+        venta_hoy = one("""
+            SELECT COALESCE(SUM(CASE WHEN rc.name='USD'
+                THEN so.amount_total * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
+                ELSE so.amount_total END), 0)
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state='sale' AND so.date_order::date = %(today)s
+        """, {'rate': rate, 'today': today})
+        venta_mes = one("""
+            SELECT COALESCE(SUM(CASE WHEN rc.name='USD'
+                THEN so.amount_total * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
+                ELSE so.amount_total END), 0)
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state='sale' AND to_char(so.date_order,'YYYY-MM') = %(m)s
+        """, {'rate': rate, 'm': month})
+        row = self._sq("""
+            SELECT COALESCE(SUM(sol.product_uom_qty) FILTER (
+                       WHERE sol.product_uom_id IN %(uoms)s), 0),
+                   COALESCE(SUM(
+                       (CASE WHEN rc.name='USD'
+                        THEN sol.price_subtotal * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
+                        ELSE sol.price_subtotal END)
+                       - sol.product_uom_qty
+                         * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0)), 0)
+            FROM sale_order_line sol
+            JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
+            JOIN product_product pp ON pp.id = sol.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE sol.display_type IS NULL
+              AND to_char(so.date_order,'YYYY-MM') = %(m)s
+        """, {'uoms': tuple(self._area_uom_ids()), 'rate': rate,
+              'cid': cid, 'm': month}, default=[(0, 0)])[0]
+        m2_mes, utilidad_mes = row[0] or 0.0, row[1] or 0.0
+
+        fin = self._finance_totals()
+        banks = self.get_bank_balances()
+
+        agua = self._sq("""
+            SELECT COALESCE(SUM(l.product_uom_qty), 0),
+                   COUNT(DISTINCT NULLIF(v.container_number, ''))
+            FROM stock_transit_voyage v
+            LEFT JOIN stock_transit_line l ON l.voyage_id = v.id
+            WHERE v.custom_status NOT IN ('delivered','cancel')
+        """, default=[(0, 0)])[0]
+
+        inv = self._sq("""
+            SELECT COALESCE(SUM(q.quantity), 0)
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.uom_id IN %s
+            WHERE q.quantity > 0
+        """, (tuple(self._area_uom_ids()),), default=[(0,)])[0][0]
+
+        holds = self._sq(
+            "SELECT COUNT(*) FROM stock_lot_hold_order "
+            "WHERE state NOT IN ('cancelled','cancel','done')",
+            default=[(0,)])[0][0]
+        pend_precio = self._sq(
+            "SELECT COUNT(*) FROM price_authorization WHERE state='pending'",
+            default=[(0,)])[0][0]
+
+        return {
+            'venta_hoy': round(venta_hoy, 2),
+            'venta_mes': round(venta_mes, 2),
+            'utilidad_mes': round(utilidad_mes, 2),
+            'margen_mes': round(
+                utilidad_mes / venta_mes * 100, 1) if venta_mes else 0.0,
+            'm2_mes': round(m2_mes, 1),
+            'bancos_mxn': banks['total'],
+            'por_cobrar': fin['por_cobrar'],
+            'por_pagar': fin['por_pagar'],
+            'contenedores_agua': agua[1] or 0,
+            'm2_agua': round(agua[0] or 0.0, 1),
+            'inv_m2': round(inv or 0.0, 1),
+            'holds_activos': holds,
+            'auth_pendientes': pend_precio,
+            'tc_banorte': rate,
+            'ts': fields.Datetime.now().isoformat(),
+        }
+
+    @api.model
+    def get_bank_balances(self):
+        """Dinero en bancos y cajas: balance contable por diario."""
+        self._check_access()
+        rows = self._sq("""
+            SELECT j.id,
+                   COALESCE(j.name->>'es_MX', j.name->>'en_US', '') AS name,
+                   j.type,
+                   COALESCE(SUM(aml.balance), 0) AS balance
+            FROM account_journal j
+            LEFT JOIN account_move_line aml
+                 ON aml.account_id = j.default_account_id
+                 AND aml.parent_state = 'posted'
+            WHERE j.type IN ('bank', 'cash')
+            GROUP BY j.id, name, j.type
+            ORDER BY balance DESC
+        """)
+        out = [{'id': a, 'name': b, 'type': c, 'balance': round(d or 0, 2)}
+               for (a, b, c, d) in rows]
+        return {
+            'journals': out,
+            'total': round(sum(x['balance'] for x in out), 2),
+        }
+
+    @api.model
+    def get_order_lines(self, order_id):
+        """Drill venta → POR QUÉ: cada línea con su utilidad all-in."""
+        self._check_access()
+        rows = self._sq("""
+            SELECT
+                COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS product,
+                COALESCE(pc.complete_name, '') AS categ,
+                COALESCE(sol.product_uom_qty, 0) AS qty,
+                (sol.product_uom_id IN %(uoms)s) AS is_area,
+                COALESCE(sol.x_price_selector, 'custom') AS level,
+                COALESCE(sol.price_unit, 0) AS price_unit,
+                CASE WHEN rc.name='USD'
+                     THEN sol.price_subtotal
+                          * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
+                     ELSE sol.price_subtotal END AS venta_mxn,
+                COALESCE(sol.product_uom_qty, 0)
+                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0)
+                    AS costo_mxn,
+                pt.id AS tmpl_id
+            FROM sale_order_line sol
+            JOIN sale_order so ON so.id = sol.order_id
+            JOIN product_product pp ON pp.id = sol.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+            LEFT JOIN product_category pc ON pc.id = pt.categ_id
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE sol.order_id = %(oid)s AND sol.display_type IS NULL
+            ORDER BY venta_mxn DESC
+        """, {'oid': int(order_id), 'uoms': tuple(self._area_uom_ids()),
+              'rate': self._current_usd_rate(), 'cid': self._cid()})
+        lines = []
+        for r in rows:
+            venta, costo = r[6] or 0.0, r[7] or 0.0
+            lines.append({
+                'product': r[0], 'categ': r[1],
+                'qty': round(r[2] or 0, 2), 'is_area': bool(r[3]),
+                'level': _LEVELS.get(r[4], r[4]),
+                'price_unit': round(r[5] or 0, 2),
+                'venta': round(venta, 2), 'costo': round(costo, 2),
+                'utilidad': round(venta - costo, 2),
+                'margen': round(
+                    (venta - costo) / venta * 100, 1) if venta else 0.0,
+                'tmpl_id': r[8],
+            })
+        head = self._sq("""
+            SELECT so.name, COALESCE(p.name,''), so.date_order::date::text,
+                   COALESCE(sp.name,''), COALESCE(rc.name,'MXN'),
+                   so.amount_total
+            FROM sale_order so
+            LEFT JOIN res_partner p ON p.id = so.partner_id
+            LEFT JOIN res_users ru ON ru.id = so.user_id
+            LEFT JOIN res_partner sp ON sp.id = ru.partner_id
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.id = %s
+        """, (int(order_id),), default=[('', '', '', '', 'MXN', 0)])[0]
+        return {
+            'order': {'id': int(order_id), 'name': head[0],
+                      'partner': head[1], 'date': head[2],
+                      'seller': head[3], 'currency': head[4],
+                      'amount_total': round(head[5] or 0, 2)},
+            'lines': lines,
+        }
+
+    @api.model
+    def get_time_to_sell(self, filters=None):
+        """Tiempo de venta por material: días promedio del lote en patio
+        antes de salir a cliente (12 meses) + edad y m² del stock actual.
+        Los materiales más lentos primero — capital estancado."""
+        self._check_access()
+        uoms = tuple(self._area_uom_ids())
+        sold = {r[0]: r for r in self._sq("""
+            SELECT pt.id,
+                   COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
+                   AVG(EXTRACT(EPOCH FROM (ml.date - sl.create_date))
+                       / 86400.0) AS dias,
+                   SUM(ml.quantity) AS m2,
+                   COUNT(DISTINCT sl.id) AS lots
+            FROM stock_move_line ml
+            JOIN stock_location src ON src.id = ml.location_id
+                 AND src.usage = 'internal'
+            JOIN stock_location dst ON dst.id = ml.location_dest_id
+                 AND dst.usage = 'customer'
+            JOIN stock_lot sl ON sl.id = ml.lot_id
+            JOIN product_product pp ON pp.id = ml.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.uom_id IN %s
+            WHERE ml.state = 'done'
+              AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
+              AND ml.date > sl.create_date
+            GROUP BY pt.id, name
+        """, (uoms,))}
+        stock = {r[0]: r for r in self._sq("""
+            SELECT pt.id,
+                   COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
+                   AVG(EXTRACT(EPOCH FROM (NOW() - sl.create_date))
+                       / 86400.0) AS edad,
+                   SUM(q.quantity) AS m2,
+                   COUNT(DISTINCT sl.id) AS lots
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN stock_lot sl ON sl.id = q.lot_id
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.uom_id IN %s
+            WHERE q.quantity > 0
+            GROUP BY pt.id, name
+        """, (uoms,))}
+        out = []
+        for tid in set(sold) | set(stock):
+            sr, qr = sold.get(tid), stock.get(tid)
+            out.append({
+                'tmpl_id': tid,
+                'name': (sr or qr)[1],
+                'dias_venta': round(float(sr[2] or 0), 1) if sr else None,
+                'm2_vendidos': round(float(sr[3] or 0), 1) if sr else 0.0,
+                'lots_vendidos': sr[4] if sr else 0,
+                'edad_stock': round(float(qr[2] or 0), 1) if qr else None,
+                'm2_stock': round(float(qr[3] or 0), 1) if qr else 0.0,
+                'lots_stock': qr[4] if qr else 0,
+            })
+        out.sort(key=lambda x: -(x['edad_stock'] or x['dias_venta'] or 0))
+        return out[:60]
