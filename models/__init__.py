@@ -18,6 +18,7 @@ from . import stock_transit_publication
 from . import sale_order_inherit
 from . import purchase_order_inherit
 from . import to_be_purchased
+from . import to_be_loading
 from . import stock_transit_sheet
 from . import purchase_order_proforma
 from . import stock_transit_voyage_allocation_guard

@@ -1,0 +1,121 @@
+/* To Be Loading — bandeja de pedidos por completar (branding azul SOM). */
+.tbl-app {
+    height: 100%;
+    overflow-y: auto;
+    background: #eef8fe;
+    padding: 18px 22px 40px;
+
+    .tbl-topbar {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+
+        .tbl-title {
+            flex: 1;
+            min-width: 240px;
+            h1 { margin: 0; font-size: 21px; font-weight: 800; color: #0f172a; }
+            p { margin: 2px 0 0; font-size: 12.5px; color: #60798c; }
+        }
+        .tbl-search {
+            width: 300px;
+            padding: 9px 14px;
+            border: 1px solid #bdd7e8;
+            border-radius: 10px;
+            font-size: 13px;
+            background: #fff;
+            &:focus { outline: 2px solid #5cb9f2; border-color: #5cb9f2; }
+        }
+        .tbl-count {
+            font-size: 12px; font-weight: 700; color: #155f94;
+            background: #dceaf2; border-radius: 999px; padding: 6px 14px;
+        }
+    }
+
+    .tbl-empty, .tbl-error {
+        padding: 40px; text-align: center; color: #60798c; font-size: 14px;
+        background: #fff; border: 1px dashed #bdd7e8; border-radius: 14px;
+    }
+    .tbl-error button {
+        margin-left: 12px; border: 0; background: #247fbd; color: #fff;
+        border-radius: 8px; padding: 6px 14px; font-weight: 600; cursor: pointer;
+    }
+
+    .tbl-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+        gap: 14px;
+    }
+
+    .tbl-card {
+        background: #fff;
+        border: 1px solid #d7e8f2;
+        border-left: 4px solid #247fbd;
+        border-radius: 14px;
+        padding: 14px 16px;
+        cursor: pointer;
+        transition: box-shadow .15s, transform .15s;
+        &:hover {
+            box-shadow: 0 8px 22px rgba(75, 164, 242, 0.18);
+            transform: translateY(-1px);
+            .tbl-open { opacity: 1; }
+        }
+    }
+
+    .tbl-card-head {
+        display: flex; align-items: flex-start; justify-content: space-between; gap: 10px;
+        .tbl-folio {
+            display: block; font-size: 16px; font-weight: 800; color: #0f172a;
+            font-family: ui-monospace, Menlo, monospace;
+        }
+        .tbl-partner { display: block; font-size: 12.5px; color: #284256; margin-top: 1px; }
+        .tbl-open {
+            flex: none; font-size: 12px; font-weight: 700; color: #247fbd;
+            opacity: .55; white-space: nowrap;
+        }
+    }
+
+    .tbl-meta {
+        display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0 10px;
+        font-size: 11px; color: #60798c;
+        .tbl-pi {
+            font-weight: 700; color: #155f94; background: #dceaf2;
+            border-radius: 999px; padding: 2px 9px;
+        }
+        .tbl-voyage {
+            font-weight: 600; color: #8f6500; background: #fffdf3;
+            border: 1px solid rgba(242, 183, 5, 0.4);
+            border-radius: 999px; padding: 2px 9px;
+        }
+    }
+
+    .tbl-checklist {
+        display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px;
+        .tbl-chip {
+            font-size: 10.5px; font-weight: 700; border-radius: 999px; padding: 2px 9px;
+            &.ok { background: #c8f0da; color: #0b6e38; }
+            &.todo { background: #f1f5f9; color: #91a9b8; }
+        }
+    }
+
+    .tbl-bars { display: flex; flex-direction: column; gap: 7px; }
+    .tbl-bar-head {
+        display: flex; justify-content: space-between; font-size: 11px; color: #60798c;
+        b { color: #0f172a; }
+    }
+    .tbl-track {
+        height: 7px; border-radius: 999px; background: #e6f4fc; overflow: hidden; margin-top: 2px;
+    }
+    .tbl-fill {
+        height: 100%; border-radius: 999px;
+        &.capture { background: #4ba4f2; }
+        &.received { background: #0b9e4c; }
+    }
+
+    .tbl-missing {
+        margin-top: 10px; font-size: 11.5px; font-weight: 600; color: #8f6500;
+        background: #fffdf3; border: 1px solid rgba(242, 183, 5, 0.35);
+        border-radius: 8px; padding: 6px 10px;
+    }
+}

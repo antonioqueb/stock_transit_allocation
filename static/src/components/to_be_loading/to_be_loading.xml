@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_transit_allocation.ToBeLoading" owl="1">
+        <div class="tbl-app">
+            <div class="tbl-topbar">
+                <div class="tbl-title">
+                    <h1>To Be Loading</h1>
+                    <p>Pedidos pendientes por completar — proforma, embarque, packing list y recepción</p>
+                </div>
+                <input class="tbl-search" type="text" placeholder="Buscar pedido, proveedor o PI…"
+                       t-att-value="state.search" t-on-input="onSearchInput"/>
+                <span class="tbl-count" t-if="!state.loading">
+                    <t t-esc="state.filtered.length"/> pendientes
+                </span>
+            </div>
+
+            <div t-if="state.loading" class="tbl-empty">Cargando…</div>
+            <div t-elif="state.error" class="tbl-error">
+                <span t-esc="state.error"/>
+                <button t-on-click="loadData">Reintentar</button>
+            </div>
+            <div t-elif="!state.filtered.length" class="tbl-empty">
+                Nada pendiente por completar. Todo cargado. 🎉
+            </div>
+
+            <div t-else="" class="tbl-grid">
+                <div t-foreach="state.filtered" t-as="row" t-key="row.po_id"
+                     class="tbl-card" t-on-click="() => this.openOrder(row)">
+                    <div class="tbl-card-head">
+                        <div>
+                            <span class="tbl-folio" t-esc="row.name"/>
+                            <span class="tbl-partner" t-esc="row.partner"/>
+                        </div>
+                        <span class="tbl-open" title="Abrir pedido">Abrir →</span>
+                    </div>
+
+                    <div class="tbl-meta">
+                        <span t-if="row.pi" class="tbl-pi">PI <t t-esc="row.pi"/></span>
+                        <span class="tbl-date" t-esc="row.date"/>
+                        <span t-if="row.voyage_status" class="tbl-voyage" t-esc="row.voyage_status"/>
+                    </div>
+
+                    <div class="tbl-checklist">
+                        <span t-foreach="row.checklist" t-as="c" t-key="c.key"
+                              t-att-class="'tbl-chip ' + (c.ok ? 'ok' : 'todo')">
+                            <t t-esc="c.ok ? '✓' : '·'"/> <t t-esc="c.label"/>
+                        </span>
+                    </div>
+
+                    <div class="tbl-bars">
+                        <div class="tbl-bar">
+                            <div class="tbl-bar-head">
+                                <span>Captura del portal</span>
+                                <b><t t-esc="fmt(row.captura_pct)"/>%</b>
+                            </div>
+                            <div class="tbl-track">
+                                <div class="tbl-fill capture" t-attf-style="width: {{ barW(row.captura_pct) }}%"/>
+                            </div>
+                        </div>
+                        <div class="tbl-bar">
+                            <div class="tbl-bar-head">
+                                <span>Recibido <t t-esc="fmt(row.qty_received)"/> / <t t-esc="fmt(row.qty_ordered)"/></span>
+                                <b><t t-esc="fmt(row.pct_received)"/>%</b>
+                            </div>
+                            <div class="tbl-track">
+                                <div class="tbl-fill received" t-attf-style="width: {{ barW(row.pct_received) }}%"/>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div t-if="row.missing.length" class="tbl-missing">
+                        Falta: <t t-esc="row.missing.join(', ')"/>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>
