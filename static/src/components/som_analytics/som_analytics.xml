@@ -194,6 +194,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Rotación 12m</t><t t-set="val" t-value="num(data.kpis.rotacion,2) + 'x'"/><t t-set="sub" t-value="num(data.kpis.meses_inventario) + ' meses de inventario'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Salidas 12m</t><t t-set="val" t-value="num(data.kpis.salidas_12m_m2) + ' m²'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Edad de holds</t><t t-set="val" t-value="num(data.kpis.holds_edad_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.holds_eternos,0) + ' holds de +30 días'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Reservas de carrito desplazadas</t><t t-set="val" t-value="num(data.kpis.reservas_desplazadas,0)"/><t t-set="sub">colisión piso de venta vs almacén</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloques rotos</t><t t-set="val" t-value="num(data.kpis.bloques_rotos,0)"/><t t-set="sub" t-value="num(data.kpis.bloques_rotos_m2) + ' m² remanentes de ' + num(data.kpis.bloques_activos,0) + ' bloques'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloques con foto</t><t t-set="val" t-value="num(data.kpis.bloques_con_foto_pct) + '%'"/><t t-set="sub" t-value="'de ' + num(data.kpis.bloques_stock,0) + ' bloques en stock'"/></t>
                         </div>
@@ -257,6 +258,8 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Pre-vendido</t><t t-set="val" t-value="num(data.kpis.prevendido_pct) + '%'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Pendientes de publicar</t><t t-set="val" t-value="num(data.kpis.pendientes_publicar,0)"/><t t-set="sub">meta: 0</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Desviación de ETA</t><t t-set="val" t-value="num(data.kpis.eta_desviacion_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.eta_desviados,0) + ' viajes con ETA movida'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Días a publicar</t><t t-set="val" t-value="num(data.kpis.dias_a_publicar)"/><t t-set="sub">creación del viaje → publicación</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Ligas de portal</t><t t-set="val" t-value="num(data.kpis.ligas_portal,0)"/><t t-set="sub" t-value="num(data.kpis.ligas_sin_acceso_7d,0) + ' sin acceso en 7 días'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide">
@@ -291,6 +294,9 @@
                                 <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Crédito informal</t><t t-set="val" t-value="money(data.kpis.credito_informal_mxn)"/><t t-set="sub">entregas autorizadas sin pago total</t></t>
                                 <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Ciclo pedido→entrega</t><t t-set="val" t-value="num(data.kpis.ciclo_dias) + ' días'"/><t t-set="sub" t-value="'sobre ' + num(data.kpis.ciclo_muestras,0) + ' entregas'"/></t>
                                 <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Devoluciones</t><t t-set="val" t-value="num(data.kpis.devoluciones,0)"/></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Ocupación de flota</t><t t-set="val" t-value="num(data.kpis.ocupacion_pct) + '%'"/><t t-set="sub">m² cargados vs capacidad</t></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Cobrado al entregar</t><t t-set="val" t-value="num(data.kpis.cobrado_al_entregar_pct) + '%'"/><t t-set="sub">promedio de la orden al firmar</t></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Paradas GPS (app)</t><t t-set="val" t-value="num(data.kpis.paradas_gps,0)"/></t>
                             </div>
                             <div class="som_bi__grid">
                                 <div class="som_bi__panel">
@@ -387,6 +393,9 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Pedimento completo</t><t t-set="val" t-value="num(data.kpis.pedimento_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.lotes_sin_pedimento,0) + ' lotes SIN pedimento'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exactitud 1a pasada</t><t t-set="val" t-value="num(data.kpis.exactitud_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.con_devolucion,0) + ' con devolución'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Etiquetado en 24h</t><t t-set="val" t-value="num(data.kpis.etiquetado_24h_pct) + '%'"/><t t-set="sub" t-value="'de ' + num(data.kpis.lotes_periodo,0) + ' lotes nuevos'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Faltantes en WS</t><t t-set="val" t-value="num(data.kpis.faltantes_piezas,0) + ' pzas'"/><t t-set="sub" t-value="num(data.kpis.faltantes_m2) + ' m² · reclamo a proveedor/seguro'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bajas (scrap)</t><t t-set="val" t-value="num(data.kpis.bajas_scrap)"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Puerto → stock vendible</t><t t-set="val" t-value="num(data.kpis.puerto_a_stock_dias) + ' días'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel wide" style="grid-column: 1 / -1;">
@@ -402,6 +411,8 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">OTs en taller</t><t t-set="val" t-value="num(data.kpis.en_taller,0)"/><t t-set="sub" t-value="'Backlog ' + num(data.kpis.backlog_dias) + ' días prom.'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Lead time OT</t><t t-set="val" t-value="num(data.kpis.lead_time_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.terminadas,0) + ' terminadas en el periodo'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Reclasificaciones</t><t t-set="val" t-value="num(data.kpis.reclasificaciones,0)"/><t t-set="sub">catálogo/calidad heterogénea</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Merma de proceso</t><t t-set="val" t-value="num(data.kpis.merma_pct) + '%'"/><t t-set="sub" t-value="num(data.kpis.merma_m2) + ' m² perdidos de ' + num(data.kpis.area_in_m2) + ' m² procesados'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Área útil producida</t><t t-set="val" t-value="num(data.kpis.area_out_m2) + ' m²'"/></t>
                         </div>
                         <div class="som_bi__grid">
                             <div class="som_bi__panel">

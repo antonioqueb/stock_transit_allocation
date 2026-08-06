@@ -30,6 +30,12 @@ class StockPicking(models.Model):
         help='Relaciona esta recepción con un embarque específico capturado en el portal del proveedor.',
     )
 
+    # KPI 3.9: resumen de faltantes del worksheet, persistido al procesar.
+    x_ws_missing_pieces = fields.Float(
+        string='Piezas faltantes (WS)', copy=False, readonly=True)
+    x_ws_missing_m2 = fields.Float(
+        string='m² faltantes (WS)', copy=False, readonly=True)
+
     transit_sale_order_ids = fields.Many2many(
         'sale.order',
         string='Pedidos Consolidados',

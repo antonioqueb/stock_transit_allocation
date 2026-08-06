@@ -636,6 +636,16 @@ class SomAnalytics(models.AbstractModel):
         pack['kpis']['bloques_rotos_m2'] = round(row[1] or 0, 1)
         pack['kpis']['bloques_activos'] = row[2]
 
+        # 3.7 Reservas débiles de carrito desplazadas por venta (periodo)
+        date_from, date_to = self._dates(f)
+        row = self._sq("""
+            SELECT COUNT(*) FROM mail_message
+            WHERE model = 'stock.picking'
+              AND body ILIKE '%%Reservas re-ancladas%%'
+              AND create_date >= %s AND create_date <= %s
+        """, (date_from, date_to + ' 23:59:59'), default=[(0,)])[0]
+        pack['kpis']['reservas_desplazadas'] = row[0]
+
         pack['merma'] = [
             {'name': a, 'teorico': round(b or 0, 1), 'real': round(c or 0, 1),
              'merma_m2': round((b or 0) - (c or 0), 1),
@@ -817,6 +827,41 @@ class SomAnalytics(models.AbstractModel):
                 'etiquetado_24h_pct': round(
                     lots_labeled / lots_period * 100, 1) if lots_period else 0.0,
                 'lotes_periodo': lots_period,
+                'faltantes_piezas': (lambda r: round(r[0] or 0, 1))(self._sq("""
+                    SELECT SUM(COALESCE(x_ws_missing_pieces,0))
+                    FROM stock_picking
+                    WHERE date_done >= %s AND date_done <= %s
+                """, dt, default=[(0,)])[0]),
+                'faltantes_m2': (lambda r: round(r[0] or 0, 1))(self._sq("""
+                    SELECT SUM(COALESCE(x_ws_missing_m2,0))
+                    FROM stock_picking
+                    WHERE date_done >= %s AND date_done <= %s
+                """, dt, default=[(0,)])[0]),
+                'bajas_scrap': (lambda r: round(r[0] or 0, 1))(self._sq("""
+                    SELECT SUM(COALESCE(scrap_qty,0)) FROM stock_scrap
+                    WHERE state = 'done'
+                      AND write_date >= %s AND write_date <= %s
+                """, dt, default=[(0,)])[0]),
+                'puerto_a_stock_dias': (lambda r: round(r[0] or 0.0, 1))(
+                    self._sq("""
+                    SELECT AVG(EXTRACT(EPOCH FROM (sp.date_done
+                        - arr.arrived_at)) / 86400.0)
+                    FROM (
+                        SELECT mm.res_id AS voyage_id,
+                               MIN(mm.create_date) AS arrived_at
+                        FROM mail_message mm
+                        JOIN mail_tracking_value tv ON tv.mail_message_id = mm.id
+                        WHERE mm.model = 'stock.transit.voyage'
+                          AND (tv.new_value_char ILIKE '%%puerto destino%%'
+                               OR tv.new_value_char ILIKE '%%arrived%%')
+                        GROUP BY mm.res_id
+                    ) arr
+                    JOIN stock_transit_voyage v ON v.id = arr.voyage_id
+                    JOIN stock_picking sp ON sp.id = v.picking_id
+                        AND sp.state = 'done'
+                    WHERE sp.date_done >= arr.arrived_at
+                      AND sp.date_done >= %s AND sp.date_done <= %s
+                """, dt, default=[(None,)])[0]),
             },
             'by_week': by_week,
         }
@@ -862,8 +907,23 @@ class SomAnalytics(models.AbstractModel):
             GROUP BY 1 ORDER BY 1
         """, dt)
 
+        # 8.3 Merma de proceso: áreas almacenadas de OTs terminadas
+        row3 = self._sq("""
+            SELECT SUM(COALESCE(area_in_total,0)),
+                   SUM(COALESCE(area_out_total,0)),
+                   SUM(COALESCE(area_loss_total,0))
+            FROM workshop_order
+            WHERE state = 'done' AND date_done >= %s AND date_done <= %s
+        """, dt, default=[(0, 0, 0)])[0]
+        area_in = row3[0] or 0.0
+
         return {
             'kpis': {
+                'area_in_m2': round(area_in, 1),
+                'area_out_m2': round(row3[1] or 0.0, 1),
+                'merma_m2': round(row3[2] or 0.0, 1),
+                'merma_pct': round(
+                    (row3[2] or 0.0) / area_in * 100, 1) if area_in else 0.0,
                 'en_taller': next((x['count'] for x in states
                                    if x['state'] == 'En taller'), 0),
                 'backlog_dias': round(row2[0] or 0.0, 1),
@@ -1030,6 +1090,20 @@ class SomAnalytics(models.AbstractModel):
                     presold_num / presold_den * 100, 1) if presold_den else 0.0,
                 'eta_desviacion_dias': round(float(row[0] or 0), 1),
                 'eta_desviados': row[1],
+                'dias_a_publicar': (lambda r: round(r[0] or 0.0, 1))(self._sq("""
+                    SELECT AVG(EXTRACT(EPOCH FROM
+                        (transit_inventory_published_at - create_date)) / 86400.0)
+                    FROM stock_transit_voyage
+                    WHERE transit_inventory_published_at IS NOT NULL
+                """, default=[(None,)])[0]),
+                'ligas_portal': (lambda r: r[0])(self._sq(
+                    'SELECT COUNT(*) FROM supplier_access',
+                    default=[(0,)])[0]),
+                'ligas_sin_acceso_7d': (lambda r: r[0])(self._sq("""
+                    SELECT COUNT(*) FROM supplier_access
+                    WHERE last_access IS NULL
+                       OR last_access < NOW() - INTERVAL '7 days'
+                """, default=[(0,)])[0]),
             },
             'by_status': [
                 {'status': st, 'label': labels.get(st, st),
@@ -1122,6 +1196,40 @@ class SomAnalytics(models.AbstractModel):
                 'ciclo_dias': round(row[0] or 0.0, 1),
                 'ciclo_muestras': row[1],
                 'devoluciones': sum(b for (_a, b) in devs),
+                'ocupacion_pct': (lambda r: round(r[0] or 0.0, 1))(self._sq("""
+                    SELECT AVG(carga / NULLIF(cap, 0)) * 100 FROM (
+                        SELECT d.id, d.vehicle_capacity_sqm AS cap,
+                               SUM(l.qty_done) AS carga
+                        FROM sale_delivery_document d
+                        JOIN sale_delivery_document_line l
+                             ON l.document_id = d.id
+                        JOIN product_product pp ON pp.id = l.product_id
+                        JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                             AND pt.uom_id IN %s
+                        WHERE d.document_type = 'remission'
+                          AND d.state = 'confirmed'
+                          AND COALESCE(d.vehicle_capacity_sqm, 0) > 0
+                          AND d.create_date >= %s AND d.create_date <= %s
+                        GROUP BY d.id, d.vehicle_capacity_sqm
+                    ) t
+                """, (tuple(self._area_uom_ids()), date_from,
+                       date_to + ' 23:59:59'), default=[(None,)])[0]),
+                'paradas_gps': (lambda r: r[0])(self._sq("""
+                    SELECT COUNT(*) FROM sale_delivery_route_point
+                    WHERE create_date >= %s AND create_date <= %s
+                """, (date_from, date_to + ' 23:59:59'),
+                    default=[(0,)])[0]),
+                'cobrado_al_entregar_pct': (lambda r: round(r[0] or 0.0, 1))(
+                    self._sq("""
+                    SELECT AVG(LEAST(so.delivery_paid_amount
+                        / NULLIF(so.amount_total, 0), 1)) * 100
+                    FROM sale_delivery_document d
+                    JOIN sale_order so ON so.id = d.sale_order_id
+                    WHERE d.document_type = 'remission'
+                      AND d.signed_at IS NOT NULL
+                      AND d.signed_at >= %s AND d.signed_at <= %s
+                """, (date_from, date_to + ' 23:59:59'),
+                    default=[(None,)])[0]),
             },
             'by_status': by_status,
             'auth_sin_pago': auth_rows,
