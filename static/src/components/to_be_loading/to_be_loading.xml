@@ -4,7 +4,7 @@
         <div class="tbl-app">
             <div class="tbl-topbar">
                 <div class="tbl-title">
-                    <h1>To Load</h1>
+                    <h1>Open PO</h1>
                     <p>Pedidos con material embarcado DIFERENTE a lo solicitado</p>
                 </div>
                 <input class="tbl-search" type="text" placeholder="Buscar pedido, proveedor o PI…"
