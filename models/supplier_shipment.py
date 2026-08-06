@@ -144,10 +144,17 @@ class SupplierShipment(models.Model):
         # SINCRONIZACIÓN BIDIRECCIONAL A OC Y TORRE DE CONTROL
         # ---------------------------------------------------------
         if not self.env.context.get('skip_date_sync'):
-            sync_fields = {'bl_number', 'bl_date', 'eta', 'etd'}
+            sync_fields = {'bl_number', 'bl_date', 'eta', 'etd',
+                           'shipping_line', 'vessel_name'}
             if sync_fields.intersection(vals.keys()):
                 for shipment in self:
                     shipment._sync_dates_to_others(vals)
+            # LA OC MANDA: si la OC ya tiene dato en un campo que el
+            # portal acaba de escribir distinto, el embarque se revierte
+            # al valor de la OC. El portal solo llena huecos.
+            if not self.env.context.get('som_carrier_sync'):
+                for shipment in self:
+                    shipment._som_enforce_po_precedence(vals)
 
         # VAIVÉN embarque → OC de la ruta del tarifario (forwarder, naviera,
         # POL, POD, ETD y tipo de transporte). Cubre ediciones desde el
@@ -162,6 +169,49 @@ class SupplierShipment(models.Model):
                     shipment._som_sync_route_to_purchase(vals)
 
         return res
+
+    _SOM_PO_ROUTE_MAP = [
+        # (campo embarque, campo OC, es_m2o)
+        ('forwarder_id', 'som_route_forwarder_id', True),
+        ('naviera_id', 'som_route_naviera_id', True),
+        ('pol_id', 'som_route_pol_id', True),
+        ('pod_id', 'som_route_pod_id', True),
+        ('etd', 'som_route_etd', False),
+        ('shipment_type', 'som_transport_type', False),
+        ('bl_number', 'bl_number', False),
+        ('eta', 'eta_date', False),
+    ]
+
+    def _som_enforce_po_precedence(self, vals):
+        """LA OC MANDA: para cada campo recién escrito en el embarque donde
+        la OC ya tiene un valor distinto, el embarque se revierte al valor
+        de la OC. El portal solo puede llenar campos que la OC no tiene."""
+        self.ensure_one()
+        po = self.purchase_id
+        if not po:
+            return
+        pf = po._fields
+        revert = {}
+        for ship_field, po_field, is_m2o in self._SOM_PO_ROUTE_MAP:
+            if ship_field not in vals or po_field not in pf:
+                continue
+            po_val = po[po_field]
+            if not po_val:
+                continue
+            current = self[ship_field]
+            if is_m2o:
+                if (current.id if current else False) != po_val.id:
+                    revert[ship_field] = po_val.id
+            elif current != po_val:
+                revert[ship_field] = po_val
+        if revert:
+            _logger.info(
+                "[SHIPMENT] La OC %s manda: revirtiendo %s en el embarque "
+                "%s a los valores de la orden.",
+                po.name, list(revert), self.name)
+            self.with_context(
+                skip_date_sync=True, som_carrier_sync=True,
+            ).write(revert)
 
     def _som_sync_route_to_purchase(self, vals):
         """Refleja en la OC la ruta capturada en el embarque. Solo escribe
@@ -188,36 +238,60 @@ class SupplierShipment(models.Model):
             if not value:
                 continue
             current = po[po_field]
-            if is_m2o:
-                if (current.id if current else False) != value:
-                    po_vals[po_field] = value
-            elif current != value:
-                po_vals[po_field] = value
+            # LA OC MANDA: el portal solo LLENA huecos — si la OC ya tiene
+            # dato en este campo, la captura del embarque no la pisa.
+            if current:
+                continue
+            po_vals[po_field] = value
         if po_vals:
             po.with_context(
                 som_carrier_sync=True, skip_date_sync=True,
             ).write(po_vals)
 
     def _sync_dates_to_others(self, vals):
-        """Helper para sincronizar fechas logísticas con Orden de Compra y Viaje en Tránsito"""
+        """Sincroniza fechas/BL del embarque hacia la OC y la Torre de
+        Control con la regla LA OC MANDA: el portal solo llena campos
+        VACÍOS del otro lado (los placeholders 'Por Definir' y BL igual
+        al folio de la OC cuentan como vacío); jamás pisa datos vivos."""
         for shipment in self:
-            # Sincronizar hacia Orden de Compra
-            if shipment.purchase_id:
+            po = shipment.purchase_id
+            # Sincronizar hacia Orden de Compra (solo huecos)
+            if po:
+                pf = po._fields
                 po_vals = {}
-                if 'bl_number' in vals: po_vals['bl_number'] = vals['bl_number']
-                if 'bl_date' in vals: po_vals['bl_date'] = vals['bl_date']
-                if 'eta' in vals: po_vals['eta_date'] = vals['eta']
+                for s_f, p_f in (('bl_number', 'bl_number'),
+                                 ('bl_date', 'bl_date'),
+                                 ('eta', 'eta_date')):
+                    if s_f in vals and vals[s_f] and p_f in pf \
+                            and not po[p_f]:
+                        po_vals[p_f] = vals[s_f]
                 if po_vals:
-                    shipment.purchase_id.with_context(skip_date_sync=True).write(po_vals)
+                    po.with_context(skip_date_sync=True).write(po_vals)
 
-            # Sincronizar hacia Torre de Control (Viaje)
+            # Sincronizar hacia Torre de Control (solo huecos/placeholder)
             if shipment.voyage_id:
+                v = shipment.voyage_id
+                placeholders_bl = {
+                    (po.name if po else None),
+                    (po.partner_ref if po else None),
+                }
                 v_vals = {}
-                if 'bl_number' in vals: v_vals['bl_number'] = vals['bl_number']
-                if 'eta' in vals: v_vals['eta'] = vals['eta']
-                if 'etd' in vals: v_vals['etd'] = vals['etd']
+                if 'bl_number' in vals and vals['bl_number'] and (
+                        not v.bl_number or v.bl_number in placeholders_bl):
+                    v_vals['bl_number'] = vals['bl_number']
+                if 'eta' in vals and vals['eta'] and not v.eta:
+                    v_vals['eta'] = vals['eta']
+                if 'etd' in vals and vals['etd'] and not v.etd:
+                    v_vals['etd'] = vals['etd']
+                if 'shipping_line' in vals and vals['shipping_line'] \
+                        and not v.shipping_line:
+                    v_vals['shipping_line'] = vals['shipping_line']
+                if 'vessel_name' in vals and vals['vessel_name'] and (
+                        not v.vessel_name
+                        or v.vessel_name == 'Por Definir'):
+                    v_vals['vessel_name'] = vals['vessel_name']
                 if v_vals:
-                    shipment.voyage_id.with_context(skip_date_sync=True).write(v_vals)
+                    v.with_context(skip_date_sync=True).write(v_vals)
 
 
     @api.depends('name')

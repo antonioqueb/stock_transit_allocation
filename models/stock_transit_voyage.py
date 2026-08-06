@@ -1326,15 +1326,20 @@ class StockTransitVoyage(models.Model):
                 if po_vals:
                     voyage.purchase_id.with_context(skip_date_sync=True).write(po_vals)
 
-            # Sincronizar hacia Portal (Embarque)
+            # Sincronizar hacia Portal (Embarque). La Torre/OC MANDA: sus
+            # valores pisan al portal, pero los vacíos no viajan (editar
+            # otra cosa en el viaje no borra lo capturado por el proveedor).
             if 'supplier.shipment' in self.env.registry:
                 shipments = self.env['supplier.shipment'].sudo().search([('voyage_id', '=', voyage.id)])
                 s_vals = {}
-                if 'bl_number' in vals: s_vals['bl_number'] = vals['bl_number']
-                if 'eta' in vals: s_vals['eta'] = vals['eta']
-                if 'etd' in vals: s_vals['etd'] = vals['etd']
+                for f in ('bl_number', 'eta', 'etd',
+                          'shipping_line', 'vessel_name'):
+                    if f in vals and vals[f] and vals[f] != 'Por Definir':
+                        s_vals[f] = vals[f]
                 if s_vals:
-                    shipments.with_context(skip_date_sync=True).write(s_vals)
+                    shipments.with_context(
+                        skip_date_sync=True, som_carrier_sync=True,
+                    ).write(s_vals)
 
     # =========================================================================
     # NOTIFICACIONES

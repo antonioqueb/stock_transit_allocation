@@ -49,6 +49,52 @@ class PurchaseOrder(models.Model):
             po.sale_order_ids = sale_orders
             po.sale_order_count = len(sale_orders)
 
+    def write(self, vals):
+        res = super().write(vals)
+        # LA OC MANDA: cambios de ruta/embarque en la OC (forwarder,
+        # naviera, POL/POD, ETD, tipo, BL, ETA) se PROPAGAN a sus
+        # embarques del portal, pisando lo que el proveedor haya
+        # capturado. Los vacíos no viajan (no se borra nada del portal).
+        if (not self.env.context.get('som_carrier_sync')
+                and not self.env.context.get('skip_date_sync')
+                and 'supplier.shipment' in self.env):
+            watch = {
+                'som_route_forwarder_id': 'forwarder_id',
+                'som_route_naviera_id': 'naviera_id',
+                'som_route_pol_id': 'pol_id',
+                'som_route_pod_id': 'pod_id',
+                'som_route_etd': 'etd',
+                'som_transport_type': 'shipment_type',
+                'bl_number': 'bl_number',
+                'eta_date': 'eta',
+            }
+            touched = {k: v for k, v in watch.items() if k in vals}
+            if touched:
+                Ship = self.env['supplier.shipment'].sudo()
+                for po in self:
+                    ships = Ship.search([('purchase_id', '=', po.id)])
+                    if not ships:
+                        continue
+                    s_vals = {}
+                    for po_f, ship_f in touched.items():
+                        if po_f not in po._fields or \
+                                ship_f not in Ship._fields:
+                            continue
+                        value = po[po_f]
+                        if not value:
+                            continue
+                        if po._fields[po_f].type == 'many2one':
+                            value = value.id
+                        s_vals[ship_f] = value
+                    if s_vals:
+                        ships.with_context(
+                            skip_date_sync=True, som_carrier_sync=True,
+                        ).write(s_vals)
+                        _logger.info(
+                            "[PO→PORTAL] OC %s propagó %s a %s embarque(s).",
+                            po.name, list(s_vals), len(ships))
+        return res
+
     def button_confirm(self):
         res = super(PurchaseOrder, self).button_confirm()
         for po in self:
