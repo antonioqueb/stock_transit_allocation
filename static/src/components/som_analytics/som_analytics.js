@@ -126,8 +126,7 @@ export class SomAnalytics extends Component {
     async loadTab(tab, force = false) {
         this.state.tab = tab;
         if (this.state.cache[tab] && !force) {
-            await Promise.resolve();
-            requestAnimationFrame(() => this.renderTab());
+            this._afterRender(() => this.renderTab(), ".som_bi__body canvas");
             return;
         }
         this.state.loading = true;
@@ -144,13 +143,27 @@ export class SomAnalytics extends Component {
             this.state.error = (e.data && e.data.message) || String(e);
         }
         this.state.loading = false;
-        await Promise.resolve();
-        requestAnimationFrame(() => this.renderTab());
+        this._afterRender(() => this.renderTab(), ".som_bi__body canvas");
     }
 
     reloadAll() {
         this.state.cache = {};
         this.loadTab(this.state.tab, true);
+    }
+
+    // OWL pinta el DOM en su propio animation frame: montar los gráficos
+    // en un rAF directo corre ANTES de que existan los <canvas> y el guard
+    // falla en silencio. Se reintenta hasta que el DOM esté listo.
+    _afterRender(fn, probeSelector) {
+        let tries = 0;
+        const attempt = () => {
+            if (probeSelector && !document.querySelector(probeSelector) && tries++ < 40) {
+                requestAnimationFrame(attempt);
+                return;
+            }
+            fn();
+        };
+        requestAnimationFrame(attempt);
     }
 
     destroyCharts() {
@@ -218,8 +231,7 @@ export class SomAnalytics extends Component {
             this.state.error = (e.data && e.data.message) || String(e);
         }
         this.state.drillLoading = false;
-        await Promise.resolve();
-        requestAnimationFrame(() => this.renderDrill());
+        this._afterRender(() => this.renderDrill(), "#som_dr_month");
     }
 
     closeDrill() {
@@ -302,7 +314,11 @@ export class SomAnalytics extends Component {
 
     mk(key, canvasId, config) {
         const el = document.getElementById(canvasId);
-        if (!el || !window.Chart) return;
+        if (!window.Chart) {
+            console.warn("[SOM Analytics] Chart.js no disponible (web.chartjs_lib)");
+            return;
+        }
+        if (!el) return;
         if (this.charts[key]) this.charts[key].destroy();
         this.charts[key] = new window.Chart(el.getContext("2d"), config);
     }
