@@ -227,6 +227,77 @@ class SupplierShipment(models.Model):
         for record in self:
             record.display_name = record.name or f"EMB-{record.id}"
 
+    @api.model
+    def _som_fix_duplicate_po_voyages(self):
+        """Reparación de duplicados YA existentes (corre en cada -u,
+        idempotente): OCs con más de un viaje activo donde uno es el
+        SEGUIDO (tiene embarque de portal o recepción) y otro quedó en
+        solicitud sin seguimiento pero con la DEMANDA (líneas con
+        allocation/orden de venta). La demanda se traspasa al viaje
+        seguido y el huérfano vacío se cancela — reconecta el pedido
+        con el material que sí se está llenando."""
+        Voyage = self.env['stock.transit.voyage'].sudo()
+        self.env.cr.execute("""
+            SELECT purchase_id FROM stock_transit_voyage
+            WHERE purchase_id IS NOT NULL
+              AND custom_status NOT IN ('cancel', 'delivered')
+            GROUP BY purchase_id HAVING COUNT(*) > 1
+        """)
+        merged = 0
+        for (po_id,) in self.env.cr.fetchall():
+            voyages = Voyage.search([
+                ('purchase_id', '=', po_id),
+                ('custom_status', 'not in', ('cancel', 'delivered')),
+            ], order='id asc')
+
+            def is_followed(v):
+                return bool(v.picking_id) or bool(self.sudo().search_count(
+                    [('voyage_id', '=', v.id)]))
+
+            followed = voyages.filtered(is_followed)
+            orphans = voyages.filtered(
+                lambda v: not is_followed(v)
+                and v.custom_status == 'solicitud')
+            if not followed or not orphans:
+                continue
+            target = followed[0]
+            for orphan in orphans:
+                demand = orphan.line_ids.filtered(
+                    lambda l: l.allocation_id or l.order_id)
+                for dl in demand:
+                    # Línea equivalente en el viaje seguido (mismo
+                    # producto, aún sin demanda): se le cuelga la
+                    # asignación. Si no hay, la línea completa se muda.
+                    match = target.line_ids.filtered(
+                        lambda l: l.product_id == dl.product_id
+                        and not l.allocation_id and not l.order_id)[:1]
+                    if match:
+                        match.write({
+                            'allocation_id': dl.allocation_id.id,
+                            'order_id': dl.order_id.id,
+                            'partner_id': dl.partner_id.id,
+                            'allocation_status': (
+                                dl.allocation_status or 'reserved'),
+                        })
+                        dl.unlink()
+                    else:
+                        dl.write({'voyage_id': target.id})
+                orphan.message_post(body=_(
+                    'Viaje duplicado de la OC: su demanda se fusionó en '
+                    '%s y este viaje se canceló automáticamente.'
+                ) % target.name)
+                target.message_post(body=_(
+                    'Se fusionó la demanda del viaje duplicado %s '
+                    '(pedidos pre-asignados de la OC).') % orphan.name)
+                orphan.write({'custom_status': 'cancel'})
+                merged += 1
+                _logger.warning(
+                    "[TC FIX] Viaje huérfano %s fusionado en %s (OC id %s).",
+                    orphan.name, target.name, po_id)
+        _logger.info(
+            "[TC FIX] Reparación de viajes duplicados terminada: %s "
+            "fusionados.", merged)
+
     # --- Sincronización con Torre de Control ---
     def action_sync_to_voyage(self):
         """Crea o actualiza el voyage vinculado en la Torre de Control y da de alta tracking por contenedor."""
@@ -246,19 +317,48 @@ class SupplierShipment(models.Model):
             vals['eta'] = self.eta
 
         if self.voyage_id:
-            # Importante: al llamar a write pasamos el contexto skip_date_sync 
+            # Importante: al llamar a write pasamos el contexto skip_date_sync
             # para no generar bucles infinitos, ya que esta acción manual ya es un sync en sí mismo.
             self.voyage_id.with_context(skip_date_sync=True).write(vals)
             voyage = self.voyage_id
             _logger.info(f"[SHIPMENT] Voyage {voyage.name} actualizado desde embarque {self.name}")
         else:
-            vals.update({
-                'purchase_id': self.purchase_id.id,
-                'custom_status': 'solicitud',
-            })
-            voyage = Voyage.with_context(skip_date_sync=True).create(vals)
-            self.write({'voyage_id': voyage.id})
-            _logger.info(f"[SHIPMENT] Voyage {voyage.name} creado desde embarque {self.name}")
+            # ADOPCIÓN ANTI-DUPLICADO: si la OC ya tiene un viaje activo sin
+            # embarque de portal vinculado (el que nace en button_confirm
+            # cuando hay demanda pre-asignada), se REUTILIZA. Crear uno nuevo
+            # aquí dejaba DOS viajes en solicitud: la demanda (allocations)
+            # en el de la OC sin seguimiento, y el material/contenedores en
+            # el del portal — la desconexión que se reportó.
+            voyage = None
+            if self.purchase_id:
+                candidates = Voyage.sudo().search([
+                    ('purchase_id', '=', self.purchase_id.id),
+                    ('custom_status', 'not in', ('cancel', 'delivered')),
+                ], order='id asc')
+                for cand in candidates:
+                    if self.sudo().search_count([
+                        ('voyage_id', '=', cand.id),
+                        ('id', '!=', self.id),
+                    ]):
+                        continue
+                    voyage = cand
+                    break
+            if voyage:
+                # No degradar el estatus de un viaje que ya avanzó.
+                voyage.with_context(skip_date_sync=True).write(vals)
+                self.write({'voyage_id': voyage.id})
+                _logger.info(
+                    "[SHIPMENT] Voyage %s de la OC %s ADOPTADO por el "
+                    "embarque %s (no se crea duplicado).",
+                    voyage.name, self.purchase_id.name, self.name)
+            else:
+                vals.update({
+                    'purchase_id': self.purchase_id.id,
+                    'custom_status': 'solicitud',
+                })
+                voyage = Voyage.with_context(skip_date_sync=True).create(vals)
+                self.write({'voyage_id': voyage.id})
+                _logger.info(f"[SHIPMENT] Voyage {voyage.name} creado desde embarque {self.name}")
 
         # ------------------------------------------------------------
         # NUEVO: crear / resolver tracking ShipsGo para cada contenedor

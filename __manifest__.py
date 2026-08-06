@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.23.2.0',
+    'version': '19.0.24.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -68,6 +68,7 @@
         'data/ir_config_parameter_data.xml',
         'data/ir_cron_data.xml',
         'data/stock_location_transit_fix.xml',
+        'data/fix_duplicate_voyages.xml',
 
         'reports/transit_packing_list_report.xml',
 

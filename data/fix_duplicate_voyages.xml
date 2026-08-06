@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Reparación idempotente de viajes duplicados por OC (corre en cada
+         -u): la demanda pre-asignada del viaje huérfano en solicitud se
+         fusiona en el viaje seguido (con embarque de portal o recepción)
+         y el huérfano vacío se cancela. Tras la primera pasada, la
+         adopción en action_sync_to_voyage evita nuevos duplicados. -->
+    <function model="supplier.shipment" name="_som_fix_duplicate_po_voyages"/>
+</odoo>

@@ -1445,11 +1445,14 @@ class StockPicking(models.Model):
         )
 
         if self.purchase_id:
+            # id asc: si hay varios huérfanos, adoptar el MÁS ANTIGUO — el
+            # que nació en la confirmación de la OC y trae la demanda
+            # pre-asignada (allocations con orden de venta).
             orphan = Voyage.search([
                 ('purchase_id', '=', self.purchase_id.id),
                 ('picking_id', '=', False),
                 ('custom_status', 'not in', ('cancel', 'delivered')),
-            ], order='id desc', limit=1)
+            ], order='id asc', limit=1)
             if orphan:
                 vals = {'picking_id': self.id}
                 if not orphan.bl_number or orphan.bl_number == self.purchase_id.name:
