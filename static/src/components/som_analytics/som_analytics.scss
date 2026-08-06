@@ -1,0 +1,318 @@
+// SOM Analytics — BI drill-down. Branding SOM: azul #0B57D0 / cielo #38BDF8.
+$bi-blue: #0b57d0;
+$bi-sky: #38bdf8;
+$bi-green: #159957;
+$bi-red: #e5484d;
+$bi-ink: #0f172a;
+$bi-mut: #64748b;
+
+.som_bi {
+    height: 100%;
+    overflow-y: auto;
+    padding: 14px 18px 26px;
+    background: #f2f6fc;
+
+    // ── Topbar ──────────────────────────────────────────────
+    .som_bi__topbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px 14px;
+        margin-bottom: 12px;
+    }
+    .som_bi__title {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 19px;
+        font-weight: 800;
+        color: $bi-ink;
+
+        svg { width: 20px; height: 20px; color: $bi-blue; }
+    }
+    .som_bi__presets {
+        display: inline-flex;
+        gap: 4px;
+        background: #fff;
+        border: 1px solid #d3dcea;
+        border-radius: 10px;
+        padding: 3px;
+    }
+    .som_bi__preset {
+        border: none;
+        background: transparent;
+        border-radius: 8px;
+        padding: 4px 11px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #475569;
+        cursor: pointer;
+
+        &.active { background: $bi-blue; color: #fff; }
+        &:hover:not(.active) { background: #eaf1fb; }
+    }
+    .som_bi__chips {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-left: auto;
+    }
+    .som_bi__hint { font-size: 11.5px; color: $bi-mut; font-style: italic; }
+    .som_bi__chip {
+        background: $bi-blue;
+        color: #fff;
+        border-radius: 999px;
+        padding: 3px 11px;
+        font-size: 11.5px;
+        font-weight: 700;
+        cursor: pointer;
+
+        &:hover { background: darken($bi-blue, 8%); }
+    }
+    .som_bi__clear {
+        border: 1px solid #d3dcea;
+        background: #fff;
+        border-radius: 999px;
+        padding: 3px 11px;
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #475569;
+        cursor: pointer;
+
+        &:hover { background: #fde8e8; color: $bi-red; }
+    }
+    .som_bi__loading { padding: 8px 2px; color: $bi-mut; font-size: 12.5px; }
+    .som_bi__error {
+        background: #fdecec;
+        border: 1px solid #f1b5b9;
+        border-radius: 10px;
+        padding: 12px 14px;
+        color: #7a1c24;
+        font-size: 13px;
+    }
+
+    // ── KPI cards ───────────────────────────────────────────
+    .som_bi__kpis {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 10px;
+        margin-bottom: 12px;
+
+        @media (max-width: 1200px) { grid-template-columns: repeat(3, 1fr); }
+        @media (max-width: 720px)  { grid-template-columns: repeat(2, 1fr); }
+    }
+    .som_bi__kpi {
+        background: #fff;
+        border-radius: 12px;
+        padding: 11px 14px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+        border-top: 3px solid #c7d7f2;
+
+        &.blue  { border-top-color: $bi-blue; }
+        &.green { border-top-color: $bi-green; }
+        &.sky   { border-top-color: $bi-sky; }
+        &.ink   { border-top-color: $bi-ink; }
+        &.amber { border-top-color: #d97706; }
+
+        .l { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em; color: $bi-mut; }
+        .v { font-size: 21px; font-weight: 800; color: $bi-ink; font-variant-numeric: tabular-nums; line-height: 1.2; margin-top: 2px; }
+        .s { font-size: 11.5px; color: $bi-mut; margin-top: 2px; b { color: $bi-ink; } }
+    }
+
+    // ── Grid de paneles ─────────────────────────────────────
+    .som_bi__grid {
+        display: grid;
+        grid-template-columns: 2fr 1fr;
+        gap: 12px;
+        margin-bottom: 12px;
+
+        @media (max-width: 1100px) { grid-template-columns: 1fr; }
+    }
+    .som_bi__panel {
+        background: #fff;
+        border-radius: 12px;
+        padding: 12px 14px;
+        box-shadow: 0 1px 4px rgba(15, 23, 42, 0.07);
+        min-width: 0;
+
+        &.wide { grid-column: auto; }
+    }
+    .som_bi__panel_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        font-size: 12.5px;
+        font-weight: 800;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: #374151;
+        margin-bottom: 8px;
+
+        small { font-weight: 600; text-transform: none; letter-spacing: 0; color: $bi-mut; }
+    }
+    .som_bi__expand {
+        border: 1px solid #d3dcea;
+        background: #fff;
+        border-radius: 8px;
+        width: 26px;
+        height: 26px;
+        font-size: 13px;
+        color: #475569;
+        cursor: pointer;
+        flex: 0 0 auto;
+
+        &:hover { background: #eaf1fb; color: $bi-blue; }
+    }
+    .som_bi__count { font-size: 11.5px; font-weight: 700; color: $bi-mut; text-transform: none; }
+    .som_bi__canvas {
+        position: relative;
+        height: 230px;
+
+        &.tall { height: 290px; }
+    }
+
+    // ── Mini tabla clientes ─────────────────────────────────
+    .som_bi__minitable {
+        .row {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            gap: 10px;
+            padding: 5px 4px;
+            border-bottom: 1px dashed #eef1f6;
+            font-size: 12px;
+            cursor: pointer;
+            align-items: center;
+
+            &:hover:not(.head) { background: #f0f6ff; }
+            &.head { cursor: default; font-size: 10.5px; text-transform: uppercase; color: $bi-mut; font-weight: 800; }
+            span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #1f2937; }
+            b { font-variant-numeric: tabular-nums; color: $bi-ink; }
+            b.bad { color: $bi-red; }
+            b.good { color: $bi-green; }
+        }
+    }
+
+    // ── Tabla de detalle ────────────────────────────────────
+    .som_bi__detail { margin-bottom: 8px; }
+    .som_bi__table_wrap {
+        overflow-x: auto;
+        max-height: 420px;
+        overflow-y: auto;
+
+        &.modal { max-height: 240px; }
+    }
+    .som_bi__table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 12px;
+
+        th {
+            position: sticky;
+            top: 0;
+            background: #f8fafc;
+            text-align: left;
+            padding: 6px 8px;
+            font-size: 10.5px;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: $bi-mut;
+            border-bottom: 1px solid #e2e8f0;
+            z-index: 1;
+        }
+        td {
+            padding: 5px 8px;
+            border-bottom: 1px solid #f1f4f9;
+            color: #1f2937;
+            white-space: nowrap;
+        }
+        tbody tr { cursor: pointer; }
+        tbody tr:hover { background: #f0f6ff; }
+        .r { text-align: right; font-variant-numeric: tabular-nums; }
+        .mono { font-family: SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; }
+        .ellipsis { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+        .bad { color: $bi-red; font-weight: 700; }
+        .good { color: $bi-green; font-weight: 700; }
+    }
+}
+
+// ── Modal de expansión ──────────────────────────────────────
+.som_bi__modal_bg {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.5);
+    z-index: 1060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+}
+.som_bi__modal {
+    background: #fff;
+    border-radius: 14px;
+    width: 100%;
+    max-width: 1050px;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 18px 50px rgba(15, 23, 42, 0.35);
+    overflow: hidden;
+    padding: 14px 18px;
+
+    .som_bi__modal_head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        font-size: 14px;
+        font-weight: 800;
+        color: #0f172a;
+        margin-bottom: 8px;
+
+        > span { flex: 1 1 auto; }
+    }
+    .som_bi__variants {
+        display: inline-flex;
+        gap: 4px;
+        background: #f1f5f9;
+        border-radius: 9px;
+        padding: 3px;
+
+        button {
+            border: none;
+            background: transparent;
+            border-radius: 7px;
+            padding: 3px 11px;
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #475569;
+            cursor: pointer;
+
+            &.active { background: #0b57d0; color: #fff; }
+        }
+    }
+    .som_bi__modal_x {
+        border: none;
+        background: #f1f5f9;
+        border-radius: 8px;
+        width: 28px;
+        height: 28px;
+        cursor: pointer;
+        color: #475569;
+
+        &:hover { background: #fde8e8; color: #e5484d; }
+    }
+    .som_bi__modal_canvas {
+        position: relative;
+        height: 340px;
+        margin-bottom: 10px;
+    }
+}
+
+// Altura completa de la client action
+.o_action_manager .o_action:has(.som_bi) {
+    display: flex;
+    flex-direction: column;
+
+    > * { flex: 1 1 auto; min-height: 0; }
+}

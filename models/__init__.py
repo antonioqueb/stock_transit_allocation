@@ -25,3 +25,4 @@ from . import transit_allocation
 from . import transit_packing_report
 from . import supplier_access_tracking
 from . import receptions_dashboard
+from . import som_analytics

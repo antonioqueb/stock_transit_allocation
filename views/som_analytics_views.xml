@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- SOM Analytics: BI drill-down. Solo Autorizadores de Precios (ven
+         utilidad con costo all-in — mismo criterio que product_cost_security). -->
+    <record id="action_som_analytics" model="ir.actions.client">
+        <field name="name">SOM Analytics</field>
+        <field name="tag">stock_transit_allocation.som_analytics</field>
+    </record>
+
+    <menuitem id="menu_som_analytics_root" name="Analytics"
+              web_icon="stock_transit_allocation,static/description/analytics_icon.svg"
+              sequence="32"
+              groups="inventory_shopping_cart.group_price_authorizer"/>
+    <menuitem id="menu_som_analytics_dashboard" name="Tablero"
+              parent="menu_som_analytics_root"
+              action="action_som_analytics" sequence="1"/>
+</odoo>

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.16.6.1',
+    'version': '19.0.17.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -93,6 +93,7 @@
         'wizard/transit_label_print_wizard_views.xml',
 
         'views/receptions_dashboard_views.xml',
+        'views/som_analytics_views.xml',
     ],
     'assets': {
         # Bundle principal: SOLO lo que necesitan las vistas estándar
@@ -145,6 +146,10 @@
             'stock_transit_allocation/static/src/components/supplier_access_tracking/supplier_access_tracking.scss',
             'stock_transit_allocation/static/src/components/supplier_access_tracking/supplier_access_tracking.js',
             'stock_transit_allocation/static/src/components/supplier_access_tracking/supplier_access_tracking.xml',
+
+            'stock_transit_allocation/static/src/components/som_analytics/som_analytics.scss',
+            'stock_transit_allocation/static/src/components/som_analytics/som_analytics.js',
+            'stock_transit_allocation/static/src/components/som_analytics/som_analytics.xml',
         ],
     },
     'installable': True,
