@@ -70,6 +70,15 @@ class SomAnalytics(models.AbstractModel):
             today - timedelta(days=365))
         return date_from, date_to
 
+    def _cd(self, column):
+        """Expresión SQL para leer un campo company_dependent (jsonb
+        {company_id: valor} en Odoo 17+) como float de la compañía activa.
+        Requiere %(cid)s en los params."""
+        return "COALESCE((%s->>%%(cid)s)::float, 0)" % column
+
+    def _cid(self):
+        return str(self.env.company.id)
+
     def _sq(self, sql, params=None, default=None):
         """Consulta segura: cualquier error regresa default y no rompe la
         pestaña (tablas de módulos opcionales, columnas versionadas, etc.)."""
@@ -99,6 +108,7 @@ class SomAnalytics(models.AbstractModel):
             'date_to': date_to + ' 23:59:59',
             'rate': self._current_usd_rate(),
             'area_uoms': tuple(self._area_uom_ids()),
+            'cid': self._cid(),
         }
         where = []
         if f.get('user_id'):
@@ -144,8 +154,8 @@ class SomAnalytics(models.AbstractModel):
                           * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
                      ELSE COALESCE(sol.price_subtotal,0)
                 END AS venta_mxn,
-                COALESCE(sol.product_uom_qty,0) * COALESCE(pt.x_costo_mayor,0)
-                    AS costo_mxn
+                COALESCE(sol.product_uom_qty,0)
+                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0) AS costo_mxn
             FROM sale_order_line sol
             JOIN sale_order so        ON so.id = sol.order_id
             JOIN product_product pp   ON pp.id = sol.product_id
@@ -427,8 +437,10 @@ class SomAnalytics(models.AbstractModel):
         # 2.4 Índice de realización de precio (precio cobrado vs N1)
         row = self._sq("""
             SELECT SUM(sol.price_unit * sol.product_uom_qty),
-                   SUM(CASE WHEN rc.name='USD' THEN pt.x_price_usd_1
-                            ELSE pt.x_price_mxn_1 END * sol.product_uom_qty)
+                   SUM(CASE WHEN rc.name='USD'
+                            THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
+                            ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                       END * sol.product_uom_qty)
             FROM sale_order_line sol
             JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
             JOIN product_product pp ON pp.id = sol.product_id
@@ -436,10 +448,13 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE sol.display_type IS NULL
-              AND so.date_order >= %s AND so.date_order <= %s
-              AND CASE WHEN rc.name='USD' THEN pt.x_price_usd_1
-                       ELSE pt.x_price_mxn_1 END > 0
-        """, dt, default=[(0, 0)])[0]
+              AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s
+              AND CASE WHEN rc.name='USD'
+                       THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
+                       ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                  END > 0
+        """, {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
+            default=[(0, 0)])[0]
         pack['kpis']['realizacion_pct'] = round(
             (row[0] or 0) / row[1] * 100, 1) if row[1] else 0.0
 
@@ -527,7 +542,8 @@ class SomAnalytics(models.AbstractModel):
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
     def _inventory_pack(self, f):
-        params = {'area_uoms': tuple(self._area_uom_ids())}
+        params = {'area_uoms': tuple(self._area_uom_ids()),
+                  'cid': self._cid()}
         prod_where = ''
         if f.get('product_id'):
             prod_where = ' AND pt.id = %(tmpl_id)s'
@@ -545,7 +561,9 @@ class SomAnalytics(models.AbstractModel):
                 COALESCE(sl.name, '') AS lot_name,
                 {hold} AS has_hold,
                 SUM(q.quantity) AS m2,
-                SUM(q.quantity * COALESCE(pt.x_costo_mayor,0)) AS valor
+                SUM(q.quantity
+                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0))
+                    AS valor
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
