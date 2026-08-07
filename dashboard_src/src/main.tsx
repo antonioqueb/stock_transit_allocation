@@ -1472,6 +1472,24 @@ function PriceAdjustRow(props: { r: Rec; fx: Fx; onSaved: () => void }) {
   const dispFactor = fxToMxn(cur, fx) || 1;
   const cv = (v: unknown) => (num(v) * saleFactor) / dispFactor;
   const diff = cv(r.diff_n1);
+  // Utilidad por nivel: precio (en la divisa elegida) menos el costo
+  // all-in (MXN → divisa elegida). Sin costo capturado no se inventa.
+  const costDisp = num(r.costo) / dispFactor;
+  const lvl = (priceDisp: number, strong = false) => {
+    if (!num(r.costo) || priceDisp <= 0) {
+      return <span className={strong ? "strong" : undefined}>{money(priceDisp)}</span>;
+    }
+    const util = priceDisp - costDisp;
+    const mpct = (util / priceDisp) * 100;
+    return (
+      <span className="lvlcell">
+        <span className={strong ? "strong" : undefined}>{money(priceDisp)}</span>
+        <small className={"lvlutil " + (util < 0 ? "bad" : mpct < 15 ? "mid" : "good")}>
+          {(util >= 0 ? "+" : "−") + money(Math.abs(util))} · {pct(Math.abs(mpct))}
+        </small>
+      </span>
+    );
+  };
   return (
     <tr>
       <td className="ell">{String(r.name)}</td>
@@ -1485,10 +1503,10 @@ function PriceAdjustRow(props: { r: Rec; fx: Fx; onSaved: () => void }) {
       </td>
       <td className="r">{n1(r.qty)}</td>
       <td className="r mut">{n0(r.ordenes)}</td>
-      <td className="r strong">{money(cv(r.avg))}</td>
-      <td className="r">{money(cv(r.n1))}</td>
-      <td className="r mut">{num(r.n2) ? money(cv(r.n2)) : "—"}</td>
-      <td className="r mut">{num(r.n3) ? money(cv(r.n3)) : "—"}</td>
+      <td className="r">{lvl(cv(r.avg), true)}</td>
+      <td className="r">{lvl(cv(r.n1))}</td>
+      <td className="r mut">{num(r.n2) ? lvl(cv(r.n2)) : "—"}</td>
+      <td className="r mut">{num(r.n3) ? lvl(cv(r.n3)) : "—"}</td>
       <td className="r">
         <Pill tone={num(r.diff_n1) < 0 ? "bad" : "good"}>
           {(diff >= 0 ? "+" : "−") + money(Math.abs(diff))} · {pct(Math.abs(num(r.diff_pct)))}

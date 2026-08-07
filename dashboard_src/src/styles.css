@@ -141,6 +141,11 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   padding: 4px 4px; font: 700 11px/1.2 inherit;
 }
 .costcell .costmxn { font-size: 10px; color: var(--mut2); white-space: nowrap; }
+.lvlcell { display: inline-flex; flex-direction: column; align-items: flex-end; line-height: 1.25; }
+.lvlutil { font-size: 10px; font-weight: 700; white-space: nowrap; }
+.lvlutil.good { color: var(--good); }
+.lvlutil.mid { color: var(--mid); }
+.lvlutil.bad { color: var(--bad); }
 .costcell input {
   width: 96px; text-align: right;
   background: var(--panel2); color: var(--txt);
