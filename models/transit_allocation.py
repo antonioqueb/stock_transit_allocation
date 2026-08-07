@@ -209,12 +209,77 @@ class TransitAllocationLogic(models.AbstractModel):
         return row
 
     @api.model
+    def _tal_get_reserved_extra_by_line(self, sale_lines, metrics_by_line):
+        """m² YA RESERVADOS en tránsito para cada línea que el cálculo de
+        asignado no ve (reservas sin lote, o con lote sin medidas): sin
+        esto, una orden 100%% preasignada seguía apareciendo en el hub
+        con toda su demanda 'pendiente'.
+
+        Anti doble conteo: si el lote de la reserva ya está en lot_ids de
+        la línea Y aporta medidas (eso ya lo cuenta assigned_qty), la
+        reserva no se vuelve a sumar. Si varias líneas comparten orden y
+        producto, la reserva se reparte sin exceder el pendiente de cada
+        una."""
+        if not sale_lines:
+            return {}
+        TransitLine = self.env['stock.transit.line'].sudo()
+        tls = TransitLine.search([
+            ('order_id', 'in', sale_lines.mapped('order_id').ids),
+            ('allocation_status', '=', 'reserved'),
+            ('voyage_id.custom_status', 'not in', ('delivered', 'cancel')),
+        ])
+        by_key = defaultdict(float)
+        lots_by_key = defaultdict(set)
+        for tl in tls:
+            if not tl.product_id:
+                continue
+            key = (tl.order_id.id, tl.product_id.id)
+            lot = tl.lot_id
+            if lot:
+                lots_by_key[key].add(lot.id)
+                try:
+                    dims = float(lot.x_alto or 0.0) * float(lot.x_ancho or 0.0)
+                except Exception:
+                    dims = 0.0
+            else:
+                dims = 0.0
+            # Con lote CON medidas: assigned_qty ya lo contará cuando esté
+            # en lot_ids de la línea — se marca aparte y se decide abajo.
+            by_key[key] += 0.0 if (lot and dims > 0) else self._tal_transit_line_qty(tl)
+
+        remaining = dict(by_key)
+        result = {}
+        for line in sale_lines:
+            key = (line.order_id.id, line.product_id.id)
+            avail = remaining.get(key, 0.0)
+            if avail <= 0:
+                continue
+            pending = (metrics_by_line.get(line.id, {}) or {}).get(
+                'pending_qty', 0.0) or 0.0
+            take = min(avail, pending)
+            if take > 0:
+                result[line.id] = take
+                remaining[key] = avail - take
+        return result
+
     def get_data(self):
         SaleLine = self.env['sale.order.line']
         sale_lines_all = SaleLine.search(self._tal_get_sale_line_domain(), order='order_id desc, id desc')
         sale_lines_all = sale_lines_all.filtered(lambda line: self._is_hub_stock_product(line.product_id))
 
         metrics_by_line, _free_qty_by_product, _product_ids = self._hub_compute_sale_line_metrics(sale_lines_all)
+
+        # Descontar reservas de tránsito ya hechas: el pendiente EFECTIVO
+        # es lo que aún no está cubierto ni por placas ni por tránsito.
+        reserved_extra = self._tal_get_reserved_extra_by_line(
+            sale_lines_all, metrics_by_line)
+        for line_id, extra in reserved_extra.items():
+            m = metrics_by_line.get(line_id)
+            if m is not None:
+                m = dict(m)
+                m['pending_qty'] = max(
+                    (m.get('pending_qty') or 0.0) - extra, 0.0)
+                metrics_by_line[line_id] = m
 
         sale_lines = sale_lines_all.filtered(
             lambda line: self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('pending_qty'))
