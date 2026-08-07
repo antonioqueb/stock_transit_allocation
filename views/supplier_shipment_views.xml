@@ -143,18 +143,21 @@
                   decoration-warning="status in ['departed','in_transit']"
                   decoration-success="status in ['arrived','delivered']">
                 <field name="name"/>
+                <field name="x_supplier_id"/>
+                <field name="x_container_numbers"/>
+                <field name="x_pi_number"/>
                 <field name="purchase_id"/>
-                <field name="shipment_type"/>
-                <field name="shipping_line"/>
-                <field name="bl_number"/>
-                <field name="bl_date"/>
-                <field name="etd"/>
-                <field name="eta"/>
-                <field name="container_count"/>
-                <field name="invoice_count"/>
-                <field name="packing_count"/>
                 <field name="status" widget="badge"/>
-                <field name="voyage_id" optional="show"/>
+                <field name="eta" optional="show"/>
+                <field name="shipping_line" optional="hide"/>
+                <field name="shipment_type" optional="hide"/>
+                <field name="bl_number" optional="hide"/>
+                <field name="bl_date" optional="hide"/>
+                <field name="etd" optional="hide"/>
+                <field name="container_count" optional="hide"/>
+                <field name="invoice_count" optional="hide"/>
+                <field name="packing_count" optional="hide"/>
+                <field name="voyage_id" optional="hide"/>
             </list>
         </field>
     </record>
@@ -165,12 +168,16 @@
         <field name="arch" type="xml">
             <search string="Buscar Embarques">
                 <field name="name"/>
+                <field name="x_supplier_id"/>
+                <field name="x_container_numbers"/>
+                <field name="x_pi_number"/>
                 <field name="purchase_id"/>
                 <field name="bl_number"/>
                 <field name="shipping_line"/>
                 <filter name="maritime" string="Marítimo" domain="[('shipment_type','=','maritime')]"/>
                 <filter name="in_transit" string="En Tránsito" domain="[('status','in',['departed','in_transit'])]"/>
                 <filter name="arrived" string="Arribados" domain="[('status','in',['arrived','delivered'])]"/>
+                    <filter name="group_supplier" string="Proveedor" context="{'group_by':'x_supplier_id'}"/>
                     <filter name="group_purchase" string="Orden de Compra" context="{'group_by':'purchase_id'}"/>
                     <filter name="group_status" string="Estado" context="{'group_by':'status'}"/>
                     <filter name="group_shipping" string="Naviera" context="{'group_by':'shipping_line'}"/>

@@ -41,6 +41,24 @@ class SupplierShipment(models.Model):
     shipping_line = fields.Char(string='Naviera', tracking=True)
     # DUPLICADO INTENCIONAL (la clase con _name reemplaza a la del módulo
     # base — ver supplier_shipment_packing.py): catálogo del tarifario.
+    # === COLUMNAS DEL HISTORIAL DE EMBARQUES ===
+    x_supplier_id = fields.Many2one(
+        'res.partner', string='Proveedor',
+        related='purchase_id.partner_id', store=True, index=True)
+    x_pi_number = fields.Char(
+        string='Proforma (PI)',
+        related='purchase_id.partner_ref', store=True)
+    x_container_numbers = fields.Char(
+        string='Contenedores',
+        compute='_compute_x_container_numbers')
+
+    @api.depends('container_ids.container_number')
+    def _compute_x_container_numbers(self):
+        for rec in self:
+            rec.x_container_numbers = ', '.join(
+                c.container_number for c in rec.container_ids
+                if c.container_number) or ''
+
     naviera_id = fields.Many2one('res.partner', string='Naviera (catálogo)')
     forwarder_id = fields.Many2one('res.partner', string='Forwarder (catálogo)')
     pol_id = fields.Many2one('res.partner', string='POL (catálogo)')
