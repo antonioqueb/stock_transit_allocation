@@ -135,7 +135,7 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
 
 /* ── Editor inline de costo (Control → ajuste de precios) ── */
 .costcell { display: inline-flex; align-items: center; gap: 5px; }
-.costcell select {
+.costcell select, .rowcur {
   background: var(--panel2); color: var(--txt);
   border: 1px solid var(--line); border-radius: 8px;
   padding: 4px 4px; font: 700 11px/1.2 inherit;

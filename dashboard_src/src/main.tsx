@@ -1420,31 +1420,21 @@ function fxToMxn(cur: string, fx: Fx): number {
   return 1;
 }
 
+// La divisa la controla la FILA: este editor solo captura el monto en esa
+// divisa y guarda (el backend convierte a MXN con la cadena de la casa).
 function CostEditor(props: { tmplId: number; costMxn: number; currency: string; fx: Fx; onSaved: () => void }) {
-  const initCur = props.currency || "USD";
-  const initFactor = fxToMxn(initCur, props.fx);
-  const [cur, setCur] = useState(initCur);
-  const [v, setV] = useState(
-    props.costMxn && initFactor ? (props.costMxn / initFactor).toFixed(2) : ""
-  );
+  const factor = fxToMxn(props.currency, props.fx) || 1;
+  const [v, setV] = useState(props.costMxn ? (props.costMxn / factor).toFixed(2) : "");
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState("");
 
-  const changeCur = (next: string) => {
-    // Re-expresa el valor actual en la divisa nueva (misma base MXN).
-    const mxn = (parseFloat(v) || 0) * fxToMxn(cur, props.fx);
-    const f = fxToMxn(next, props.fx);
-    setCur(next);
-    setV(mxn && f ? (mxn / f).toFixed(2) : v);
-  };
-
-  const mxnEquiv = (parseFloat(v) || 0) * fxToMxn(cur, props.fx);
+  const mxnEquiv = (parseFloat(v) || 0) * factor;
 
   const save = async () => {
     setSaving(true);
     setErr("");
     try {
-      const r = (await rpc<Rec>("set_cost", [props.tmplId, parseFloat(v) || 0, cur])) as Rec;
+      const r = (await rpc<Rec>("set_cost", [props.tmplId, parseFloat(v) || 0, props.currency])) as Rec;
       if (r && r.error) throw new Error(String(r.error));
       props.onSaved();
     } catch (e) {
@@ -1456,11 +1446,6 @@ function CostEditor(props: { tmplId: number; costMxn: number; currency: string; 
 
   return (
     <span className={"costcell" + (err ? " err" : "")} title={err || undefined}>
-      <select value={cur} onChange={(e) => changeCur(e.target.value)} aria-label="Divisa del costo">
-        <option value="USD">USD</option>
-        <option value="EUR" disabled={!props.fx.eur_usd}>EUR</option>
-        <option value="MXN">MXN</option>
-      </select>
       <input
         value={v}
         inputMode="decimal"
@@ -1471,10 +1456,48 @@ function CostEditor(props: { tmplId: number; costMxn: number; currency: string; 
       <button onClick={save} disabled={saving} title="Guardar costo">
         {saving ? "…" : "✓"}
       </button>
-      {cur !== "MXN" && mxnEquiv > 0 && (
+      {props.currency !== "MXN" && mxnEquiv > 0 && (
         <small className="costmxn">= {money(mxnEquiv)} MXN</small>
       )}
     </span>
+  );
+}
+
+// Fila completa del ajuste de precios: la divisa seleccionada re-expresa
+// TODO — promedio vendido, N1/N2/N3, diferencia y costo (pivote MXN).
+function PriceAdjustRow(props: { r: Rec; fx: Fx; onSaved: () => void }) {
+  const { r, fx } = props;
+  const [cur, setCur] = useState(String(r.costo_divisa || "USD"));
+  const saleFactor = fxToMxn(String(r.cur || "MXN"), fx) || 1;
+  const dispFactor = fxToMxn(cur, fx) || 1;
+  const cv = (v: unknown) => (num(v) * saleFactor) / dispFactor;
+  const diff = cv(r.diff_n1);
+  return (
+    <tr>
+      <td className="ell">{String(r.name)}</td>
+      <td>
+        <select className="rowcur" value={cur} onChange={(e) => setCur(e.target.value)} aria-label="Divisa de la fila"
+                title={`Vendido en ${String(r.cur)}; toda la fila se muestra en la divisa elegida`}>
+          <option value="USD">USD</option>
+          <option value="EUR" disabled={!fx.eur_usd}>EUR</option>
+          <option value="MXN">MXN</option>
+        </select>
+      </td>
+      <td className="r">{n1(r.qty)}</td>
+      <td className="r mut">{n0(r.ordenes)}</td>
+      <td className="r strong">{money(cv(r.avg))}</td>
+      <td className="r">{money(cv(r.n1))}</td>
+      <td className="r mut">{num(r.n2) ? money(cv(r.n2)) : "—"}</td>
+      <td className="r mut">{num(r.n3) ? money(cv(r.n3)) : "—"}</td>
+      <td className="r">
+        <Pill tone={num(r.diff_n1) < 0 ? "bad" : "good"}>
+          {(diff >= 0 ? "+" : "−") + money(Math.abs(diff))} · {pct(Math.abs(num(r.diff_pct)))}
+        </Pill>
+      </td>
+      <td className="r">
+        <CostEditor key={cur} tmplId={num(r.key)} costMxn={num(r.costo)} currency={cur} fx={fx} onSaved={props.onSaved} />
+      </td>
+    </tr>
   );
 }
 
@@ -1518,30 +1541,12 @@ function ControlView(props: { filters: Filters }) {
                 </thead>
                 <tbody>
                   {arr(d.price_adjust).map((r) => (
-                    <tr key={String(r.key) + String(r.cur)}>
-                      <td className="ell">{String(r.name)}</td>
-                      <td className="strong">{String(r.cur)}</td>
-                      <td className="r">{n1(r.qty)}</td>
-                      <td className="r mut">{n0(r.ordenes)}</td>
-                      <td className="r strong">{money(r.avg)}</td>
-                      <td className="r">{money(r.n1)}</td>
-                      <td className="r mut">{num(r.n2) ? money(r.n2) : "—"}</td>
-                      <td className="r mut">{num(r.n3) ? money(r.n3) : "—"}</td>
-                      <td className="r">
-                        <Pill tone={num(r.diff_n1) < 0 ? "bad" : "good"}>
-                          {(num(r.diff_n1) >= 0 ? "+" : "−") + money(Math.abs(num(r.diff_n1)))} · {pct(Math.abs(num(r.diff_pct)))}
-                        </Pill>
-                      </td>
-                      <td className="r">
-                        <CostEditor
-                          tmplId={num(r.key)}
-                          costMxn={num(r.costo)}
-                          currency={String(r.costo_divisa || "USD")}
-                          fx={{ usd_mxn: num((d.fx as Rec)?.usd_mxn), eur_usd: num((d.fx as Rec)?.eur_usd), eur_mxn: num((d.fx as Rec)?.eur_mxn) }}
-                          onSaved={() => q.retry()}
-                        />
-                      </td>
-                    </tr>
+                    <PriceAdjustRow
+                      key={String(r.key) + String(r.cur)}
+                      r={r}
+                      fx={{ usd_mxn: num((d.fx as Rec)?.usd_mxn), eur_usd: num((d.fx as Rec)?.eur_usd), eur_mxn: num((d.fx as Rec)?.eur_mxn) }}
+                      onSaved={() => q.retry()}
+                    />
                   ))}
                 </tbody>
               </table>
