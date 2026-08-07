@@ -477,9 +477,19 @@ function ResumenView(props: { filters: Filters; paused: boolean }) {
 // VENTAS
 // ─────────────────────────────────────────────────────────────────────────────
 function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
-  const q = useData(["dashboard", "comercial", props.filters], () => fetchDashboard("comercial", props.filters as Rec));
-  if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /><Skeleton /></div>;
-  if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
+  // Origen: Odoo (default) vs SPS (legado Stone Profit — órdenes cuya
+  // referencia trae el folio del sistema anterior). No se mezclan.
+  const [source, setSource] = useState<"odoo" | "sps">("odoo");
+  const filters = { ...props.filters, source } as Rec;
+  const q = useData(["dashboard", "comercial", filters], () => fetchDashboard("comercial", filters));
+  const srcSwitch = (
+    <div className="src-switch" role="tablist" aria-label="Origen de las ventas">
+      <button role="tab" aria-selected={source === "odoo"} className={source === "odoo" ? "on" : ""} onClick={() => setSource("odoo")}>Odoo</button>
+      <button role="tab" aria-selected={source === "sps"} className={source === "sps" ? "on" : ""} onClick={() => setSource("sps")}>SPS (legado)</button>
+    </div>
+  );
+  if (q.loading) return <>{srcSwitch}<div className="grid"><Skeleton h={90} /><Skeleton /><Skeleton /><Skeleton /></div></>;
+  if (q.error) return <>{srcSwitch}<ErrorBox msg={q.error} retry={q.retry} /></>;
   const d = q.data!;
   const k = (d.kpis ?? {}) as Rec;
   const cats = arr(d.by_category);
@@ -488,8 +498,9 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
   const customers = arr(d.top_customers);
   return (
     <>
+      {srcSwitch}
       <div className="stats">
-        <Stat label="Venta" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes`} />
+        <Stat label="Venta" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes${source === "sps" ? " · LEGADO SPS" : ""}`} />
         <Stat label="Utilidad all-in" value={money(k.utilidad_mxn)} sub={`Margen ${pct(k.margen_pct)}`} tone={marginTone(num(k.margen_pct))} />
         <Stat label="Conversión cot→orden" value={pct(k.conversion_pct)} sub={`${n0(k.cotizaciones_abiertas)} abiertas`} />
         <Stat label="Descuentos" value={money(k.descuento_mxn)} sub={`Evitado ${money(k.descuento_evitado_mxn)}`} />

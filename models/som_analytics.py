@@ -140,6 +140,13 @@ class SomAnalytics(models.AbstractModel):
         if f.get('currency'):
             where.append('rc.name = %(currency)s')
             params['currency'] = f['currency']
+        # Origen de la venta: 'odoo' = nacida en Odoo (referencia vacía);
+        # 'sps' = LEGADO Stone Profit (la referencia del cliente trae el
+        # folio del sistema anterior). Sin el filtro se mezclan ambas.
+        if f.get('source') == 'sps':
+            where.append("COALESCE(so.client_order_ref, '') != ''")
+        elif f.get('source') == 'odoo':
+            where.append("COALESCE(so.client_order_ref, '') = ''")
         if extra_where:
             where.append(extra_where)
             params.update(extra_params or {})
