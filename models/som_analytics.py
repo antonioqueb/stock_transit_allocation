@@ -1544,9 +1544,80 @@ class SomAnalytics(models.AbstractModel):
         """, default=[(0, 0)])[0]
         lotes_stock, lotes_foto = lot_foto[0] or 0, lot_foto[1] or 0
 
+        # AJUSTE DE PRECIOS: productos vendidos a precio DISTINTO de N1 y
+        # N2 en el periodo — con su escalera N1/N2/N3, costo all-in y
+        # diferencia, para corregir lista de precios o costo.
+        pa_rows = self._sq("""
+            SELECT pt.id,
+                   COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS name,
+                   COALESCE(rc.name, 'MXN') AS cur,
+                   SUM(sol.price_subtotal) AS venta,
+                   SUM(sol.product_uom_qty) AS qty,
+                   COUNT(DISTINCT so.id) AS ordenes,
+                   (pt.x_price_usd_1->>%(cid)s)::float AS u1,
+                   (pt.x_price_usd_2->>%(cid)s)::float AS u2,
+                   (pt.x_price_usd_3->>%(cid)s)::float AS u3,
+                   (pt.x_price_mxn_1->>%(cid)s)::float AS m1,
+                   (pt.x_price_mxn_2->>%(cid)s)::float AS m2,
+                   (pt.x_price_mxn_3->>%(cid)s)::float AS m3,
+                   (pt.x_costo_mayor->>%(cid)s)::float AS costo
+            FROM sale_order_line sol
+            JOIN sale_order so ON so.id = sol.order_id
+                 AND so.state IN ('sale', 'done')
+            JOIN product_product pp ON pp.id = sol.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.type != 'service'
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE sol.display_type IS NULL
+              AND sol.product_uom_qty > 0
+              AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s
+            GROUP BY pt.id, name, cur,
+                     pt.x_price_usd_1, pt.x_price_usd_2, pt.x_price_usd_3,
+                     pt.x_price_mxn_1, pt.x_price_mxn_2, pt.x_price_mxn_3,
+                     pt.x_costo_mayor
+        """, {'cid': self._cid(), 'd1': date_from,
+              'd2': date_to + ' 23:59:59'}, default=[])
+        price_adjust = []
+        for (tid, name, cur, venta, qty, ordenes,
+             u1, u2, u3, m1, m2, m3, costo) in pa_rows:
+            qty = float(qty or 0)
+            if qty <= 0:
+                continue
+            avg = float(venta or 0) / qty
+            if cur == 'USD':
+                n1, n2, n3 = u1 or 0.0, u2 or 0.0, u3 or 0.0
+            else:
+                n1, n2, n3 = m1 or 0.0, m2 or 0.0, m3 or 0.0
+            if not n1:
+                continue
+            tol1 = max(0.01, n1 * 0.005)
+            tol2 = max(0.01, (n2 or n1) * 0.005)
+            if abs(avg - n1) <= tol1 or (n2 and abs(avg - n2) <= tol2):
+                continue
+            price_adjust.append({
+                'key': tid,
+                'name': name,
+                'cur': cur,
+                'qty': round(qty, 1),
+                'ordenes': ordenes,
+                'venta': round(float(venta or 0), 2),
+                'avg': round(avg, 2),
+                'n1': round(n1, 2),
+                'n2': round(n2, 2),
+                'n3': round(n3, 2),
+                'costo': round(float(costo or 0), 2),
+                'diff_n1': round(avg - n1, 2),
+                'diff_pct': round(
+                    (avg - n1) / n1 * 100, 1) if n1 else 0.0,
+            })
+        price_adjust.sort(key=lambda r: -r['venta'])
+        price_adjust = price_adjust[:80]
+
         return {
             'kpis': {
                 'pendientes_total': sum(p['count'] for p in pend),
+                'productos_ajuste_precio': len(price_adjust),
                 'lotes_en_stock': row and total or 0,
                 'sin_proyecto_pct': round(
                     row[1] / row[0] * 100, 1) if row[0] else 0.0,
@@ -1570,7 +1641,33 @@ class SomAnalytics(models.AbstractModel):
             'photos_by_month': photos_by_month,
             'lot_photo_uploaders': lot_uploaders,
             'lot_photos_by_month': lot_photos_by_month,
+            'price_adjust': price_adjust,
         }
+
+    @api.model
+    def set_product_cost(self, tmpl_id, cost):
+        """Ajusta el costo all-in (x_costo_mayor, company dependent) de un
+        producto DESDE el dashboard. Solo Autorizadores de Precios — el
+        Visor puede mirar, no mover costos."""
+        if not self.env.user.has_group(
+                'inventory_shopping_cart.group_price_authorizer'):
+            raise AccessError(_(
+                'Ajustar el costo requiere el permiso de Autorizador '
+                'de Precios.'))
+        tmpl = self.env['product.template'].sudo().browse(int(tmpl_id))
+        if not tmpl.exists():
+            return {'error': 'El producto ya no existe.'}
+        new_cost = round(float(cost or 0.0), 2)
+        old_cost = float(tmpl.x_costo_mayor or 0.0)
+        tmpl.write({'x_costo_mayor': new_cost})
+        tmpl.message_post(body=_(
+            'Costo all-in ajustado desde SOM Analytics: %(old).2f → '
+            '%(new).2f (por %(user)s).',
+            old=old_cost, new=new_cost, user=self.env.user.name))
+        _logger.info(
+            '[SOM Analytics] %s ajustó costo all-in de %s: %s → %s',
+            self.env.user.login, tmpl.display_name, old_cost, new_cost)
+        return {'ok': True, 'cost': new_cost}
 
     # ── TRÁNSITO ───────────────────────────────────────────────────────
     def _transit_pack(self, f):

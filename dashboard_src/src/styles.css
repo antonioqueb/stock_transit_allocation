@@ -133,6 +133,23 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
 .pill.mid { background: var(--mid-bg); color: var(--mid); }
 .pill.bad { background: var(--bad-bg); color: var(--bad); }
 
+/* ── Editor inline de costo (Control → ajuste de precios) ── */
+.costcell { display: inline-flex; align-items: center; gap: 5px; }
+.costcell input {
+  width: 96px; text-align: right;
+  background: var(--panel2); color: var(--txt);
+  border: 1px solid var(--line); border-radius: 8px;
+  padding: 4px 8px; font: 600 12.5px/1.2 inherit;
+  font-variant-numeric: tabular-nums;
+}
+.costcell input:focus { outline: 2px solid var(--sky); border-color: var(--sky); }
+.costcell button {
+  width: 26px; height: 26px; border-radius: 8px;
+  background: var(--blue); color: #fff; font-weight: 800;
+}
+.costcell button:disabled { opacity: .5; }
+.costcell.err input { border-color: var(--red); }
+
 /* ── Barras de completitud (Control) ── */
 .bars { display: flex; flex-direction: column; gap: 9px; }
 .bar-row { display: grid; grid-template-columns: 150px 1fr 58px; gap: 10px; align-items: center; font-size: 13px; }

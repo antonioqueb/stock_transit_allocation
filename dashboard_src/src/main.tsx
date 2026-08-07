@@ -5,7 +5,7 @@ import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import {
-  arr, num, money, n0, n1, pct, monthLabel, marginTone, Rec,
+  arr, num, money, n0, n1, pct, monthLabel, marginTone, Rec, rpc,
   fetchExec, fetchBanks, fetchOrderLines, fetchTimeToSell,
   fetchDashboard, fetchDrill,
 } from "./api";
@@ -1409,6 +1409,40 @@ function PronosticosView() {
   );
 }
 
+// Editor inline del costo all-in (solo Autorizadores; el backend valida).
+function CostEditor(props: { tmplId: number; value: number; onSaved: () => void }) {
+  const [v, setV] = useState(String(props.value || ""));
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    setErr(false);
+    try {
+      const r = (await rpc<Rec>("set_cost", [props.tmplId, parseFloat(v) || 0])) as Rec;
+      if (r && r.error) throw new Error(String(r.error));
+      props.onSaved();
+    } catch {
+      setErr(true);
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <span className={"costcell" + (err ? " err" : "")}>
+      <input
+        value={v}
+        inputMode="decimal"
+        onChange={(e) => setV(e.target.value.replace(/[^0-9.]/g, ""))}
+        onKeyDown={(e) => e.key === "Enter" && !saving && save()}
+        aria-label="Costo all-in"
+      />
+      <button onClick={save} disabled={saving} title={err ? "No se pudo guardar (¿permiso de autorizador?)" : "Guardar costo"}>
+        {saving ? "…" : "✓"}
+      </button>
+    </span>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // CONTROL
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1424,6 +1458,7 @@ function ControlView(props: { filters: Filters }) {
     <>
       <div className="stats">
         <Stat label="Pendientes totales" value={n0(k.pendientes_total)} sub="meta: bandeja en cero" tone={num(k.pendientes_total) > 0 ? "mid" : "good"} />
+        <Stat label="Productos con ajuste de precio" value={n0(k.productos_ajuste_precio)} sub="vendidos fuera de N1/N2" tone={num(k.productos_ajuste_precio) > 0 ? "mid" : "good"} />
         <Stat label="Lotes en stock" value={n0(k.lotes_en_stock)} />
         <Stat label="Lotes con fotografía" value={pct(k.lotes_foto_pct)} sub={`${n0(k.lotes_con_foto)} lotes en stock con foto`} tone={num(k.lotes_foto_pct) < 70 ? "bad" : num(k.lotes_foto_pct) < 90 ? "mid" : "good"} />
         <Stat label="Fotos de lote este mes" value={n0(k.fotos_lote_mes)} sub={`${n0(k.fotos_lote_total)} en total`} />
@@ -1432,6 +1467,46 @@ function ControlView(props: { filters: Filters }) {
         <Stat label="Sin referencia del cliente" value={pct(k.sin_referencia_pct)} tone={num(k.sin_referencia_pct) > 30 ? "mid" : ""} />
       </div>
       <div className="grid">
+        <Panel title="Ajuste de precios — vendidos fuera de N1/N2 en el periodo" hint="promedio real de venta vs escalera; edita el costo all-in aquí mismo" wide>
+          {!arr(d.price_adjust).length ? <Empty msg="Todo lo vendido en el periodo salió a N1 o N2 — sin ajustes pendientes" /> : (
+            <div className="tablewrap tall">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Producto</th><th>Div</th>
+                    <th className="r">Cant.</th><th className="r">Órdenes</th>
+                    <th className="r">Prom. vendido</th>
+                    <th className="r">N1</th><th className="r">N2</th><th className="r">N3</th>
+                    <th className="r">Dif vs N1</th>
+                    <th className="r">Costo all-in (MXN)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {arr(d.price_adjust).map((r) => (
+                    <tr key={String(r.key) + String(r.cur)}>
+                      <td className="ell">{String(r.name)}</td>
+                      <td className="strong">{String(r.cur)}</td>
+                      <td className="r">{n1(r.qty)}</td>
+                      <td className="r mut">{n0(r.ordenes)}</td>
+                      <td className="r strong">{money(r.avg)}</td>
+                      <td className="r">{money(r.n1)}</td>
+                      <td className="r mut">{num(r.n2) ? money(r.n2) : "—"}</td>
+                      <td className="r mut">{num(r.n3) ? money(r.n3) : "—"}</td>
+                      <td className="r">
+                        <Pill tone={num(r.diff_n1) < 0 ? "bad" : "good"}>
+                          {(num(r.diff_n1) >= 0 ? "+" : "−") + money(Math.abs(num(r.diff_n1)))} · {pct(Math.abs(num(r.diff_pct)))}
+                        </Pill>
+                      </td>
+                      <td className="r">
+                        <CostEditor tmplId={num(r.key)} value={num(r.costo)} onSaved={() => q.retry()} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Panel>
         <Panel title="Bandeja de pendientes — todo lo que espera una decisión" wide>
           <div className="tablewrap">
             <table>
