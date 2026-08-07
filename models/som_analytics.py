@@ -1560,7 +1560,8 @@ class SomAnalytics(models.AbstractModel):
                    (pt.x_price_mxn_1->>%(cid)s)::float AS m1,
                    (pt.x_price_mxn_2->>%(cid)s)::float AS m2,
                    (pt.x_price_mxn_3->>%(cid)s)::float AS m3,
-                   (pt.x_costo_mayor->>%(cid)s)::float AS costo
+                   (pt.x_costo_mayor->>%(cid)s)::float AS costo,
+                   COALESCE(pt.x_costo_divisa, 'USD') AS cdiv
             FROM sale_order_line sol
             JOIN sale_order so ON so.id = sol.order_id
                  AND so.state IN ('sale', 'done')
@@ -1575,12 +1576,12 @@ class SomAnalytics(models.AbstractModel):
             GROUP BY pt.id, pt.name, COALESCE(rc.name, 'MXN'),
                      pt.x_price_usd_1, pt.x_price_usd_2, pt.x_price_usd_3,
                      pt.x_price_mxn_1, pt.x_price_mxn_2, pt.x_price_mxn_3,
-                     pt.x_costo_mayor
+                     pt.x_costo_mayor, COALESCE(pt.x_costo_divisa, 'USD')
         """, {'cid': self._cid(), 'd1': date_from,
               'd2': date_to + ' 23:59:59'}, default=[])
         price_adjust = []
         for (tid, name, cur, venta, qty, ordenes,
-             u1, u2, u3, m1, m2, m3, costo) in pa_rows:
+             u1, u2, u3, m1, m2, m3, costo, cdiv) in pa_rows:
             qty = float(qty or 0)
             if qty <= 0:
                 continue
@@ -1607,12 +1608,15 @@ class SomAnalytics(models.AbstractModel):
                 'n2': round(n2, 2),
                 'n3': round(n3, 2),
                 'costo': round(float(costo or 0), 2),
+                'costo_divisa': cdiv or 'USD',
                 'diff_n1': round(avg - n1, 2),
                 'diff_pct': round(
                     (avg - n1) / n1 * 100, 1) if n1 else 0.0,
             })
         price_adjust.sort(key=lambda r: -r['venta'])
         price_adjust = price_adjust[:80]
+        fx_usd = self._current_usd_rate()
+        fx_eur_usd = self._eur_usd_rate()
 
         return {
             'kpis': {
@@ -1642,32 +1646,95 @@ class SomAnalytics(models.AbstractModel):
             'lot_photo_uploaders': lot_uploaders,
             'lot_photos_by_month': lot_photos_by_month,
             'price_adjust': price_adjust,
+            'fx': {
+                'usd_mxn': fx_usd,
+                'eur_usd': fx_eur_usd,
+                'eur_mxn': round(fx_eur_usd * fx_usd, 4)
+                if fx_eur_usd and fx_usd else 0.0,
+            },
         }
 
+    def _eur_usd_rate(self):
+        """EUR→USD desde las tasas de res.currency (el tramo USD→MXN
+        siempre es Banorte). 0.0 si EUR no está configurado."""
+        try:
+            eur = self.env.ref('base.EUR', raise_if_not_found=False)
+            usd = self.env.ref('base.USD', raise_if_not_found=False)
+            if eur and usd and eur.active and eur.rate and usd.rate:
+                return round(usd.rate / eur.rate, 4)
+        except Exception:
+            _logger.debug('[SOM Analytics] tasa EUR', exc_info=True)
+        return 0.0
+
     @api.model
-    def set_product_cost(self, tmpl_id, cost):
-        """Ajusta el costo all-in (x_costo_mayor, company dependent) de un
-        producto DESDE el dashboard. Solo Autorizadores de Precios — el
-        Visor puede mirar, no mover costos."""
+    def set_product_cost(self, tmpl_id, cost, currency='MXN'):
+        """Ajusta el costo all-in DESDE el dashboard, capturado en la
+        divisa del producto. Se guarda SIEMPRE en MXN (x_costo_mayor):
+        USD × TC Banorte; EUR primero a USD (tasa EUR/USD) y luego a MXN
+        con Banorte. La divisa capturada queda como preferida del
+        producto (x_costo_divisa). Solo Autorizadores de Precios."""
         if not self.env.user.has_group(
                 'inventory_shopping_cart.group_price_authorizer'):
             raise AccessError(_(
                 'Ajustar el costo requiere el permiso de Autorizador '
                 'de Precios.'))
+        currency = (currency or 'MXN').upper()
+        if currency not in ('MXN', 'USD', 'EUR'):
+            return {'error': 'Divisa no soportada: %s' % currency}
         tmpl = self.env['product.template'].sudo().browse(int(tmpl_id))
         if not tmpl.exists():
             return {'error': 'El producto ya no existe.'}
-        new_cost = round(float(cost or 0.0), 2)
+
+        amount = round(float(cost or 0.0), 4)
+        usd_mxn = self._current_usd_rate()
+        eur_usd = self._eur_usd_rate()
+        if currency == 'USD':
+            if usd_mxn <= 0:
+                return {'error': 'No hay TC Banorte USD/MXN disponible.'}
+            new_cost = amount * usd_mxn
+            detail = '%.2f USD × %.4f' % (amount, usd_mxn)
+        elif currency == 'EUR':
+            if eur_usd <= 0:
+                return {'error': 'No hay tasa EUR/USD configurada en '
+                                 'divisas.'}
+            if usd_mxn <= 0:
+                return {'error': 'No hay TC Banorte USD/MXN disponible.'}
+            new_cost = amount * eur_usd * usd_mxn
+            detail = ('%.2f EUR × %.4f (EUR→USD) × %.4f (Banorte)'
+                      % (amount, eur_usd, usd_mxn))
+        else:
+            new_cost = amount
+            detail = '%.2f MXN directo' % amount
+
+        new_cost = round(new_cost, 2)
         old_cost = float(tmpl.x_costo_mayor or 0.0)
-        tmpl.write({'x_costo_mayor': new_cost})
+        tmpl.write({
+            'x_costo_mayor': new_cost,
+            'x_costo_divisa': currency,
+        })
         tmpl.message_post(body=_(
             'Costo all-in ajustado desde SOM Analytics: %(old).2f → '
-            '%(new).2f (por %(user)s).',
-            old=old_cost, new=new_cost, user=self.env.user.name))
+            '%(new).2f MXN [%(detail)s] (por %(user)s).',
+            old=old_cost, new=new_cost, detail=detail,
+            user=self.env.user.name))
         _logger.info(
-            '[SOM Analytics] %s ajustó costo all-in de %s: %s → %s',
-            self.env.user.login, tmpl.display_name, old_cost, new_cost)
-        return {'ok': True, 'cost': new_cost}
+            '[SOM Analytics] %s ajustó costo all-in de %s: %s → %s MXN '
+            '(%s)', self.env.user.login, tmpl.display_name, old_cost,
+            new_cost, detail)
+        return {'ok': True, 'cost_mxn': new_cost, 'currency': currency}
+
+
+class ProductTemplateCostCurrency(models.Model):
+    _inherit = 'product.template'
+
+    x_costo_divisa = fields.Selection([
+        ('MXN', 'MXN'),
+        ('USD', 'USD'),
+        ('EUR', 'EUR'),
+    ], string='Divisa del costo all-in', default='USD',
+        help='Divisa en la que se captura/visualiza el costo all-in en el '
+             'dashboard. El costo siempre se GUARDA en MXN (EUR convierte '
+             'primero a USD y luego a MXN con TC Banorte).')
 
     # ── TRÁNSITO ───────────────────────────────────────────────────────
     def _transit_pack(self, f):

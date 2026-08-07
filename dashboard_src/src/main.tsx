@@ -1409,26 +1409,58 @@ function PronosticosView() {
   );
 }
 
-// Editor inline del costo all-in (solo Autorizadores; el backend valida).
-function CostEditor(props: { tmplId: number; value: number; onSaved: () => void }) {
-  const [v, setV] = useState(String(props.value || ""));
+// Editor inline del costo all-in en DIVISA (EUR/USD/MXN). Se captura en
+// la divisa del producto y se guarda en MXN: USD × Banorte; EUR primero
+// a USD y luego a MXN (regla de la casa). Solo Autorizadores.
+type Fx = { usd_mxn: number; eur_usd: number; eur_mxn: number };
+
+function fxToMxn(cur: string, fx: Fx): number {
+  if (cur === "USD") return fx.usd_mxn || 0;
+  if (cur === "EUR") return fx.eur_mxn || 0;
+  return 1;
+}
+
+function CostEditor(props: { tmplId: number; costMxn: number; currency: string; fx: Fx; onSaved: () => void }) {
+  const initCur = props.currency || "USD";
+  const initFactor = fxToMxn(initCur, props.fx);
+  const [cur, setCur] = useState(initCur);
+  const [v, setV] = useState(
+    props.costMxn && initFactor ? (props.costMxn / initFactor).toFixed(2) : ""
+  );
   const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState(false);
+  const [err, setErr] = useState("");
+
+  const changeCur = (next: string) => {
+    // Re-expresa el valor actual en la divisa nueva (misma base MXN).
+    const mxn = (parseFloat(v) || 0) * fxToMxn(cur, props.fx);
+    const f = fxToMxn(next, props.fx);
+    setCur(next);
+    setV(mxn && f ? (mxn / f).toFixed(2) : v);
+  };
+
+  const mxnEquiv = (parseFloat(v) || 0) * fxToMxn(cur, props.fx);
+
   const save = async () => {
     setSaving(true);
-    setErr(false);
+    setErr("");
     try {
-      const r = (await rpc<Rec>("set_cost", [props.tmplId, parseFloat(v) || 0])) as Rec;
+      const r = (await rpc<Rec>("set_cost", [props.tmplId, parseFloat(v) || 0, cur])) as Rec;
       if (r && r.error) throw new Error(String(r.error));
       props.onSaved();
-    } catch {
-      setErr(true);
+    } catch (e) {
+      setErr((e as Error).message || "error");
     } finally {
       setSaving(false);
     }
   };
+
   return (
-    <span className={"costcell" + (err ? " err" : "")}>
+    <span className={"costcell" + (err ? " err" : "")} title={err || undefined}>
+      <select value={cur} onChange={(e) => changeCur(e.target.value)} aria-label="Divisa del costo">
+        <option value="USD">USD</option>
+        <option value="EUR" disabled={!props.fx.eur_usd}>EUR</option>
+        <option value="MXN">MXN</option>
+      </select>
       <input
         value={v}
         inputMode="decimal"
@@ -1436,9 +1468,12 @@ function CostEditor(props: { tmplId: number; value: number; onSaved: () => void 
         onKeyDown={(e) => e.key === "Enter" && !saving && save()}
         aria-label="Costo all-in"
       />
-      <button onClick={save} disabled={saving} title={err ? "No se pudo guardar (¿permiso de autorizador?)" : "Guardar costo"}>
+      <button onClick={save} disabled={saving} title="Guardar costo">
         {saving ? "…" : "✓"}
       </button>
+      {cur !== "MXN" && mxnEquiv > 0 && (
+        <small className="costmxn">= {money(mxnEquiv)} MXN</small>
+      )}
     </span>
   );
 }
@@ -1467,7 +1502,7 @@ function ControlView(props: { filters: Filters }) {
         <Stat label="Sin referencia del cliente" value={pct(k.sin_referencia_pct)} tone={num(k.sin_referencia_pct) > 30 ? "mid" : ""} />
       </div>
       <div className="grid">
-        <Panel title="Ajuste de precios — vendidos fuera de N1/N2 en el periodo" hint="promedio real de venta vs escalera; edita el costo all-in aquí mismo" wide>
+        <Panel title="Ajuste de precios — vendidos fuera de N1/N2 en el periodo" hint={`edita el costo en la divisa del producto — TC Banorte ${n1((d.fx as Rec)?.usd_mxn)} · EUR/USD ${n1((d.fx as Rec)?.eur_usd)}`} wide>
           {!arr(d.price_adjust).length ? <Empty msg="Todo lo vendido en el periodo salió a N1 o N2 — sin ajustes pendientes" /> : (
             <div className="tablewrap tall">
               <table>
@@ -1478,7 +1513,7 @@ function ControlView(props: { filters: Filters }) {
                     <th className="r">Prom. vendido</th>
                     <th className="r">N1</th><th className="r">N2</th><th className="r">N3</th>
                     <th className="r">Dif vs N1</th>
-                    <th className="r">Costo all-in (MXN)</th>
+                    <th className="r">Costo all-in</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1498,7 +1533,13 @@ function ControlView(props: { filters: Filters }) {
                         </Pill>
                       </td>
                       <td className="r">
-                        <CostEditor tmplId={num(r.key)} value={num(r.costo)} onSaved={() => q.retry()} />
+                        <CostEditor
+                          tmplId={num(r.key)}
+                          costMxn={num(r.costo)}
+                          currency={String(r.costo_divisa || "USD")}
+                          fx={{ usd_mxn: num((d.fx as Rec)?.usd_mxn), eur_usd: num((d.fx as Rec)?.eur_usd), eur_mxn: num((d.fx as Rec)?.eur_mxn) }}
+                          onSaved={() => q.retry()}
+                        />
                       </td>
                     </tr>
                   ))}

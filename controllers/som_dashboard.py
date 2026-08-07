@@ -25,7 +25,7 @@ _RPC_WHITELIST = {
     'banks': ('get_bank_balances', 0),
     'order_lines': ('get_order_lines', 1),
     'time_to_sell': ('get_time_to_sell', 1),
-    'set_cost': ('set_product_cost', 2),
+    'set_cost': ('set_product_cost', 3),
 }
 
 
