@@ -1,107 +1,178 @@
-/* To Be Loading — bandeja de pedidos por completar (branding azul SOM). */
-.tbl-app {
+// ============================================================================
+// Open PO — réplica del lenguaje visual de To Be Purchased
+// Paleta: dominante #5CB9F2 · soporte #4BA4F2 · hielo #DCEAF2
+//         verde #04D94F · amarillo #F2B705 · cabecera de tabla negra
+// ============================================================================
+
+$opo-bg: #eef8fe;
+$opo-panel: #ffffff;
+$opo-panel-soft: #f8fcff;
+$opo-text: #0f172a;
+$opo-text-2: #284256;
+$opo-muted: #60798c;
+$opo-muted-2: #91a9b8;
+$opo-border: #d7e8f2;
+$opo-border-strong: #bdd7e8;
+$opo-blue: #5CB9F2;
+$opo-blue-dark: #247fbd;
+$opo-blue-deep: #155f94;
+$opo-green-dark: #047a31;
+$opo-red-dark: #991b1b;
+$opo-head: #0f172a;
+$opo-shadow-sm: 0 4px 14px rgba(75, 164, 242, 0.09);
+$opo-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
+
+.o_opo_root {
     height: 100%;
     overflow-y: auto;
-    background: #eef8fe;
-    padding: 18px 22px 40px;
+    background: $opo-bg;
+    padding: 14px 18px 40px;
 
-    .tbl-topbar {
+    // ── Toolbar ──
+    .o_opo_toolbar {
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: 12px;
         flex-wrap: wrap;
-        margin-bottom: 16px;
+        margin-bottom: 14px;
+    }
+    .o_opo_search {
+        position: relative;
+        display: flex;
+        align-items: center;
+        width: 340px;
+        background: $opo-panel;
+        border: 1px solid $opo-border-strong;
+        border-radius: 999px;
+        padding: 0 14px;
+        box-shadow: $opo-shadow-sm;
 
-        .tbl-title {
-            flex: 1;
-            min-width: 240px;
-            h1 { margin: 0; font-size: 21px; font-weight: 800; color: #0f172a; }
-            p { margin: 2px 0 0; font-size: 12.5px; color: #60798c; }
+        &:focus-within { border-color: $opo-blue; }
+        .o_opo_search_icon { color: $opo-muted-2; }
+        .o_opo_search_input {
+            flex: 1; border: 0; outline: none; background: transparent;
+            padding: 9px 10px; font-size: 13px; color: $opo-text;
         }
-        .tbl-search {
-            width: 300px;
-            padding: 9px 14px;
-            border: 1px solid #bdd7e8;
-            border-radius: 10px;
-            font-size: 13px;
-            background: #fff;
-            &:focus { outline: 2px solid #5cb9f2; border-color: #5cb9f2; }
-        }
-        .tbl-count {
-            font-size: 12px; font-weight: 700; color: #155f94;
-            background: #dceaf2; border-radius: 999px; padding: 6px 14px;
+        .o_opo_search_clear {
+            border: 0; background: transparent; color: $opo-muted-2;
+            cursor: pointer; padding: 4px;
+            &:hover { color: $opo-red-dark; }
         }
     }
-
-    .tbl-empty, .tbl-error {
-        padding: 40px; text-align: center; color: #60798c; font-size: 14px;
-        background: #fff; border: 1px dashed #bdd7e8; border-radius: 14px;
+    .o_opo_toolbar_spacer { flex: 1; }
+    .o_opo_metrics { display: flex; gap: 8px; }
+    .o_opo_metric {
+        background: $opo-panel;
+        border: 1px solid $opo-border;
+        border-radius: 12px;
+        padding: 5px 14px;
+        text-align: center;
+        box-shadow: $opo-shadow-sm;
+        .o_opo_metric_label {
+            display: block; font-size: 9.5px; font-weight: 700;
+            text-transform: uppercase; letter-spacing: .05em; color: $opo-muted;
+        }
+        .o_opo_metric_value { font-size: 15px; font-weight: 800; color: $opo-text; }
     }
-    .tbl-error button {
-        margin-left: 12px; border: 0; background: #247fbd; color: #fff;
-        border-radius: 8px; padding: 6px 14px; font-weight: 600; cursor: pointer;
+
+    // ── Estados ──
+    .o_opo_empty {
+        padding: 40px; text-align: center; color: $opo-muted; font-size: 14px;
+        background: $opo-panel; border: 1px dashed $opo-border-strong; border-radius: 16px;
+    }
+    .o_opo_error { color: $opo-red-dark; }
+
+    // ── Grupos por proforma ──
+    .o_opo_groups { display: flex; flex-direction: column; gap: 12px; }
+    .o_opo_group {
+        background: $opo-panel;
+        border: 1px solid $opo-border;
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: $opo-shadow-sm;
+        transition: box-shadow .15s;
+        &:hover { box-shadow: $opo-shadow-md; }
     }
 
-    .tbl-tablewrap {
-        background: #fff;
-        border: 1px solid #d7e8f2;
-        border-radius: 14px;
-        overflow: auto;
+    .o_opo_group_head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        padding: 12px 16px;
+        cursor: pointer;
+        background: linear-gradient(180deg, $opo-panel-soft, $opo-panel);
+        flex-wrap: wrap;
     }
+    .o_opo_group_left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .o_opo_chevron { color: $opo-blue-dark; font-size: 12px; width: 14px; }
+    .o_opo_group_title {
+        display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+        .o_opo_pi_tag {
+            font-size: 9px; font-weight: 800; letter-spacing: .08em;
+            background: $opo-blue-deep; color: #fff;
+            border-radius: 5px; padding: 2px 6px;
+        }
+        .o_opo_pi { font-size: 15px; font-weight: 800; color: $opo-text; }
+        .o_opo_po {
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 12px; font-weight: 700; color: $opo-blue-dark;
+            background: rgba(92, 185, 242, 0.14);
+            border-radius: 999px; padding: 2px 10px;
+        }
+    }
+    .o_opo_group_sub { font-size: 11.5px; color: $opo-muted; margin-top: 1px; }
 
-    .tbl-table {
+    .o_opo_group_stats { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .o_opo_pill {
+        display: inline-flex; flex-direction: column; align-items: center;
+        background: $opo-panel-soft;
+        border: 1px solid $opo-border;
+        border-radius: 12px;
+        padding: 4px 14px;
+        .o_opo_pill_label {
+            font-size: 9px; font-weight: 700; text-transform: uppercase;
+            letter-spacing: .05em; color: $opo-muted;
+        }
+        .o_opo_pill_value { font-size: 13.5px; font-weight: 800; color: $opo-text; }
+        &.o_opo_pill_diff.over .o_opo_pill_value { color: $opo-green-dark; }
+        &.o_opo_pill_diff.under .o_opo_pill_value { color: $opo-red-dark; }
+    }
+    .o_opo_open_btn { border-radius: 999px; font-weight: 700; }
+
+    // ── Tabla de productos (cabecera negra, como TBP) ──
+    .o_opo_group_body { border-top: 1px solid $opo-border; }
+    .o_opo_table {
         width: 100%;
         border-collapse: collapse;
         font-size: 13px;
 
         th {
-            position: sticky; top: 0; z-index: 1;
-            background: #f8fcff;
+            background: $opo-head;
+            color: #fff;
             text-align: left;
-            padding: 10px 14px;
-            font-size: 10.5px; font-weight: 800;
-            text-transform: uppercase; letter-spacing: .05em;
-            color: #60798c;
-            border-bottom: 1px solid #d7e8f2;
+            padding: 8px 16px;
+            font-size: 10px; font-weight: 800;
+            text-transform: uppercase; letter-spacing: .06em;
             &.r { text-align: right; }
+            &.c { text-align: center; width: 170px; }
         }
-
         td {
-            padding: 9px 14px;
-            border-bottom: 1px solid #e6f4fc;
+            padding: 8px 16px;
+            border-bottom: 1px solid rgba(215, 232, 242, 0.6);
             vertical-align: middle;
-            white-space: nowrap;
-            &.r { text-align: right; }
-            &.mono { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: #155f94; }
-            &.ell { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
-            &.mut { color: #91a9b8; }
-            &.strong { font-weight: 700; color: #0f172a; }
-            &.diff { font-weight: 800; }
-            &.diff.over { color: #0b6e38; }
-            &.diff.under { color: #b91c1c; }
+            &.r { text-align: right; white-space: nowrap; }
+            &.c { text-align: center; }
+            &.strong { font-weight: 800; color: $opo-text; }
         }
+        tbody tr:last-child td { border-bottom: 0; }
+        tbody tr:hover { background: $opo-panel-soft; }
 
-        tbody tr {
-            cursor: pointer;
-            &:hover { background: #f0f8ff; .tbl-open { opacity: 1; } }
-        }
-    }
-
-    .tbl-diffcell {
-        white-space: normal !important;
-        max-width: 420px;
-    }
-    .tbl-diffchip {
-        display: inline-flex; align-items: center; gap: 6px;
-        margin: 2px 6px 2px 0; padding: 2px 9px;
-        background: #f1f5f9; border-radius: 999px;
-        font-size: 11px; color: #284256;
-        b.over { color: #0b6e38; }
-        b.under { color: #b91c1c; }
-    }
-    .tbl-opencell { text-align: right; }
-    .tbl-open {
-        font-size: 12px; font-weight: 700; color: #247fbd;
-        opacity: .5; white-space: nowrap;
+        .o_opo_prod { font-weight: 600; color: $opo-text-2; }
+        .o_opo_uom { font-size: 10px; color: $opo-muted-2; }
+        .o_opo_diff { font-weight: 800; }
+        .o_opo_diff.over { color: $opo-green-dark; }
+        .o_opo_diff.under { color: $opo-red-dark; }
+        .o_opo_close_btn { border-radius: 999px; font-weight: 700; font-size: 11.5px; }
     }
 }

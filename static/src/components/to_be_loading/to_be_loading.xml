@@ -1,69 +1,126 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <templates xml:space="preserve">
     <t t-name="stock_transit_allocation.ToBeLoading" owl="1">
-        <div class="tbl-app">
-            <div class="tbl-topbar">
-                <div class="tbl-title">
-                    <h1>Open PO</h1>
-                    <p>Pedidos con material embarcado DIFERENTE a lo solicitado</p>
+        <div class="o_opo_root">
+
+            <!-- Toolbar (mismo lenguaje que To Be Purchased) -->
+            <div class="o_opo_toolbar">
+                <div class="o_opo_search">
+                    <i class="fa fa-search o_opo_search_icon"/>
+                    <input type="text"
+                           class="o_opo_search_input"
+                           placeholder="Buscar pedido, proveedor, PI o producto..."
+                           t-att-value="state.search"
+                           t-on-input="onSearchInput"/>
+                    <button class="o_opo_search_clear" t-if="state.search" t-on-click="clearSearch">
+                        <i class="fa fa-times"/>
+                    </button>
                 </div>
-                <input class="tbl-search" type="text" placeholder="Buscar pedido, proveedor o PI…"
-                       t-att-value="state.search" t-on-input="onSearchInput"/>
-                <span class="tbl-count" t-if="!state.loading">
-                    <t t-esc="state.filtered.length"/> pedidos
-                </span>
+
+                <div class="o_opo_toolbar_spacer"/>
+
+                <div class="o_opo_metrics">
+                    <div class="o_opo_metric">
+                        <span class="o_opo_metric_label">Proformas</span>
+                        <span class="o_opo_metric_value"><t t-esc="filteredGroups.length"/></span>
+                    </div>
+                    <div class="o_opo_metric">
+                        <span class="o_opo_metric_label">Productos con dif.</span>
+                        <span class="o_opo_metric_value"><t t-esc="totalProducts"/></span>
+                    </div>
+                </div>
+
+                <button type="button" class="btn btn-sm btn-outline-primary"
+                        t-on-click="loadData" t-att-disabled="state.loading">
+                    <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'} me-1"/>
+                    Actualizar
+                </button>
             </div>
 
-            <div t-if="state.loading" class="tbl-empty">Cargando…</div>
-            <div t-elif="state.error" class="tbl-error">
-                <span t-esc="state.error"/>
-                <button t-on-click="loadData">Reintentar</button>
+            <div t-if="state.loading" class="o_opo_empty">
+                <i class="fa fa-circle-o-notch fa-spin me-2"/> Cargando pedidos con diferencias...
             </div>
-            <div t-elif="!state.filtered.length" class="tbl-empty">
+            <div t-elif="state.error" class="o_opo_empty o_opo_error">
+                <span t-esc="state.error"/>
+                <button class="btn btn-sm btn-primary ms-2" t-on-click="loadData">Reintentar</button>
+            </div>
+            <div t-elif="!filteredGroups.length" class="o_opo_empty">
+                <i class="fa fa-check-circle me-2" style="color: #04D94F;"/>
                 Sin discrepancias: todo lo embarcado coincide con lo solicitado.
             </div>
 
-            <div t-else="" class="tbl-tablewrap">
-                <table class="tbl-table">
-                    <thead>
-                        <tr>
-                            <th>Pedido</th>
-                            <th>Proveedor</th>
-                            <th>PI</th>
-                            <th>Confirmado</th>
-                            <th class="r">Solicitado</th>
-                            <th class="r">Embarcado</th>
-                            <th class="r">Diferencia</th>
-                            <th>Productos con diferencia</th>
-                            <th></th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr t-foreach="state.filtered" t-as="row" t-key="row.po_id"
-                            t-on-click="() => this.openOrder(row)">
-                            <td class="mono" t-esc="row.name"/>
-                            <td class="ell" t-esc="row.partner"/>
-                            <td class="mono" t-esc="row.pi or '—'"/>
-                            <td class="mut" t-esc="row.date"/>
-                            <td class="r" t-esc="fmt(row.solicitado)"/>
-                            <td class="r strong" t-esc="fmt(row.embarcado)"/>
-                            <td t-att-class="'r diff ' + (row.diff &gt; 0 ? 'over' : 'under')">
-                                <t t-esc="(row.diff &gt; 0 ? '+' : '') + fmt(row.diff)"/>
-                            </td>
-                            <td class="tbl-diffcell">
-                                <span t-foreach="row.diff_lines" t-as="d" t-key="d_index"
-                                      class="tbl-diffchip"
-                                      t-att-title="d.product + ': solicitado ' + fmt(d.solicitado) + ' / embarcado ' + fmt(d.embarcado)">
-                                    <t t-esc="d.product"/>
-                                    <b t-att-class="d.diff &gt; 0 ? 'over' : 'under'">
-                                        <t t-esc="(d.diff &gt; 0 ? '+' : '') + fmt(d.diff)"/>
-                                    </b>
-                                </span>
-                            </td>
-                            <td class="tbl-opencell"><span class="tbl-open">Abrir →</span></td>
-                        </tr>
-                    </tbody>
-                </table>
+            <div t-else="" class="o_opo_groups">
+                <div t-foreach="filteredGroups" t-as="g" t-key="g.po_id" class="o_opo_group">
+
+                    <!-- Cabecera del grupo: la PROFORMA -->
+                    <div class="o_opo_group_head" t-on-click="() => this.toggleGroup(g)">
+                        <div class="o_opo_group_left">
+                            <i t-attf-class="fa o_opo_chevron #{isCollapsed(g) ? 'fa-chevron-right' : 'fa-chevron-down'}"/>
+                            <div class="o_opo_group_titles">
+                                <div class="o_opo_group_title">
+                                    <span class="o_opo_pi_tag">PI</span>
+                                    <span class="o_opo_pi" t-esc="g.pi or 'Sin PI'"/>
+                                    <span class="o_opo_po mono" t-esc="g.po_name"/>
+                                </div>
+                                <div class="o_opo_group_sub">
+                                    <t t-esc="g.partner"/> · confirmado <t t-esc="g.date"/>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="o_opo_group_stats">
+                            <span class="o_opo_pill">
+                                <span class="o_opo_pill_label">Solicitado</span>
+                                <span class="o_opo_pill_value"><t t-esc="fmt(g.solicitado)"/></span>
+                            </span>
+                            <span class="o_opo_pill">
+                                <span class="o_opo_pill_label">Embarcado</span>
+                                <span class="o_opo_pill_value"><t t-esc="fmt(g.embarcado)"/></span>
+                            </span>
+                            <span t-attf-class="o_opo_pill o_opo_pill_diff #{g.diff &gt; 0 ? 'over' : 'under'}">
+                                <span class="o_opo_pill_label">Diferencia</span>
+                                <span class="o_opo_pill_value"><t t-esc="diffLabel(g.diff)"/></span>
+                            </span>
+                            <button class="btn btn-sm btn-primary o_opo_open_btn"
+                                    t-on-click.stop="() => this.openOrder(g)">
+                                <i class="fa fa-external-link me-1"/> Abrir orden
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Productos de la proforma -->
+                    <div t-if="!isCollapsed(g)" class="o_opo_group_body">
+                        <table class="o_opo_table">
+                            <thead>
+                                <tr>
+                                    <th>Producto</th>
+                                    <th class="r">Solicitado</th>
+                                    <th class="r">Embarcado</th>
+                                    <th class="r">Diferencia</th>
+                                    <th class="c">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr t-foreach="g.products" t-as="p" t-key="p.line_id">
+                                    <td class="o_opo_prod" t-esc="p.product"/>
+                                    <td class="r"><t t-esc="fmt(p.solicitado)"/> <span class="o_opo_uom" t-esc="p.uom"/></td>
+                                    <td class="r strong"><t t-esc="fmt(p.embarcado)"/></td>
+                                    <td t-attf-class="r o_opo_diff #{p.diff &gt; 0 ? 'over' : 'under'}">
+                                        <t t-esc="diffLabel(p.diff)"/>
+                                    </td>
+                                    <td class="c">
+                                        <button class="btn btn-sm btn-outline-danger o_opo_close_btn"
+                                                t-att-disabled="state.closing[p.line_id]"
+                                                t-on-click="() => this.closeDemand(g, p)">
+                                            <i t-attf-class="fa #{state.closing[p.line_id] ? 'fa-spinner fa-spin' : 'fa-scissors'} me-1"/>
+                                            Cerrar demanda
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
             </div>
         </div>
     </t>
