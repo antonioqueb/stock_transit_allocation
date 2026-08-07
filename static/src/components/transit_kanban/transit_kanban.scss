@@ -369,9 +369,10 @@ $tk-radius-pill:   20px;
         border:        1px solid $tk-border;
         border-radius: 3px;
         padding:       0 5px;
-        font-size:     9.5px;
+        font-size:     10.5px;
         font-family:   'JetBrains Mono', monospace;
-        color:         $tk-text-secondary;
+        color:         $tk-text;
+        font-weight:   700;
     }
 
     &__dates {
