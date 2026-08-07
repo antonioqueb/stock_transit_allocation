@@ -1724,18 +1724,6 @@ class SomAnalytics(models.AbstractModel):
         return {'ok': True, 'cost_mxn': new_cost, 'currency': currency}
 
 
-class ProductTemplateCostCurrency(models.Model):
-    _inherit = 'product.template'
-
-    x_costo_divisa = fields.Selection([
-        ('MXN', 'MXN'),
-        ('USD', 'USD'),
-        ('EUR', 'EUR'),
-    ], string='Divisa del costo all-in', default='USD',
-        help='Divisa en la que se captura/visualiza el costo all-in en el '
-             'dashboard. El costo siempre se GUARDA en MXN (EUR convierte '
-             'primero a USD y luego a MXN con TC Banorte).')
-
     # ── TRÁNSITO ───────────────────────────────────────────────────────
     def _transit_pack(self, f):
         portal_avance, portal_terminadas = self._portal_avg_progress()
@@ -2975,3 +2963,15 @@ class ProductTemplateCostCurrency(models.Model):
             })
         out.sort(key=lambda x: -(x['edad_stock'] or x['dias_venta'] or 0))
         return out[:200]
+
+class ProductTemplateCostCurrency(models.Model):
+    _inherit = 'product.template'
+
+    x_costo_divisa = fields.Selection([
+        ('MXN', 'MXN'),
+        ('USD', 'USD'),
+        ('EUR', 'EUR'),
+    ], string='Divisa del costo all-in', default='USD',
+        help='Divisa en la que se captura/visualiza el costo all-in en el '
+             'dashboard. El costo siempre se GUARDA en MXN (EUR convierte '
+             'primero a USD y luego a MXN con TC Banorte).')
