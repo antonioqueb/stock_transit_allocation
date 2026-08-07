@@ -169,12 +169,17 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 self, picking.date_done).date()
             if local < cutoff:
                 continue
+            total_m2 = v.total_m2 or 0.0
             done_pairs.append((picking.date_done, {
                 'id': v.id,
                 'reception_id': picking.id,
                 'folio': picking.name or v.name or '',
+                'embarque': v.name or '',
                 'po': v.purchase_id.name or '',
                 'supplier': v.purchase_id.partner_id.name or '',
+                'containers': v.container_number or '',
+                'qty_label': ('%s m²' % ('{:,.1f}'.format(total_m2)))
+                if total_m2 else '',
                 'done': fmt_dt(picking.date_done),
             }))
         done_pairs.sort(key=lambda t: t[0], reverse=True)

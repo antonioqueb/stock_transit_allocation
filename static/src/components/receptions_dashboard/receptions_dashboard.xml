@@ -63,14 +63,16 @@
         <div t-attf-class="o_rcp_card {{ card.late_days ? 'late' : '' }} {{ this.isExpanded(card) ? 'open' : '' }}">
             <div class="o_rcp_card_head" t-on-click="() => this.toggleCard(card)">
                 <div class="o_rcp_card_headmain">
-                    <div class="o_rcp_card_name" t-esc="card.name"/>
+                    <!-- Jerarquía: PROVEEDOR manda, contenedor visible,
+                         el folio del embarque al final sin protagonismo. -->
+                    <div class="o_rcp_card_name" t-esc="card.supplier or card.name"/>
+                    <div class="o_rcp_card_cont main" t-if="card.containers" t-esc="card.containers"/>
                     <div class="o_rcp_card_sub">
-                        <t t-if="card.supplier"><t t-esc="card.supplier"/></t>
-                        <t t-if="card.po"> · <t t-esc="card.po"/></t>
+                        <t t-if="card.po"><t t-esc="card.po"/> · </t>
+                        <span class="o_rcp_folio" t-esc="card.name"/>
                     </div>
                     <!-- Contenedor SIEMPRE visible, aun con la tarjeta
                          compactada. -->
-                    <div class="o_rcp_card_cont" t-if="card.containers" t-esc="card.containers"/>
                 </div>
                 <span t-if="card.late_days" class="o_rcp_badge red">
                     <t t-call="stock_transit_allocation.icon_alert"/>
@@ -192,12 +194,21 @@
                             <b t-esc="state.data.done.length"/>
                         </div>
                         <div t-if="state.data.done.length" class="o_rcp_done_list">
-                            <div class="o_rcp_done_row"
+                            <div class="o_rcp_done_row rich"
                                  t-foreach="state.data.done" t-as="row" t-key="row.id"
-                                 t-att-title="(row.supplier || '') + (row.po ? ' · ' + row.po : '')"
                                  t-on-click="() => this.openReception(row.reception_id)">
-                                <span class="f" t-esc="row.folio"/>
-                                <span class="d" t-esc="row.done"/>
+                                <div class="o_rcp_done_main">
+                                    <span class="s" t-esc="row.supplier or row.folio"/>
+                                    <span class="c" t-if="row.containers" t-esc="row.containers"/>
+                                    <span class="q" t-if="row.qty_label" t-esc="row.qty_label"/>
+                                </div>
+                                <div class="o_rcp_done_meta">
+                                    <span t-if="row.po" t-esc="row.po"/>
+                                    <span t-if="row.po"> · </span>
+                                    <span class="f" t-esc="row.folio"/>
+                                    <span t-if="row.embarque"> · <t t-esc="row.embarque"/></span>
+                                    <span class="d"> · <t t-esc="row.done"/></span>
+                                </div>
                             </div>
                         </div>
                         <div t-if="!state.data.done.length" class="o_rcp_empty">Sin recepciones en 7 días</div>
