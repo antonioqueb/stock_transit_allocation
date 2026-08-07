@@ -1572,7 +1572,7 @@ class SomAnalytics(models.AbstractModel):
             WHERE sol.display_type IS NULL
               AND sol.product_uom_qty > 0
               AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s
-            GROUP BY pt.id, name, cur,
+            GROUP BY pt.id, pt.name, COALESCE(rc.name, 'MXN'),
                      pt.x_price_usd_1, pt.x_price_usd_2, pt.x_price_usd_3,
                      pt.x_price_mxn_1, pt.x_price_mxn_2, pt.x_price_mxn_3,
                      pt.x_costo_mayor
