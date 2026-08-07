@@ -1978,7 +1978,10 @@ function App() {
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"><path d="M20.5 14.5A8.5 8.5 0 0 1 9.5 3.5a8.5 8.5 0 1 0 11 11Z" /></svg>
           )}
         </button>
-        <a className="back" href="/odoo">← Volver a operaciones</a>
+        <a className="back" href="/odoo" title="Volver a operaciones">
+          <span className="back-l">← Volver a operaciones</span>
+          <span className="back-s">←</span>
+        </a>
       </header>
 
       <div className="body">

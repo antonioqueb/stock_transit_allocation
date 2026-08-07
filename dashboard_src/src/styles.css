@@ -241,16 +241,153 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   font-size: 12.5px; color: var(--mut2); border: 1px dashed var(--line); border-radius: 10px;
 }
 
-/* ── Responsive ── */
+/* ── Responsive: tablet ── */
+.back .back-s { display: none; }
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; }
   .sidenav { width: 140px; }
   .drill-2col { grid-template-columns: 1fr; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   MÓVIL (≤760px) — diseño propio, no un desktop encogido:
+   · Topbar en filas: marca+acciones / presets / fechas (nada apretado)
+   · Navegación de CHIPS pegajosa con scroll horizontal
+   · Stats en 2 columnas; pantalla de dirección adaptada
+   · Tablas full-bleed con PRIMERA COLUMNA CONGELADA (el scroll lateral
+     nunca te hace perder de qué fila estás)
+   · Drill como hoja a pantalla completa que sube desde abajo
+   ══════════════════════════════════════════════════════════════════════ */
 @media (max-width: 760px) {
+  body { font-size: 13.5px; }
+
+  /* ── Topbar por filas ── */
+  .topbar {
+    padding: calc(8px + env(safe-area-inset-top)) 12px 10px;
+    gap: 8px;
+  }
+  .brand { flex: 1 1 auto; min-width: 0; gap: 9px; }
+  .brand .logo { width: 32px; height: 32px; border-radius: 9px; }
+  .brand .logo svg { width: 17px; height: 17px; }
+  .brand b { font-size: 14.5px; }
+  .brand small { display: none; }
+  .theme-btn { width: 32px; height: 32px; }
+  .back { padding: 6px 11px; border-radius: 8px; }
+  .back .back-l { display: none; }
+  .back .back-s { display: inline; font-size: 14px; }
+  .presets {
+    order: 5; flex: 1 1 100%; display: flex;
+    overflow-x: auto; scrollbar-width: none;
+  }
+  .presets::-webkit-scrollbar { display: none; }
+  .presets button { flex: 1 0 auto; padding: 7px 0 8px; min-width: 62px; text-align: center; }
+  .dates { order: 6; flex: 1 1 100%; justify-content: space-between; }
+  .dates input { flex: 1; width: auto; min-width: 0; }
+
+  /* ── Navegación: chips pegajosos ── */
   .body { flex-direction: column; }
-  .sidenav { width: 100%; flex-direction: row; overflow-x: auto; border-right: none; border-bottom: 1px solid var(--line); }
+  .sidenav {
+    position: sticky; top: 0; z-index: 40;
+    width: 100%; flex-direction: row; align-items: center;
+    overflow-x: auto; scrollbar-width: none;
+    padding: 8px 12px; gap: 6px;
+    border-right: none; border-bottom: 1px solid var(--line);
+    -webkit-overflow-scrolling: touch;
+  }
+  .sidenav::-webkit-scrollbar { display: none; }
+  .sidenav button {
+    flex: 0 0 auto; white-space: nowrap;
+    padding: 7px 14px; border-radius: 999px;
+    font-size: 12.5px; border: 1px solid var(--line);
+    background: var(--panel);
+  }
   .navfoot { display: none; }
-  .topbar { gap: 8px; }
-  .tv-stat .v { font-size: 30px; }
+  .content { padding: 12px 12px calc(48px + env(safe-area-inset-bottom)); }
+
+  /* ── Stats compactas en 2 columnas ── */
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+  .stat { padding: 10px 12px; border-radius: 12px; }
+  .stat-l { font-size: 9px; }
+  .stat-v { font-size: 17px; white-space: normal; line-height: 1.2; }
+  .stat-s { font-size: 11px; white-space: normal; }
+
+  /* ── Paneles y gráficas ── */
+  .grid { gap: 10px; }
+  .panel { padding: 12px 13px; border-radius: 12px; }
+  .panel-h { flex-wrap: wrap; gap: 6px; }
+  .panel-h .hint { white-space: normal; line-height: 1.35; }
+  .chartbox { height: 240px !important; }
+  .panel.wide .chartbox { height: 260px !important; }
+
+  /* ── Tablas: full-bleed + primera columna congelada ── */
+  .tablewrap {
+    margin: 0 -13px; border-radius: 0;
+    border-left: 0; border-right: 0;
+    max-height: 430px;
+    -webkit-overflow-scrolling: touch;
+  }
+  table { font-size: 12px; }
+  th { padding: 7px 9px; font-size: 9.5px; }
+  td { padding: 6px 9px; }
+  .tablewrap th:first-child,
+  .tablewrap td:first-child {
+    position: sticky; left: 0; z-index: 2;
+    background: var(--panel);
+    max-width: 132px; white-space: normal;
+    overflow-wrap: anywhere;
+    box-shadow: 3px 0 6px rgba(15, 23, 42, .07);
+  }
+  .tablewrap th:first-child { z-index: 4; background: var(--panel2); }
+  .ell { max-width: 132px; }
+
+  .minitable .mrow { font-size: 12px; gap: 8px; }
+
+  /* ── Pantalla de dirección (Resumen) ── */
+  .tv-head { gap: 8px; margin-bottom: 10px; }
+  .tv-title { font-size: 17px; }
+  .tv-clock { font-size: 11.5px; flex: 1 1 auto; }
+  .cur-chip { order: 7; flex: 1 1 100%; text-align: center; white-space: normal; }
+  .tv-dots {
+    order: 8; margin-left: 0; flex: 1 1 100%;
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .tv-dots::-webkit-scrollbar { display: none; }
+  .tv-dots button { flex: 0 0 auto; }
+  .tv-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; margin-bottom: 12px; }
+  .tv-stat { padding: 13px 15px; border-radius: 14px; }
+  .tv-stat .l { font-size: 10px; }
+  .tv-stat .v { font-size: clamp(19px, 6vw, 26px); white-space: normal; line-height: 1.15; }
+  .tv-stat .v.sz2 { font-size: clamp(17px, 5.2vw, 23px); }
+  .tv-stat .v.sz3 { font-size: clamp(15px, 4.6vw, 20px); }
+  .tv-stat .s { font-size: 11px; margin-top: 4px; }
+
+  /* ── Drill: hoja a pantalla completa desde abajo ── */
+  .drill-bg { justify-content: stretch; align-items: stretch; }
+  .drill {
+    width: 100vw; max-width: 100vw; height: 100%;
+    border-left: 0; border-radius: 0;
+    padding: 10px 12px calc(40px + env(safe-area-inset-bottom));
+    animation: drill-up .22s ease;
+  }
+  @keyframes drill-up { from { transform: translateY(28px); opacity: 0; } }
+  .drill .tablewrap { margin: 0 -12px; }
+  .drill-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crumbs { font-size: 12px; }
+
+  /* ── Finanzas: bento 2 columnas, héroe a lo ancho ── */
+  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: auto; gap: 8px; }
+  .bento .hero { grid-row: auto; grid-column: 1 / -1; padding: 16px 18px; }
+  .story-line { font-size: 13.5px; }
+  .costcell input { width: 72px; }
+  .bar-row { grid-template-columns: 96px 1fr 48px; font-size: 11.5px; }
+}
+
+/* ── Teléfonos chicos (≤420px): la dirección respira a 1 columna ── */
+@media (max-width: 420px) {
+  .tv-stats { grid-template-columns: 1fr; }
+  .tv-stat .v { font-size: clamp(22px, 8vw, 30px); }
+  .stats { gap: 6px; }
+  .stat-v { font-size: 16px; }
+  .presets button { min-width: 56px; font-size: 12px; }
 }

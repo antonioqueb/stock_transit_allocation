@@ -4,7 +4,7 @@
         <html t-att-lang="'es-MX'">
             <head>
                 <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
                 <title>SOM · Dashboard Ejecutivo</title>
                 <link rel="icon" href="/stock_transit_allocation/static/description/analytics_icon.svg"/>
                 <link rel="stylesheet" t-att-href="'/stock_transit_allocation/static/dashboard/som_dashboard.css?v=%s' % asset_v"/>
