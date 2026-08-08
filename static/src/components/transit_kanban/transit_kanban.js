@@ -62,17 +62,20 @@ const STAGES = [
         color:    "#ec4899",
         bg:       "#fdf2f8",
         border:   "#fbcfe8",
-        // arrived_port y reception_pending también caen aquí visualmente
-        extraKeys: ["arrived_port", "reception_pending"],
+        // arrived_port también cae aquí visualmente
+        extraKeys: ["arrived_port"],
     },
     {
         key:      "delivered",
         label:    "Entrega en Sitio",
-        sublabel: "En almacén",
+        sublabel: "Listo para recibir · Entregado al validar",
         icon:     "fa-check-circle",
         color:    "#22c55e",
         bg:       "#f0fdf4",
         border:   "#bbf7d0",
+        // Soltar aquí pone el viaje EN RECEPCIÓN (listo para recibir);
+        // 'Entregado' lo pone la validación de la recepción física.
+        extraKeys: ["reception_pending"],
     },
 ];
 
@@ -323,12 +326,29 @@ export class TransitKanbanView extends Component {
                 custom_status: stageKey,
             });
 
-            record.custom_status = stageKey;
-            this._buildColumns(this.state.records);
-            this.notification.add(
-                `Viaje movido a ${this.stageLabel(stageKey)}`,
-                { type: "success", sticky: false }
+            // El servidor puede re-enrutar el estado (p. ej. 'delivered' sin
+            // recepción validada se convierte en 'reception_pending'): se lee
+            // el estado REAL aplicado en lugar de asumir el solicitado.
+            const fresh = await this.orm.read(
+                "stock.transit.voyage", [recordId], ["custom_status"]
             );
+            const applied = (fresh && fresh[0] && fresh[0].custom_status) || stageKey;
+
+            record.custom_status = applied;
+            this._buildColumns(this.state.records);
+
+            if (stageKey === "delivered" && applied === "reception_pending") {
+                this.notification.add(
+                    "Viaje LISTO PARA RECIBIR: ya aparece en el tablero de Recepciones. " +
+                    "Se marcará Entregado al VALIDAR la recepción física.",
+                    { type: "info", sticky: false }
+                );
+            } else {
+                this.notification.add(
+                    `Viaje movido a ${this.stageLabel(applied)}`,
+                    { type: "success", sticky: false }
+                );
+            }
         } catch (e) {
             console.error("[TransitKanban] Error actualizando estado:", e);
             this.notification.add("No se pudo cambiar el estado del viaje: " + (e.message || e), { type: "danger" });

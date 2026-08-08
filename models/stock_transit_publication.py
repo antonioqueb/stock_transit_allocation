@@ -465,27 +465,12 @@ class StockTransitVoyagePublication(models.Model):
                 "available_qty": available_qty,
             })
 
-            # ═══ ORDEN DE RECEPCIÓN AUTOMÁTICA ═══
-            # Publicar es la señal de que compras YA trabajó el material
-            # (asignaciones a clientes/pedidos hechas): desde este momento
-            # el almacén debe ver la recepción en su tablero de Recepciones.
-            # Defensivo: si la recepción no se puede preparar aún, la
-            # publicación NO se revierte.
-            if not voyage.reception_picking_id:
-                try:
-                    voyage.action_generate_reception()
-                    if voyage.reception_picking_id:
-                        voyage.message_post(body=_(
-                            "📦 Orden de recepción %s creada automáticamente "
-                            "al publicar el inventario. Ya aparece en el "
-                            "tablero de Recepciones."
-                        ) % voyage.reception_picking_id.name)
-                except Exception:
-                    _logger.exception(
-                        "[TC_PUBLISH] No se pudo crear la recepción "
-                        "automática del viaje %s (la publicación NO se "
-                        "revierte).", voyage.name,
-                    )
+            # NOTA: publicar YA NO crea la recepción ni pone el viaje "listo
+            # para recibir". Publicar es un acto COMERCIAL (visibilidad en
+            # Inventario Visual + costeo). Lo que alista la recepción es mover
+            # el viaje a "Entrega en Sitio" en Viajes y Contenedores (o el
+            # botón Generar Recepción), y "Entregado" solo lo pone la
+            # VALIDACIÓN de la recepción física.
 
         return {
             "type": "ir.actions.client",

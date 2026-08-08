@@ -1161,6 +1161,49 @@ class StockTransitVoyage(models.Model):
         return records
 
     def write(self, vals):
+        # ENTREGA EN SITIO ≠ RECIBIDO: 'delivered' solo puede persistirse si la
+        # recepción física está VALIDADA (picking done). Cualquier otro camino
+        # (arrastrar la tarjeta a "Entrega en Sitio" en el kanban de Viajes y
+        # Contenedores, el formulario, un flujo viejo) se re-enruta a
+        # 'reception_pending': se crea la recepción física si falta y el viaje
+        # queda LISTO PARA RECIBIR en el tablero de Recepciones. El 'Entregado'
+        # real lo pone _auto_finalize_after_reception al validar la recepción.
+        if vals.get('custom_status') == 'delivered':
+            pending_reception = self.filtered(
+                lambda v: not (
+                    v.reception_picking_id
+                    and v.reception_picking_id.state == 'done'
+                )
+            )
+            if pending_reception:
+                deliverable = self - pending_reception
+                if deliverable:
+                    deliverable.write(vals)
+
+                pending_reception.write(
+                    dict(vals, custom_status='reception_pending'))
+
+                for rec in pending_reception:
+                    if not rec.reception_picking_id:
+                        try:
+                            rec.action_generate_reception()
+                        except Exception:
+                            _logger.exception(
+                                '[TC_VOYAGE] No se pudo crear la recepción '
+                                'automática del viaje %s al moverlo a Entrega '
+                                'en Sitio.', rec.name,
+                            )
+                    rec.message_post(body=Markup(_(
+                        "🚚 <b>Entrega en Sitio:</b> el viaje quedó <b>LISTO "
+                        "PARA RECIBIR</b> (no Entregado). Se marcará Entregado "
+                        "automáticamente cuando el almacén VALIDE la recepción "
+                        "física%s."
+                    )) % (
+                        ' %s' % rec.reception_picking_id.name
+                        if rec.reception_picking_id else ''
+                    ))
+                return True
+
         if 'eta' in vals:
             for rec in self:
                 if not rec.eta_original and vals.get('eta'):
@@ -1558,19 +1601,10 @@ class StockTransitVoyage(models.Model):
             if self.reception_picking_id:
                 self._auto_finalize_after_reception()
             else:
-                write_vals = {
-                    'arrival_date': fields_module.Date.today(),
-                    'custom_status': 'delivered',
-                }
-
-                if not self.arrival_date_bodega:
-                    write_vals['arrival_date_bodega'] = fields_module.Date.today()
-
-                self.write(write_vals)
-
-                for line in self.line_ids:
-                    if line.allocation_id and line.allocation_id.state != 'done':
-                        line.allocation_id.action_mark_received(line.product_uom_qty)
+                # Sin recepción física NO se marca Entregado ni se dan por
+                # recibidas las allocations: se crea la recepción y el viaje
+                # queda LISTO PARA RECIBIR. El cierre real llega al VALIDAR.
+                self.action_generate_reception()
         else:
             if next_status == 'on_sea':
                 if self.picking_id and self.picking_id.purchase_id:
@@ -2792,19 +2826,10 @@ class StockTransitVoyage(models.Model):
             self._auto_finalize_after_reception()
             return
 
-        write_vals = {
-            'arrival_date': fields_module.Date.today(),
-            'custom_status': 'delivered',
-        }
-
-        if not self.arrival_date_bodega:
-            write_vals['arrival_date_bodega'] = fields_module.Date.today()
-
-        self.write(write_vals)
-
-        for line in self.line_ids:
-            if line.allocation_id and line.allocation_id.state != 'done':
-                line.allocation_id.action_mark_received(line.product_uom_qty)
+        # Sin recepción física NO se marca Entregado ni se dan por recibidas
+        # las allocations: se crea la recepción y el viaje queda LISTO PARA
+        # RECIBIR. El cierre real llega al VALIDAR la recepción.
+        self.action_generate_reception()
 
     def action_cancel(self):
         """Cancelar el viaje LIBERA todo lo comprometido.

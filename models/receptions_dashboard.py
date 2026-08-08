@@ -96,12 +96,15 @@ class StockTransitVoyageReceptionsDash(models.Model):
 
             # Fase del tablero. "Recepcionado" SOLO cuando la recepción
             # física está validada — el estatus del viaje no basta.
+            # "Listo para recibir" = el viaje fue movido a Entrega en Sitio
+            # (estatus En Recepción); PUBLICAR ya no alista recepciones —
+            # es un acto comercial, no operativo.
             st = v.custom_status
             if picking and picking.state == 'done':
                 phase = 'done'
             elif st == 'delivered':
                 phase = 'done'
-            elif published or st in _READY:
+            elif st in _READY:
                 phase = 'ready'
             elif st in _PORT:
                 phase = 'port'
@@ -109,12 +112,16 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 phase = 'sailing'
 
             # Semáforo de atraso:
-            # - listo para recibir: días desde publicación/arribo sin validar
+            # - listo para recibir: días desde que se creó la recepción
+            #   (movimiento a Entrega en Sitio) sin validar
             # - en puerto: ETA ya vencida
             late_days = 0
             if phase == 'ready':
                 anchor = None
-                if pub_at:
+                if picking and picking.create_date:
+                    anchor = fields.Datetime.context_timestamp(
+                        self, picking.create_date).date()
+                elif pub_at:
                     anchor = fields.Datetime.context_timestamp(
                         self, pub_at).date()
                 elif eta and eta <= today:
