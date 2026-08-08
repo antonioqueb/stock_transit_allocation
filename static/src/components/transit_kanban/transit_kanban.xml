@@ -128,12 +128,12 @@
                             <!-- COMPACTO: proforma (ref. interna) + orden de compra -->
                             <div class="tk-card__pairs">
                                 <div class="tk-card__kv">
-                                    <span class="tk-card__k">Ref. interna</span>
+                                    <span class="tk-card__k">Proforma</span>
                                     <span class="tk-card__v" t-esc="card.partner_ref || '—'"
                                           t-att-title="card.partner_ref"/>
                                 </div>
                                 <div class="tk-card__kv">
-                                    <span class="tk-card__k">Orden interna</span>
+                                    <span class="tk-card__k">Orden de compra</span>
                                     <span class="tk-card__v tk-card__v--oc"
                                           t-esc="strOf(card.purchase_id) || '—'"/>
                                 </div>
