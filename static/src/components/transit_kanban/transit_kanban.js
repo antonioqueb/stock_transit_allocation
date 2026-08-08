@@ -96,6 +96,7 @@ export class TransitKanbanView extends Component {
             draggingId:      false,
             dragOverStage:   false,
             updatingStageId: false,
+            expandedIds:     {},   // { voyageId: bool } — detalle desplegado por tarjeta
         });
 
         onWillStart(async () => {
@@ -206,6 +207,17 @@ export class TransitKanbanView extends Component {
             views: [[false, "form"]],
             target: "current",
         });
+    }
+
+    // ── Desplegable por tarjeta (vista compacta / detalle) ───────────────────
+    isExpanded(id) {
+        return !!this.state.expandedIds[id];
+    }
+
+    toggleExpand(card, ev) {
+        if (ev) ev.stopPropagation();
+        if (!card || !card.id) return;
+        this.state.expandedIds[card.id] = !this.state.expandedIds[card.id];
     }
 
     // ── Toggle de producción (columna Ordenado) ──────────────────────────────

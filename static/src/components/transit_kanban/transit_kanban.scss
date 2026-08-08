@@ -302,16 +302,15 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
 
 // ─── Board ────────────────────────────────────────────────────────────────────
 .tk-board {
-    display:               grid;
-    grid-template-columns: repeat(5, minmax(230px, 1fr));
-    gap:                   14px;
-    align-items:           stretch;
-    width:                 100%;
-    min-width:             0;
-    flex:                  1;
-    overflow-x:            auto;
-    overflow-y:            hidden;
-    padding:               16px 18px 18px;
+    display:     flex;
+    gap:         14px;
+    align-items: stretch;
+    width:       100%;
+    min-width:   0;
+    flex:        1;
+    overflow-x:  auto;
+    overflow-y:  hidden;
+    padding:     16px 18px 18px;
 
     &::-webkit-scrollbar { height: 8px; }
     &::-webkit-scrollbar-track { background: transparent; }
@@ -322,18 +321,15 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     }
 }
 
-@media (max-width: 1200px) {
-    .tk-board {
-        grid-template-columns: repeat(5, minmax(240px, 1fr));
-    }
-}
+
 
 // ─── Columna (panel flotante) ────────────────────────────────────────────────
 .tk-column {
+    flex:           1 1 0;
+    min-width:      230px;
     display:        flex;
     flex-direction: column;
     min-height:     0;
-    min-width:      0;
     background:     rgba(255, 255, 255, .55);
     border:         1px solid rgba(226, 232, 240, .9);
     border-radius:  $tk-radius;
@@ -645,8 +641,8 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
         display:       flex;
         align-items:   center;
         gap:           10px;
-        margin-top:    9px;
-        padding:       6px 9px;
+        margin-top:    7px;
+        padding:       4px 8px;
         background:    linear-gradient(180deg, #f8fafc, #f1f5f9);
         border:        1px solid rgba(226, 232, 240, .9);
         border-radius: 8px;
@@ -657,10 +653,10 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
         display:     flex;
         align-items: center;
         gap:         5px;
-        font-size:   10px;
+        font-size:   9px;
         font-weight: 600;
         font-family: $tk-mono;
-        color:       $tk-text;
+        color:       $tk-text-secondary;
     }
 
     &__date-label {
@@ -796,6 +792,87 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
                 color-mix(in srgb, var(--col-color, #3b82f6) 5%, transparent) 0 10px,
                 transparent 10px 20px);
     }
+}
+
+// ─── Vista compacta / detalle desplegable de la tarjeta ──────────────────────
+.tk-card__compactline {
+    display:         flex;
+    align-items:     center;
+    justify-content: space-between;
+    gap:             8px;
+    min-width:       0;
+
+    .tk-card__container { flex-shrink: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .tk-status-pill     { flex-shrink: 0; }
+}
+
+@keyframes tk-more-in {
+    from { opacity: 0; transform: translateY(-3px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.tk-card__more {
+    margin-top: 9px;
+    animation:  tk-more-in .18s $tk-ease both;
+}
+
+.tk-card__expand {
+    display:         flex;
+    align-items:     center;
+    justify-content: center;
+    gap:             5px;
+    width:           100%;
+    margin-top:      8px;
+    padding:         3px 0;
+    background:      transparent;
+    border:          none;
+    border-top:      1px dashed rgba(203, 213, 225, .8);
+    color:           $tk-text-muted;
+    font-family:     $tk-font;
+    font-size:       8.5px;
+    font-weight:     800;
+    text-transform:  uppercase;
+    letter-spacing:  .08em;
+    cursor:          pointer;
+    transition:      color .15s;
+
+    i {
+        font-size:  8px;
+        transition: transform .2s $tk-ease;
+    }
+
+    &:hover { color: var(--col-color, $tk-text-secondary); }
+
+    &--open i { transform: rotate(180deg); }
+}
+
+// ─── Columna replegada: riel vertical angosto ────────────────────────────────
+.tk-column--collapsed {
+    flex:      0 0 54px;
+    min-width: 54px;
+
+    .tk-col-header {
+        flex:    1;
+        padding: 14px 6px;
+    }
+
+    .tk-col-header__top {
+        flex-direction: column;
+        gap:            10px;
+        margin-bottom:  0;
+        height:         100%;
+    }
+
+    .tk-col-title {
+        writing-mode:   vertical-rl;
+        transform:      rotate(180deg);
+        flex:           0 1 auto;
+        max-height:     260px;
+        font-size:      11px;
+        letter-spacing: .08em;
+    }
+
+    .tk-col-header__sub { display: none; }
 }
 
 // ─── Accesibilidad de movimiento ─────────────────────────────────────────────
