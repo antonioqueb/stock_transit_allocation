@@ -71,12 +71,22 @@ function writeHash(view: ViewKey, filters: Filters) {
   history.replaceState(null, "", "#" + p.toString());
 }
 
+// Fecha LOCAL en formato YYYY-MM-DD. OJO: toISOString() convierte a UTC —
+// después de las 18:00 de Monterrey (UTC-6) devolvía la fecha de MAÑANA y
+// el preset "Hoy" quedaba vacío.
+function localYMD(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 function defaultRange(): Filters {
   // Default: el MES en curso (del día 1 a hoy).
   const to = new Date();
   const from = new Date(to);
   from.setDate(1);
-  return { date_from: from.toISOString().slice(0, 10), date_to: to.toISOString().slice(0, 10) };
+  return { date_from: localYMD(from), date_to: localYMD(to) };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1945,7 +1955,7 @@ function App() {
     else if (p === "trim") from.setDate(from.getDate() - 90);
     else from.setFullYear(from.getFullYear() - 1);
     setPreset(p);
-    setFilters((f) => ({ ...f, month: undefined, date_from: from.toISOString().slice(0, 10), date_to: to.toISOString().slice(0, 10) }));
+    setFilters((f) => ({ ...f, month: undefined, date_from: localYMD(from), date_to: localYMD(to) }));
   }, []);
 
   const setDate = useCallback((k: "date_from" | "date_to", v: string) => {
