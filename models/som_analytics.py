@@ -20,7 +20,9 @@ Reglas de negocio:
 import logging
 import re
 from collections import defaultdict
-from datetime import timedelta
+from datetime import datetime, time, timedelta
+
+import pytz
 
 from odoo import api, fields, models, _
 from odoo.exceptions import AccessError
@@ -75,6 +77,23 @@ class SomAnalytics(models.AbstractModel):
             today - timedelta(days=365))
         return date_from, date_to
 
+    def _bounds(self, f):
+        """Límites UTC del rango date_from..date_to interpretado en la zona
+        horaria del usuario (default America/Monterrey). Odoo guarda los
+        timestamps en UTC: comparar contra fechas 'planas' corría el día
+        con 6 horas y HOY salía vacío/incompleto en el dashboard."""
+        date_from, date_to = self._dates(f)
+        tz = pytz.timezone(self.env.user.tz or 'America/Monterrey')
+        start = tz.localize(
+            datetime.combine(fields.Date.from_string(date_from), time.min)
+        ).astimezone(pytz.utc).replace(tzinfo=None)
+        end = tz.localize(
+            datetime.combine(fields.Date.from_string(date_to),
+                             time(23, 59, 59))
+        ).astimezone(pytz.utc).replace(tzinfo=None)
+        return (fields.Datetime.to_string(start),
+                fields.Datetime.to_string(end))
+
     def _cd(self, column):
         """Expresión SQL para leer un campo company_dependent (jsonb
         {company_id: valor} en Odoo 17+) como float de la compañía activa.
@@ -111,9 +130,10 @@ class SomAnalytics(models.AbstractModel):
 
     def _sale_rows(self, f, extra_where='', extra_params=None):
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
         params = {
-            'date_from': date_from,
-            'date_to': date_to + ' 23:59:59',
+            'date_from': dt_from,
+            'date_to': dt_to,
             'rate': self._current_usd_rate(),
             'area_uoms': tuple(self._area_uom_ids()),
             'cid': self._cid(),
@@ -344,12 +364,13 @@ class SomAnalytics(models.AbstractModel):
 
         # Conversión cotización → orden (mismo periodo, sin respaldos)
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
         self.env.cr.execute("""
             SELECT state, COUNT(*) FROM sale_order
             WHERE date_order >= %s AND date_order <= %s
               AND COALESCE(x_is_quote_backup, false) = false
             GROUP BY state
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         st = dict(self.env.cr.fetchall())
         quotes = st.get('draft', 0) + st.get('sent', 0) + st.get('sale', 0)
         pack['kpis']['conversion_pct'] = round(
@@ -363,12 +384,12 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(*) FILTER (WHERE COALESCE(x_discount_needs_auth,false))
             FROM sale_order
             WHERE state='sale' AND date_order >= %s AND date_order <= %s
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         desc, desc_auth = self.env.cr.fetchone()
         pack['kpis']['descuento_mxn'] = round(desc or 0.0, 2)
         pack['kpis']['descuentos_con_auth'] = desc_auth or 0
 
-        dt = (date_from, date_to + ' 23:59:59')
+        dt = (dt_from, dt_to)
 
         # 1.4 Canal arquitecto: % de la venta y top especificadores
         arch = self._sq("""
@@ -449,7 +470,7 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN res_currency rc ON rc.id = cm.currency_id
             WHERE cm.date >= %s AND cm.date <= %s
             GROUP BY 1, 2 ORDER BY 3 DESC
-        """, dt)
+        """, (date_from, date_to))
         com_map = {}
         for (name, cur, amt) in com:
             mxn = (amt or 0.0) * (rate if cur == 'USD' else 1.0)
@@ -932,12 +953,13 @@ class SomAnalytics(models.AbstractModel):
 
         # 3.7 Reservas débiles de carrito desplazadas por venta (periodo)
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
         row = self._sq("""
             SELECT COUNT(*) FROM mail_message
             WHERE model = 'stock.picking'
               AND body ILIKE '%%Reservas re-ancladas%%'
               AND create_date >= %s AND create_date <= %s
-        """, (date_from, date_to + ' 23:59:59'), default=[(0,)])[0]
+        """, (dt_from, dt_to), default=[(0,)])[0]
         pack['kpis']['reservas_desplazadas'] = row[0]
 
         pack['merma'] = [
@@ -950,6 +972,7 @@ class SomAnalytics(models.AbstractModel):
     # ── COMPRAS ────────────────────────────────────────────────────────
     def _dom_compras(self, f):
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
         rate = self._current_usd_rate()
         self.env.cr.execute("""
             SELECT to_char(po.date_approve,'YYYY-MM') AS month,
@@ -963,7 +986,7 @@ class SomAnalytics(models.AbstractModel):
             WHERE po.state IN ('purchase','done')
               AND po.date_approve >= %s AND po.date_approve <= %s
             GROUP BY 1, 2, 3, 4
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         rows = self.env.cr.dictfetchall()
 
         months = defaultdict(lambda: {'USD': 0.0, 'MXN': 0.0, 'mxn_norm': 0.0})
@@ -1011,7 +1034,7 @@ class SomAnalytics(models.AbstractModel):
                 WHERE po.date_approve >= %s AND po.date_approve <= %s
                 GROUP BY po.id, po.date_approve
             ) t
-        """, (date_from, date_to + ' 23:59:59'), default=[(None, 0)])[0]
+        """, (dt_from, dt_to), default=[(None, 0)])[0]
         lead_days = round(row[0] or 0.0, 1)
         lead_count = row[1]
 
@@ -1038,7 +1061,7 @@ class SomAnalytics(models.AbstractModel):
                 JOIN product_template pt ON pt.id = pp.product_tmpl_id
                 WHERE po.date_approve >= %s AND po.date_approve <= %s
                 GROUP BY 1, 2 ORDER BY 4 DESC LIMIT 12
-            """, (rate, date_from, date_to + ' 23:59:59'), default=[])]
+            """, (rate, dt_from, dt_to), default=[])]
 
         # OCs abiertas con material pendiente de recibir (backlog vivo)
         open_pos = [
@@ -1111,7 +1134,8 @@ class SomAnalytics(models.AbstractModel):
     # ── RECEPCIONES ────────────────────────────────────────────────────
     def _dom_recepciones(self, f):
         date_from, date_to = self._dates(f)
-        dt = (date_from, date_to + ' 23:59:59')
+        dt_from, dt_to = self._bounds(f)
+        dt = (dt_from, dt_to)
         area = tuple(self._area_uom_ids())
 
         weekly = self._sq("""
@@ -1292,7 +1316,8 @@ class SomAnalytics(models.AbstractModel):
     # ── TALLER ─────────────────────────────────────────────────────────
     def _dom_taller(self, f):
         date_from, date_to = self._dates(f)
-        dt = (date_from, date_to + ' 23:59:59')
+        dt_from, dt_to = self._bounds(f)
+        dt = (dt_from, dt_to)
 
         by_state = self._sq("""
             SELECT state, COUNT(*) FROM workshop_order
@@ -1476,13 +1501,14 @@ class SomAnalytics(models.AbstractModel):
 
         # 10.2 Órdenes sin proyecto / sin referencia del cliente (periodo)
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
         row = self._sq("""
             SELECT COUNT(*),
                    COUNT(*) FILTER (WHERE x_project_id IS NULL),
                    COUNT(*) FILTER (WHERE COALESCE(client_order_ref,'') = '')
             FROM sale_order
             WHERE state = 'sale' AND date_order >= %s AND date_order <= %s
-        """, (date_from, date_to + ' 23:59:59'), default=[(0, 0, 0)])[0]
+        """, (dt_from, dt_to), default=[(0, 0, 0)])[0]
 
         # FOTOS: % de lotes de placa (UdM de área) en stock con fotografía
         # de su bloque + quién sube las fotos (ranking y serie mensual).
@@ -1584,8 +1610,8 @@ class SomAnalytics(models.AbstractModel):
                      pt.x_price_usd_1, pt.x_price_usd_2, pt.x_price_usd_3,
                      pt.x_price_mxn_1, pt.x_price_mxn_2, pt.x_price_mxn_3,
                      pt.x_costo_mayor, COALESCE(pt.x_costo_divisa, 'USD')
-        """, {'cid': self._cid(), 'd1': date_from,
-              'd2': date_to + ' 23:59:59'}, default=[])
+        """, {'cid': self._cid(), 'd1': dt_from,
+              'd2': dt_to}, default=[])
         price_adjust = []
         for (tid, name, cur, venta, qty, ordenes,
              u1, u2, u3, m1, m2, m3, costo, cdiv) in pa_rows:
@@ -1889,6 +1915,7 @@ class SomAnalytics(models.AbstractModel):
         if 'sale.delivery.document' not in self.env:
             return {'kpis': {}, 'unavailable': True}
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
 
         self.env.cr.execute("""
             SELECT COALESCE(delivery_status,'preparacion'), COUNT(*)
@@ -1896,7 +1923,7 @@ class SomAnalytics(models.AbstractModel):
             WHERE document_type = 'remission'
               AND create_date >= %s AND create_date <= %s
             GROUP BY 1
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         by_status = [{'status': a, 'count': b}
                      for (a, b) in self.env.cr.fetchall()]
 
@@ -1911,7 +1938,7 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_delivery_document
             WHERE document_type = 'remission'
               AND create_date >= %s AND create_date <= %s
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         app_signed, manual, en_ruta = self.env.cr.fetchone()
 
         # Autorizaciones de entrega sin pago completo (crédito informal)
@@ -1944,7 +1971,7 @@ class SomAnalytics(models.AbstractModel):
             JOIN sale_order so ON so.id = d.sale_order_id
             WHERE d.document_type = 'remission' AND d.signed_at IS NOT NULL
               AND d.signed_at >= %s AND d.signed_at <= %s
-        """, (date_from, date_to + ' 23:59:59'), default=[(None, 0)])[0]
+        """, (dt_from, dt_to), default=[(None, 0)])[0]
 
         # 7.5 Devoluciones por motivo. Cubre DOS caminos: documentos de
         # devolución del módulo de entregas Y devoluciones hechas directo
@@ -1956,7 +1983,7 @@ class SomAnalytics(models.AbstractModel):
             WHERE d.document_type = 'return' AND d.state != 'cancelled'
               AND d.create_date >= %s AND d.create_date <= %s
             GROUP BY 1 ORDER BY 2 DESC LIMIT 8
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         dev_pickings = self._sq("""
             SELECT COUNT(*) FROM stock_picking ret
             JOIN stock_picking orig ON orig.id = ret.return_id
@@ -1964,7 +1991,7 @@ class SomAnalytics(models.AbstractModel):
                  AND spt.code = 'outgoing'
             WHERE ret.state = 'done'
               AND ret.date_done >= %s AND ret.date_done <= %s
-        """, (date_from, date_to + ' 23:59:59'), default=[(0,)])[0][0] or 0
+        """, (dt_from, dt_to), default=[(0,)])[0][0] or 0
         dev_docs = sum(b for (_a, b) in devs)
         if dev_pickings > dev_docs:
             devs = list(devs) + [(
@@ -1996,12 +2023,12 @@ class SomAnalytics(models.AbstractModel):
                           AND d.create_date >= %s AND d.create_date <= %s
                         GROUP BY d.id, d.vehicle_capacity_sqm
                     ) t
-                """, (tuple(self._area_uom_ids()), date_from,
-                       date_to + ' 23:59:59'), default=[(None,)])[0]),
+                """, (tuple(self._area_uom_ids()), dt_from,
+                       dt_to), default=[(None,)])[0]),
                 'paradas_gps': (lambda r: r[0])(self._sq("""
                     SELECT COUNT(*) FROM sale_delivery_route_point
                     WHERE create_date >= %s AND create_date <= %s
-                """, (date_from, date_to + ' 23:59:59'),
+                """, (dt_from, dt_to),
                     default=[(0,)])[0]),
                 'cobrado_al_entregar_pct': (lambda r: round(r[0] or 0.0, 1))(
                     self._sq("""
@@ -2012,7 +2039,7 @@ class SomAnalytics(models.AbstractModel):
                     WHERE d.document_type = 'remission'
                       AND d.signed_at IS NOT NULL
                       AND d.signed_at >= %s AND d.signed_at <= %s
-                """, (date_from, date_to + ' 23:59:59'),
+                """, (dt_from, dt_to),
                     default=[(None,)])[0]),
             },
             'by_status': by_status,
@@ -2108,12 +2135,13 @@ class SomAnalytics(models.AbstractModel):
 
         # 9.1 Efectivo: recibos entregados al cliente vs con pago aplicado
         date_from, date_to = self._dates(f)
+        dt_from, dt_to = self._bounds(f)
         cash = self._sq("""
             SELECT state, COUNT(*), COALESCE(SUM(amount_mxn), 0)
             FROM cash_receipt
             WHERE date >= %s AND date <= %s AND state != 'cancelled'
             GROUP BY 1
-        """, (date_from, date_to + ' 23:59:59'))
+        """, (dt_from, dt_to))
         cash_map = {a: (b, c) for (a, b, c) in cash}
         sin_aplicar = cash_map.get('delivered', (0, 0.0))
         aplicado = cash_map.get('paid', (0, 0.0))
