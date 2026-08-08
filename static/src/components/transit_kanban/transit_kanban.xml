@@ -70,6 +70,13 @@
                         <i t-attf-class="fa #{stage.icon} tk-col-icon"/>
                         <span class="tk-col-title" t-esc="stage.label"/>
                         <span class="tk-col-count" t-esc="total.count"/>
+                        <!-- Abrir/cerrar el DETALLE de todas las tarjetas de la columna -->
+                        <button t-if="!collapsed and cards.length"
+                                t-attf-class="tk-col-detail-btn #{colAllExpanded(stage.key) ? 'tk-col-detail-btn--on' : ''}"
+                                t-att-title="colAllExpanded(stage.key) ? 'Cerrar detalle de todas' : 'Abrir detalle de todas'"
+                                t-on-click="(ev) => this.toggleColumnDetail(stage.key, ev)">
+                            <i t-attf-class="fa #{colAllExpanded(stage.key) ? 'fa-compress' : 'fa-expand'}"/>
+                        </button>
                         <i t-attf-class="fa #{collapsed ? 'fa-chevron-down' : 'fa-chevron-up'} tk-col-chevron"/>
                     </div>
                     <!-- Subtítulo eliminado (redundante); solo el total de m² -->
@@ -125,20 +132,6 @@
                                       t-esc="hasContainer(card.container_number) ? card.container_number : 'SIN CONTENEDOR'"/>
                             </div>
 
-                            <!-- COMPACTO: proforma (ref. interna) + orden de compra -->
-                            <div class="tk-card__pairs">
-                                <div class="tk-card__kv">
-                                    <span class="tk-card__k">Proforma</span>
-                                    <span class="tk-card__v" t-esc="card.partner_ref || '—'"
-                                          t-att-title="card.partner_ref"/>
-                                </div>
-                                <div class="tk-card__kv">
-                                    <span class="tk-card__k">Orden de compra</span>
-                                    <span class="tk-card__v tk-card__v--oc"
-                                          t-esc="strOf(card.purchase_id) || '—'"/>
-                                </div>
-                            </div>
-
                             <!-- COMPACTO: fechas ETD → ETA siempre visibles -->
                             <div class="tk-card__dates">
                                 <div class="tk-card__date">
@@ -152,8 +145,20 @@
                                 </div>
                             </div>
 
-                            <!-- DETALLE (desplegable) -->
+                            <!-- DETALLE (desplegable): proforma + OC + factura de carga -->
                             <div t-if="isExpanded(card.id)" class="tk-card__more">
+                                <div class="tk-card__pairs">
+                                    <div class="tk-card__kv">
+                                        <span class="tk-card__k">Proforma</span>
+                                        <span class="tk-card__v" t-esc="card.partner_ref || '—'"
+                                              t-att-title="card.partner_ref"/>
+                                    </div>
+                                    <div class="tk-card__kv">
+                                        <span class="tk-card__k">Orden de compra</span>
+                                        <span class="tk-card__v tk-card__v--oc"
+                                              t-esc="strOf(card.purchase_id) || '—'"/>
+                                    </div>
+                                </div>
                                 <div class="tk-card__pairs">
                                     <div class="tk-card__kv">
                                         <span class="tk-card__k">Fact. carga</span>

@@ -220,6 +220,22 @@ export class TransitKanbanView extends Component {
         this.state.expandedIds[card.id] = !this.state.expandedIds[card.id];
     }
 
+    // Nivel columna: abrir/cerrar el detalle de TODAS sus tarjetas a la vez.
+    colAllExpanded(stageKey) {
+        const cards = this.state.columns[stageKey] || [];
+        return cards.length > 0 && cards.every((c) => this.state.expandedIds[c.id]);
+    }
+
+    toggleColumnDetail(stageKey, ev) {
+        if (ev) ev.stopPropagation();
+        const cards = this.state.columns[stageKey] || [];
+        if (!cards.length) return;
+        const target = !this.colAllExpanded(stageKey);
+        for (const c of cards) {
+            this.state.expandedIds[c.id] = target;
+        }
+    }
+
     // ── Toggle de producción (columna Ordenado) ──────────────────────────────
     // Clic en el ícono de manufactura de la tarjeta: solicitud ⇄ production.
     // Guarda de inmediato y deja el ícono encendido cuando ya está en fábrica.
