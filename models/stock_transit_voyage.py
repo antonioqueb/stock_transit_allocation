@@ -1523,6 +1523,65 @@ class StockTransitVoyage(models.Model):
         'cancel': 'Cancelado',
     }
 
+    @api.model
+    def tk_get_kanban_records(self):
+        """Tarjetas del kanban Viajes y Contenedores en UNA llamada.
+
+        Además de los campos base del viaje incluye la referencia interna
+        (PI / referencia de la OC) y las facturas de carga que amparan la OC,
+        resueltas en bloque para no disparar N lecturas desde el frontend."""
+        voyages = self.search(
+            [('custom_status', '!=', 'cancel')],
+            order='eta asc, id desc', limit=500,
+        )
+
+        cargo_by_po = {}
+        if 'supplier.cargo.invoice' in self.env:
+            po_ids = voyages.mapped('purchase_id').ids
+            if po_ids:
+                cargos = self.env['supplier.cargo.invoice'].sudo().search([
+                    ('purchase_ids', 'in', po_ids),
+                ])
+                for cargo in cargos:
+                    if not cargo.name:
+                        continue
+                    for po in cargo.purchase_ids:
+                        names = cargo_by_po.setdefault(po.id, [])
+                        if cargo.name not in names:
+                            names.append(cargo.name)
+
+        status_labels = dict(
+            self._fields['custom_status']._description_selection(self.env))
+
+        out = []
+        for v in voyages:
+            po = v.purchase_id
+            supplier = v.tc_supplier_id
+            out.append({
+                'id': v.id,
+                'name': v.name or '',
+                'custom_status': v.custom_status,
+                'status_label': status_labels.get(
+                    v.custom_status, v.custom_status),
+                'purchase_id': [po.id, po.name] if po else False,
+                'partner_ref': (po.partner_ref or '') if po else '',
+                'tc_supplier_id': (
+                    [supplier.id, supplier.display_name] if supplier else False
+                ),
+                'cargo_invoices': ', '.join(cargo_by_po.get(po.id, [])) if po else '',
+                'container_number': v.container_number or '',
+                'bl_number': v.bl_number or '',
+                'vessel_name': v.vessel_name or '',
+                'shipping_line': v.shipping_line or '',
+                'eta': v.eta.isoformat() if v.eta else False,
+                'etd': v.etd.isoformat() if v.etd else False,
+                'allocation_percent': v.allocation_percent or 0.0,
+                'total_m2': v.total_m2 or 0.0,
+                'tc_publication_pending': bool(v.tc_publication_pending),
+                'company_id': v.company_id.id if v.company_id else False,
+            })
+        return out
+
     def action_open_unassign_wizard(self):
         """Abre el wizard de desasignación masiva para este viaje.
 

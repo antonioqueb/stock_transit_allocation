@@ -11,39 +11,25 @@ import { useService } from "@web/core/utils/hooks";
 const STAGES = [
     {
         key:      "solicitud",
-        label:    "Solicitud",
-        sublabel: "Enviada al proveedor",
-        icon:     "fa-file-text-o",
+        label:    "Solicitud / Producción",
+        sublabel: "Enviada · En fábrica",
+        icon:     "fa-industry",
         color:    "#f59e0b",
         bg:       "#fffbeb",
         border:   "#fde68a",
-    },
-    {
-        key:      "production",
-        label:    "Producción",
-        sublabel: "En fábrica",
-        icon:     "fa-industry",
-        color:    "#f97316",
-        bg:       "#fff7ed",
-        border:   "#fed7aa",
+        // production vive en esta misma columna (2 columnas fusionadas)
+        extraKeys: ["production"],
     },
     {
         key:      "booking",
         label:    "Booking",
-        sublabel: "Reserva naviera",
+        sublabel: "Reserva naviera · Carga en puerto",
         icon:     "fa-anchor",
         color:    "#8b5cf6",
         bg:       "#f5f3ff",
         border:   "#ddd6fe",
-    },
-    {
-        key:      "puerto_origen",
-        label:    "Puerto Origen",
-        sublabel: "Carga en puerto",
-        icon:     "fa-map-marker",
-        color:    "#14b8a6",
-        bg:       "#f0fdfa",
-        border:   "#99f6e4",
+        // puerto_origen se fusionó aquí (toda su lógica cae en Booking)
+        extraKeys: ["puerto_origen"],
     },
     {
         key:      "on_sea",
@@ -121,17 +107,10 @@ export class TransitKanbanView extends Component {
     async loadData() {
         this.state.loading = true;
         try {
-            const records = await this.orm.searchRead(
+            const records = await this.orm.call(
                 "stock.transit.voyage",
-                [["custom_status", "!=", "cancel"]],
-                [
-                    "name", "custom_status", "purchase_id", "tc_supplier_id", "vessel_name",
-                    "shipping_line", "container_number", "bl_number",
-                    "eta", "etd", "allocation_percent", "transit_progress",
-                    "total_m2", "allocated_m2", "company_id",
-                    "tc_publication_pending",
-                ],
-                { order: "eta asc, id desc", limit: 500 }
+                "tk_get_kanban_records",
+                []
             );
             this.state.records = records;
             this._buildColumns(records);
@@ -169,6 +148,8 @@ export class TransitKanbanView extends Component {
                     r.name,
                     this._str(r.purchase_id),
                     this._str(r.tc_supplier_id),
+                    r.partner_ref || "",
+                    r.cargo_invoices || "",
                     r.vessel_name || "",
                     r.container_number || "",
                     r.bl_number || "",
@@ -315,7 +296,12 @@ export class TransitKanbanView extends Component {
             return;
         }
 
-        if (record.custom_status === stageKey) {
+        // Si el estatus actual ya vive en esta columna (columnas fusionadas:
+        // production→Solicitud/Producción, puerto_origen→Booking,
+        // arrived_port→Puerto Destino, reception_pending→Entrega en Sitio),
+        // no se reescribe nada — evita retrocesos accidentales de estatus.
+        const currentStage = STAGE_MAP[record.custom_status];
+        if (record.custom_status === stageKey || (currentStage && currentStage.key === stageKey)) {
             this.state.draggingId = false;
             return;
         }

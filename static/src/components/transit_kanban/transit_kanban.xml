@@ -98,75 +98,61 @@
                              t-on-dragend="onCardDragEnd"
                              t-on-click="(ev) => this.openVoyage(card.id, ev)">
 
-                            <!-- Header de card -->
+                            <!-- 1. PROVEEDOR (protagonista) + 6. DÍAS -->
                             <div class="tk-card__header">
-                                <span class="tk-card__name" t-esc="card.name"/>
+                                <span class="tk-card__name tk-card__supplier-name"
+                                      t-esc="strOf(card.tc_supplier_id) || card.name"/>
                                 <span t-attf-class="tk-eta #{etaClass(card)}" t-esc="etaLabel(card)"/>
                             </div>
 
-                            <!-- Inventario sin publicar -->
+                            <!-- Inventario sin publicar (alerta operativa) -->
                             <div t-if="card.tc_publication_pending" class="tk-card__pending">
                                 <i class="fa fa-eye-slash"/> Inventario SIN publicar
                             </div>
 
-                            <!-- OC Origen -->
-                            <!-- Proveedor -->
-                            <div t-if="card.tc_supplier_id" class="tk-card__row tk-card__row--supplier">
-                                <i class="fa fa-industry tk-card__row-icon"/>
-                                <span class="tk-card__supplier" t-esc="strOf(card.tc_supplier_id)"/>
-                            </div>
-
-                            <div t-if="card.purchase_id" class="tk-card__row tk-card__row--po">
-                                <i class="fa fa-shopping-cart tk-card__row-icon"/>
-                                <span t-esc="strOf(card.purchase_id)"/>
-                            </div>
-
-                            <!-- Buque -->
-                            <div t-if="card.vessel_name" class="tk-card__row">
-                                <i class="fa fa-ship tk-card__row-icon"/>
-                                <span t-esc="card.vessel_name"/>
-                                <span t-if="card.shipping_line" class="tk-card__muted">
-                                    · <t t-esc="card.shipping_line"/>
-                                </span>
-                            </div>
-
-                            <!-- Contenedor -->
-                            <div t-if="hasContainer(card.container_number)" class="tk-card__row">
+                            <!-- 2. CONTENEDOR -->
+                            <div class="tk-card__row">
                                 <i class="fa fa-cube tk-card__row-icon"/>
-                                <span class="tk-card__container" t-esc="card.container_number"/>
+                                <span class="tk-card__container"
+                                      t-esc="hasContainer(card.container_number) ? card.container_number : 'SIN CONTENEDOR'"/>
                             </div>
 
-                            <!-- BL -->
-                            <div t-if="card.bl_number" class="tk-card__row">
-                                <i class="fa fa-file-text-o tk-card__row-icon"/>
-                                <span class="tk-card__muted" t-esc="card.bl_number"/>
+                            <!-- 3. FACTURA DE CARGA · 4. REFERENCIA INTERNA -->
+                            <div class="tk-card__pairs">
+                                <div class="tk-card__kv">
+                                    <span class="tk-card__k">Fact. carga</span>
+                                    <span class="tk-card__v" t-esc="card.cargo_invoices || '—'"
+                                          t-att-title="card.cargo_invoices"/>
+                                </div>
+                                <div class="tk-card__kv">
+                                    <span class="tk-card__k">Ref. interna</span>
+                                    <span class="tk-card__v" t-esc="card.partner_ref || '—'"
+                                          t-att-title="card.partner_ref"/>
+                                </div>
                             </div>
 
-                            <!-- Fechas ETD / ETA -->
+                            <!-- 5. ORDEN INTERNA · 7. ESTATUS -->
+                            <div class="tk-card__pairs">
+                                <div class="tk-card__kv">
+                                    <span class="tk-card__k">Orden interna</span>
+                                    <span class="tk-card__v tk-card__v--oc"
+                                          t-esc="strOf(card.purchase_id) || '—'"/>
+                                </div>
+                                <div class="tk-card__kv tk-card__kv--right">
+                                    <span class="tk-status-pill" t-esc="card.status_label"/>
+                                </div>
+                            </div>
+
+                            <!-- 8. ETD → ETA -->
                             <div class="tk-card__dates">
-                                <div t-if="card.etd" class="tk-card__date">
+                                <div class="tk-card__date">
                                     <span class="tk-card__date-label">ETD</span>
                                     <span t-esc="fmtDate(card.etd)"/>
                                 </div>
-                                <div t-if="card.eta" class="tk-card__date">
+                                <i class="fa fa-long-arrow-right tk-card__date-arrow"/>
+                                <div class="tk-card__date">
                                     <span class="tk-card__date-label">ETA</span>
                                     <span t-esc="fmtDate(card.eta)"/>
-                                </div>
-                            </div>
-
-                            <!-- Barra de asignación -->
-                            <div class="tk-card__footer">
-                                <div class="tk-alloc-bar-wrap">
-                                    <div class="tk-alloc-bar">
-                                        <div class="tk-alloc-bar__fill"
-                                             t-att-style="'width:' + progressWidth(card.allocation_percent)"/>
-                                    </div>
-                                    <span class="tk-alloc-pct">
-                                        <t t-esc="card.allocation_percent ? card.allocation_percent.toFixed(0) : '0'"/>%
-                                    </span>
-                                </div>
-                                <div t-if="card.total_m2 > 0" class="tk-card__m2">
-                                    <t t-esc="fmtNum(card.total_m2)"/> m²
                                 </div>
                             </div>
 
