@@ -642,10 +642,10 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
         align-items:   center;
         gap:           10px;
         margin-top:    7px;
-        padding:       4px 8px;
-        background:    linear-gradient(180deg, #f8fafc, #f1f5f9);
-        border:        1px solid rgba(226, 232, 240, .9);
-        border-radius: 8px;
+        padding:       0;
+        background:    none;
+        border:        none;
+        border-radius: 0;
         flex-wrap:     wrap;
     }
 

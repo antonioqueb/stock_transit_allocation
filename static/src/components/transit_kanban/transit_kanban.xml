@@ -142,10 +142,12 @@
                             <!-- COMPACTO: fechas ETD → ETA siempre visibles -->
                             <div class="tk-card__dates">
                                 <div class="tk-card__date">
+                                    <span class="tk-card__date-label">ETD</span>
                                     <span t-esc="fmtDate(card.etd)"/>
                                 </div>
                                 <i class="fa fa-long-arrow-right tk-card__date-arrow"/>
                                 <div class="tk-card__date">
+                                    <span class="tk-card__date-label">ETA</span>
                                     <span t-esc="fmtDate(card.eta)"/>
                                 </div>
                             </div>
