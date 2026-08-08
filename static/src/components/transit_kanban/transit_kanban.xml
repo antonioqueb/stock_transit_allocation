@@ -102,7 +102,16 @@
                             <div class="tk-card__header">
                                 <span class="tk-card__name tk-card__supplier-name"
                                       t-esc="strOf(card.tc_supplier_id) || card.name"/>
-                                <span t-attf-class="tk-eta #{etaClass(card)}" t-esc="etaLabel(card)"/>
+                                <span class="tk-card__header-right">
+                                    <!-- Toggle EN PRODUCCIÓN (solo columna Ordenado) -->
+                                    <button t-if="isOrderStage(card)"
+                                            t-attf-class="tk-prod-toggle #{isInProduction(card) ? 'tk-prod-toggle--on' : ''}"
+                                            t-att-title="isInProduction(card) ? 'EN PRODUCCIÓN — clic para regresar a Solicitud' : 'Marcar EN PRODUCCIÓN'"
+                                            t-on-click="(ev) => this.toggleProduction(card, ev)">
+                                        <i class="fa fa-industry"/>
+                                    </button>
+                                    <span t-attf-class="tk-eta #{etaClass(card)}" t-esc="etaLabel(card)"/>
+                                </span>
                             </div>
 
                             <!-- Inventario sin publicar (alerta operativa) -->

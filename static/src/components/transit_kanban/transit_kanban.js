@@ -11,13 +11,14 @@ import { useService } from "@web/core/utils/hooks";
 const STAGES = [
     {
         key:      "solicitud",
-        label:    "Solicitud / Producción",
-        sublabel: "Enviada · En fábrica",
-        icon:     "fa-industry",
+        label:    "Ordenado",
+        sublabel: "Solicitud · clic en el engrane = en producción",
+        icon:     "fa-file-text-o",
         color:    "#f59e0b",
         bg:       "#fffbeb",
         border:   "#fde68a",
-        // production vive en esta misma columna (2 columnas fusionadas)
+        // production vive en esta misma columna (2 columnas fusionadas);
+        // el toggle de manufactura de la tarjeta marca/desmarca producción.
         extraKeys: ["production"],
     },
     {
@@ -205,6 +206,45 @@ export class TransitKanbanView extends Component {
             views: [[false, "form"]],
             target: "current",
         });
+    }
+
+    // ── Toggle de producción (columna Ordenado) ──────────────────────────────
+    // Clic en el ícono de manufactura de la tarjeta: solicitud ⇄ production.
+    // Guarda de inmediato y deja el ícono encendido cuando ya está en fábrica.
+    isOrderStage(card) {
+        return card.custom_status === "solicitud" || card.custom_status === "production";
+    }
+
+    isInProduction(card) {
+        return card.custom_status === "production";
+    }
+
+    async toggleProduction(card, ev) {
+        if (ev) ev.stopPropagation();
+        if (!card || !this.isOrderStage(card)) return;
+
+        const next = card.custom_status === "production" ? "solicitud" : "production";
+        this.state.updatingStageId = card.id;
+        try {
+            await this.orm.write("stock.transit.voyage", [card.id], {
+                custom_status: next,
+            });
+            card.custom_status = next;
+            card.status_label = next === "production" ? "Producción" : "Solicitud Enviada";
+            this._buildColumns(this.state.records);
+            this.notification.add(
+                next === "production"
+                    ? "Marcado EN PRODUCCIÓN."
+                    : "Regresado a Solicitud.",
+                { type: "success", sticky: false }
+            );
+        } catch (e) {
+            console.error("[TransitKanban] Error marcando producción:", e);
+            this.notification.add("No se pudo actualizar: " + (e.message || e), { type: "danger" });
+            await this.loadData();
+        } finally {
+            this.state.updatingStageId = false;
+        }
     }
 
     createVoyage(ev) {
