@@ -72,9 +72,9 @@
                         <span class="tk-col-count" t-esc="total.count"/>
                         <i t-attf-class="fa #{collapsed ? 'fa-chevron-down' : 'fa-chevron-up'} tk-col-chevron"/>
                     </div>
-                    <div class="tk-col-header__sub">
-                        <span class="tk-col-sublabel" t-esc="stage.sublabel"/>
-                        <span t-if="total.m2 > 0" class="tk-col-m2">
+                    <!-- Subtítulo eliminado (redundante); solo el total de m² -->
+                    <div t-if="total.m2 > 0" class="tk-col-header__sub">
+                        <span class="tk-col-m2">
                             <t t-esc="fmtNum(total.m2)"/> m²
                         </span>
                     </div>
