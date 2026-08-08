@@ -119,11 +119,24 @@
                                 <i class="fa fa-eye-slash"/> Inventario SIN publicar
                             </div>
 
-                            <!-- COMPACTO: contenedor + estatus -->
+                            <!-- COMPACTO: contenedor -->
                             <div class="tk-card__compactline">
                                 <span class="tk-card__container"
                                       t-esc="hasContainer(card.container_number) ? card.container_number : 'SIN CONTENEDOR'"/>
-                                <span class="tk-status-pill" t-esc="card.status_label"/>
+                            </div>
+
+                            <!-- COMPACTO: proforma (ref. interna) + orden de compra -->
+                            <div class="tk-card__pairs">
+                                <div class="tk-card__kv">
+                                    <span class="tk-card__k">Ref. interna</span>
+                                    <span class="tk-card__v" t-esc="card.partner_ref || '—'"
+                                          t-att-title="card.partner_ref"/>
+                                </div>
+                                <div class="tk-card__kv">
+                                    <span class="tk-card__k">Orden interna</span>
+                                    <span class="tk-card__v tk-card__v--oc"
+                                          t-esc="strOf(card.purchase_id) || '—'"/>
+                                </div>
                             </div>
 
                             <!-- DETALLE (desplegable) -->
@@ -133,19 +146,6 @@
                                         <span class="tk-card__k">Fact. carga</span>
                                         <span class="tk-card__v" t-esc="card.cargo_invoices || '—'"
                                               t-att-title="card.cargo_invoices"/>
-                                    </div>
-                                    <div class="tk-card__kv">
-                                        <span class="tk-card__k">Ref. interna</span>
-                                        <span class="tk-card__v" t-esc="card.partner_ref || '—'"
-                                              t-att-title="card.partner_ref"/>
-                                    </div>
-                                </div>
-
-                                <div class="tk-card__pairs">
-                                    <div class="tk-card__kv">
-                                        <span class="tk-card__k">Orden interna</span>
-                                        <span class="tk-card__v tk-card__v--oc"
-                                              t-esc="strOf(card.purchase_id) || '—'"/>
                                     </div>
                                 </div>
 
