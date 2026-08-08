@@ -2662,12 +2662,15 @@ class SaleOrderLine(models.Model):
     # -------------------------------------------------------------------------
 
     def _tc_line_blocks_unlink(self):
-        """True si la línea tiene rastro operativo que impide borrarla:
-        cantidad entregada, movimientos de almacén hechos o facturas."""
+        """True si la línea tiene rastro FÍSICO que impide borrarla: cantidad
+        entregada o movimientos de almacén validados.
+
+        Las FACTURAS ya no bloquean (regla de negocio): una línea facturada
+        —pagada o no— puede borrarse mientras no exista entrega validada;
+        la factura queda como documento contable independiente y el estatus
+        de facturación de la orden se recalcula solo."""
         self.ensure_one()
         if self.qty_delivered:
-            return True
-        if self.qty_invoiced or self.invoice_lines:
             return True
         if 'move_ids' in self._fields and self.move_ids.filtered(
             lambda m: m.state == 'done'
@@ -2689,8 +2692,8 @@ class SaleOrderLine(models.Model):
           que ajusta el picking), y
         - cancela sus movimientos pendientes para no dejar demanda huérfana
           en las entregas.
-        Las líneas con entregas/facturas no se tocan: el ondelete del core
-        las bloqueará igual que siempre."""
+        Las líneas con entregas VALIDADAS no se tocan: el ondelete del core
+        las bloqueará igual que siempre (las facturas ya no bloquean)."""
         deletable = self.filtered(
             lambda l: l.state == 'sale'
             and not l.display_type
