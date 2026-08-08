@@ -466,3 +466,23 @@ $rcp-mut: #64748b;
         .o_rcp_done_main .q { font-weight: 800 !important; }
     }
 }
+
+// ── Reimpresión de Worksheet desde el tablero ────────────────────────────
+.o_receptions_dash .o_rcp_ws_btn {
+    margin-top: 6px;
+    padding: 3px 12px;
+    border: 1px solid #cbd5e1;
+    border-radius: 999px;
+    background: #fff;
+    color: #0f172a;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s ease;
+
+    &:hover {
+        border-color: #155f94;
+        color: #155f94;
+        box-shadow: 0 3px 8px -4px rgba(21, 95, 148, .5);
+    }
+}

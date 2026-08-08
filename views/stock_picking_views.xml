@@ -123,9 +123,11 @@
                 <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
             </xpath>
 
-            <!-- Imprimir Worksheet original. -->
+            <!-- Imprimir Worksheet original. El Worksheet SIGUE imprimible
+                 después de validar la recepción (estado done): es el
+                 documento de trabajo del almacén y se reimprime a demanda. -->
             <xpath expr="//header/button[@name='action_print_worksheet_pdf']" position="attributes">
-                <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+                <attribute name="invisible">state in ('cancel', 'draft') or not packing_list_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
             </xpath>
 
             <!-- Abrir Worksheet original. -->

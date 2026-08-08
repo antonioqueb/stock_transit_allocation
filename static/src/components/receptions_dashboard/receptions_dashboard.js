@@ -14,6 +14,7 @@ export class ReceptionsDashboard extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
+        this.notification = useService("notification");
         this.state = useState({ loading: true, data: null, detail: null, expanded: {} });
         this.timer = null;
         this.lastPayload = null;
@@ -81,6 +82,31 @@ export class ReceptionsDashboard extends Component {
             views: [[false, "form"]],
             target: "current",
         });
+    }
+
+    // Reimpresión del Worksheet directo desde el tablero (también para
+    // recepciones YA validadas: es documento de trabajo, se reimprime
+    // a demanda).
+    async printWorksheet(receptionId, ev) {
+        if (ev) {
+            ev.stopPropagation();
+        }
+        if (!receptionId) {
+            return;
+        }
+        try {
+            const act = await this.orm.call(
+                "stock.picking", "action_print_worksheet_pdf", [[receptionId]]
+            );
+            if (act) {
+                await this.action.doAction(act);
+            }
+        } catch (e) {
+            console.error("[Recepciones] Error imprimiendo Worksheet:", e);
+            const msg = (e && e.data && e.data.message) || e.message ||
+                "No se pudo imprimir el Worksheet.";
+            this.notification.add(msg, { type: "danger" });
+        }
     }
 
     openReceptionsList() {

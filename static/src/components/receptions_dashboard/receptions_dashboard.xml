@@ -110,6 +110,12 @@
                             t-on-click.stop="() => this.openReception(card.reception_id)">
                         Recepción <t t-esc="card.reception_name ? '· ' + card.reception_name : ''"/>
                     </button>
+                    <button t-if="card.reception_id"
+                            class="o_rcp_btn ghost"
+                            title="Imprimir Worksheet"
+                            t-on-click.stop="(ev) => this.printWorksheet(card.reception_id, ev)">
+                        Worksheet
+                    </button>
                 </div>
             </div>
         </div>
@@ -209,6 +215,11 @@
                                     <span t-if="row.embarque"> · <t t-esc="row.embarque"/></span>
                                     <span class="d"> · <t t-esc="row.done"/></span>
                                 </div>
+                                <button class="o_rcp_ws_btn"
+                                        title="Imprimir Worksheet"
+                                        t-on-click.stop="(ev) => this.printWorksheet(row.reception_id, ev)">
+                                    Worksheet
+                                </button>
                             </div>
                         </div>
                         <div t-if="!state.data.done.length" class="o_rcp_empty">Sin recepciones en 7 días</div>
