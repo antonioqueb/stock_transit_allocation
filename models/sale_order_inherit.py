@@ -543,6 +543,18 @@ class SaleOrderLine(models.Model):
             except Exception:
                 return 0.0
 
+        # Llave de QUANT (flujo de carrito): sin esta resolución, la
+        # parcialidad no se encontraba y el ratchet tomaba el FÍSICO
+        # completo del lote, inflando la cantidad solicitada.
+        if lot_type in ('formato', 'pieza') and breakdown \
+                and hasattr(self, '_som_breakdown_qty_for_lot'):
+            try:
+                resolved = self._som_breakdown_qty_for_lot(breakdown, lot)
+                if resolved is not None:
+                    return float(resolved or 0.0)
+            except Exception:
+                pass
+
         qty = self._tc_get_lot_internal_qty(lot)
 
         # Si la placa ya no está en stock interno pero sigue asignada, recupera su
