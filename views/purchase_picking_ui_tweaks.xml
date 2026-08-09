@@ -13,10 +13,13 @@
              aplicar después de esa herencia para poder retocarlo. -->
         <field name="priority">300</field>
         <field name="arch" type="xml">
-            <!-- REPLACE completo (no attributes): garantiza que el nodo
-                 final —ícono incluido— sea este, pise lo que pise cualquier
-                 otra herencia aplicada antes o después. -->
-            <xpath expr="//button[@name='action_view_picking']" position="replace">
+            <!-- REPLACE del botón INTELIGENTE únicamente. OJO: purchase_stock
+                 tiene DOS botones name='action_view_picking' — el 'Recibir'
+                 del header (junto a Confirmar) y el smart button del
+                 button_box. El xpath sin ancla reemplazaba el del HEADER
+                 (aparecía un 'Tránsito' junto a Confirmar y el camión
+                 seguía vivo). Se ancla al button_box. -->
+            <xpath expr="//div[@name='button_box']/button[@name='action_view_picking']" position="replace">
                 <button type="object"
                         name="action_view_picking"
                         class="oe_stat_button"
