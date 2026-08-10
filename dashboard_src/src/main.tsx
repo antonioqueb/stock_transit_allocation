@@ -1339,6 +1339,27 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
 
   const mom = num(k.facturado_mom_pct);
 
+  const finInsights: Insight[] = [];
+  if (num(k.vencido_pct) > 25) {
+    finInsights.push({ metric_id: "por_cobrar", severity: "crit",
+      text: `La cartera vencida es ${pct(k.vencido_pct)} del total por cobrar (${money(k.vencido_mxn)}): prioridad de cobranza.` });
+  } else if (num(k.vencido_mxn) > 0) {
+    finInsights.push({ metric_id: "por_cobrar", severity: "warn",
+      text: `${money(k.vencido_mxn)} vencidos (${pct(k.vencido_pct)} de la cartera).` });
+  }
+  if (isFinite(mom) && mom !== 0) {
+    finInsights.push({ metric_id: "fact_real_mes", severity: mom < 0 ? "warn" : "info",
+      text: `La facturación del mes va ${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} contra el mes anterior (${money(k.facturado_mes)} vs ${money(k.facturado_mes_prev)}).` });
+  }
+  if (num(k.dso_dias) > 60) {
+    finInsights.push({ metric_id: "por_cobrar", severity: "warn",
+      text: `DSO de ${n1(k.dso_dias)} días: la venta tarda más de 2 meses en volverse efectivo.` });
+  }
+  if (num(k.efectivo_sin_aplicar) > 0) {
+    finInsights.push({ metric_id: "bancos_mxn", severity: "info",
+      text: `${money(k.efectivo_sin_aplicar)} de efectivo recibido sin aplicar contablemente (${n0(k.recibos_sin_aplicar)} recibos).` });
+  }
+
   return (
     <>
       <div className="bento">
@@ -1357,7 +1378,43 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
         <Stat label="Comprobantes por validar" value={n0(k.comprobantes_pendientes)} sub={money(k.comprobantes_monto)} tone={num(k.comprobantes_pendientes) > 0 ? "mid" : "good"} />
       </div>
 
-      <div className="grid" style={{ marginTop: 12 }}>
+      <div style={{ marginTop: 12 }}><InsightStrip insights={finInsights} /></div>
+
+      <div className="grid">
+        {banks.data && (
+          <Panel title="Puente de liquidez: de bancos a posición total" hint="waterfall · liquidez + exigible − obligaciones" wide>
+            <EChartBox height={320} deps={[banks.data.total, k.por_cobrar, k.por_pagar]} option={(() => {
+              const b = num(banks.data!.total);
+              const ar2 = num(k.por_cobrar);
+              const ap2 = num(k.por_pagar);
+              const pos = b + ar2 - ap2;
+              const cats = ["BANCOS Y CAJAS", "+ POR COBRAR", "− POR PAGAR", "POSICIÓN TOTAL"];
+              const base = [0, b, b + ar2 - ap2, 0];
+              const vals = [b, ar2, ap2, pos];
+              const colors = [
+                { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#60a5fa" }, { offset: 1, color: "#0b57d0" }] },
+                { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#34d399" }, { offset: 1, color: "#059669" }] },
+                { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] },
+                { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#a78bfa" }, { offset: 1, color: "#6d28d9" }] },
+              ];
+              return {
+                ...ecBase(),
+                tooltip: { ...(ecBase().tooltip as object),
+                  formatter: (pm: { dataIndex: number }) => `${cats[pm.dataIndex]}<br/><b>${money(vals[pm.dataIndex])}</b>` },
+                xAxis: ecAxis("cat", cats),
+                yAxis: ecAxis("money"),
+                series: [
+                  { type: "bar", stack: "w", barMaxWidth: 72, silent: true,
+                    itemStyle: { color: "transparent" }, data: base, tooltip: { show: false } },
+                  { type: "bar", stack: "w", barMaxWidth: 72,
+                    label: { show: true, position: "top", fontWeight: 800, fontSize: 12,
+                             formatter: (pm: { dataIndex: number }) => money(vals[pm.dataIndex]) },
+                    data: vals.map((v, i) => ({ value: v, itemStyle: { color: colors[i], borderRadius: [7, 7, 0, 0] } })) },
+                ],
+              };
+            })()} />
+          </Panel>
+        )}
         <Panel title="Me deben — por divisa original" hint="el MXN es al TC del día de registro, no al de hoy">
           {!arCur.length ? <Empty msg="Sin cartera abierta" /> : (
             <div className="tablewrap">
@@ -1397,35 +1454,127 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
           )}
         </Panel>
 
-        <Panel title="Flujo por vencimiento: qué entra vs qué sale" hint="cobros y pagos según cuándo vencen" wide>
-          <ChartBox height={300} deps={[due]} config={{
-            type: "bar",
-            data: {
-              labels: due.map((r) => String(r.bucket)),
-              datasets: [
-                { label: "Entra (por cobrar)", data: due.map((r) => num(r.entra)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 6, maxBarThickness: 46, isMoney: true },
-                { label: "Sale (por pagar)", data: due.map((r) => num(r.sale)), backgroundColor: "rgba(220,38,38,.75)", borderRadius: 6, maxBarThickness: 46, isMoney: true },
+        <Panel title="Salud de cobranza" hint="DSO y % vencido — bajar es mejor">
+          <EChartBox height={300} deps={[k.dso_dias, k.vencido_pct]} option={{
+            ...ecBase(),
+            series: [
+              { type: "gauge", center: ["27%", "56%"], radius: "82%", startAngle: 210, endAngle: -30,
+                min: 0, max: 120, splitNumber: 4,
+                axisLine: { lineStyle: { width: 14, color: [[0.375, "#059669"], [0.625, "#d97706"], [1, "#dc2626"]] } },
+                pointer: { itemStyle: { color: "auto" }, width: 4 },
+                axisTick: { show: false }, splitLine: { show: false },
+                axisLabel: { fontSize: 9, distance: 18 },
+                title: { offsetCenter: [0, "72%"], fontSize: 11, fontWeight: 700 },
+                detail: { fontSize: 22, fontWeight: 800, offsetCenter: [0, "38%"], color: "auto",
+                          formatter: (v: number) => `${n1(v)} d` },
+                data: [{ value: num(k.dso_dias), name: "DSO" }] },
+              { type: "gauge", center: ["73%", "56%"], radius: "82%", startAngle: 210, endAngle: -30,
+                min: 0, max: 100, splitNumber: 4,
+                axisLine: { lineStyle: { width: 14, color: [[0.1, "#059669"], [0.3, "#d97706"], [1, "#dc2626"]] } },
+                pointer: { itemStyle: { color: "auto" }, width: 4 },
+                axisTick: { show: false }, splitLine: { show: false },
+                axisLabel: { fontSize: 9, distance: 18 },
+                title: { offsetCenter: [0, "72%"], fontSize: 11, fontWeight: 700 },
+                detail: { fontSize: 22, fontWeight: 800, offsetCenter: [0, "38%"], color: "auto",
+                          formatter: (v: number) => pct(v) },
+                data: [{ value: num(k.vencido_pct), name: "VENCIDO" }] },
+            ],
+          }} />
+        </Panel>
+        <Panel title="Flujo por vencimiento: entra vs sale" hint="verde arriba = cobros · rojo abajo = pagos">
+          <EChartBox height={300} deps={[due]} option={{
+            ...ecBase(),
+            tooltip: { ...(ecBase().tooltip as object), trigger: "axis",
+              formatter: (params: Array<{ marker: string; seriesName: string; value: number; name: string }>) => {
+                const list = Array.isArray(params) ? params : [params];
+                return `${list[0]?.name}<br/>` + list.map((pp) =>
+                  `${pp.marker} ${pp.seriesName}: <b>${money(Math.abs(num(pp.value)))}</b>`).join("<br/>");
+              } },
+            legend: { top: 0 },
+            xAxis: ecAxis("cat", due.map((r) => String(r.bucket).toUpperCase())),
+            yAxis: { ...ecAxis("money"), axisLabel: { fontSize: 10,
+              formatter: (v: number) => new Intl.NumberFormat("en-US", { notation: "compact" }).format(Math.abs(v)) } },
+            series: [
+              { name: "Entra (por cobrar)", type: "bar", stack: "flow", barMaxWidth: 46,
+                data: due.map((r) => num(r.entra)),
+                itemStyle: { borderRadius: [7, 7, 0, 0],
+                  color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [{ offset: 0, color: "#34d399" }, { offset: 1, color: "#059669" }] } } },
+              { name: "Sale (por pagar)", type: "bar", stack: "flow", barMaxWidth: 46,
+                data: due.map((r) => -num(r.sale)),
+                itemStyle: { borderRadius: [0, 0, 7, 7],
+                  color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] } } },
+            ],
+          }} />
+        </Panel>
+
+        <Panel title="Tornado de antigüedad: cobrar ↔ pagar" hint="izquierda = me deben · derecha = debo · por edad" wide>
+          <EChartBox height={300} deps={[arb, apb]} option={(() => {
+            const buckets = [...new Set([...arb.map((r) => String(r.bucket)), ...apb.map((r) => String(r.bucket))])];
+            const arMap = new Map(arb.map((r) => [String(r.bucket), num(r.monto)]));
+            const apMap = new Map(apb.map((r) => [String(r.bucket), num(r.monto)]));
+            return {
+              ...ecBase(),
+              tooltip: { ...(ecBase().tooltip as object), trigger: "axis",
+                formatter: (params: Array<{ marker: string; seriesName: string; value: number; name: string }>) => {
+                  const list = Array.isArray(params) ? params : [params];
+                  return `${list[0]?.name}<br/>` + list.map((pp) =>
+                    `${pp.marker} ${pp.seriesName}: <b>${money(Math.abs(num(pp.value)))}</b>`).join("<br/>");
+                } },
+              legend: { top: 0 },
+              xAxis: { ...ecAxis("money"), axisLabel: { fontSize: 10,
+                formatter: (v: number) => new Intl.NumberFormat("en-US", { notation: "compact" }).format(Math.abs(v)) } },
+              yAxis: { type: "category", data: buckets.map((b) => b.toUpperCase()), inverse: true,
+                axisLine: { show: false }, axisTick: { show: false },
+                axisLabel: { fontSize: 11, fontFamily: "Inter", fontWeight: 700 } },
+              series: [
+                { name: "Me deben", type: "bar", stack: "t", barMaxWidth: 26,
+                  label: { show: true, position: "left", fontSize: 10,
+                           formatter: (pm: { value: number }) => money(Math.abs(num(pm.value))) },
+                  data: buckets.map((b) => -(arMap.get(b) ?? 0)),
+                  itemStyle: { borderRadius: [7, 0, 0, 7],
+                    color: { type: "linear", x: 1, y: 0, x2: 0, y2: 0,
+                      colorStops: [{ offset: 0, color: "#34d399" }, { offset: 1, color: "#059669" }] } } },
+                { name: "Debo", type: "bar", stack: "t", barMaxWidth: 26,
+                  label: { show: true, position: "right", fontSize: 10,
+                           formatter: (pm: { value: number }) => money(num(pm.value)) },
+                  data: buckets.map((b) => apMap.get(b) ?? 0),
+                  itemStyle: { borderRadius: [0, 7, 7, 0],
+                    color: { type: "linear", x: 0, y: 0, x2: 1, y2: 0,
+                      colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] } } },
               ],
-            },
-            options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(12) } },
-          }} />
+            };
+          })()} />
         </Panel>
 
-        <Panel title="Por cobrar por antigüedad" hint="edad de lo que me deben">
-          <ChartBox height={260} deps={[arb]} config={{
-            type: "bar",
-            data: { labels: arb.map((r) => String(r.bucket)), datasets: [{ label: "MXN", data: arb.map((r) => num(r.monto)), backgroundColor: [C.green, "#84cc16", C.amber, "#f97316", C.red], borderRadius: 6, isMoney: true }] },
-            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
-          }} />
+        <Panel title="Pareto de deudores" hint="barras = saldo · línea = % acumulado · click = factura por factura" wide>
+          <EChartBox height={320} deps={[arTop]}
+            onClick={(pm) => { const c2 = arTop[pm.dataIndex]; if (c2) props.drill({ kind: "finpartner", side: "ar", partnerId: num(c2.key), label: String(c2.name) }); }}
+            option={(() => {
+              const total = arTop.reduce((sm, c2) => sm + num(c2.monto), 0);
+              let acc = 0;
+              const cum = arTop.map((c2) => { acc += num(c2.monto); return total ? Math.round((acc / total) * 1000) / 10 : 0; });
+              return {
+                ...ecBase(),
+                tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+                legend: { top: 0 },
+                xAxis: { ...ecAxis("cat", arTop.map((c2) => String(c2.name).slice(0, 18).toUpperCase())),
+                  axisLabel: { rotate: 28, fontSize: 9.5, color: "#64748b" } },
+                yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false },
+                  axisLabel: { formatter: "{value}%", fontSize: 10, color: "#64748b" } }],
+                series: [
+                  { name: "Saldo", type: "bar", barMaxWidth: 28,
+                    data: arTop.map((c2) => num(c2.monto)),
+                    itemStyle: { borderRadius: [6, 6, 0, 0],
+                      color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [{ offset: 0, color: "#38bdf8" }, { offset: 1, color: "#0b57d0" }] } } },
+                  { name: "% acumulado", type: "line", yAxisIndex: 1, smooth: true, symbolSize: 6,
+                    data: cum, lineStyle: { width: 3, color: "#d97706" }, itemStyle: { color: "#d97706" } },
+                ],
+              };
+            })()} />
         </Panel>
-        <Panel title="Por pagar por antigüedad" hint="edad de lo que debo">
-          <ChartBox height={260} deps={[apb]} config={{
-            type: "bar",
-            data: { labels: apb.map((r) => String(r.bucket)), datasets: [{ label: "MXN", data: apb.map((r) => num(r.monto)), backgroundColor: [C.sky, "#818cf8", C.violet, "#f472b6", C.red], borderRadius: 6, isMoney: true }] },
-            options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
-          }} />
-        </Panel>
-
         <Panel title="Quién me debe" hint="click en un cliente = factura por factura">
           {!arTop.length ? <Empty msg="Nadie me debe" /> : (
             <div className="tablewrap">
