@@ -40,11 +40,13 @@
         <field name="arch" type="xml">
 
             <xpath expr="//header" position="inside">
+                <!-- Oculto por pedido (2026-08-16): ya no se usa desde la OC
+                     (el nodo permanece por si alguna vista se ancla a él). -->
                 <button name="action_print_transit_packing_list"
                         string="📄 Packing List Embarque"
                         type="object"
                         class="btn-secondary"
-                        invisible="not tc_has_transit_packing_list"/>
+                        invisible="1"/>
             </xpath>
 
             <xpath expr="//sheet" position="inside">
