@@ -111,7 +111,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² cotizados vs confirmados</t><t t-set="val" t-value="num(data.kpis.m2_cotizados) + ' / ' + num(data.kpis.m2_confirmados)"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Descuentos otorgados</t><t t-set="val" t-value="money(data.kpis.descuento_mxn)"/><t t-set="sub" t-value="num(data.kpis.descuentos_con_auth,0) + ' requirieron autorización'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² vendidos</t><t t-set="val" t-value="num(data.kpis.m2_vendidos)"/><t t-set="sub" t-value="num(data.kpis.piezas_vendidas,0) + ' piezas'"/></t>
-                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Vía arquitecto</t><t t-set="val" t-value="num(data.kpis.pct_via_arquitecto) + '%'"/><t t-set="sub">de las órdenes</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Vía embajador</t><t t-set="val" t-value="num(data.kpis.pct_via_arquitecto) + '%'"/><t t-set="sub">de las órdenes</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Bloqueadas por precio</t><t t-set="val" t-value="num(data.kpis.bloqueadas_precio,0)"/><t t-set="sub" t-value="compact(data.kpis.bloqueadas_monto) + ' detenidos · ' + num(data.kpis.bloqueo_edad_dias) + ' días prom.'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exenciones IVA</t><t t-set="val" t-value="num(data.kpis.iva_aprobadas,0) + ' / ' + num(data.kpis.iva_solicitadas,0)"/><t t-set="sub">aprobadas / solicitadas</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Exposición cambiaria</t><t t-set="val" t-value="compact(data.kpis.exposicion_mxn)"/><t t-set="sub" t-value="num(data.kpis.exposicion_ordenes,0) + ' órdenes USD sin TC congelado'"/></t>
@@ -129,15 +129,15 @@
                                 <div class="som_bi__canvas tall"><canvas id="som_c_monthly"/></div>
                             </div>
                             <div class="som_bi__panel">
-                                <div class="som_bi__panel_head"><span class="t"><i class="dot violet"/> Canal arquitecto</span></div>
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot violet"/> Canal embajador</span></div>
                                 <div class="som_bi__minitable">
-                                    <div class="row head"><span>Arquitecto</span><b>Órdenes</b><b>Monto</b></div>
+                                    <div class="row head"><span>Embajador</span><b>Órdenes</b><b>Monto</b></div>
                                     <div t-foreach="data.architects" t-as="a" t-key="a_index" class="row">
                                         <span t-att-title="a.name" t-esc="a.name"/>
                                         <b t-esc="num(a.ordenes,0)"/>
                                         <b t-esc="compact(a.monto)"/>
                                     </div>
-                                    <div t-if="!data.architects.length" class="row"><span class="muted">Sin ventas vía arquitecto en el periodo</span><b/><b/></div>
+                                    <div t-if="!data.architects.length" class="row"><span class="muted">Sin ventas vía embajador en el periodo</span><b/><b/></div>
                                 </div>
                             </div>
                             <div class="som_bi__panel">

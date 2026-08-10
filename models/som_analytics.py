@@ -391,7 +391,7 @@ class SomAnalytics(models.AbstractModel):
 
         dt = (dt_from, dt_to)
 
-        # 1.4 Canal arquitecto: % de la venta y top especificadores
+        # 1.4 Canal embajador: % de la venta y top especificadores
         arch = self._sq("""
             SELECT COALESCE(rp.name,''), COUNT(DISTINCT so.id),
                    SUM(so.amount_total)
