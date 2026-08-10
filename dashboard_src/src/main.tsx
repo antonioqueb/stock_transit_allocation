@@ -10,6 +10,7 @@ import {
   fetchDashboard, fetchDrill,
 } from "./api";
 import { ChartBox, baseOptions, axisMoney, axisPlain, C, PALETTE } from "./charts";
+import { NAV, domainOf, pageOf } from "./nav";
 import "./styles.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1984,6 +1985,26 @@ function App() {
   const [view, setView] = useState<ViewKey>(
     isMobileScreen && initial.view === "resumen" ? "ventas" : initial.view
   );
+
+  // ── Navegación anidada (Fase 1 del rediseño) ──────────────────────────
+  // Escape hatch: localStorage som_nav_legacy = '1' regresa a la lista
+  // plana anterior sin redeploy (mecanismo de rollback de la fase).
+  const navLegacy = typeof localStorage !== "undefined" && localStorage.getItem("som_nav_legacy") === "1";
+  const [openDomain, setOpenDomain] = useState<string>(() => {
+    const stored = typeof localStorage !== "undefined" ? localStorage.getItem("som_nav_open") : null;
+    return domainOf(initial.view)?.id || stored || "inicio";
+  });
+  useEffect(() => {
+    // La ruta activa abre automáticamente a su padre y se recuerda la
+    // preferencia (un solo dominio expandido a la vez).
+    const d = domainOf(view);
+    if (d) setOpenDomain(d.id);
+  }, [view]);
+  useEffect(() => {
+    try { localStorage.setItem("som_nav_open", openDomain); } catch { /* privado */ }
+  }, [openDomain]);
+  const crumbDomain = domainOf(view);
+  const crumbPage = pageOf(view);
   const [filters, setFilters] = useState<Filters>({ ...defaultRange(), ...initial.filters });
   const [drillStack, setDrillStack] = useState<DrillNode[]>([]);
   const [preset, setPreset] = useState("mes");
@@ -2078,13 +2099,60 @@ function App() {
 
       <div className="body">
         <nav className="sidenav" aria-label="Vistas">
-          {VIEWS.map((v) => (
-            <button key={v.key} className={`nav-${v.key}${view === v.key ? " on" : ""}`} onClick={() => setView(v.key)}>{v.label}</button>
-          ))}
+          {navLegacy ? (
+            VIEWS.map((v) => (
+              <button key={v.key} className={`nav-${v.key}${view === v.key ? " on" : ""}`} onClick={() => setView(v.key)}>{v.label}</button>
+            ))
+          ) : (
+            NAV.map((d) => {
+              const isOpen = openDomain === d.id;
+              const hasActive = d.pages.some((p) => p.key === view);
+              // En móvil los hijos viven siempre en el DOM (el CSS los
+              // muestra como chips bajo su etiqueta de sección).
+              const showChildren = isOpen || hasActive || isMobileScreen;
+              return (
+                <div key={d.id} className={`nav-domain${hasActive ? " has-active" : ""}`}>
+                  <button
+                    className="nav-domain-head"
+                    aria-expanded={isOpen}
+                    onClick={() => setOpenDomain(isOpen ? "" : d.id)}
+                  >
+                    <span className="nav-domain-label">{d.label}</span>
+                    <span className="nav-chevron" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
+                  </button>
+                  {showChildren && (
+                    <div className="nav-children">
+                      {d.pages.map((p) => (
+                        <button
+                          key={p.key}
+                          className={`nav-${p.key}${view === p.key ? " on" : ""}`}
+                          aria-current={view === p.key ? "page" : undefined}
+                          title={p.question}
+                          onClick={() => { setView(p.key as ViewKey); setOpenDomain(d.id); }}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
           <div className="navfoot">{String(boot.user ?? "")}</div>
         </nav>
 
         <main className="content" key={view + filtersKey}>
+          {!navLegacy && crumbDomain && crumbPage && (
+            <div className="crumbs" aria-label="Ruta">
+              <span>Analytics</span>
+              <span className="crumb-sep">/</span>
+              <span>{crumbDomain.label}</span>
+              <span className="crumb-sep">/</span>
+              <strong>{crumbPage.label}</strong>
+              <span className="crumb-q">{crumbPage.question}</span>
+            </div>
+          )}
           {view === "resumen" && <ResumenView filters={filters} paused={drillStack.length > 0} />}
           {view === "ventas" && <VentasView filters={filters} drill={drill} />}
           {view === "materiales" && <MaterialesView filters={filters} drill={drill} />}
