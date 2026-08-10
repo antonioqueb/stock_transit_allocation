@@ -1928,7 +1928,13 @@ function App() {
   }, []);
 
   const initial = useMemo(readHash, []);
-  const [view, setView] = useState<ViewKey>(initial.view);
+  // RESUMEN es exclusivo de escritorio (tablero TV): en móvil se arranca
+  // en Ventas y el chip de Resumen se oculta por CSS.
+  const isMobileScreen = typeof window !== "undefined" &&
+    window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
+  const [view, setView] = useState<ViewKey>(
+    isMobileScreen && initial.view === "resumen" ? "ventas" : initial.view
+  );
   const [filters, setFilters] = useState<Filters>({ ...defaultRange(), ...initial.filters });
   const [drillStack, setDrillStack] = useState<DrillNode[]>([]);
   const [preset, setPreset] = useState("mes");
@@ -2008,7 +2014,7 @@ function App() {
       <div className="body">
         <nav className="sidenav" aria-label="Vistas">
           {VIEWS.map((v) => (
-            <button key={v.key} className={view === v.key ? "on" : ""} onClick={() => setView(v.key)}>{v.label}</button>
+            <button key={v.key} className={`nav-${v.key}${view === v.key ? " on" : ""}`} onClick={() => setView(v.key)}>{v.label}</button>
           ))}
           <div className="navfoot">{String(boot.user ?? "")}</div>
         </nav>

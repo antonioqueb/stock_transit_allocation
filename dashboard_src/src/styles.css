@@ -345,6 +345,10 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   .tablewrap td:first-child {
     position: sticky; left: 0; z-index: 2;
     background: var(--panel);
+    /* min-width evita el colapso: con overflow-wrap anywhere el
+       min-content baja a UN carácter y el layout estrangulaba la columna
+       (V/0347 apilado en vertical a ~5px de ancho). */
+    min-width: 104px;
     max-width: 132px; white-space: normal;
     overflow-wrap: anywhere;
     box-shadow: 3px 0 6px rgba(15, 23, 42, .07);
@@ -402,4 +406,10 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   .stats { gap: 6px; }
   .stat-v { font-size: 16px; }
   .presets button { min-width: 56px; font-size: 12px; }
+}
+
+
+/* ── Móvil: Resumen es exclusivo de escritorio ── */
+@media (max-width: 760px) {
+  .sidenav .nav-resumen { display: none !important; }
 }
