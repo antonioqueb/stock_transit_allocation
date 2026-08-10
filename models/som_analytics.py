@@ -694,8 +694,35 @@ class SomAnalytics(models.AbstractModel):
             {'stage': lbl, 'count': smap.get(st, (0, 0))[0],
              'amount': round(smap.get(st, (0, 0))[1] or 0.0, 2)}
             for (st, lbl) in [('draft', 'Borrador'), ('sent', 'Enviada'),
-                              ('sale', 'Confirmada'), ('cancel', 'Cancelada')]
+                              ('sale', 'Confirmada')]
         ]
+
+        # Etapa COBRADO: dinero realmente pagado de las órdenes confirmadas
+        # creadas en el periodo (delivery_paid_amount de sale_delivery_auth:
+        # pagos aplicados en facturas posteadas, topado al total de la
+        # orden). El conteo son órdenes pagadas al 100%.
+        if 'delivery_paid_amount' in self.env['sale.order']._fields:
+            paid_row = self._sq("""
+                SELECT COUNT(*) FILTER (
+                           WHERE so.delivery_paid_amount >= so.amount_total
+                             AND so.amount_total > 0),
+                       COALESCE(SUM(LEAST(so.delivery_paid_amount,
+                                          so.amount_total)), 0)
+                FROM sale_order so
+                WHERE so.create_date >= %s AND so.create_date <= %s
+                  AND so.state = 'sale'
+            """, (dtf, dtt), default=[(0, 0)])[0]
+            pack['funnel'].append({
+                'stage': 'Cobrado',
+                'count': paid_row[0] or 0,
+                'amount': round(paid_row[1] or 0.0, 2),
+            })
+
+        pack['funnel'].append({
+            'stage': 'Cancelada',
+            'count': smap.get('cancel', (0, 0))[0],
+            'amount': round(smap.get('cancel', (0, 0))[1] or 0.0, 2),
+        })
 
         # Aging de cotizaciones ABIERTAS hoy (borrador/enviada, sin filtro de
         # periodo: el backlog vivo es lo accionable).

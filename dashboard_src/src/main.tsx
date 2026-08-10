@@ -2279,12 +2279,25 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
                            } },
                   itemStyle: { borderWidth: 0, shadowBlur: 8, shadowColor: "rgba(15,23,42,.18)", shadowOffsetY: 3 },
                   // Silueta SIEMPRE de embudo: el ancho lo da la posición de
-                  // la etapa (3-2-1), no el monto — el monto va en el texto.
-                  data: funnel.map((st, i) => ({
-                    stage: String(st.stage), count: num(st.count), amount: num(st.amount),
-                    value: funnel.length - i,
-                    itemStyle: { color: ["#64748b", EC.sky, EC.blue][i] ?? EC.blue },
-                  })),
+                  // la etapa, no el monto — el monto va en el texto. Colores
+                  // vivos con degradado propio por etapa.
+                  data: funnel.map((st, i) => {
+                    const grad = (a: string, b: string) => ({
+                      type: "linear", x: 0, y: 0, x2: 1, y2: 0,
+                      colorStops: [{ offset: 0, color: a }, { offset: 1, color: b }],
+                    });
+                    const stageColors = [
+                      grad("#a78bfa", "#7c3aed"),  // Borrador — violeta
+                      grad("#38bdf8", "#0284c7"),  // Enviada — cielo
+                      grad("#60a5fa", "#0b57d0"),  // Confirmada — azul marca
+                      grad("#34d399", "#059669"),  // Cobrado — verde dinero
+                    ];
+                    return {
+                      stage: String(st.stage), count: num(st.count), amount: num(st.amount),
+                      value: funnel.length - i,
+                      itemStyle: { color: stageColors[i] ?? stageColors[stageColors.length - 1] },
+                    };
+                  }),
                 }],
               }} />
             </Panel>
