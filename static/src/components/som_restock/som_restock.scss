@@ -388,3 +388,192 @@ $srk-green:       #059669;
         .srk-btn--primary { flex: 1 1 100%; justify-content: center; }
     }
 }
+
+// ════════════════ v2: plan de compra automático + verificador ═══════════
+.som-restock {
+
+    .srk-tab__count {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        margin-left: 6px;
+        padding: 0 5px;
+        border-radius: 999px;
+        background: #dc2626;
+        color: #fff;
+        font-size: 10px;
+        font-weight: 850;
+    }
+
+    .srk-tab--on .srk-tab__count { background: rgba(255, 255, 255, 0.25); }
+
+    .srk-danger-text { color: #dc2626; }
+
+    // ── Plan de compra ──────────────────────────────────────────────────
+    .srk-plan-summary {
+        padding: 12px 16px;
+        border: 1px solid #dbe4f0;
+        border-left: 4px solid #0b57d0;
+        border-radius: 14px;
+        background: #fff;
+        font-size: 13.5px;
+        margin-bottom: 14px;
+    }
+
+    .srk-plan-card {
+        border: 1px solid #dbe4f0;
+        border-radius: 14px;
+        background: #fff;
+        margin-bottom: 14px;
+        overflow: hidden;
+
+        .srk-table-wrap { border: none; border-radius: 0; }
+    }
+
+    .srk-plan-card__head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        padding: 12px 16px;
+        border-bottom: 1px solid #eef2f8;
+        background: #f8fafd;
+    }
+
+    .srk-plan-card__who {
+        strong { display: block; font-size: 14.5px; font-weight: 850; }
+        small  { color: #64748b; font-size: 11px; }
+    }
+
+    .srk-plan-card__totals {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .srk-plan-card__sum {
+        padding: 5px 14px;
+        border-radius: 999px;
+        background: #eef4fe;
+        color: #0a3d91;
+        font-size: 12.5px;
+        font-weight: 850;
+    }
+
+    .srk-allgood {
+        padding: 56px 16px;
+        text-align: center;
+        border: 1px solid #dbe4f0;
+        border-radius: 14px;
+        background: #fff;
+
+        h3 { margin: 14px 0 4px; font-size: 17px; font-weight: 850; }
+        p  { margin: 0 auto; max-width: 460px; color: #64748b; font-size: 13px; }
+    }
+
+    .srk-allgood__icon {
+        width: 52px;
+        height: 52px;
+        margin: 0 auto;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        background: #d1fae5;
+        color: #059669;
+        font-size: 22px;
+    }
+
+    // ── Verificador ─────────────────────────────────────────────────────
+    .srk-check-form {
+        padding: 16px;
+        border: 1px solid #dbe4f0;
+        border-radius: 14px;
+        background: #fff;
+        margin-bottom: 14px;
+    }
+
+    .srk-check-form__intro {
+        margin-bottom: 12px;
+        color: #64748b;
+        font-size: 12.5px;
+    }
+
+    .srk-check-form__row {
+        display: flex;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .srk-field--grow { flex: 1 1 320px; }
+
+    .srk-check-search {
+        position: relative;
+
+        input {
+            width: 100%;
+            min-height: 38px;
+            padding: 6px 34px 6px 12px;
+            border: 1px solid #dbe4f0;
+            border-radius: 10px;
+            font-size: 13px;
+
+            &:focus { outline: none; border-color: #0b57d0; }
+        }
+    }
+
+    .srk-check-clear {
+        position: absolute;
+        top: 50%;
+        right: 8px;
+        transform: translateY(-50%);
+        border: none;
+        background: transparent;
+        color: #64748b;
+        cursor: pointer;
+        padding: 4px;
+    }
+
+    .srk-check-matches {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        z-index: 30;
+        border: 1px solid #dbe4f0;
+        border-radius: 12px;
+        background: #fff;
+        box-shadow: 0 16px 40px rgba(15, 23, 42, 0.14);
+        overflow: hidden;
+    }
+
+    .srk-check-match {
+        display: block;
+        width: 100%;
+        padding: 9px 14px;
+        border: none;
+        border-bottom: 1px solid #eef2f8;
+        background: #fff;
+        text-align: left;
+        cursor: pointer;
+
+        &:last-child { border-bottom: none; }
+        &:hover { background: #f6f9fe; }
+
+        strong { display: block; font-size: 12.5px; font-weight: 750; }
+        small  { color: #64748b; font-size: 11px; }
+    }
+}
+
+@media (max-width: 767.98px) {
+    .som-restock {
+        .srk-plan-card__head { padding: 10px 12px; }
+        .srk-check-form__row { align-items: stretch; }
+        .srk-field--grow,
+        .srk-field--qty { flex: 1 1 100%; }
+    }
+}

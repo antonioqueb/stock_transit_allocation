@@ -15,7 +15,7 @@
             </div>
             <div>
                 <h1>Restock</h1>
-                <p>Stock libre · apartados · tránsito · consumo · lead time — todo correlacionado</p>
+                <p>El sistema cruza consumo real, stock libre, tránsito y tiempos de entrega medidos — y decide por ti qué conviene pedir.</p>
             </div>
         </div>
         <div class="srk-header__actions">
@@ -27,20 +27,244 @@
 
     <!-- ══════════════ TABS ══════════════ -->
     <div class="srk-tabs">
+        <button t-attf-class="srk-tab #{state.tab === 'plan' ? 'srk-tab--on' : ''}"
+                t-on-click="() => state.tab = 'plan'">
+            Plan de compra
+            <span t-if="!state.loading and planTotals.urgent" class="srk-tab__count" t-esc="planTotals.urgent"/>
+        </button>
+        <button t-attf-class="srk-tab #{state.tab === 'check' ? 'srk-tab--on' : ''}"
+                t-on-click="() => state.tab = 'check'">¿Me alcanza?</button>
         <button t-attf-class="srk-tab #{state.tab === 'radar' ? 'srk-tab--on' : ''}"
-                t-on-click="() => state.tab = 'radar'">Radar de materiales</button>
-        <button t-attf-class="srk-tab #{state.tab === 'asesor' ? 'srk-tab--on' : ''}"
-                t-on-click="() => state.tab = 'asesor'">Asesor de compra</button>
+                t-on-click="() => state.tab = 'radar'">Radar completo</button>
     </div>
 
     <div t-if="state.loading" class="srk-loading">
         <div class="srk-loading__spinner"/>
-        <span>Correlacionando stock, tránsito, apartados y consumo…</span>
+        <span>Cruzando consumo, stock, apartados, tránsito y lead times…</span>
     </div>
 
     <t t-else="">
 
-    <!-- ══════════════ RADAR ══════════════ -->
+    <!-- ══════════════ 1 · PLAN DE COMPRA (automático) ══════════════ -->
+    <div t-if="state.tab === 'plan'" class="srk-body">
+
+        <t t-if="purchasePlan.length">
+            <div class="srk-plan-summary">
+                Hoy conviene pedir <strong><t t-esc="planTotals.materials"/> materiales</strong>
+                a <strong><t t-esc="planTotals.suppliers"/> proveedor(es)</strong>
+                — <strong class="srk-danger-text"><t t-esc="planTotals.urgent"/></strong> se acaban
+                antes de que llegue un pedido nuevo.
+            </div>
+
+            <t t-foreach="purchasePlan" t-as="g" t-key="g.supplier_id || 'sin'">
+                <div class="srk-plan-card">
+                    <div class="srk-plan-card__head">
+                        <div class="srk-plan-card__who">
+                            <strong t-esc="g.supplier_name"/>
+                            <small>
+                                Entrega medida: <t t-esc="g.lead_days"/> días
+                                <span class="srk-lead-src" t-esc="g.lead_source"/>
+                            </small>
+                        </div>
+                        <div class="srk-plan-card__totals">
+                            <span t-if="g.urgentCount" class="srk-badge srk-badge--urgent">
+                                <t t-esc="g.urgentCount"/> URGENTES
+                            </span>
+                            <span class="srk-plan-card__sum">
+                                <t t-esc="fmtQty(g.total)"/> a pedir
+                            </span>
+                        </div>
+                    </div>
+                    <div class="srk-table-wrap">
+                        <table class="srk-table">
+                            <thead>
+                                <tr>
+                                    <th>Material</th>
+                                    <th>Urgencia</th>
+                                    <th class="text-end">Pedir</th>
+                                    <th class="text-end">Stock libre</th>
+                                    <th class="text-end">En camino</th>
+                                    <th>ETA</th>
+                                    <th class="text-end">Consumo/mes</th>
+                                    <th class="text-end">Alcanza para</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="g.lines" t-as="r" t-key="r.product_id">
+                                    <tr>
+                                        <td class="srk-cell-name">
+                                            <strong t-esc="r.name"/>
+                                            <small t-if="r.code" t-esc="r.code"/>
+                                        </td>
+                                        <td>
+                                            <span t-attf-class="srk-badge srk-badge--#{r.status}"
+                                                  t-att-title="STATUS_META[r.status].hint"
+                                                  t-esc="STATUS_META[r.status].label"/>
+                                        </td>
+                                        <td class="text-end">
+                                            <strong class="srk-suggest" t-esc="fmtQty(r.suggested_qty) + ' ' + r.uom"/>
+                                        </td>
+                                        <td class="text-end" t-esc="fmtQty(r.free_stock)"/>
+                                        <td class="text-end" t-esc="fmtQty(r.transit_free)"/>
+                                        <td t-esc="fmtDate(r.next_eta)"/>
+                                        <td class="text-end" t-esc="fmtQty(r.monthly)"/>
+                                        <td class="text-end"><strong t-esc="r.cover_months"/> meses</td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </t>
+        </t>
+
+        <div t-else="" class="srk-allgood">
+            <div class="srk-allgood__icon"><i class="fa fa-check"/></div>
+            <h3>Nada urgente que pedir hoy</h3>
+            <p>Todos los materiales con consumo medido tienen cobertura suficiente
+               entre stock libre y lo que ya viene en camino.</p>
+        </div>
+
+        <p class="srk-footnote">
+            El plan se arma solo: consumo real de los últimos
+            <t t-esc="state.data.params.window_days"/> días (devoluciones descontadas),
+            stock libre (sin apartados ni reservas), tránsito libre de viajes vivos y
+            tiempo de entrega medido por proveedor (OC confirmada → recepción validada).
+            Un material entra al plan cuando su cobertura no alcanza a cubrir lo que
+            tarda en llegar un pedido nuevo más un ciclo de colchón. Se afina solo
+            conforme se acumula historia.
+        </p>
+    </div>
+
+    <!-- ══════════════ 2 · ¿ME ALCANZA? (verificador) ══════════════ -->
+    <div t-if="state.tab === 'check'" class="srk-body">
+
+        <div class="srk-check-form">
+            <div class="srk-check-form__intro">
+                Escribe el material y cuánto necesitas. El sistema revisa stock libre y
+                lo que viene en camino, te dice cuánto comprar realmente y detecta solo
+                al proveedor.
+            </div>
+            <div class="srk-check-form__row">
+                <div class="srk-field srk-field--grow">
+                    <label>Material</label>
+                    <div class="srk-check-search">
+                        <input type="text" placeholder="Ej. DECK BEIGE, NEGRO SAN GABRIEL…"
+                               t-att-value="state.checkQuery" t-on-input="onCheckQueryInput"/>
+                        <button t-if="state.checkQuery" class="srk-check-clear" t-on-click="clearCheck" title="Limpiar">
+                            <i class="fa fa-times"/>
+                        </button>
+                        <div t-if="checkMatches.length" class="srk-check-matches">
+                            <t t-foreach="checkMatches" t-as="m" t-key="m.product_id">
+                                <button class="srk-check-match" t-on-click="() => this.selectCheckProduct(m)">
+                                    <strong t-esc="m.name"/>
+                                    <small>
+                                        <t t-esc="fmtQty(m.free_stock)"/> libre ·
+                                        <t t-esc="fmtQty(m.transit_free)"/> en camino
+                                        <t t-if="m.supplier_name"> · <t t-esc="m.supplier_name"/></t>
+                                    </small>
+                                </button>
+                            </t>
+                        </div>
+                    </div>
+                </div>
+                <div class="srk-field srk-field--qty">
+                    <label>Necesito</label>
+                    <input type="number" min="0" step="any" placeholder="0" t-model="state.checkQty"/>
+                </div>
+                <button class="srk-btn srk-btn--primary" t-on-click="runCheck" t-att-disabled="state.checkLoading">
+                    <i t-attf-class="fa #{state.checkLoading ? 'fa-circle-o-notch fa-spin' : 'fa-search'}"/>
+                    Verificar
+                </button>
+            </div>
+        </div>
+
+        <t t-if="state.advice and state.advice.focal">
+            <div class="srk-verdict">
+                <div class="srk-verdict__head">
+                    <strong t-esc="state.advice.focal.name"/>
+                    <span t-attf-class="srk-badge srk-badge--#{state.advice.focal.status}"
+                          t-esc="STATUS_META[state.advice.focal.status].label"/>
+                </div>
+                <div class="srk-verdict__grid">
+                    <div class="srk-fact">
+                        <span>Necesitas</span>
+                        <strong t-esc="fmtQty(state.advice.focal.needed_qty) + ' ' + state.advice.focal.uom"/>
+                    </div>
+                    <div class="srk-fact">
+                        <span>Lo cubre el stock libre</span>
+                        <strong t-esc="fmtQty(state.advice.focal.cover_from_stock)"/>
+                        <small t-if="state.advice.focal.holds > 0">
+                            + <t t-esc="fmtQty(state.advice.focal.holds)"/> apartados (podrían soltarse)
+                        </small>
+                    </div>
+                    <div class="srk-fact">
+                        <span>Lo cubre el tránsito libre</span>
+                        <strong t-esc="fmtQty(state.advice.focal.cover_from_transit)"/>
+                        <small t-if="state.advice.focal.next_eta">llega <t t-esc="fmtDate(state.advice.focal.next_eta)"/></small>
+                    </div>
+                    <div class="srk-fact srk-fact--buy">
+                        <span>Realmente hay que comprar</span>
+                        <strong t-esc="fmtQty(state.advice.focal.to_buy) + ' ' + state.advice.focal.uom"/>
+                    </div>
+                </div>
+                <p class="srk-verdict__note" t-if="state.advice.focal.to_buy === 0">
+                    Entre stock libre y lo que viene en camino ya cubres el pedido: no hace falta comprar.
+                </p>
+            </div>
+
+            <div class="srk-fill" t-if="state.advice.supplier_id and state.advice.fill.length">
+                <h3>
+                    Ya que vas a pedir a <t t-esc="state.advice.supplier_name"/>, aprovecha el pedido
+                    <small>estos materiales suyos también andan bajos</small>
+                </h3>
+                <div class="srk-table-wrap">
+                    <table class="srk-table">
+                        <thead>
+                            <tr>
+                                <th>Material</th>
+                                <th>Urgencia</th>
+                                <th class="text-end">Pedir</th>
+                                <th class="text-end">Stock libre</th>
+                                <th class="text-end">En camino</th>
+                                <th class="text-end">Consumo/mes</th>
+                                <th class="text-end">Alcanza para</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <t t-foreach="state.advice.fill" t-as="f" t-key="f.product_id">
+                                <tr>
+                                    <td class="srk-cell-name"><strong t-esc="f.name"/></td>
+                                    <td>
+                                        <span t-attf-class="srk-badge srk-badge--#{f.status}"
+                                              t-esc="STATUS_META[f.status].label"/>
+                                    </td>
+                                    <td class="text-end">
+                                        <strong class="srk-suggest" t-esc="fmtQty(f.suggested_qty) + ' ' + f.uom"/>
+                                    </td>
+                                    <td class="text-end" t-esc="fmtQty(f.free_stock)"/>
+                                    <td class="text-end" t-esc="fmtQty(f.transit_free)"/>
+                                    <td class="text-end" t-esc="fmtQty(f.monthly)"/>
+                                    <td class="text-end">
+                                        <t t-if="f.cover_months !== null"><t t-esc="f.cover_months"/> meses</t>
+                                        <t t-else="">—</t>
+                                    </td>
+                                </tr>
+                            </t>
+                        </tbody>
+                        <tfoot>
+                            <tr>
+                                <td colspan="6" class="text-end">Total sugerido de relleno</td>
+                                <td class="text-end"><strong t-esc="fmtQty(state.advice.fill_total)"/></td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                </div>
+            </div>
+        </t>
+    </div>
+
+    <!-- ══════════════ 3 · RADAR COMPLETO ══════════════ -->
     <div t-if="state.tab === 'radar'" class="srk-body">
 
         <div class="srk-kpis">
@@ -59,11 +283,6 @@
                 <strong t-esc="statusCount('ok')"/>
                 <span>Cubiertos</span>
             </button>
-            <button t-attf-class="srk-kpi srk-kpi--nodata #{state.statusFilter === 'no_data' ? 'srk-kpi--on' : ''}"
-                    t-on-click="() => this.setStatusFilter('no_data')">
-                <strong t-esc="statusCount('no_data')"/>
-                <span>Sin consumo</span>
-            </button>
             <input class="srk-search" type="text" placeholder="Buscar material, código o proveedor…"
                    t-model="state.search"/>
         </div>
@@ -80,7 +299,7 @@
                         <th>ETA próx.</th>
                         <th class="text-end">Consumo/mes</th>
                         <th class="text-end">Cobertura</th>
-                        <th class="text-end">Lead time</th>
+                        <th class="text-end">Entrega</th>
                         <th>Estado</th>
                         <th class="text-end">Sugerido pedir</th>
                         <th>Proveedor</th>
@@ -99,10 +318,7 @@
                             <td class="text-end srk-muted" t-esc="fmtQty(r.transit_committed)"/>
                             <td t-esc="fmtDate(r.next_eta)"/>
                             <td class="text-end" t-esc="fmtQty(r.monthly)"/>
-                            <td class="text-end">
-                                <t t-if="r.cover_months !== null"><strong t-esc="r.cover_months"/> m</t>
-                                <t t-else="">—</t>
-                            </td>
+                            <td class="text-end"><strong t-esc="r.cover_months"/> m</td>
                             <td class="text-end" t-att-title="'Fuente: ' + r.lead_source">
                                 <t t-esc="r.lead_days"/> d
                                 <small class="srk-lead-src" t-esc="r.lead_source"/>
@@ -128,131 +344,12 @@
         </div>
 
         <p class="srk-footnote">
-            Consumo medido sobre los últimos <t t-esc="state.data.params.window_days"/> días
-            (devoluciones descontadas). Lead time: medido de la historia real
-            OC→recepción por proveedor; si no hay historia, ficha del proveedor o
-            <t t-esc="state.data.params.default_lead_days"/> días. Los cálculos se
-            afinan solos conforme se acumula historia.
+            Solo se listan materiales con consumo medido en los últimos
+            <t t-esc="state.data.params.window_days"/> días: sin ritmo de salida no hay
+            cobertura que calcular (esos materiales se consultan en "¿Me alcanza?").
+            Entrega: medida de la historia real OC→recepción por proveedor; si no hay
+            historia, ficha del proveedor o <t t-esc="state.data.params.default_lead_days"/> días.
         </p>
-    </div>
-
-    <!-- ══════════════ ASESOR DE COMPRA ══════════════ -->
-    <div t-if="state.tab === 'asesor'" class="srk-body">
-
-        <div class="srk-advisor-form">
-            <div class="srk-field">
-                <label>Proveedor</label>
-                <select t-model="state.advSupplierId">
-                    <option value="">— Elegir —</option>
-                    <t t-foreach="state.data.suppliers" t-as="s" t-key="s.id">
-                        <option t-att-value="s.id" t-esc="s.name"/>
-                    </t>
-                </select>
-            </div>
-            <div class="srk-field">
-                <label>Material que necesitas</label>
-                <select t-att-value="state.advProductId" t-on-change="onAdvProductChange">
-                    <option value="">— Opcional: solo rellenar por proveedor —</option>
-                    <t t-foreach="advisorProducts" t-as="p" t-key="p.product_id">
-                        <option t-att-value="p.product_id" t-esc="p.name"/>
-                    </t>
-                </select>
-            </div>
-            <div class="srk-field srk-field--qty">
-                <label>Cantidad necesaria</label>
-                <input type="number" min="0" step="any" placeholder="0" t-model="state.advQty"/>
-            </div>
-            <button class="srk-btn srk-btn--primary" t-on-click="runAdvice" t-att-disabled="state.advLoading">
-                <i t-attf-class="fa #{state.advLoading ? 'fa-circle-o-notch fa-spin' : 'fa-lightbulb-o'}"/>
-                Sugerir compra
-            </button>
-        </div>
-
-        <t t-if="state.advice">
-            <!-- Veredicto del material pedido -->
-            <div t-if="state.advice.focal" class="srk-verdict">
-                <div class="srk-verdict__head">
-                    <strong t-esc="state.advice.focal.name"/>
-                    <span t-attf-class="srk-badge srk-badge--#{state.advice.focal.status}"
-                          t-esc="STATUS_META[state.advice.focal.status].label"/>
-                </div>
-                <div class="srk-verdict__grid">
-                    <div class="srk-fact">
-                        <span>Necesitas</span>
-                        <strong t-esc="fmtQty(state.advice.focal.needed_qty) + ' ' + state.advice.focal.uom"/>
-                    </div>
-                    <div class="srk-fact">
-                        <span>Lo cubre el stock libre</span>
-                        <strong t-esc="fmtQty(state.advice.focal.cover_from_stock)"/>
-                    </div>
-                    <div class="srk-fact">
-                        <span>Lo cubre el tránsito libre</span>
-                        <strong t-esc="fmtQty(state.advice.focal.cover_from_transit)"/>
-                        <small t-if="state.advice.focal.next_eta">ETA <t t-esc="fmtDate(state.advice.focal.next_eta)"/></small>
-                    </div>
-                    <div class="srk-fact srk-fact--buy">
-                        <span>Realmente hay que comprar</span>
-                        <strong t-esc="fmtQty(state.advice.focal.to_buy) + ' ' + state.advice.focal.uom"/>
-                    </div>
-                </div>
-                <p class="srk-verdict__note" t-if="state.advice.focal.to_buy === 0">
-                    Entre stock libre y lo que viene en camino ya cubres el pedido: no hace falta comprar.
-                </p>
-            </div>
-
-            <!-- Relleno del mismo proveedor -->
-            <div class="srk-fill" t-if="state.advice.supplier_id">
-                <h3>
-                    Para rellenar con <t t-esc="state.advice.supplier_name"/>
-                    <small>materiales del mismo proveedor con cobertura crítica</small>
-                </h3>
-                <div class="srk-table-wrap" t-if="state.advice.fill.length">
-                    <table class="srk-table">
-                        <thead>
-                            <tr>
-                                <th>Material</th>
-                                <th class="text-end">Stock libre</th>
-                                <th class="text-end">Tránsito libre</th>
-                                <th class="text-end">Consumo/mes</th>
-                                <th class="text-end">Cobertura</th>
-                                <th>Estado</th>
-                                <th class="text-end">Sugerido pedir</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <t t-foreach="state.advice.fill" t-as="f" t-key="f.product_id">
-                                <tr>
-                                    <td class="srk-cell-name"><strong t-esc="f.name"/></td>
-                                    <td class="text-end" t-esc="fmtQty(f.free_stock)"/>
-                                    <td class="text-end" t-esc="fmtQty(f.transit_free)"/>
-                                    <td class="text-end" t-esc="fmtQty(f.monthly)"/>
-                                    <td class="text-end">
-                                        <t t-if="f.cover_months !== null"><t t-esc="f.cover_months"/> m</t>
-                                        <t t-else="">—</t>
-                                    </td>
-                                    <td>
-                                        <span t-attf-class="srk-badge srk-badge--#{f.status}"
-                                              t-esc="STATUS_META[f.status].label"/>
-                                    </td>
-                                    <td class="text-end">
-                                        <strong class="srk-suggest" t-esc="fmtQty(f.suggested_qty) + ' ' + f.uom"/>
-                                    </td>
-                                </tr>
-                            </t>
-                        </tbody>
-                        <tfoot>
-                            <tr>
-                                <td colspan="6" class="text-end">Total sugerido de relleno</td>
-                                <td class="text-end"><strong t-esc="fmtQty(state.advice.fill_total)"/></td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-                <p t-else="" class="srk-empty">
-                    Este proveedor no tiene materiales con cobertura crítica ahora mismo.
-                </p>
-            </div>
-        </t>
     </div>
 
     </t>

@@ -277,6 +277,10 @@ class SomRestock(models.AbstractModel):
 
     @api.model
     def get_restock_dashboard(self):
+        # Los productos SIN consumo medido no aportan al radar (no hay ritmo
+        # con qué calcular cobertura); siguen viajando en 'rows' marcados
+        # 'no_data' SOLO para que el verificador pueda analizarlos, pero el
+        # front no los lista en radar ni en plan.
         rows = self._build_rows()
 
         order = {'urgent': 0, 'soon': 1, 'ok': 2, 'no_data': 3}
