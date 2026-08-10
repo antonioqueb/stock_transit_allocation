@@ -2156,7 +2156,7 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
 
       <div className="grid">
         {months.length > 0 && (
-          <Panel title="Venta y utilidad por mes" hint="pack Resumen · 5 min" wide>
+          <Panel title="Venta y utilidad por mes" hint="pack Resumen · 5 min">
             <EChartBox height={340} deps={[months, canProfit]} option={{
               ...ecBase(),
               tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
@@ -2263,16 +2263,27 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
             <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"} wide>
               <EChartBox height={380} deps={[funnel]} option={{
                 ...ecBase(),
+                tooltip: { ...(ecBase().tooltip as object),
+                  formatter: (pm: { data: Rec }) => {
+                    const it = (pm.data ?? {}) as Rec;
+                    return `${String(it.stage)}<br/><b>${n0(it.count)}</b> cotizaciones · <b>${money(it.amount)}</b>`;
+                  } },
                 series: [{
-                  type: "funnel", sort: "none", gap: 4,
-                  top: 12, bottom: 12, left: "6%", width: "88%",
-                  label: { show: true, position: "inside", fontWeight: 700, fontSize: 13,
-                           formatter: (p: { name: string }) => p.name },
-                  itemStyle: { borderWidth: 0 },
+                  type: "funnel", sort: "none", gap: 6,
+                  top: 12, bottom: 12, left: "4%", width: "92%",
+                  minSize: "22%", maxSize: "100%",
+                  label: { show: true, position: "inside", fontWeight: 700, fontSize: 13.5,
+                           formatter: (pm: { data: Rec }) => {
+                             const it = (pm.data ?? {}) as Rec;
+                             return `${String(it.stage)}\n${n0(it.count)} · ${money(it.amount)}`;
+                           } },
+                  itemStyle: { borderWidth: 0, shadowBlur: 8, shadowColor: "rgba(15,23,42,.18)", shadowOffsetY: 3 },
+                  // Silueta SIEMPRE de embudo: el ancho lo da la posición de
+                  // la etapa (3-2-1), no el monto — el monto va en el texto.
                   data: funnel.map((st, i) => ({
-                    name: `${st.stage} · ${n0(st.count)} · ${money(st.amount)}`,
-                    value: Math.max(num(st.amount), 1),
-                    itemStyle: { color: ["#94a3b8", EC.sky, EC.blue][i] ?? EC.blue },
+                    stage: String(st.stage), count: num(st.count), amount: num(st.amount),
+                    value: funnel.length - i,
+                    itemStyle: { color: ["#64748b", EC.sky, EC.blue][i] ?? EC.blue },
                   })),
                 }],
               }} />
@@ -2368,7 +2379,7 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             {canProfit && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <div className="grid">
-            <Panel title={canProfit ? "Top productos por utilidad" : "Top productos por venta"} hint="click = profundizar" wide>
+            <Panel title={canProfit ? "Top productos por utilidad" : "Top productos por venta"} hint="click = profundizar">
               <EChartBox height={420} deps={[prods, canProfit]}
                 onClick={(pm) => { const d0 = pm.data as Rec; if (d0?.key) props.drill({ kind: "entity", entity: "product", value: num(d0.key), label: String(d0.name) }); }}
                 option={{
@@ -2429,7 +2440,8 @@ function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => v
             <Kpi id="reincidencias_piso" value={n0(k.reincidencias_piso)} />
             {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
-          <Panel title="Venta por nivel de precio" hint="click = profundizar" wide>
+          <div className="grid">
+          <Panel title="Venta por nivel de precio" hint="click = profundizar">
             <EChartBox height={400} deps={[levels]}
               onClick={(pm) => { const l = levels[pm.dataIndex]; if (l) props.drill({ kind: "entity", entity: "level", value: String(l.key), label: String(l.name) }); }}
               option={{
@@ -2447,6 +2459,13 @@ function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => v
                 }],
               }} />
           </Panel>
+          <Panel title="Niveles — cifras exactas" hint="la misma información, en tabla">
+            <MiniTable head={["Nivel", "Venta", "m²"]} rows={levels.map((l, i) => ({
+              key: i, a: String(l.name), b: money(l.venta), c: n1(l.m2),
+              onClick: () => props.drill({ kind: "entity", entity: "level", value: String(l.key), label: String(l.name) }),
+            }))} />
+          </Panel>
+          </div>
         </>
       );
     }}</SalesSub>
@@ -2469,7 +2488,7 @@ function VentasAuthView(props: { filters: Filters }) {
             <Kpi id="auth_delta_pct" value={pct(k.auth_delta_pct)} />
           </div>
           <div className="grid">
-            <Panel title="Flujo semanal: entradas vs resueltas" hint="backlog crece cuando entran más de las que se resuelven" wide>
+            <Panel title="Flujo semanal: entradas vs resueltas" hint="backlog crece cuando entran más de las que se resuelven">
               <EChartBox height={380} deps={[weekly]} option={{
                 ...ecBase(),
                 tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
@@ -2617,14 +2636,35 @@ function VentasFxView(props: { filters: Filters }) {
           <Kpi id="fx_realizado_mxn" value={money(k.fx_realizado_mxn)} sub={`${n0(k.fx_ordenes)} órdenes cobradas`} />
           <Kpi id="tc_banorte" value={n1(tc)} />
         </div>
-        <Panel title="Sensibilidad simple (parámetros visibles, no contable)" hint="exposición × Δ TC">
-          <MiniTable head={["Escenario", "Efecto sobre exposición", ""]} rows={[-1, -0.5, 0.5, 1].map((delta) => ({
-            key: String(delta),
-            a: `TC ${delta > 0 ? "+" : ""}${delta.toFixed(2)} MXN`,
-            b: money(num(k.exposicion_usd) * delta),
-            c: "",
-          }))} />
-        </Panel>
+        <div className="grid">
+          <Panel title="Sensibilidad al TC (paramétrica, no contable)" hint="efecto sobre la exposición por Δ del tipo de cambio">
+            <EChartBox height={320} deps={[k.exposicion_usd]} option={(() => {
+              const deltas = [-1, -0.5, -0.25, 0.25, 0.5, 1];
+              return {
+                ...ecBase(),
+                xAxis: ecAxis("cat", deltas.map((dd) => `${dd > 0 ? "+" : ""}${dd.toFixed(2)}`)),
+                yAxis: ecAxis("money"),
+                series: [{
+                  type: "bar", barMaxWidth: 44,
+                  label: { show: true, position: "top", fontSize: 11,
+                           formatter: (pm: { value: number }) => money(pm.value) },
+                  data: deltas.map((dd) => ({
+                    value: Math.round(num(k.exposicion_usd) * dd),
+                    itemStyle: { color: dd < 0 ? EC.red : EC.green, borderRadius: dd < 0 ? [0, 0, 6, 6] : [6, 6, 0, 0] },
+                  })),
+                }],
+              };
+            })()} />
+          </Panel>
+          <Panel title="Escenarios — cifras exactas" hint="la misma información, en tabla">
+            <MiniTable head={["Escenario", "Efecto sobre exposición", ""]} rows={[-1, -0.5, -0.25, 0.25, 0.5, 1].map((delta) => ({
+              key: String(delta),
+              a: `TC ${delta > 0 ? "+" : ""}${delta.toFixed(2)} MXN`,
+              b: money(num(k.exposicion_usd) * delta),
+              c: "",
+            }))} />
+          </Panel>
+        </div>
       </>
     )}</SalesSub>
   );

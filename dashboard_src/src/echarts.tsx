@@ -1,8 +1,9 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // Apache ECharts vendorizado (tree-shaken: SOLO los tipos que usamos) con
 // tema de la casa y accesibilidad ARIA habilitada explícitamente.
-// Chart.js (window.Chart) sigue vivo para las vistas legacy; los visuales
-// ricos del rediseño usan este wrapper.
+// TODO el dashboard renderiza con ECharts: los visuales del rediseño usan
+// este wrapper directo y las gráficas legacy pasan por el adaptador de
+// charts.tsx (cero Chart.js en runtime).
 // ─────────────────────────────────────────────────────────────────────────────
 import { useEffect, useRef, useState } from "react";
 import * as echarts from "echarts/core";

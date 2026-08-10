@@ -1,14 +1,15 @@
-// Envoltura fina sobre el Chart.js vendorizado de Odoo (window.Chart).
-// Tematizable: los colores de ejes/leyendas se resuelven al crear la
-// gráfica y ChartBox se recrea al escuchar el evento global "som-theme".
-import { useEffect, useRef, useState } from "react";
+// ─────────────────────────────────────────────────────────────────────────────
+// ChartBox: ADAPTADOR universal a Apache ECharts.
+//
+// Históricamente este componente pintaba con el Chart.js vendorizado de
+// Odoo; hoy TODO el dashboard renderiza con ECharts (regla del negocio:
+// cero Chart.js). Las ~35 gráficas legacy siguen declarando su config en
+// formato Chart.js (type/data/datasets/options) y aquí se traduce a una
+// option ECharts con el tema de la casa — así la migración fue total sin
+// reescribir página por página.
+// ─────────────────────────────────────────────────────────────────────────────
 import { money, n1 } from "./api";
-
-declare global {
-  interface Window {
-    Chart: any; // Chart.js UMD vendorizado por Odoo — sin tipos empaquetados.
-  }
-}
+import { EChartBox, ecInk, EC_PALETTE } from "./echarts";
 
 export const C = {
   blue: "#0b57d0",
@@ -23,107 +24,180 @@ export const PALETTE = [C.blue, C.sky, C.green, C.amber, C.violet, C.red, "#0e74
 
 const FONT = "'Inter','SF Pro Display',-apple-system,'Segoe UI',sans-serif";
 
-function isDark(): boolean {
-  return document.documentElement.dataset.theme === "dark";
-}
-
-function themeInk() {
-  return isDark()
-    ? { tick: "#94a3b8", grid: "rgba(148,163,184,.12)", legend: "#94a3b8" }
-    : { tick: "#64748b", grid: "rgba(15,23,42,.08)", legend: "#475569" };
-}
-
+// Compatibilidad: las páginas legacy construyen su config con estos
+// helpers. El adaptador solo LEE de ellos onClick/stacked/legend.
 export function baseOptions(onClick?: (index: number) => void) {
-  const ink = themeInk();
   return {
-    responsive: true,
-    maintainAspectRatio: false,
-    animation: { duration: 350, easing: "easeOutQuart" },
     onClick: onClick
       ? (_e: unknown, els: Array<{ index: number }>) => els.length && onClick(els[0].index)
       : undefined,
-    onHover: (e: any, els: unknown[]) => {
-      if (e?.native?.target) e.native.target.style.cursor = els.length && onClick ? "pointer" : "default";
-    },
-    plugins: {
-      legend: {
-        labels: {
-          boxWidth: 9, boxHeight: 9, usePointStyle: true, pointStyle: "circle",
-          font: { size: 12, family: FONT, weight: "600" }, color: ink.legend,
-        },
-      },
-      tooltip: {
-        backgroundColor: "rgba(10,16,30,.97)", titleColor: "#f8fafc", bodyColor: "#cbd5e1",
-        titleFont: { size: 13, weight: "700", family: FONT },
-        bodyFont: { size: 12.5, family: FONT },
-        padding: 12, cornerRadius: 10, boxWidth: 8, boxHeight: 8, usePointStyle: true,
-        callbacks: {
-          label: (ctx: any) => {
-            const v = ctx.parsed.y ?? ctx.parsed.x ?? ctx.parsed;
-            return ` ${ctx.dataset.label ?? ""}: ${ctx.dataset.isMoney ? money(v) : n1(v)}`;
-          },
-        },
-      },
-    },
-  };
+    plugins: { legend: {}, tooltip: {} },
+  } as Record<string, unknown>;
 }
 
 export function axisMoney() {
-  const ink = themeInk();
-  return {
-    beginAtZero: true,
-    border: { display: false },
-    grid: { color: ink.grid },
-    ticks: {
-      font: { size: 11.5, family: FONT }, color: ink.tick,
-      callback: (v: number) => new Intl.NumberFormat("en-US").format(v),
-    },
-  };
+  return { kind: "money" } as Record<string, unknown>;
 }
 
 export function axisPlain(size = 11.5) {
-  const ink = themeInk();
+  return { kind: "plain", size } as Record<string, unknown>;
+}
+
+type Ds = {
+  label?: string;
+  data: unknown[];
+  type?: string;
+  backgroundColor?: string | string[];
+  borderColor?: string;
+  borderWidth?: number;
+  fill?: boolean;
+  isMoney?: boolean;
+  yAxisID?: string;
+  stack?: string;
+};
+
+type CjsConfig = {
+  type: string;
+  data: { labels?: unknown[]; datasets?: Ds[] };
+  options?: Record<string, unknown>;
+};
+
+function up(v: unknown): string {
+  return String(v ?? "").toUpperCase();
+}
+
+function adapt(cfg: CjsConfig): Record<string, unknown> {
+  const ink = ecInk();
+  const labels = (cfg.data?.labels ?? []).map(up);
+  const ds = cfg.data?.datasets ?? [];
+  const opts = (cfg.options ?? {}) as Record<string, never>;
+  const horizontal = (opts as Record<string, unknown>).indexAxis === "y";
+  const scales = ((opts as Record<string, unknown>).scales ?? {}) as Record<string, Record<string, unknown>>;
+  const stacked = Boolean(scales.y?.stacked || scales.x?.stacked);
+  const hasY1 = ds.some((d) => d.yAxisID === "y1");
+  const legendCfg = (((opts as Record<string, unknown>).plugins ?? {}) as Record<string, Record<string, unknown>>).legend ?? {};
+  const legendShow = legendCfg.display !== false && ds.length > 1;
+  const moneyBySeries = ds.map((d) => Boolean(d.isMoney));
+  const radius = (i: number): [number, number, number, number] =>
+    horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0];
+
+  const series = ds.map((d, si) => {
+    const kind = d.type ?? cfg.type;
+    const name = up(d.label ?? `Serie ${si + 1}`);
+    const yIdx = d.yAxisID === "y1" ? 1 : 0;
+
+    if (kind === "line") {
+      const color = d.borderColor ?? EC_PALETTE[si % EC_PALETTE.length];
+      return {
+        name, type: "line", smooth: true, symbolSize: 5,
+        yAxisIndex: hasY1 ? yIdx : 0,
+        data: d.data,
+        lineStyle: { width: d.borderWidth ?? 2.5, color },
+        itemStyle: { color },
+        areaStyle: d.fill ? { opacity: 0.12, color } : undefined,
+      };
+    }
+
+    // Barras (vertical/horizontal, apiladas, color plano o por punto)
+    const bg = d.backgroundColor;
+    const perPoint = Array.isArray(bg);
+    return {
+      name, type: "bar",
+      yAxisIndex: hasY1 ? yIdx : 0,
+      stack: stacked ? "total" : undefined,
+      barMaxWidth: 38,
+      data: perPoint
+        ? d.data.map((v, i) => ({
+            value: v,
+            itemStyle: { color: (bg as string[])[i % (bg as string[]).length], borderRadius: radius(i) },
+          }))
+        : d.data,
+      itemStyle: perPoint
+        ? undefined
+        : { color: (bg as string) ?? EC_PALETTE[si % EC_PALETTE.length], borderRadius: radius(si) },
+    };
+  });
+
+  const catAxis = {
+    type: "category", data: labels,
+    inverse: horizontal,
+    axisLine: { show: false }, axisTick: { show: false },
+    axisLabel: {
+      color: ink.tick, fontFamily: FONT, fontSize: 11,
+      hideOverlap: true,
+      ...(horizontal ? { width: 150, overflow: "truncate" } : {}),
+    },
+  };
+  const tickCb = ((scales.x?.ticks as Record<string, unknown>)?.callback
+    ?? (scales.y?.ticks as Record<string, unknown>)?.callback) as ((v: number) => string) | undefined;
+  const valAxis = {
+    type: "value",
+    splitLine: { lineStyle: { color: ink.grid } },
+    axisLabel: {
+      color: ink.tick, fontFamily: FONT, fontSize: 10.5,
+      formatter: tickCb
+        ? (v: number) => String(tickCb(v))
+        : (v: number) => new Intl.NumberFormat("en-US", { notation: Math.abs(v) >= 100000 ? "compact" : "standard" }).format(v),
+    },
+  };
+  const y1Axis = {
+    type: "value", position: "right",
+    splitLine: { show: false },
+    axisLabel: { color: ink.tick, fontFamily: FONT, fontSize: 10.5 },
+  };
+
   return {
-    border: { display: false }, grid: { display: false },
-    ticks: { font: { size, family: FONT, weight: "600" }, color: ink.tick },
+    color: EC_PALETTE,
+    textStyle: { fontFamily: FONT, color: ink.txt },
+    animationDuration: 320,
+    aria: { enabled: true },
+    legend: legendShow ? { top: 0, textStyle: { color: ink.tick, fontSize: 11 } } : { show: false },
+    tooltip: {
+      trigger: "axis",
+      backgroundColor: "rgba(10,16,30,.97)", borderWidth: 0,
+      textStyle: { color: "#e2e8f0", fontFamily: FONT, fontSize: 12.5 },
+      padding: [10, 14],
+      formatter: (params: Array<{ marker: string; seriesName: string; seriesIndex: number; dataIndex: number; value: unknown; name: string; data: unknown }>) => {
+        const list = Array.isArray(params) ? params : [params];
+        const head = list[0]?.name ? `${list[0].name}<br/>` : "";
+        const tipCb = ((((opts as Record<string, unknown>).plugins ?? {}) as Record<string, Record<string, unknown>>)
+          .tooltip?.callbacks as Record<string, unknown> | undefined)?.label as
+          ((ctx: Record<string, unknown>) => string) | undefined;
+        return head + list.map((pp) => {
+          const raw = (pp.data && typeof pp.data === "object" && pp.data !== null && "value" in (pp.data as Record<string, unknown>))
+            ? (pp.data as Record<string, unknown>).value : pp.value;
+          const v = typeof raw === "number" ? raw : Number(raw ?? 0);
+          if (tipCb) {
+            try {
+              return `${pp.marker} ${String(tipCb({ dataIndex: pp.dataIndex, parsed: { x: v, y: v }, dataset: { label: pp.seriesName } }))}`;
+            } catch { /* cae al formato estándar */ }
+          }
+          const txt = moneyBySeries[pp.seriesIndex] ? money(v) : n1(v);
+          return `${pp.marker} ${pp.seriesName}: <b>${txt}</b>`;
+        }).join("<br/>");
+      },
+    },
+    grid: { left: 8, right: hasY1 ? 40 : 16, top: legendShow ? 30 : 14, bottom: 8, containLabel: true },
+    xAxis: horizontal ? valAxis : catAxis,
+    yAxis: horizontal ? catAxis : (hasY1 ? [valAxis, y1Axis] : valAxis),
+    series,
   };
 }
 
 export function ChartBox(props: { config: unknown | (() => unknown); height?: number; deps: unknown[] }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const chartRef = useRef<any>(null);
-  const [themeBump, setThemeBump] = useState(0);
-
-  useEffect(() => {
-    const onTheme = () => setThemeBump((b) => b + 1);
-    window.addEventListener("som-theme", onTheme);
-    return () => window.removeEventListener("som-theme", onTheme);
-  }, []);
-
-  useEffect(() => {
-    if (!ref.current) return;
-    if (!window.Chart) {
-      ref.current.parentElement?.classList.add("nochart");
-      return;
-    }
-    chartRef.current?.destroy();
-    const cfg = typeof props.config === "function" ? (props.config as () => unknown)() : props.config;
-    // Todo el texto de la casa va en MAYÚSCULAS; el canvas de Chart.js no
-    // hereda text-transform del CSS, así que se aplica aquí, centralizado.
-    const data = (cfg as { data?: { labels?: unknown[]; datasets?: Array<{ label?: string }> } })?.data;
-    if (data?.labels) data.labels = data.labels.map((l) => String(l).toUpperCase());
-    data?.datasets?.forEach((ds) => { if (ds.label) ds.label = String(ds.label).toUpperCase(); });
-    chartRef.current = new window.Chart(ref.current.getContext("2d"), cfg);
-    return () => {
-      chartRef.current?.destroy();
-      chartRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...props.deps, themeBump]);
-
+  const cfg = (typeof props.config === "function" ? (props.config as () => unknown)() : props.config) as CjsConfig;
+  const option = adapt(cfg);
+  const cjsClick = (cfg.options as Record<string, unknown> | undefined)?.onClick as
+    | ((e: unknown, els: Array<{ index: number; datasetIndex: number }>) => void)
+    | undefined;
   return (
-    <div className="chartbox" style={{ height: props.height ?? 280 }}>
-      <canvas ref={ref} />
-    </div>
+    <EChartBox
+      height={props.height ?? 280}
+      deps={props.deps}
+      option={option}
+      onClick={cjsClick
+        ? (p) => cjsClick(null, [{ index: p.dataIndex, datasetIndex: p.seriesIndex }])
+        : undefined}
+    />
   );
 }
