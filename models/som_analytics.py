@@ -880,6 +880,21 @@ class SomAnalytics(models.AbstractModel):
                 for name, mm in _top_sellers
             ],
         }
+        _pm = {}
+        for r in rows:
+            pk = r['product_name'] or 'Sin producto'
+            _pm.setdefault(pk, {})
+            _pm[pk][r['month']] = _pm[pk].get(r['month'], 0.0) + r['venta_mxn']
+        _top_pm = sorted(_pm.items(), key=lambda kv: -sum(kv[1].values()))[:6]
+        pack['product_monthly'] = {
+            'months': _months_sorted,
+            'products': [
+                {'name': name, 'total': round(sum(mm.values()), 2),
+                 'serie': [round(mm.get(m, 0.0), 2) for m in _months_sorted]}
+                for name, mm in _top_pm
+            ],
+        }
+
         _top_cm = sorted(_cm.items(), key=lambda kv: -sum(kv[1].values()))[:6]
         pack['categ_monthly'] = [
             {'month': m, 'categ': name, 'venta': round(mm.get(m, 0.0), 2)}

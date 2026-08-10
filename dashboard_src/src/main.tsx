@@ -584,6 +584,21 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
           )}
         </Panel>
       </div>
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Carrera de venta mensual por categoría" hint="line race · top 6 categorías del periodo" wide>
+          <EChartBox height={340} deps={[arr(d.categ_monthly)]} option={(() => {
+            const cmr = arr(d.categ_monthly);
+            if (!cmr.length) return { ...ecBase(), series: [] };
+            const monthsRc = [...new Set(cmr.map((r) => String(r.month)))].sort();
+            const categsRc = [...new Set(cmr.map((r) => String(r.categ)))];
+            const valRc = new Map(cmr.map((r) => [`${r.categ}|${r.month}`, num(r.venta)]));
+            const ents = categsRc.map((c2) => ({
+              name: c2, serie: monthsRc.map((m) => valRc.get(`${c2}|${m}`) ?? 0),
+            })) as unknown as Rec[];
+            return raceOpt(ents, monthsRc, "name");
+          })()} />
+        </Panel>
+      </div>
       <div className="stats">
         <Stat label="Venta" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes${source === "sps" ? " · LEGADO SPS" : ""}`} />
         <Stat label="Utilidad all-in" value={money(k.utilidad_mxn)} sub={`Margen ${pct(k.margen_pct)}`} tone={marginTone(num(k.margen_pct))} />
@@ -2668,6 +2683,35 @@ function waterfallOpt(steps: Array<{ label: string; value: number; base: number;
   };
 }
 
+// Line race reutilizable: series mensuales por entidad con endLabel
+// perseguidor y anti-encimado (labelLayout hideOverlap + shiftY).
+function raceOpt(entities: Rec[], months: string[], nameKey: string): Record<string, unknown> {
+  if (!entities.length || months.length < 2) return { ...ecBase(), series: [] };
+  const RACE = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
+  return {
+    ...ecBase(),
+    grid: { left: 8, right: 150, top: 14, bottom: 8, containLabel: true },
+    tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+    xAxis: ecAxis("cat", months.map((m) => monthLabel(m).toUpperCase())),
+    yAxis: ecAxis("money"),
+    animationDuration: 2600,
+    animationEasing: "cubicOut",
+    series: entities.map((sr, i) => ({
+      name: String(sr[nameKey]).slice(0, 18),
+      type: "line", smooth: true, symbolSize: 6,
+      data: arr<number>(sr.serie),
+      lineStyle: { width: 3, color: RACE[i % 6] },
+      itemStyle: { color: RACE[i % 6] },
+      emphasis: { focus: "series", lineStyle: { width: 5 } },
+      endLabel: { show: true, fontSize: 11, fontWeight: 800, fontFamily: "Inter",
+                  color: RACE[i % 6],
+                  formatter: (pm: { seriesName: string; value: number }) =>
+                    `${pm.seriesName} · ${money(pm.value)}` },
+      labelLayout: { hideOverlap: true, moveOverlap: "shiftY" },
+    })),
+  };
+}
+
 // ═════════ COMMAND CENTER (portada universal, responsivo) ═════════
 function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => void; go: (v: ViewKey) => void }) {
   const ex = useData(["exec"], fetchExec, { refetchInterval: 60_000 });
@@ -3256,7 +3300,13 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
               <ProductosJerarquia data={d as Rec} />
             </Panel>
-            <Panel title="Red de la venta: categorías y sus productos" hint="fuerza dirigida · tamaño = venta · arrastra los nodos" wide>
+            <Panel title="Carrera de venta mensual por producto" hint="line race · top 6 productos del periodo" wide>
+              <EChartBox height={340} deps={[d.product_monthly]} option={(() => {
+                const pm = (d.product_monthly ?? {}) as Rec;
+                return raceOpt(arr(pm.products), arr<string>(pm.months), "name");
+              })()} />
+            </Panel>
+                        <Panel title="Red de la venta: categorías y sus productos" hint="fuerza dirigida · tamaño = venta · arrastra los nodos" wide>
               <EChartBox height={430} deps={[arr(d.categ_products)]} option={(() => {
                 const catsN = arr(d.categ_products);
                 if (!catsN.length) return { ...ecBase(), series: [] };
@@ -3504,32 +3554,7 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
             <Panel title="Carrera de venta mensual por vendedor" hint="line race · la etiqueta sigue a cada corredor · labels anti-encimado" wide>
               <EChartBox height={360} deps={[d.seller_monthly]} option={(() => {
                 const sm = (d.seller_monthly ?? {}) as Rec;
-                const sellersR = arr(sm.sellers);
-                const monthsR = arr<string>(sm.months);
-                if (!sellersR.length || monthsR.length < 2) return { ...ecBase(), series: [] };
-                const RACE = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
-                return {
-                  ...ecBase(),
-                  grid: { left: 8, right: 150, top: 14, bottom: 8, containLabel: true },
-                  tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
-                  xAxis: ecAxis("cat", monthsR.map((m) => monthLabel(m).toUpperCase())),
-                  yAxis: ecAxis("money"),
-                  animationDuration: 2600,
-                  animationEasing: "cubicOut",
-                  series: sellersR.map((sr, i) => ({
-                    name: String(sr.name).slice(0, 18),
-                    type: "line", smooth: true, symbolSize: 6,
-                    data: arr<number>(sr.serie),
-                    lineStyle: { width: 3, color: RACE[i % 6] },
-                    itemStyle: { color: RACE[i % 6] },
-                    emphasis: { focus: "series", lineStyle: { width: 5 } },
-                    endLabel: { show: true, fontSize: 11, fontWeight: 800, fontFamily: "Inter",
-                                color: RACE[i % 6],
-                                formatter: (pm: { seriesName: string; value: number }) =>
-                                  `${pm.seriesName} · ${money(pm.value)}` },
-                    labelLayout: { hideOverlap: true, moveOverlap: "shiftY" },
-                  })),
-                };
+                return raceOpt(arr(sm.sellers), arr<string>(sm.months), "name");
               })()} />
             </Panel>
                         <Panel title="Matrix ejecutiva del equipo" hint="tendencia mensual por vendedor · sparkline por celda" wide>
