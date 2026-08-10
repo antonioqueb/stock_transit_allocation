@@ -262,7 +262,11 @@ class TransitAllocationLogic(models.AbstractModel):
                 remaining[key] = avail - take
         return result
 
+    @api.model
     def get_data(self):
+        # @api.model es OBLIGATORIO: el hub llama por RPC sin ids y este
+        # build de Odoo 19 truena con IndexError en call_kw si el método
+        # se registra como de instancia (args[0] serían los ids).
         SaleLine = self.env['sale.order.line']
         sale_lines_all = SaleLine.search(self._tal_get_sale_line_domain(), order='order_id desc, id desc')
         sale_lines_all = sale_lines_all.filtered(lambda line: self._is_hub_stock_product(line.product_id))
