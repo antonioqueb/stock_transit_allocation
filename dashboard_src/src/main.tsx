@@ -2526,13 +2526,34 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
                 }
                 const topCust = [...custTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map((e) => e[0]);
                 const topCat = [...catTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map((e) => e[0]);
+                // Nombres de nodo ÚNICOS: recortar a 20 chars puede colisionar
+                // (dos clientes que empiezan igual) y el chord truena al
+                // inicializar. Mapa nombre→alias único compartido por nodos
+                // y links.
+                const alias = new Map<string, string>();
+                const used = new Set<string>();
+                const uniq = (full: string) => {
+                  if (alias.has(full)) return alias.get(full)!;
+                  let base = full.slice(2, 22);
+                  let cand = base, k = 2;
+                  while (used.has(cand)) { cand = `${base.slice(0, 17)}·${k}`; k += 1; }
+                  used.add(cand); alias.set(full, cand);
+                  return cand;
+                };
+                const custNames = topCust.map((c2) => uniq(`C:${c2}`));
+                const catNames = topCat.map((c2) => uniq(`K:${c2}`));
                 const links = pairs
-                  .filter((pr) => topCust.includes(String(pr.customer)) && topCat.includes(String(pr.categ)))
-                  .map((pr) => ({ source: String(pr.customer).slice(0, 20), target: String(pr.categ).slice(0, 20), value: num(pr.venta) }));
+                  .filter((pr) => topCust.includes(String(pr.customer)) && topCat.includes(String(pr.categ)) && num(pr.venta) > 0)
+                  .map((pr) => ({
+                    source: alias.get(`C:${String(pr.customer)}`)!,
+                    target: alias.get(`K:${String(pr.categ)}`)!,
+                    value: num(pr.venta),
+                  }));
                 const nodes = [
-                  ...topCust.map((c2, i) => ({ name: c2.slice(0, 20), itemStyle: { color: ["#0b57d0", "#0ea5e9", "#7c3aed", "#0e7490", "#db2777", "#2563eb", "#4f46e5", "#0891b2"][i % 8] } })),
-                  ...topCat.map((c2, i) => ({ name: c2.slice(0, 20), itemStyle: { color: ["#059669", "#d97706", "#dc2626", "#65a30d", "#ea580c", "#ca8a04"][i % 6] } })),
+                  ...custNames.map((nm, i) => ({ name: nm, itemStyle: { color: ["#0b57d0", "#0ea5e9", "#7c3aed", "#0e7490", "#db2777", "#2563eb", "#4f46e5", "#0891b2"][i % 8] } })),
+                  ...catNames.map((nm, i) => ({ name: nm, itemStyle: { color: ["#059669", "#d97706", "#dc2626", "#65a30d", "#ea580c", "#ca8a04"][i % 6] } })),
                 ];
+                if (!links.length) return { ...ecBase(), series: [] };
                 return {
                   ...ecBase(),
                   tooltip: { ...(ecBase().tooltip as object),

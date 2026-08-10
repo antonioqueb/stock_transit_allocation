@@ -111,8 +111,15 @@ export function EChartBox(props: {
     chartRef.current?.dispose();
     const chart = echarts.init(ref.current);
     chartRef.current = chart;
-    const opt = typeof props.option === "function" ? props.option() : props.option;
-    chart.setOption(opt as never);
+    // Un gráfico con datos imposibles NO debe tumbar la página completa:
+    // se registra el error y el lienzo queda vacío (estado degradado).
+    try {
+      const opt = typeof props.option === "function" ? props.option() : props.option;
+      chart.setOption(opt as never);
+    } catch (err) {
+      console.error("[EChartBox] option inválida:", err);
+      try { chart.clear(); } catch { /* nada */ }
+    }
     if (props.onClick) {
       chart.on("click", (p) => props.onClick!({
         name: String(p.name ?? ""), dataIndex: p.dataIndex ?? 0,
