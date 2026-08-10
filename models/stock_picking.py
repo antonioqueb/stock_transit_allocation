@@ -11,6 +11,74 @@ _logger = logging.getLogger(__name__)
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
 
+    def _som_unify_transit_demand(self):
+        """UNIFICA la demanda de la recepción a tránsito: UN move por producto.
+
+        Dos fuentes reales de duplicados (2026-08-17):
+        1) OC con el mismo producto en varias líneas → el core crea un move
+           por línea de compra (jamás los fusiona, por diseño de
+           purchase_stock) → la recepción muestra N renglones del mismo
+           producto, cada uno con su demanda.
+        2) Facturas de carga con varias proformas: entrar a cada proforma a
+           preparar su recepción re-agregaba demanda, acumulando renglones
+           consecutivos del mismo producto.
+
+        Regla del negocio: la demanda de recepción SIEMPRE unificada por
+        producto. Se conserva el move más antiguo (mantiene su liga a la
+        línea de compra), absorbe la suma de cantidades y hereda las move
+        lines de los demás; los sobrantes se cancelan y eliminan.
+
+        Nota documentada: con líneas de OC duplicadas, el 'recibido' por
+        línea del core se concentra en la primera línea del producto — el
+        seguimiento real por pieza vive en el PL/Worksheet y en la Torre.
+        """
+        for picking in self:
+            if picking.picking_type_code != 'incoming':
+                continue
+            if picking.state in ('done', 'cancel'):
+                continue
+            dest = picking.location_dest_id
+            if not dest or not dest._som_is_transit():
+                continue
+
+            moves = picking.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel'))
+            by_product = {}
+            for move in moves:
+                by_product.setdefault(move.product_id.id, []).append(move)
+
+            for product_id, product_moves in by_product.items():
+                if len(product_moves) <= 1:
+                    continue
+
+                product_moves.sort(key=lambda m: m.id)
+                keeper = product_moves[0]
+                extras = product_moves[1:]
+                total_qty = sum(m.product_uom_qty for m in product_moves)
+
+                for extra in extras:
+                    try:
+                        if extra.state in ('assigned', 'partially_available'):
+                            extra._do_unreserve()
+                    except Exception as exc:
+                        _logger.warning(
+                            '[TC_UNIFY] No se pudo desreservar move %s: %s',
+                            extra.id, exc)
+                    if extra.move_line_ids:
+                        extra.move_line_ids.write({'move_id': keeper.id})
+
+                extra_recs = self.env['stock.move'].browse(
+                    [m.id for m in extras])
+                extra_recs._action_cancel()
+                extra_recs.unlink()
+
+                keeper.product_uom_qty = total_qty
+                _logger.info(
+                    '[TC_UNIFY] %s: %s moves del producto %s unificados en '
+                    'uno (demanda total %.3f).',
+                    picking.name, len(product_moves), product_id, total_qty)
+        return True
+
     transit_voyage_ids = fields.One2many(
         'stock.transit.voyage',
         'picking_id',

@@ -101,6 +101,11 @@ class PurchaseOrder(models.Model):
 
     def button_confirm(self):
         res = super(PurchaseOrder, self).button_confirm()
+        # La recepción a tránsito nace UNIFICADA: un move por producto aunque
+        # la OC repita el producto en varias líneas (el core crea un move por
+        # línea de compra y nunca los fusiona).
+        for po in self:
+            po.picking_ids.sudo()._som_unify_transit_demand()
         for po in self:
             # sudo(): plomería interna al confirmar la OC — el comprador
             # no necesita ACL de Torre de Control.
