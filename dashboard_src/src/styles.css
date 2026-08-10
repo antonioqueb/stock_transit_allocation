@@ -528,3 +528,44 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   border: 1px solid var(--line); background: var(--panel); color: var(--mut);
 }
 .srk-toggle-row button.on { background: var(--blue); border-color: var(--blue); color: #fff; }
+
+
+/* ═══════ MÓVIL del rediseño (F2+): una columna, cero superposición ═══════ */
+@media (max-width: 760px) {
+  /* Regla de dirección: el dominio Inicio NO existe en móvil */
+  .nav-dom-inicio { display: none !important; }
+
+  /* La rejilla de paneles pasa a UNA columna: cada gráfico respira a lo
+     ancho completo del teléfono (la base de 2 columnas los encimaba). */
+  .grid { grid-template-columns: 1fr !important; }
+  .panel.wide { grid-column: auto; }
+
+  /* Scorecards y bento en 2 columnas compactas */
+  .bento { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; gap: 8px; }
+  .bento .tv-stat.hero { grid-column: 1 / -1; }
+  .cc-score { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .cc-score .kpi-sem > .stat { min-height: 96px; }
+  .cc-score .stat-v { font-size: 19px; }
+
+  /* Barra vital: carrusel horizontal sin encoger */
+  .vitalbar { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .vitalbar::-webkit-scrollbar { display: none; }
+  .vital { flex: 0 0 auto; min-width: 132px; }
+  .vital-v { font-size: 16px; }
+
+  /* Hallazgos e interruptores */
+  .insight { font-size: 12px; padding: 9px 11px; }
+  .srk-toggle-row button { padding: 6px 16px; min-height: 34px; }
+
+  /* Breadcrumb compacto */
+  .crumbs { font-size: 11px; }
+  .crumb-q { display: none; }
+
+  /* Los lienzos ECharts mantienen su alto de diseño pero jamás desbordan */
+  .panel > div[style] { max-width: 100%; }
+}
+
+@media (max-width: 420px) {
+  .cc-score { grid-template-columns: 1fr; }
+  .bento { grid-template-columns: 1fr !important; }
+}

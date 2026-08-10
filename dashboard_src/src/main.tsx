@@ -3591,10 +3591,12 @@ function App() {
   // en Ventas y el chip de Resumen se oculta por CSS.
   const isMobileScreen = typeof window !== "undefined" &&
     window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
-  // El Resumen TV es exclusivo de escritorio; en móvil su equivalente es
-  // el Command Center responsivo (portada universal desde Fase 2).
+  // REGLA MÓVIL (definida por dirección): en teléfono NO existe Inicio
+  // (ni Resumen TV ni Command Center) — toda la información arranca en
+  // VENTAS; el dominio Inicio se oculta del menú por CSS.
   const [view, setView] = useState<ViewKey>(
-    isMobileScreen && initial.view === "resumen" ? "inicio" : initial.view
+    isMobileScreen && (initial.view === "resumen" || initial.view === "inicio")
+      ? "ventas" : initial.view
   );
 
   // ── Navegación anidada (Fase 1 del rediseño) ──────────────────────────
@@ -3632,7 +3634,7 @@ function App() {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const mq = window.matchMedia("(max-width: 760px)");
     const enforce = () => {
-      if (mq.matches) setView((v) => (v === "resumen" ? "inicio" : v));
+      if (mq.matches) setView((v) => (v === "resumen" || v === "inicio" ? "ventas" : v));
     };
     enforce();
     mq.addEventListener?.("change", enforce);
@@ -3722,7 +3724,7 @@ function App() {
               // muestra como chips bajo su etiqueta de sección).
               const showChildren = isOpen || hasActive || isMobileScreen;
               return (
-                <div key={d.id} className={`nav-domain${hasActive ? " has-active" : ""}`}>
+                <div key={d.id} className={`nav-domain nav-dom-${d.id}${hasActive ? " has-active" : ""}`}>
                   <button
                     className="nav-domain-head"
                     aria-expanded={isOpen}
