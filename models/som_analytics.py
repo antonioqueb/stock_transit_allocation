@@ -2589,14 +2589,23 @@ class SomAnalytics(models.AbstractModel):
             return self._scrub_profit(self._drill_partner_fin(
                 int(value),
                 'out_invoice' if entity == 'partner_ar' else 'in_invoice'))
+        # Coerción SEGURA: el dict evalúa TODAS sus entradas al construirse,
+        # así que un drill de nivel con valor 'custom' tronaba en el
+        # int(value) de las entradas numéricas antes de elegir la entidad.
+        def _as_int(v):
+            try:
+                return int(v)
+            except (TypeError, ValueError):
+                return 0
+
         where_map = {
             'month': ("to_char(so.date_order,'YYYY-MM') = %(dv)s", str(value)),
-            'product': ('pt.id = %(dv)s', int(value)),
-            'seller': ('so.user_id = %(dv)s', int(value)),
-            'customer': ('so.partner_id = %(dv)s', int(value)),
+            'product': ('pt.id = %(dv)s', _as_int(value)),
+            'seller': ('so.user_id = %(dv)s', _as_int(value)),
+            'customer': ('so.partner_id = %(dv)s', _as_int(value)),
             'level': ("COALESCE(sol.x_price_selector,'custom') = %(dv)s",
                       str(value)),
-            'category': ('pt.categ_id = %(dv)s', int(value) if str(value).isdigit() else 0),
+            'category': ('pt.categ_id = %(dv)s', _as_int(value)),
         }
         if entity not in where_map:
             return {'error': 'entidad desconocida'}
