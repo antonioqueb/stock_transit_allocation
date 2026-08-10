@@ -569,3 +569,69 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   .cc-score { grid-template-columns: 1fr; }
   .bento { grid-template-columns: 1fr !important; }
 }
+
+
+/* ═══════ MÓVIL v2: drawer de navegación + resumen en cards ═══════ */
+.nav-burger { display: none; }
+.nav-backdrop { display: none; }
+
+@media (max-width: 760px) {
+  /* ── Hamburguesa (solo móvil) ── */
+  .nav-burger {
+    display: inline-flex; flex-direction: column; justify-content: center;
+    gap: 4px; width: 38px; height: 38px; padding: 8px;
+    border-radius: 10px; border: 1px solid var(--line); background: var(--panel);
+    flex: 0 0 auto;
+  }
+  .nav-burger span { display: block; height: 2px; border-radius: 2px; background: var(--txt); }
+
+  /* ── El sidenav deja de ser chips: es un DRAWER lateral ── */
+  .sidenav {
+    position: fixed !important; top: 0; left: 0; bottom: 0; z-index: 200;
+    width: min(80vw, 300px);
+    flex-direction: column !important; align-items: stretch !important;
+    overflow-y: auto; overflow-x: hidden;
+    padding: calc(14px + env(safe-area-inset-top)) 12px 20px;
+    border-right: 1px solid var(--line); border-bottom: none;
+    background: var(--bg2);
+    transform: translateX(-105%);
+    transition: transform .22s ease;
+    box-shadow: 12px 0 40px rgba(15, 23, 42, .25);
+  }
+  .sidenav.open { transform: translateX(0); }
+
+  .nav-backdrop {
+    display: block; position: fixed; inset: 0; z-index: 190;
+    background: rgba(10, 16, 30, .45);
+  }
+
+  /* Dentro del drawer: dominios como secciones verticales normales */
+  .nav-domain { width: 100%; }
+  .nav-domain-head { pointer-events: auto !important; width: 100%; padding: 10px 12px; }
+  .nav-domain-head .nav-chevron { display: inline; }
+  .nav-children { display: flex; flex-direction: column; padding-left: 10px; }
+  .sidenav button { white-space: normal; text-align: left; border: none; background: transparent; }
+  .sidenav .nav-children button {
+    min-height: 42px; padding: 9px 12px; border-radius: 9px; font-size: 13.5px;
+  }
+  .sidenav .nav-children button.on { background: var(--blue); color: #fff; }
+
+  /* ── Sección resumen (barra vital): CARDS en 2 columnas, sin encimes ── */
+  .vitalbar {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    overflow: visible; gap: 8px;
+  }
+  .vital {
+    min-width: 0; padding: 9px 12px;
+    border: 1px solid var(--line);
+  }
+  .vital-l { white-space: normal; line-height: 1.25; font-size: 10px; }
+  .vital-v { white-space: normal; line-height: 1.2; font-size: 16px; overflow-wrap: anywhere; }
+  .vital-more { grid-column: 1 / -1; text-align: center; padding: 6px 0 0; margin: 0; }
+
+  /* Stats/bento: los valores largos envuelven, jamás se enciman */
+  .stat, .tv-stat { min-width: 0; overflow: hidden; }
+  .stat-v, .tv-stat .v { overflow-wrap: anywhere; }
+  .stat-s, .tv-stat .s { overflow-wrap: anywhere; white-space: normal; }
+}

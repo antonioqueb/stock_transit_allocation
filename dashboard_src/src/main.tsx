@@ -3618,6 +3618,11 @@ function App() {
   }, [openDomain]);
   const crumbDomain = domainOf(view);
   const crumbPage = pageOf(view);
+
+  // Drawer móvil del menú: con tantas páginas, los chips horizontales ya
+  // no escalan — hamburguesa + panel lateral; navegar lo cierra.
+  const [navOpen, setNavOpen] = useState(false);
+  const goView = useCallback((v: ViewKey) => { setView(v); setNavOpen(false); }, []);
   const [filters, setFilters] = useState<Filters>({ ...defaultRange(), ...initial.filters });
   const [drillStack, setDrillStack] = useState<DrillNode[]>([]);
   const [preset, setPreset] = useState("mes");
@@ -3675,6 +3680,10 @@ function App() {
   return (
     <div className="app">
       <header className="topbar">
+        <button className="nav-burger" aria-label="Abrir menú" aria-expanded={navOpen}
+                onClick={() => setNavOpen((o) => !o)}>
+          <span/><span/><span/>
+        </button>
         <div className="brand">
           <span className="logo" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinejoin="round" strokeLinecap="round">
@@ -3711,10 +3720,11 @@ function App() {
       </header>
 
       <div className="body">
-        <nav className="sidenav" aria-label="Vistas">
+        {navOpen && <div className="nav-backdrop" onClick={() => setNavOpen(false)} />}
+        <nav className={`sidenav${navOpen ? " open" : ""}`} aria-label="Vistas">
           {navLegacy ? (
             VIEWS.map((v) => (
-              <button key={v.key} className={`nav-${v.key}${view === v.key ? " on" : ""}`} onClick={() => setView(v.key)}>{v.label}</button>
+              <button key={v.key} className={`nav-${v.key}${view === v.key ? " on" : ""}`} onClick={() => goView(v.key)}>{v.label}</button>
             ))
           ) : (
             NAV.map((d) => {
@@ -3741,7 +3751,7 @@ function App() {
                           className={`nav-${p.key}${view === p.key ? " on" : ""}`}
                           aria-current={view === p.key ? "page" : undefined}
                           title={p.question}
-                          onClick={() => { setView(p.key as ViewKey); setOpenDomain(d.id); }}
+                          onClick={() => { goView(p.key as ViewKey); setOpenDomain(d.id); }}
                         >
                           {p.label}
                         </button>
