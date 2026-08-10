@@ -973,16 +973,26 @@ function TransitoView() {
       </div>
       <div className="grid">
         <Panel title="m² por estatus del viaje" wide>
-          <ChartBox height={280} deps={[st]} config={{
-            type: "bar",
-            data: {
-              labels: st.map((r) => String(r.label)),
-              datasets: [
-                { label: "m²", data: st.map((r) => num(r.m2)), backgroundColor: "rgba(2,132,199,.8)", borderRadius: 6, maxBarThickness: 44 },
-                { type: "line", label: "Contenedores", data: st.map((r) => num(r.count)), borderColor: C.amber, borderWidth: 2.5, pointRadius: 4, tension: 0.3, yAxisID: "y1" },
-              ],
-            },
-            options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), y1: { beginAtZero: true, position: "right", grid: { display: false }, border: { display: false }, ticks: { color: C.amber, font: { size: 11 } } }, x: axisPlain(10.5) } },
+          <EChartBox height={300} deps={[st]} option={{
+            ...ecBase(),
+            tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+            legend: { top: 0 },
+            xAxis: ecAxis("cat", st.map((r) => String(r.label).toUpperCase())),
+            yAxis: [ecAxis("money"), { type: "value", position: "right", splitLine: { show: false },
+              axisLabel: { color: "#d97706", fontSize: 10.5 } }],
+            series: [
+              { name: "m²", type: "bar", barMaxWidth: 46,
+                label: { show: true, position: "top", fontSize: 10.5, fontWeight: 700,
+                         formatter: (pm: { value: number }) => n1(pm.value) },
+                data: st.map((r) => num(r.m2)),
+                itemStyle: { borderRadius: [7, 7, 0, 0],
+                  color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [{ offset: 0, color: "#38bdf8" }, { offset: 1, color: "#0b57d0" }] } } },
+              { name: "Contenedores", type: "line", yAxisIndex: 1, smooth: true, symbolSize: 7,
+                data: st.map((r) => num(r.count)),
+                lineStyle: { width: 3, color: "#d97706" }, itemStyle: { color: "#d97706" },
+                areaStyle: { opacity: 0.08, color: "#d97706" } },
+            ],
           }} />
         </Panel>
         <Panel title="m² en el agua por proveedor" hint="quién trae qué tanto material">
@@ -993,16 +1003,25 @@ function TransitoView() {
           }} />
         </Panel>
         <Panel title="Cuándo llega: m² por mes de ETA" hint="lo que viene en camino">
-          <ChartBox height={280} deps={[arr(d.eta_months)]} config={{
-            type: "bar",
-            data: {
-              labels: arr(d.eta_months).map((r) => monthLabel(r.key)),
-              datasets: [
-                { label: "m²", data: arr(d.eta_months).map((r) => num(r.m2)), backgroundColor: "rgba(2,132,199,.8)", borderRadius: 6, maxBarThickness: 40 },
-                { type: "line", label: "Contenedores", data: arr(d.eta_months).map((r) => num(r.count)), borderColor: C.amber, borderWidth: 2.5, pointRadius: 4, tension: 0.3, yAxisID: "y1" },
-              ],
-            },
-            options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), y1: { beginAtZero: true, position: "right", grid: { display: false }, border: { display: false }, ticks: { color: C.amber, font: { size: 11 } } }, x: axisPlain(11) } },
+          <EChartBox height={300} deps={[arr(d.eta_months)]} option={{
+            ...ecBase(),
+            tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+            legend: { top: 0 },
+            xAxis: ecAxis("cat", arr(d.eta_months).map((r) => monthLabel(r.key).toUpperCase())),
+            yAxis: [ecAxis("money"), { type: "value", position: "right", splitLine: { show: false },
+              axisLabel: { color: "#d97706", fontSize: 10.5 } }],
+            series: [
+              { name: "m²", type: "bar", barMaxWidth: 40,
+                label: { show: true, position: "top", fontSize: 10.5, fontWeight: 700,
+                         formatter: (pm: { value: number }) => n1(pm.value) },
+                data: arr(d.eta_months).map((r) => num(r.m2)),
+                itemStyle: { borderRadius: [7, 7, 0, 0],
+                  color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                    colorStops: [{ offset: 0, color: "#34d399" }, { offset: 1, color: "#059669" }] } } },
+              { name: "Contenedores", type: "line", yAxisIndex: 1, smooth: true, symbolSize: 7,
+                data: arr(d.eta_months).map((r) => num(r.count)),
+                lineStyle: { width: 3, color: "#d97706" }, itemStyle: { color: "#d97706" } },
+            ],
           }} />
         </Panel>
         <Panel title="Lo que ya llegó: m² recibidos por mes (12 meses)" wide>
@@ -1012,59 +1031,71 @@ function TransitoView() {
             options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
           }} />
         </Panel>
-        <Panel title="Línea de tiempo de embarques (ETD → ETA)" hint="gantt · barra = viaje en el agua · rojo = ETA vencida" wide>
+        <Panel title="Línea de tiempo de embarques (ETD → ETA)" hint="gantt · barra = viaje en el agua · rojo = ETA vencida · rueda = zoom" wide>
           {(() => {
-            const gv = voyages.filter((v) => String(v.etd) && String(v.eta)).slice(0, 18);
-            if (!gv.length) return <Empty msg="Sin embarques con ETD y ETA capturados." />;
+            const ts = (v: unknown) => {
+              const t = Date.parse(String(v ?? ""));
+              return Number.isFinite(t) ? t : null;
+            };
+            const gv = voyages
+              .map((v) => ({ v, t0: ts(v.etd), t1: ts(v.eta) }))
+              .filter((g) => g.t0 != null && g.t1 != null && (g.t1 as number) > (g.t0 as number))
+              .slice(0, 18) as Array<{ v: Rec; t0: number; t1: number }>;
+            if (!gv.length) {
+              return <Empty msg="Sin embarques con ETD y ETA capturados (requiere backend v19.0.52.1+ desplegado y viajes con ambas fechas)." />;
+            }
             const today = Date.now();
+            const names = gv.map((g) => `${String(g.v.name)} · ${String(g.v.supplier).slice(0, 16)}`.toUpperCase());
             return (
-              <EChartBox height={Math.max(220, gv.length * 34 + 60)} deps={[gv]} option={(() => {
-                const names = gv.map((v) => `${String(v.name)} · ${String(v.supplier).slice(0, 16)}`.toUpperCase());
-                return {
-                  ...ecBase(),
-                  grid: { left: 8, right: 30, top: 10, bottom: 26, containLabel: true },
-                  tooltip: { ...(ecBase().tooltip as object),
-                    formatter: (pm: { dataIndex: number }) => {
-                      const v = gv[pm.dataIndex];
-                      return `${String(v.name)} · ${String(v.supplier)}<br/>${String(v.etd)} → ${String(v.eta)}<br/><b>${n1(v.m2)} m²</b> · ${String(v.status)}`;
-                    } },
-                  dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "weakFilter" }],
-                  xAxis: { type: "time",
-                    axisLabel: { fontSize: 10, fontFamily: "Inter", formatter: (val: number) => {
-                      const dd = new Date(val); return `${dd.getDate()}/${MONTHS_ES[dd.getMonth()]}`;
-                    } },
-                    splitLine: { lineStyle: { color: "rgba(100,116,139,.12)" } } },
-                  yAxis: { type: "category", data: names, inverse: true,
-                    axisLine: { show: false }, axisTick: { show: false },
-                    axisLabel: { fontSize: 10, fontFamily: "Inter" } },
-                  series: [{
-                    type: "custom",
-                    renderItem: (params: { dataIndex: number }, api: { coord: (v: [number | string, number]) => [number, number]; size: (v: [number, number]) => [number, number] }) => {
-                      const i = params.dataIndex;
-                      const v = gv[i];
-                      const start = api.coord([String(v.etd), i]);
-                      const end = api.coord([String(v.eta), i]);
-                      const h = 14;
-                      const overdue = new Date(String(v.eta)).getTime() < today && !String(v.status).toLowerCase().includes("recep");
-                      const fill = overdue
-                        ? { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] }
-                        : { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: "#38bdf8" }, { offset: 1, color: "#0b57d0" }] };
-                      return {
-                        type: "group",
-                        children: [
-                          { type: "rect",
-                            shape: { x: start[0], y: start[1] - h / 2, width: Math.max(end[0] - start[0], 3), height: h, r: 7 },
-                            style: { fill, shadowBlur: 5, shadowColor: "rgba(15,23,42,.2)", shadowOffsetY: 2 } },
-                          { type: "circle",
-                            shape: { cx: end[0], cy: start[1], r: 4.5 },
-                            style: { fill: overdue ? "#dc2626" : "#0b57d0", stroke: "#fff", lineWidth: 1.5 } },
-                        ],
-                      };
-                    },
-                    data: gv.map((_v, i) => i),
-                  }],
-                };
-              })()} />
+              <EChartBox height={Math.max(240, gv.length * 34 + 70)} deps={[voyages]} option={{
+                ...ecBase(),
+                grid: { left: 8, right: 30, top: 10, bottom: 30, containLabel: true },
+                dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "weakFilter" }],
+                tooltip: { ...(ecBase().tooltip as object),
+                  formatter: (pm: { dataIndex: number }) => {
+                    const g = gv[pm.dataIndex];
+                    return g ? `${String(g.v.name)} · ${String(g.v.supplier)}<br/>${String(g.v.etd)} → ${String(g.v.eta)}<br/><b>${n1(g.v.m2)} m²</b> · ${String(g.v.status)}` : "";
+                  } },
+                xAxis: { type: "time",
+                  axisLabel: { fontSize: 10, fontFamily: "Inter", formatter: (val: number) => {
+                    const dd = new Date(val); return `${dd.getDate()}/${MONTHS_ES[dd.getMonth()]}`;
+                  } },
+                  splitLine: { lineStyle: { color: "rgba(100,116,139,.12)" } } },
+                yAxis: { type: "category", data: names, inverse: true,
+                  axisLine: { show: false }, axisTick: { show: false },
+                  axisLabel: { fontSize: 10, fontFamily: "Inter" } },
+                series: [{
+                  type: "custom",
+                  encode: { x: [0, 1], y: 2 },
+                  renderItem: (params: { dataIndex: number }, api: { value: (i: number) => number; coord: (v: [number, number]) => [number, number] }) => {
+                    const i = params.dataIndex;
+                    const g = gv[i];
+                    if (!g) return null as never;
+                    const start2 = api.coord([g.t0, i]);
+                    const end2 = api.coord([g.t1, i]);
+                    const h = 14;
+                    const overdue = g.t1 < today && !String(g.v.status).toLowerCase().includes("recep");
+                    const fill = overdue
+                      ? { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] }
+                      : { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: "#38bdf8" }, { offset: 1, color: "#0b57d0" }] };
+                    return {
+                      type: "group",
+                      children: [
+                        { type: "rect",
+                          shape: { x: start2[0], y: start2[1] - h / 2, width: Math.max(end2[0] - start2[0], 3), height: h, r: 7 },
+                          style: { fill, shadowBlur: 5, shadowColor: "rgba(15,23,42,.2)", shadowOffsetY: 2 } },
+                        { type: "circle",
+                          shape: { cx: end2[0], cy: start2[1], r: 4.5 },
+                          style: { fill: overdue ? "#dc2626" : "#0b57d0", stroke: "#fff", lineWidth: 1.5 } },
+                      ],
+                    };
+                  },
+                  // Datos REALES en el dataset (timestamps + índice): el eje de
+                  // tiempo calcula su rango de aquí — con datos vacíos el eje
+                  // no tenía extent y el render moría en silencio.
+                  data: gv.map((g, i) => [g.t0, g.t1, i]),
+                }],
+              }} />
             );
           })()}
         </Panel>
