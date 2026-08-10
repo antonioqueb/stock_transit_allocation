@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { ChartBox, baseOptions, axisMoney, axisPlain, C, PALETTE } from "./charts";
 import { NAV, domainOf, pageOf } from "./nav";
+import { EChartBox, ecBase, ecAxis, EC } from "./echarts";
 import { METRICS, metricTooltip, deltaTone } from "./metrics";
 import "./styles.css";
 
@@ -2156,16 +2157,19 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
       <div className="grid">
         {months.length > 0 && (
           <Panel title="Venta y utilidad por mes" hint="pack Resumen · 5 min" wide>
-            <ChartBox height={340} deps={[months]} config={{
-              type: "bar",
-              data: {
-                labels: months.map((r) => monthLabel(String(r.key))),
-                datasets: [
-                  { label: "Venta", data: months.map((r) => num(r.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 34, isMoney: true },
-                  ...(canProfit ? [{ label: "Utilidad", data: months.map((r) => num(r.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 34, isMoney: true }] : []),
-                ],
-              },
-              options: { ...baseOptions(), scales: { y: axisMoney(), x: axisPlain(12) } },
+            <EChartBox height={340} deps={[months, canProfit]} option={{
+              ...ecBase(),
+              tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+              legend: { top: 0, textStyle: { color: "inherit" } },
+              xAxis: ecAxis("cat", months.map((r) => monthLabel(String(r.key)))),
+              yAxis: ecAxis("money"),
+              series: [
+                { name: "Venta", type: "bar", data: months.map((r) => num(r.venta)),
+                  itemStyle: { borderRadius: [6, 6, 0, 0], color: EC.blue }, barMaxWidth: 36 },
+                ...(canProfit ? [{ name: "Utilidad", type: "line", smooth: true,
+                  data: months.map((r) => num(r.utilidad)), lineStyle: { width: 3, color: EC.green },
+                  itemStyle: { color: EC.green }, areaStyle: { opacity: 0.12, color: EC.green } }] : []),
+              ],
             }} />
           </Panel>
         )}
@@ -2237,30 +2241,59 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
             <Kpi id="conversion_pct" value={pct(k.conversion_pct)} />
             <Kpi id="cotizaciones_abiertas" value={n0(k.cotizaciones_abiertas)} />
             <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes`} drillTo={() => props.go("ventas_auth")} />
-            <Kpi id="venta_mxn" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes confirmadas`} />
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes confirmadas`} drillTo={() => props.go("ventas")} />
           </div>
           <div className="grid">
+            <Panel title="Tasa de conversión del periodo" hint="confirmadas ÷ (confirmadas + abiertas)">
+              <EChartBox height={300} deps={[k.conversion_pct]} option={{
+                ...ecBase(),
+                series: [{
+                  type: "gauge", startAngle: 210, endAngle: -30, min: 0, max: 100,
+                  progress: { show: true, width: 16, roundCap: true, itemStyle: { color: EC.blue } },
+                  axisLine: { lineStyle: { width: 16, color: [[1, "rgba(100,116,139,.15)"]] } },
+                  pointer: { show: false }, axisTick: { show: false },
+                  splitLine: { show: false }, axisLabel: { show: false },
+                  detail: { valueAnimation: true, fontSize: 34, fontWeight: 800,
+                            offsetCenter: [0, "5%"], formatter: (v: number) => `${n1(v)}%`,
+                            color: "inherit" },
+                  data: [{ value: num(k.conversion_pct) }],
+                }],
+              }} />
+            </Panel>
             <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"} wide>
-              <ChartBox height={380} deps={[funnel]} config={{
-                type: "bar",
-                data: {
-                  labels: funnel.map((s) => `${s.stage} (${n0(s.count)})`),
-                  datasets: [{ label: "Monto", data: funnel.map((s) => num(s.amount)), backgroundColor: ["#94a3b8", "#0ea5e9", "#0b57d0"], borderRadius: 6, maxBarThickness: 46, isMoney: true }],
-                },
-                options: { ...baseOptions(), indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { x: axisMoney(), y: axisPlain(12) } },
+              <EChartBox height={380} deps={[funnel]} option={{
+                ...ecBase(),
+                series: [{
+                  type: "funnel", sort: "none", gap: 4,
+                  top: 12, bottom: 12, left: "6%", width: "88%",
+                  label: { show: true, position: "inside", fontWeight: 700, fontSize: 13,
+                           formatter: (p: { name: string }) => p.name },
+                  itemStyle: { borderWidth: 0 },
+                  data: funnel.map((st, i) => ({
+                    name: `${st.stage} · ${n0(st.count)} · ${money(st.amount)}`,
+                    value: Math.max(num(st.amount), 1),
+                    itemStyle: { color: ["#94a3b8", EC.sky, EC.blue][i] ?? EC.blue },
+                  })),
+                }],
               }} />
             </Panel>
             <Panel title="Antigüedad del backlog abierto" hint="cotizaciones vivas hoy">
-              <ChartBox height={380} deps={[aging]} config={{
-                type: "bar",
-                data: {
-                  labels: aging.map((b) => String(b.bucket)),
-                  datasets: [{ label: "Monto abierto", data: aging.map((b) => num(b.amount)), backgroundColor: ["#059669", "#0ea5e9", "#d97706", "#dc2626"], borderRadius: 6, maxBarThickness: 40, isMoney: true }],
-                },
-                options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
+              <EChartBox height={380} deps={[aging]} option={{
+                ...ecBase(),
+                xAxis: ecAxis("cat", aging.map((b) => String(b.bucket))),
+                yAxis: ecAxis("money"),
+                series: [{
+                  type: "bar", barMaxWidth: 56,
+                  label: { show: true, position: "top", fontWeight: 700,
+                           formatter: (p: { value: number }) => money(p.value) },
+                  data: aging.map((b, i) => ({
+                    value: num(b.amount),
+                    itemStyle: { color: [EC.green, EC.sky, EC.amber, EC.red][i] ?? EC.blue, borderRadius: [7, 7, 0, 0] },
+                  })),
+                }],
               }} />
             </Panel>
-            <Panel title="Cotizaciones estancadas de mayor monto" hint="abiertas hoy · mayor monto primero" wide>
+            <Panel title="Cotizaciones estancadas de mayor monto" hint="abiertas hoy · mayor monto primero">
               <MiniTable head={["Cotización · Cliente · Vendedor", "Monto", "Días abierta"]} rows={stalled.map((s, i) => ({
                 key: i,
                 a: `${String(s.name)} · ${String(s.partner)}${s.seller ? ` · ${String(s.seller)}` : ""}`,
@@ -2290,22 +2323,30 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
             } as Insight : null as unknown as Insight,
           ].filter(Boolean) as Insight[]} />
           <div className="cc-score">
-            <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} drillTo={cust[0] ? () => props.drill({ kind: "entity", entity: "customer", value: num(cust[0].key), label: String(cust[0].name) }) : undefined} />
             {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <Panel title="Pareto de clientes del periodo" hint="click = profundizar" wide>
-            <ChartBox height={460} deps={[cust]} config={{
-              type: "bar",
-              data: {
-                labels: cust.map((c) => String(c.name).slice(0, 34)),
-                datasets: [{ label: "Venta", data: cust.map((c) => num(c.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 20, isMoney: true }],
-              },
-              options: {
-                ...baseOptions((i) => { const c = cust[i]; props.drill({ kind: "entity", entity: "customer", value: num(c.key), label: String(c.name) }); }),
-                indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } },
-                scales: { x: axisMoney(), y: axisPlain(10.5) },
-              },
-            }} />
+            <EChartBox height={460} deps={[cust]}
+              onClick={(pm) => { const c = cust[pm.dataIndex]; if (c) props.drill({ kind: "entity", entity: "customer", value: num(c.key), label: String(c.name) }); }}
+              option={(() => {
+                const total = cust.reduce((sm, c) => sm + num(c.venta), 0);
+                let acc = 0;
+                const cum = cust.map((c) => { acc += num(c.venta); return total ? Math.round((acc / total) * 1000) / 10 : 0; });
+                return {
+                  ...ecBase(),
+                  tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+                  legend: { top: 0 },
+                  xAxis: { ...ecAxis("cat", cust.map((c) => String(c.name).slice(0, 22))), axisLabel: { rotate: 32, fontSize: 10.5, color: "#64748b" } },
+                  yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false }, axisLabel: { formatter: "{value}%", fontSize: 10.5, color: "#64748b" } }],
+                  series: [
+                    { name: "Venta", type: "bar", barMaxWidth: 30, data: cust.map((c) => num(c.venta)),
+                      itemStyle: { color: EC.blue, borderRadius: [6, 6, 0, 0] } },
+                    { name: "% acumulado", type: "line", yAxisIndex: 1, smooth: true, data: cum,
+                      lineStyle: { width: 3, color: EC.amber }, itemStyle: { color: EC.amber } },
+                  ],
+                };
+              })()} />
           </Panel>
         </>
       );
@@ -2328,20 +2369,31 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
           </div>
           <div className="grid">
             <Panel title={canProfit ? "Top productos por utilidad" : "Top productos por venta"} hint="click = profundizar" wide>
-              <ChartBox height={420} deps={[prods, canProfit]} config={{
-                type: "bar",
-                data: {
-                  labels: prods.map((p) => String(p.name).slice(0, 34)),
-                  datasets: [canProfit
-                    ? { label: "Utilidad", data: prods.map((p) => num(p.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 18, isMoney: true }
-                    : { label: "Venta", data: prods.map((p) => num(p.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 18, isMoney: true }],
-                },
-                options: {
-                  ...baseOptions((i) => { const p = prods[i]; props.drill({ kind: "entity", entity: "product", value: num(p.key), label: String(p.name) }); }),
-                  indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } },
-                  scales: { x: axisMoney(), y: axisPlain(10.5) },
-                },
-              }} />
+              <EChartBox height={420} deps={[prods, canProfit]}
+                onClick={(pm) => { const d0 = pm.data as Rec; if (d0?.key) props.drill({ kind: "entity", entity: "product", value: num(d0.key), label: String(d0.name) }); }}
+                option={{
+                  ...ecBase(),
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { data: Rec }) => {
+                      const it = pm.data ?? {};
+                      const mg = it.margen == null ? "" : ` · margen ${pct(it.margen)}`;
+                      return `${String(it.name)}<br/>${money(it.value)}${mg}`;
+                    } },
+                  series: [{
+                    type: "treemap", roam: false, nodeClick: false,
+                    breadcrumb: { show: false }, top: 6, bottom: 6, left: 6, right: 6,
+                    label: { show: true, fontSize: 12, fontWeight: 600, formatter: (pm: { name: string }) => pm.name },
+                    itemStyle: { borderColor: "rgba(255,255,255,.35)", borderWidth: 2, gapWidth: 2 },
+                    data: prods.map((pr, i) => {
+                      const mg = canProfit && num(pr.venta) > 0 ? (num(pr.utilidad) / num(pr.venta)) * 100 : null;
+                      const color = mg == null
+                        ? ["#0b57d0", "#0ea5e9", "#0e7490", "#7c3aed", "#db2777", "#d97706"][i % 6]
+                        : mg < 0 ? EC.red : mg < 15 ? EC.amber : EC.green;
+                      return { name: String(pr.name).slice(0, 40), value: Math.max(num(pr.venta), 1),
+                               key: num(pr.key), margen: mg, itemStyle: { color } };
+                    }),
+                  }],
+                }} />
             </Panel>
             <Panel title="Venta por categoría" hint="click = profundizar">
               <MiniTable head={["Categoría", "Venta", "m²"]} rows={cats.map((c, i) => ({
@@ -2378,18 +2430,22 @@ function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => v
             {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <Panel title="Venta por nivel de precio" hint="click = profundizar" wide>
-            <ChartBox height={400} deps={[levels]} config={{
-              type: "bar",
-              data: {
-                labels: levels.map((l) => String(l.name)),
-                datasets: [{ label: "Venta", data: levels.map((l) => num(l.venta)), backgroundColor: PALETTE, borderRadius: 6, maxBarThickness: 46, isMoney: true }],
-              },
-              options: {
-                ...baseOptions((i) => { const l = levels[i]; props.drill({ kind: "entity", entity: "level", value: String(l.key), label: String(l.name) }); }),
-                plugins: { ...baseOptions().plugins, legend: { display: false } },
-                scales: { y: axisMoney(), x: axisPlain(12) },
-              },
-            }} />
+            <EChartBox height={400} deps={[levels]}
+              onClick={(pm) => { const l = levels[pm.dataIndex]; if (l) props.drill({ kind: "entity", entity: "level", value: String(l.key), label: String(l.name) }); }}
+              option={{
+                ...ecBase(),
+                legend: { bottom: 0 },
+                tooltip: { ...(ecBase().tooltip as object),
+                  formatter: (pm: { name: string; value: number; percent: number }) =>
+                    `${pm.name}<br/>${money(pm.value)} · ${n1(pm.percent)}%` },
+                series: [{
+                  type: "pie", roseType: "radius",
+                  radius: ["18%", "72%"], center: ["50%", "46%"],
+                  itemStyle: { borderRadius: 6, borderColor: "rgba(255,255,255,.4)", borderWidth: 2 },
+                  label: { fontSize: 12, fontWeight: 600, formatter: (pm: { name: string }) => pm.name },
+                  data: levels.map((l) => ({ name: String(l.name), value: Math.max(num(l.venta), 0) })),
+                }],
+              }} />
           </Panel>
         </>
       );
@@ -2414,16 +2470,18 @@ function VentasAuthView(props: { filters: Filters }) {
           </div>
           <div className="grid">
             <Panel title="Flujo semanal: entradas vs resueltas" hint="backlog crece cuando entran más de las que se resuelven" wide>
-              <ChartBox height={380} deps={[weekly]} config={{
-                type: "bar",
-                data: {
-                  labels: weekly.map((w) => `S${String(w.week)}`),
-                  datasets: [
-                    { label: "Solicitadas", data: weekly.map((w) => num(w.created)), backgroundColor: "rgba(217,119,6,.8)", borderRadius: 5, maxBarThickness: 26 },
-                    { label: "Resueltas", data: weekly.map((w) => num(w.resolved)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 26 },
-                  ],
-                },
-                options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(11) } },
+              <EChartBox height={380} deps={[weekly]} option={{
+                ...ecBase(),
+                tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+                legend: { top: 0 },
+                xAxis: ecAxis("cat", weekly.map((w) => `S${String(w.week)}`)),
+                yAxis: ecAxis("money"),
+                series: [
+                  { name: "Solicitadas", type: "bar", barMaxWidth: 24, data: weekly.map((w) => num(w.created)),
+                    itemStyle: { color: EC.amber, borderRadius: [5, 5, 0, 0] } },
+                  { name: "Resueltas", type: "bar", barMaxWidth: 24, data: weekly.map((w) => num(w.resolved)),
+                    itemStyle: { color: EC.green, borderRadius: [5, 5, 0, 0] } },
+                ],
               }} />
             </Panel>
             <Panel title="Solicitudes fiscales (IVA) — flujo separado" hint="no se mezcla con precio">
@@ -2483,6 +2541,37 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                 },
               }} />
             </Panel>
+            )}
+            {canProfit && sellers.length >= 3 && (
+              <Panel title="Radar del equipo — top 6" hint="cada dimensión normalizada al máximo del grupo">
+                <EChartBox height={360} deps={[sellers]} option={(() => {
+                  const top = sellers.slice(0, 6);
+                  const dims = [
+                    { name: "Venta", key: "venta" },
+                    { name: "Utilidad", key: "utilidad" },
+                    { name: "m²", key: "m2" },
+                  ];
+                  const maxes = dims.map((dm) => Math.max(...top.map((t) => num((t as Rec)[dm.key])), 1));
+                  return {
+                    ...ecBase(),
+                    legend: { bottom: 0, textStyle: { fontSize: 10.5 } },
+                    radar: {
+                      indicator: dims.map((dm, i) => ({ name: dm.name, max: maxes[i] })),
+                      radius: "62%", splitNumber: 4,
+                      axisName: { fontSize: 11.5, fontWeight: 700 },
+                    },
+                    series: [{
+                      type: "radar", symbolSize: 4,
+                      data: top.map((t, i) => ({
+                        name: String(t.name).slice(0, 18),
+                        value: dims.map((dm) => num((t as Rec)[dm.key])),
+                        lineStyle: { width: 2 },
+                        areaStyle: { opacity: 0.08 },
+                      })),
+                    }],
+                  };
+                })()} />
+              </Panel>
             )}
             <Panel title="Comisiones del periodo" hint="commission.move · fecha plana">
               <MiniTable head={["Participante", "Comisión", ""]} rows={comm.map((c, i) => ({

@@ -154,3 +154,13 @@ instrucción previa del negocio.
   - Conversión y Autorizaciones estrenan sus visuales (funnel, aging,
     estancadas con insight, flujo semanal, percentiles en el KPI) — las
     dos brechas B declaradas en F2 quedan cerradas.
+- **F2.2 — completada** (v19.0.50.0.0): **Apache ECharts 6.1 vendorizado**
+  (tree-shaken vía echarts/core, componente ARIA habilitado, tema
+  claro/oscuro de la casa, resize observer). Catálogo registrado: bar,
+  line, pie/rosa, scatter, funnel, treemap, radar, gauge, sankey,
+  heatmap, boxplot, sunburst (los 4 últimos listos para F3). Visuales
+  modernizados: funnel real de conversión, gauge de tasa de conversión,
+  pareto clientes con % acumulado, treemap de productos coloreado por
+  margen (con permiso), rosa de Nightingale de niveles de precio, radar
+  comparativo del top-6 de vendedores, combos barra+línea con área.
+  Chart.js sigue para vistas legacy. Cards con drill a un nivel más.
