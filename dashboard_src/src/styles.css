@@ -644,6 +644,7 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   display: inline-flex; gap: 2px; padding: 3px;
   border: 1px solid var(--line); border-radius: 10px; background: var(--panel2);
 }
+.granul--inline { margin-bottom: 8px; }
 .granul button {
   padding: 5px 13px; border-radius: 8px; font-size: 12px; font-weight: 700;
   color: var(--mut);

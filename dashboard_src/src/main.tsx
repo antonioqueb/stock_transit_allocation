@@ -507,7 +507,7 @@ function ResumenView(props: { filters: Filters; paused: boolean }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // VENTAS
 // ─────────────────────────────────────────────────────────────────────────────
-function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void; onGran?: (g: string) => void }) {
   // Origen: Odoo (default) vs SPS (legado Stone Profit — órdenes cuya
   // referencia trae el folio del sistema anterior). No se mezclan.
   const [source, setSource] = useState<"odoo" | "sps">("odoo");
@@ -585,7 +585,8 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
         </Panel>
       </div>
       <div className="grid" style={{ marginBottom: 12 }}>
-        <Panel title="Carrera de venta por categoría" hint="sigue al selector Día/Semana/Mes · top 6 del periodo" wide>
+        <Panel title="Carrera de venta por categoría" hint="top 6 del periodo · el corte aplica a todas las series" wide>
+          <GranToggle value={props.filters.granularity ?? "month"} onChange={props.onGran} />
           <EChartBox height={340} deps={[arr(d.categ_monthly)]} option={(() => {
             const cmr = arr(d.categ_monthly);
             if (!cmr.length) return { ...ecBase(), series: [] };
@@ -2684,6 +2685,23 @@ function waterfallOpt(steps: Array<{ label: string; value: number; base: number;
   };
 }
 
+// Toggle de corte temporal POR GRÁFICO (Día/Semana/Mes): vive dentro del
+// panel de cada serie para no confundirse con los presets de fecha del
+// topbar. Todos comparten el mismo filtro: cambiarlo en un gráfico
+// sincroniza los demás.
+function GranToggle(props: { value: string; onChange?: (g: string) => void }) {
+  if (!props.onChange) return null;
+  return (
+    <div className="granul granul--inline" role="tablist" aria-label="Corte temporal de la serie">
+      {([["day", "Día"], ["week", "Semana"], ["month", "Mes"]] as Array<[string, string]>).map(([g, l]) => (
+        <button key={g} role="tab" aria-selected={props.value === g}
+                className={props.value === g ? "on" : ""}
+                onClick={() => props.onChange!(g)}>{l}</button>
+      ))}
+    </div>
+  );
+}
+
 // Line race reutilizable: series mensuales por entidad con endLabel
 // perseguidor y anti-encimado (labelLayout hideOverlap + shiftY).
 function raceOpt(entities: Rec[], months: string[], nameKey: string): Record<string, unknown> {
@@ -3281,7 +3299,7 @@ function ProductosJerarquia(props: { data: Rec }) {
   );
 }
 
-function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) => void; onGran?: (g: string) => void }) {
   return (
     <SalesSub filters={props.filters}>{(k, d) => {
       const prods = arr(d.top_products);
@@ -3331,7 +3349,8 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
               <ProductosJerarquia data={d as Rec} />
             </Panel>
-            <Panel title="Carrera de venta por producto" hint="sigue al selector Día/Semana/Mes · top 6 del periodo" wide>
+            <Panel title="Carrera de venta por producto" hint="top 6 del periodo · el corte aplica a todas las series" wide>
+              <GranToggle value={props.filters.granularity ?? "month"} onChange={props.onGran} />
               <EChartBox height={340} deps={[d.product_monthly]} option={(() => {
                 const pm = (d.product_monthly ?? {}) as Rec;
                 return raceOpt(arr(pm.products), arr<string>(pm.months), "name");
@@ -3376,7 +3395,8 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
                 };
               })()} />
             </Panel>
-                        <Panel title="Río de categorías: composición de la venta en el tiempo" hint="áreas apiladas · grosor = venta mensual de la categoría" wide>
+                        <Panel title="Río de categorías: composición de la venta en el tiempo" hint="áreas apiladas · grosor = venta de la categoría por periodo" wide>
+              <GranToggle value={props.filters.granularity ?? "month"} onChange={props.onGran} />
               <EChartBox height={330} deps={[arr(d.categ_monthly)]} option={(() => {
                 const cmr = arr(d.categ_monthly);
                 if (!cmr.length) return { ...ecBase(), series: [] };
@@ -3506,7 +3526,7 @@ function VentasAuthView(props: { filters: Filters }) {
   );
 }
 
-function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => void; onGran?: (g: string) => void }) {
   return (
     <SalesSub filters={props.filters}>{(k, d) => {
       const sellers = arr(d.by_seller);
@@ -3582,7 +3602,8 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                 })()} />
               </Panel>
             )}
-            <Panel title="Carrera de venta por vendedor" hint="sigue al selector Día/Semana/Mes · con un solo periodo muestra el ranking" wide>
+            <Panel title="Carrera de venta por vendedor" hint="con un solo periodo muestra el ranking · el corte aplica a todas las series" wide>
+              <GranToggle value={props.filters.granularity ?? "month"} onChange={props.onGran} />
               <EChartBox height={360} deps={[d.seller_monthly]} option={(() => {
                 const sm = (d.seller_monthly ?? {}) as Rec;
                 return raceOpt(arr(sm.sellers), arr<string>(sm.months), "name");
@@ -3866,14 +3887,6 @@ function App() {
             <button key={k} role="tab" aria-selected={preset === k} className={preset === k ? "on" : ""} onClick={() => applyPreset(k)}>{l}</button>
           ))}
         </div>
-        <div className="granul" role="tablist" aria-label="Granularidad de las series">
-          {([["day", "Día"], ["week", "Semana"], ["month", "Mes"]] as Array<[string, string]>).map(([g, l]) => (
-            <button key={g} role="tab"
-                    aria-selected={(filters.granularity ?? "month") === g}
-                    className={(filters.granularity ?? "month") === g ? "on" : ""}
-                    onClick={() => setFilters((f2) => ({ ...f2, granularity: g }))}>{l}</button>
-          ))}
-        </div>
         <div className="dates" aria-label="Rango personalizado">
           <input type="date" value={filters.date_from ?? ""} max={filters.date_to} onChange={(e) => setDate("date_from", e.target.value)} aria-label="Desde" />
           <span>→</span>
@@ -3955,14 +3968,14 @@ function App() {
           {view === "inicio" && <CommandCenterView filters={filters} drill={drill} go={setView} />}
           {view === "ventas_conversion" && <VentasConversionView filters={filters} go={setView} />}
           {view === "ventas_clientes" && <VentasClientesView filters={filters} drill={drill} />}
-          {view === "ventas_productos" && <VentasProductosView filters={filters} drill={drill} />}
+          {view === "ventas_productos" && <VentasProductosView filters={filters} drill={drill} onGran={(g) => setFilters((f2) => ({ ...f2, granularity: g }))} />}
           {view === "ventas_precios" && <VentasPreciosView filters={filters} drill={drill} />}
           {view === "ventas_auth" && <VentasAuthView filters={filters} />}
-          {view === "ventas_equipo" && <VentasEquipoView filters={filters} drill={drill} />}
+          {view === "ventas_equipo" && <VentasEquipoView filters={filters} drill={drill} onGran={(g) => setFilters((f2) => ({ ...f2, granularity: g }))} />}
           {view === "ventas_canales" && <VentasCanalesView filters={filters} />}
           {view === "ventas_fx" && <VentasFxView filters={filters} />}
           {view === "resumen" && <ResumenView filters={filters} paused={drillStack.length > 0} />}
-          {view === "ventas" && <VentasView filters={filters} drill={drill} />}
+          {view === "ventas" && <VentasView filters={filters} drill={drill} onGran={(g) => setFilters((f2) => ({ ...f2, granularity: g }))} />}
           {view === "materiales" && <MaterialesView filters={filters} drill={drill} />}
           {view === "inventario" && <InventarioView filters={filters} drill={drill} />}
           {view === "compras" && <ComprasView filters={filters} />}
