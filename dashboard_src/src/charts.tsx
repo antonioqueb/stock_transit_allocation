@@ -81,10 +81,25 @@ function adapt(cfg: CjsConfig): Record<string, unknown> {
   const radius = (i: number): [number, number, number, number] =>
     horizontal ? [0, 6, 6, 0] : [6, 6, 0, 0];
 
+  const isScatter = cfg.type === "scatter";
   const series = ds.map((d, si) => {
     const kind = d.type ?? cfg.type;
     const name = up(d.label ?? `Serie ${si + 1}`);
     const yIdx = d.yAxisID === "y1" ? 1 : 0;
+
+    if (kind === "scatter") {
+      // Chart.js: puntos {x,y} por dataset → ECharts: pares [x,y]
+      const color = (Array.isArray(d.backgroundColor) ? d.backgroundColor[0] : d.backgroundColor)
+        ?? d.borderColor ?? EC_PALETTE[si % EC_PALETTE.length];
+      return {
+        name, type: "scatter",
+        data: (d.data as Array<{ x: number; y: number } | [number, number]>).map((pt) =>
+          Array.isArray(pt) ? pt : [Number(pt?.x ?? 0), Number(pt?.y ?? 0)]),
+        symbolSize: 13,
+        itemStyle: { color, opacity: 0.88, shadowBlur: 5, shadowColor: "rgba(15,23,42,.25)" },
+        emphasis: { scale: 1.4 },
+      };
+    }
 
     if (kind === "line") {
       const color = d.borderColor ?? EC_PALETTE[si % EC_PALETTE.length];
@@ -153,12 +168,19 @@ function adapt(cfg: CjsConfig): Record<string, unknown> {
     aria: { enabled: true },
     legend: legendShow ? { top: 0, textStyle: { color: ink.tick, fontSize: 11 } } : { show: false },
     tooltip: {
-      trigger: "axis",
+      trigger: isScatter ? "item" : "axis",
       backgroundColor: "rgba(10,16,30,.97)", borderWidth: 0,
       textStyle: { color: "#e2e8f0", fontFamily: FONT, fontSize: 12.5 },
       padding: [10, 14],
       formatter: (params: Array<{ marker: string; seriesName: string; seriesIndex: number; dataIndex: number; value: unknown; name: string; data: unknown }>) => {
         const list = Array.isArray(params) ? params : [params];
+        if (isScatter) {
+          return list.map((pp) => {
+            const pair = Array.isArray(pp.value) ? pp.value as [number, number] : [0, 0];
+            const fmt = moneyBySeries[pp.seriesIndex] !== false ? money : n1;
+            return `${pp.marker} <b>${pp.seriesName}</b><br/>${fmt(pair[0])} · ${fmt(pair[1])}`;
+          }).join("<br/>");
+        }
         const head = list[0]?.name ? `${list[0].name}<br/>` : "";
         const tipCb = ((((opts as Record<string, unknown>).plugins ?? {}) as Record<string, Record<string, unknown>>)
           .tooltip?.callbacks as Record<string, unknown> | undefined)?.label as
@@ -178,8 +200,8 @@ function adapt(cfg: CjsConfig): Record<string, unknown> {
       },
     },
     grid: { left: 8, right: hasY1 ? 40 : 16, top: legendShow ? 30 : 14, bottom: 8, containLabel: true },
-    xAxis: horizontal ? valAxis : catAxis,
-    yAxis: horizontal ? catAxis : (hasY1 ? [valAxis, y1Axis] : valAxis),
+    xAxis: isScatter ? { ...valAxis } : (horizontal ? valAxis : catAxis),
+    yAxis: isScatter ? { ...valAxis } : (horizontal ? catAxis : (hasY1 ? [valAxis, y1Axis] : valAxis)),
     series,
   };
 }
