@@ -530,6 +530,60 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
   return (
     <>
       {srcSwitch}
+      <InsightStrip insights={[
+        num(k.descuento_mxn) > 0 && num(k.venta_mxn) > 0 ? {
+          metric_id: "descuento_mxn", severity: num(k.descuento_mxn) / (num(k.venta_mxn) + num(k.descuento_mxn)) > 0.08 ? "warn" : "info",
+          text: `Se descontaron ${money(k.descuento_mxn)} (${pct((num(k.descuento_mxn) / (num(k.venta_mxn) + num(k.descuento_mxn))) * 100)} del precio de lista).`,
+        } as Insight : null as unknown as Insight,
+        customers.length > 0 && num(k.venta_mxn) > 0 && num(customers[0].venta) / num(k.venta_mxn) > 0.3 ? {
+          metric_id: "venta_mxn", severity: "warn",
+          text: `${String(customers[0].name)} concentra ${pct((num(customers[0].venta) / num(k.venta_mxn)) * 100)} de la venta del periodo.`,
+        } as Insight : null as unknown as Insight,
+        (d as Rec).perm_profit !== false && num(k.margen_pct) < 15 && num(k.venta_mxn) > 0 ? {
+          metric_id: "margen_pct", severity: num(k.margen_pct) < 0 ? "crit" : "warn",
+          text: `El margen all-in del periodo es ${pct(k.margen_pct)}.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="De lista a utilidad: dónde se queda el dinero" hint="waterfall · precio lista → descuento → venta → costo → utilidad" wide>
+          <EChartBox height={310} deps={[k.venta_mxn, k.descuento_mxn, k.utilidad_mxn]} option={(() => {
+            const venta = num(k.venta_mxn);
+            const desc = num(k.descuento_mxn);
+            const lista = venta + desc;
+            const canP = (d as Rec).perm_profit !== false;
+            const util = num(k.utilidad_mxn);
+            const costo = venta - util;
+            const steps = canP ? [
+              { label: "PRECIO LISTA", value: lista, base: 0, color: "blue" as const },
+              { label: "− DESCUENTO", value: desc, base: venta, color: "amber" as const },
+              { label: "VENTA", value: venta, base: 0, color: "blue" as const },
+              { label: "− COSTO ALL-IN", value: costo, base: util, color: "red" as const },
+              { label: "UTILIDAD", value: util, base: 0, color: "green" as const },
+            ] : [
+              { label: "PRECIO LISTA", value: lista, base: 0, color: "blue" as const },
+              { label: "− DESCUENTO", value: desc, base: venta, color: "amber" as const },
+              { label: "VENTA", value: venta, base: 0, color: "green" as const },
+            ];
+            return waterfallOpt(steps);
+          })()} />
+        </Panel>
+        <Panel title="Realización de precio" hint="qué tanto se respeta la lista — subir es mejor">
+          <EChartBox height={280} deps={[k.realizacion_pct]}
+            option={gaugeOpt(num(k.realizacion_pct), "REALIZACIÓN", 110, (v) => pct(v),
+              [[0.72, "#dc2626"], [0.86, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+        <Panel title={(d as Rec).perm_profit !== false ? "Margen all-in del periodo" : "Conversión cotización → orden"} hint="semáforo ejecutivo">
+          {(d as Rec).perm_profit !== false ? (
+            <EChartBox height={280} deps={[k.margen_pct]}
+              option={gaugeOpt(num(k.margen_pct), "MARGEN", 40, (v) => pct(v),
+                [[0.15, "#dc2626"], [0.375, "#d97706"], [1, "#059669"]])} />
+          ) : (
+            <EChartBox height={280} deps={[k.conversion_pct]}
+              option={gaugeOpt(num(k.conversion_pct), "CONVERSIÓN", 100, (v) => pct(v),
+                [[0.3, "#dc2626"], [0.6, "#d97706"], [1, "#059669"]])} />
+          )}
+        </Panel>
+      </div>
       <div className="stats">
         <Stat label="Venta" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes${source === "sps" ? " · LEGADO SPS" : ""}`} />
         <Stat label="Utilidad all-in" value={money(k.utilidad_mxn)} sub={`Margen ${pct(k.margen_pct)}`} tone={marginTone(num(k.margen_pct))} />
@@ -786,6 +840,45 @@ function InventarioView(props: { filters: Filters; drill: (n: DrillNode) => void
   const merma = arr(d.merma);
   return (
     <>
+      <InsightStrip insights={[
+        (() => { const old = aging.filter((b) => /180|365|\+/.test(String(b.bucket))).reduce((sm, b) => sm + num(b.m2), 0);
+                 const tot = aging.reduce((sm, b) => sm + num(b.m2), 0);
+                 return tot > 0 && old / tot > 0.35 ? {
+          metric_id: "inv_edad_dias", severity: "warn",
+          text: `${pct((old / tot) * 100)} del inventario (${n1(old)} m²) tiene más de 6 meses en patio.`,
+        } as Insight : null as unknown as Insight; })(),
+        num(k.hold_m2) > 0 && num(k.disponible_m2) > 0 ? {
+          metric_id: "holds_activos", severity: "info",
+          text: `${n1(k.hold_m2)} m² apartados (${n0(k.holds_activos)} holds) — apartado no es vendido.`,
+        } as Insight : null as unknown as Insight,
+        num(k.lotes_foto_pct) < 70 && num(k.lotes) > 0 ? {
+          metric_id: "inv_m2", severity: "warn",
+          text: `Solo ${pct(k.lotes_foto_pct)} de los lotes tiene fotografía: sin foto no se vende en catálogo.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Antigüedad del inventario" hint="semáforo — bajar es mejor">
+          <EChartBox height={280} deps={[k.edad_prom_dias]}
+            option={gaugeOpt(num(k.edad_prom_dias), "EDAD PROMEDIO", 540, (v) => `${n0(v)} d`,
+              [[0.33, "#059669"], [0.67, "#d97706"], [1, "#dc2626"]])} />
+        </Panel>
+        <Panel title="Capital por antigüedad" hint="rosa · valor MXN por bucket de edad">
+          <EChartBox height={280} deps={[aging]} option={{
+            ...ecBase(),
+            tooltip: { ...(ecBase().tooltip as object),
+              formatter: (pm: { name: string; value: number; percent: number }) =>
+                `${pm.name}<br/><b>${money(pm.value)}</b> · ${n1(pm.percent)}%` },
+            series: [{
+              type: "pie", roseType: "radius", radius: ["16%", "78%"], center: ["50%", "52%"],
+              itemStyle: { borderRadius: 6, borderColor: "rgba(255,255,255,.4)", borderWidth: 2 },
+              label: { fontSize: 10.5, fontWeight: 600 },
+              data: aging.map((b, i) => ({ name: String(b.bucket).toUpperCase(), value: Math.max(num(b.valor), 0),
+                itemStyle: { color: ["#059669", "#84cc16", "#d97706", "#f97316", "#dc2626"][i % 5] } })),
+            }],
+          }} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="Disponible" value={`${n1(k.disponible_m2)} m²`} sub={`${n0(k.lotes)} lotes`} />
         <Stat label="Antigüedad de inventario" value={`${n0(k.edad_prom_dias)} días`} sub="promedio desde creación del lote" tone={num(k.edad_prom_dias) > 365 ? "bad" : num(k.edad_prom_dias) > 180 ? "mid" : "good"} />
@@ -880,6 +973,46 @@ function ComprasView(props: { filters: Filters }) {
   const alloc = arr(d.allocations);
   return (
     <>
+      <InsightStrip insights={[
+        num(k.lead_time_dias) > 0 ? {
+          metric_id: "venta_mes", severity: num(k.lead_time_dias) > 150 ? "warn" : "info",
+          text: `Lead time medido de ${n1(k.lead_time_dias)} días (confirmar OC → recepción) sobre ${n0(k.lead_time_ocs)} órdenes.`,
+        } as Insight : null as unknown as Insight,
+        num(k.discrepancias) > 0 ? {
+          metric_id: "venta_mes", severity: "warn",
+          text: `${n0(k.discrepancias)} OC(s) con diferencias entre lo pedido y lo embarcado/recibido.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Lead time de abastecimiento" hint="OC confirmada → recepción validada — bajar es mejor">
+          <EChartBox height={280} deps={[k.lead_time_dias]}
+            option={gaugeOpt(num(k.lead_time_dias), "LEAD TIME", 240, (v) => `${n0(v)} d`,
+              [[0.42, "#059669"], [0.71, "#d97706"], [1, "#dc2626"]])} />
+        </Panel>
+        <Panel title="Pareto de proveedores" hint="compra del periodo + % acumulado">
+          <EChartBox height={280} deps={[suppliers]} option={(() => {
+            const rowsS = suppliers.slice(0, 10);
+            const total = rowsS.reduce((sm, r) => sm + num(r.mxn ?? r.monto ?? r.venta), 0);
+            let acc = 0;
+            const val = (r: Rec) => num(r.mxn ?? r.monto ?? r.venta);
+            const cum = rowsS.map((r) => { acc += val(r); return total ? Math.round((acc / total) * 1000) / 10 : 0; });
+            return {
+              ...ecBase(),
+              tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+              legend: { top: 0 },
+              xAxis: { ...ecAxis("cat", rowsS.map((r) => String(r.name).slice(0, 14).toUpperCase())), axisLabel: { rotate: 28, fontSize: 9.5, color: "#64748b" } },
+              yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false }, axisLabel: { formatter: "{value}%", fontSize: 10, color: "#64748b" } }],
+              series: [
+                { name: "Compra", type: "bar", barMaxWidth: 26, data: rowsS.map(val),
+                  itemStyle: { borderRadius: [6, 6, 0, 0], color: WF_GRADS.violet } },
+                { name: "% acumulado", type: "line", yAxisIndex: 1, smooth: true, symbolSize: 6, data: cum,
+                  lineStyle: { width: 3, color: "#d97706" }, itemStyle: { color: "#d97706" } },
+              ],
+            };
+          })()} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="Compras (MXN a TC actual)" value={money(k.compras_mxn)} sub={`TC usado ${n1(k.tc_usado)}`} />
         <Stat label="Proveedores activos" value={n0(k.proveedores)} />
@@ -1140,6 +1273,29 @@ function RecepcionesView(props: { filters: Filters }) {
   const weeks = arr(d.by_week);
   return (
     <>
+      <InsightStrip insights={[
+        num(k.lotes_sin_pedimento) > 0 ? {
+          metric_id: "inv_m2", severity: "crit",
+          text: `${n0(k.lotes_sin_pedimento)} lote(s) SIN pedimento — riesgo aduanal directo.`,
+        } as Insight : null as unknown as Insight,
+        num(k.faltantes_m2) > 0 || num(k.faltantes_piezas) > 0 ? {
+          metric_id: "inv_m2", severity: "warn",
+          text: `Faltantes del periodo: ${n1(k.faltantes_m2)} m² y ${n1(k.faltantes_piezas)} piezas detectados en worksheet.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Cobertura de pedimento" hint="obligación aduanal — subir es mejor">
+          <EChartBox height={270} deps={[k.pedimento_pct]}
+            option={gaugeOpt(num(k.pedimento_pct), "PEDIMENTO", 100, (v) => pct(v),
+              [[0.7, "#dc2626"], [0.92, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+        <Panel title="Exactitud de recepción" hint="entradas sin devolución posterior">
+          <EChartBox height={270} deps={[k.exactitud_pct]}
+            option={gaugeOpt(num(k.exactitud_pct), "EXACTITUD", 100, (v) => pct(v),
+              [[0.85, "#dc2626"], [0.95, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="m² recibidos" value={n1(k.m2_recibidos)} sub={`${n0(k.fisicas_periodo)} recepciones físicas`} />
         <Stat label="Entradas de compra validadas" value={n0(k.entradas_compra)} />
@@ -1217,6 +1373,44 @@ function TallerView(props: { filters: Filters }) {
   const pasadas = arr(d.pasadas);
   return (
     <>
+      <InsightStrip insights={[
+        num(k.merma_pct) > 0 ? {
+          metric_id: "m2_mes", severity: num(k.merma_pct) > 8 ? "crit" : num(k.merma_pct) > 4 ? "warn" : "info",
+          text: `Merma del periodo: ${pct(k.merma_pct)} (${n1(k.merma_m2)} m² perdidos de ${n1(k.area_in_m2)} m² procesados).`,
+        } as Insight : null as unknown as Insight,
+        num(k.backlog_dias) > 10 ? {
+          metric_id: "m2_mes", severity: "warn",
+          text: `Backlog promedio de ${n1(k.backlog_dias)} días en órdenes abiertas.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Merma del taller" hint="% del área procesada — bajar es mejor">
+          <EChartBox height={270} deps={[k.merma_pct]}
+            option={gaugeOpt(num(k.merma_pct), "MERMA", 15, (v) => pct(v),
+              [[0.27, "#059669"], [0.53, "#d97706"], [1, "#dc2626"]])} />
+        </Panel>
+        <Panel title="Del área que entra a la que sale" hint="waterfall · entrada → merma → salida útil">
+          <EChartBox height={270} deps={[k.area_in_m2, k.merma_m2, k.area_out_m2]} option={(() => {
+            const ain = num(k.area_in_m2);
+            const mer = num(k.merma_m2);
+            const aout = num(k.area_out_m2);
+            const opt = waterfallOpt([
+              { label: "ENTRA", value: ain, base: 0, color: "blue" },
+              { label: "− MERMA", value: mer, base: Math.max(ain - mer, 0), color: "red" },
+              { label: "SALE ÚTIL", value: aout, base: 0, color: "green" },
+            ]);
+            (opt.tooltip as Rec).formatter = (pm: { dataIndex: number }) => {
+              const labels = ["ENTRA", "− MERMA", "SALE ÚTIL"]; const vals = [ain, mer, aout];
+              return `${labels[pm.dataIndex]}<br/><b>${n1(vals[pm.dataIndex])} m²</b>`;
+            };
+            ((opt.series as Rec[])[1] as Rec).label = { show: true, position: "top", fontWeight: 800, fontSize: 11.5,
+              formatter: (pm: { dataIndex: number }) => `${n1([ain, mer, aout][pm.dataIndex])} m²` };
+            (opt.yAxis as Rec).axisLabel = { fontSize: 10, formatter: (v: number) => n0(v) };
+            return opt;
+          })()} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="OTs en taller" value={n0(k.en_taller)} sub={`${n1(k.backlog_dias)} días promedio en proceso`} tone={num(k.backlog_dias) > 14 ? "mid" : ""} />
         <Stat label="Terminadas en el periodo" value={n0(k.terminadas)} sub={`Lead time ${n1(k.lead_time_dias)} días`} />
@@ -1262,6 +1456,29 @@ function EntregasView(props: { filters: Filters }) {
   const auth = arr(d.auth_sin_pago);
   return (
     <>
+      <InsightStrip insights={[
+        num(k.credito_informal_mxn) > 0 ? {
+          metric_id: "por_cobrar", severity: "crit",
+          text: `${money(k.credito_informal_mxn)} de material entregado con autorización manual SIN pago completo (crédito informal).`,
+        } as Insight : null as unknown as Insight,
+        num(k.ocupacion_pct) > 0 && num(k.ocupacion_pct) < 60 ? {
+          metric_id: "m2_mes", severity: "warn",
+          text: `Ocupación vehicular promedio de ${pct(k.ocupacion_pct)}: hay viajes saliendo a media capacidad.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Ocupación vehicular" hint="m² cargados vs capacidad — subir es mejor">
+          <EChartBox height={270} deps={[k.ocupacion_pct]}
+            option={gaugeOpt(num(k.ocupacion_pct), "OCUPACIÓN", 100, (v) => pct(v),
+              [[0.5, "#dc2626"], [0.75, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+        <Panel title="Cobrado al entregar" hint="% del total pagado al firmar — subir es mejor">
+          <EChartBox height={270} deps={[k.cobrado_al_entregar_pct]}
+            option={gaugeOpt(num(k.cobrado_al_entregar_pct), "COBRADO AL FIRMAR", 100, (v) => pct(v),
+              [[0.6, "#dc2626"], [0.85, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="En ruta ahora" value={n0(k.en_ruta)} />
         <Stat label="Firmadas en app" value={n0(k.firmadas_app)} sub={`${n0(k.manuales)} marcadas manualmente`} />
@@ -1679,6 +1896,26 @@ function PronosticosView() {
   const nulls = (n: number) => Array.from({ length: n }, () => null);
   return (
     <>
+      <InsightStrip insights={[
+        num(k.flujo_90d) !== 0 ? {
+          metric_id: "bancos_mxn", severity: num(k.flujo_90d) < 0 ? "crit" : "info",
+          text: `Flujo proyectado a 90 días: ${money(k.flujo_90d)} (entra ${money(k.entra_90d)} · sale ${money(k.sale_90d)}).`,
+        } as Insight : null as unknown as Insight,
+        num(k.tendencia_pct) !== 0 ? {
+          metric_id: "venta_mes", severity: num(k.tendencia_pct) < 0 ? "warn" : "info",
+          text: `Tendencia de venta ${num(k.tendencia_pct) >= 0 ? "▲" : "▼"} ${pct(Math.abs(num(k.tendencia_pct)))} sobre ${n0(k.meses_historia)} meses de historia.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Caja proyectada a 90 días" hint="waterfall · entra → sale → flujo neto" wide>
+          <EChartBox height={280} deps={[k.entra_90d, k.sale_90d]} option={waterfallOpt([
+            { label: "ENTRA (COBROS)", value: num(k.entra_90d), base: 0, color: "green" },
+            { label: "− SALE (PAGOS)", value: num(k.sale_90d), base: Math.max(num(k.entra_90d) - num(k.sale_90d), 0), color: "red" },
+            { label: "FLUJO NETO", value: num(k.flujo_90d), base: 0, color: num(k.flujo_90d) >= 0 ? "blue" : "red" },
+          ])} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="Venta esperada próximo mes" value={money(k.venta_proximo_mes)} sub="tendencia lineal sobre 12 meses" />
         <Stat label="Venta esperada 3 meses" value={money(k.venta_3m)} />
@@ -1855,6 +2092,33 @@ function ControlView(props: { filters: Filters }) {
   const ficha = arr(d.ficha);
   return (
     <>
+      <InsightStrip insights={[
+        num(k.pendientes_total) > 0 ? {
+          metric_id: "auth_pendientes", severity: num(k.pendientes_total) > 20 ? "crit" : "warn",
+          text: `${n0(k.pendientes_total)} pendientes operativos activos en la bandeja de control.`,
+        } as Insight : null as unknown as Insight,
+        num(k.sin_proyecto_pct) > 20 ? {
+          metric_id: "inv_m2", severity: "warn",
+          text: `${pct(k.sin_proyecto_pct)} de los lotes en stock sin proyecto y ${pct(k.sin_referencia_pct)} sin referencia: deuda de datos.`,
+        } as Insight : null as unknown as Insight,
+        num(k.productos_ajuste_precio) > 0 ? {
+          metric_id: "realizacion_pct", severity: "warn",
+          text: `${n0(k.productos_ajuste_precio)} producto(s) vendidos fuera de la escalera de precios vigente.`,
+        } as Insight : null as unknown as Insight,
+      ].filter(Boolean) as Insight[]} />
+      <div className="grid" style={{ marginBottom: 12 }}>
+        <Panel title="Cobertura fotográfica de lotes" hint="sin foto no se vende — subir es mejor">
+          <EChartBox height={260} deps={[k.lotes_foto_pct]}
+            option={gaugeOpt(num(k.lotes_foto_pct), "LOTES CON FOTO", 100, (v) => pct(v),
+              [[0.5, "#dc2626"], [0.8, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+        <Panel title="Cobertura fotográfica de placas" hint="catálogo completo — subir es mejor">
+          <EChartBox height={260} deps={[k.placas_foto_pct]}
+            option={gaugeOpt(num(k.placas_foto_pct), "PLACAS CON FOTO", 100, (v) => pct(v),
+              [[0.5, "#dc2626"], [0.8, "#d97706"], [1, "#059669"]])} />
+        </Panel>
+      </div>
+
       <div className="stats">
         <Stat label="Pendientes totales" value={n0(k.pendientes_total)} sub="meta: bandeja en cero" tone={num(k.pendientes_total) > 0 ? "mid" : "good"} />
         <Stat label="Productos con ajuste de precio" value={n0(k.productos_ajuste_precio)} sub="vendidos fuera de N1/N2" tone={num(k.productos_ajuste_precio) > 0 ? "mid" : "good"} />
@@ -2314,6 +2578,56 @@ function VitalBar(props: { domainId: string; goHome: () => void }) {
       <button className="vital-more" onClick={props.goHome}>Ver resumen →</button>
     </div>
   );
+}
+
+// Fábricas de visuales ejecutivos reutilizables (patrón Finanzas).
+function gaugeOpt(value: number, name: string, max: number,
+                  fmt: (v: number) => string,
+                  bands: Array<[number, string]>): Record<string, unknown> {
+  return {
+    ...ecBase(),
+    series: [{
+      type: "gauge", startAngle: 210, endAngle: -30, min: 0, max,
+      radius: "92%", center: ["50%", "58%"],
+      axisLine: { lineStyle: { width: 14, color: bands } },
+      pointer: { itemStyle: { color: "auto" }, width: 4 },
+      axisTick: { show: false }, splitLine: { show: false },
+      axisLabel: { fontSize: 9, distance: 16 },
+      title: { offsetCenter: [0, "70%"], fontSize: 11, fontWeight: 700 },
+      detail: { fontSize: 24, fontWeight: 800, offsetCenter: [0, "36%"],
+                color: "auto", formatter: (v: number) => fmt(v) },
+      data: [{ value, name }],
+    }],
+  };
+}
+
+const WF_GRADS = {
+  blue: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#60a5fa" }, { offset: 1, color: "#0b57d0" }] },
+  green: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#34d399" }, { offset: 1, color: "#059669" }] },
+  red: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] },
+  violet: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#a78bfa" }, { offset: 1, color: "#6d28d9" }] },
+  amber: { type: "linear", x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: "#fbbf24" }, { offset: 1, color: "#d97706" }] },
+};
+
+function waterfallOpt(steps: Array<{ label: string; value: number; base: number; color: keyof typeof WF_GRADS }>): Record<string, unknown> {
+  return {
+    ...ecBase(),
+    tooltip: { ...(ecBase().tooltip as object),
+      formatter: (pm: { dataIndex: number }) => {
+        const st = steps[pm.dataIndex];
+        return st ? `${st.label}<br/><b>${money(st.value)}</b>` : "";
+      } },
+    xAxis: ecAxis("cat", steps.map((st) => st.label)),
+    yAxis: ecAxis("money"),
+    series: [
+      { type: "bar", stack: "w", barMaxWidth: 68, silent: true,
+        itemStyle: { color: "transparent" }, data: steps.map((st) => st.base), tooltip: { show: false } },
+      { type: "bar", stack: "w", barMaxWidth: 68,
+        label: { show: true, position: "top", fontWeight: 800, fontSize: 11.5,
+                 formatter: (pm: { dataIndex: number }) => money(steps[pm.dataIndex]?.value) },
+        data: steps.map((st) => ({ value: st.value, itemStyle: { color: WF_GRADS[st.color], borderRadius: [7, 7, 0, 0] } })) },
+    ],
+  };
 }
 
 // ═════════ COMMAND CENTER (portada universal, responsivo) ═════════

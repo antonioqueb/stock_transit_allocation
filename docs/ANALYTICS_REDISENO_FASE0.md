@@ -179,3 +179,12 @@ instrucción previa del negocio.
   series mensuales por entidad), jitter nativo de eje (beeswarm manual
   determinístico en su lugar), fisheye y axis-breaks (se adoptarán donde
   la serie lo amerite en F3).
+- **F2.4 — completada** (v19.0.55.0.0): patrón Finanzas replicado a TODAS
+  las visiones restantes con fábricas reutilizables (gaugeOpt semafórico +
+  waterfallOpt con gradientes): Ventas (waterfall lista→descuento→venta→
+  costo→utilidad + gauges realización/margen), Inventario (gauge edad +
+  rosa de capital por antigüedad), Compras (gauge lead time + pareto de
+  proveedores), Recepciones (gauges pedimento/exactitud), Taller (gauge
+  merma + waterfall entra→merma→sale), Entregas (gauges ocupación/cobrado
+  al firmar), Pronósticos (waterfall caja 90d), Control (gauges de
+  cobertura fotográfica). Todas con InsightStrip determinístico propio.
