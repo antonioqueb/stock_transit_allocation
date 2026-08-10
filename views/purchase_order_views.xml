@@ -23,9 +23,38 @@
         <field name="model">purchase.order</field>
         <field name="inherit_id" ref="purchase.purchase_order_form"/>
         <field name="arch" type="xml">
+            <!-- La lista principal de líneas se libera: Clientes, Recibido,
+                 Solicitado Original y Embarcado viven en la pestaña
+                 Logística (abajo). Total Asignado sigue opcional-oculto. -->
             <xpath expr="//field[@name='order_line']/list/field[@name='name']" position="after">
-                <field name="allocation_summary" string="Clientes" readonly="1" optional="show"/>
                 <field name="total_allocated" string="Total Asignado" readonly="1" optional="hide"/>
+            </xpath>
+
+            <xpath expr="//field[@name='order_line']/list/field[@name='qty_received']" position="attributes">
+                <attribute name="column_invisible">1</attribute>
+                <attribute name="optional"></attribute>
+            </xpath>
+
+            <!-- Pestaña LOGÍSTICA: misma lista de líneas, solo lectura, con
+                 el seguimiento logístico por línea (patrón de la pestaña
+                 Logística de la orden de venta). -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Logística" name="som_po_logistics">
+                    <field name="order_line" nolabel="1" readonly="1">
+                        <list create="0" delete="0">
+                            <field name="display_type" column_invisible="1"/>
+                            <field name="product_id" string="Producto SOM"/>
+                            <field name="product_qty" string="Cantidad"/>
+                            <field name="x_qty_solicitada_original"
+                                   string="Solicitado Original"
+                                   decoration-warning="x_qty_solicitada_original and x_qty_solicitada_original != product_qty"
+                                   decoration-bf="x_qty_solicitada_original and x_qty_solicitada_original != product_qty"/>
+                            <field name="x_qty_embarcada" string="Embarcado (PL)"/>
+                            <field name="qty_received" string="Recibido"/>
+                            <field name="allocation_summary" string="Clientes"/>
+                        </list>
+                    </field>
+                </page>
             </xpath>
         </field>
     </record>
