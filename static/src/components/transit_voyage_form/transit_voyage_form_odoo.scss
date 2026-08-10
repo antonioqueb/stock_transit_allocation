@@ -148,13 +148,15 @@ $vf-radius-xl:     24px;
     display: flex !important;
     align-items: center !important;
     justify-content: space-between !important;
-    flex-wrap: nowrap !important;
+    // Si botones + estatus no caben en una fila, el statusbar baja a su
+    // propia fila (alineado a la derecha) en lugar de recortar botones a
+    // la izquierda y encimar los estatus a la derecha.
+    flex-wrap: wrap !important;
 
-    gap: 18px !important;
+    gap: 6px 18px !important;
     padding: 8px 12px !important;
 
-    overflow-x: hidden !important;
-    overflow-y: visible !important;
+    overflow: visible !important;
 
     background: rgba(255, 255, 255, .98) !important;
     border-bottom: 1px solid $vf-border !important;
@@ -176,7 +178,7 @@ $vf-radius-xl:     24px;
     min-width: 0 !important;
     max-width: none !important;
 
-    flex: 0 1 auto !important;
+    flex: 1 1 auto !important;
     margin: 0 !important;
     padding: 0 !important;
 
@@ -194,20 +196,22 @@ $vf-radius-xl:     24px;
     display: flex !important;
     align-items: center !important;
     justify-content: flex-end !important;
+    column-gap: 6px !important;
 
     width: auto !important;
-    min-width: 0 !important;
-    max-width: 520px !important;
+    // El statusbar NUNCA se comprime: reserva su ancho natural y, si no
+    // cabe junto a los botones, envuelve a su propia fila (wrap del header).
+    min-width: max-content !important;
+    max-width: none !important;
 
-    flex: 0 1 auto !important;
+    flex: 0 0 auto !important;
     margin-left: auto !important;
     padding: 0 !important;
 
     border: 0 !important;
     background: transparent !important;
 
-    overflow-x: hidden !important;
-    overflow-y: visible !important;
+    overflow: visible !important;
     white-space: nowrap !important;
     box-sizing: border-box !important;
 }
@@ -255,6 +259,9 @@ $vf-radius-xl:     24px;
 
     font-size: 11px !important;
     font-weight: 800 !important;
+
+    // Cada estatus conserva su ancho: sin encogerse ni encimarse.
+    flex: 0 0 auto !important;
 
     white-space: nowrap !important;
     overflow: hidden !important;
