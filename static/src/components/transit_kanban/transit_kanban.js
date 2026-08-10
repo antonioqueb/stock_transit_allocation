@@ -316,7 +316,8 @@ export class TransitKanbanView extends Component {
     onColumnDragEnter(stageKey, ev) {
         // preventDefault siempre (ver onColumnDragOver).
         ev.preventDefault();
-        if (this.state.draggingId) {
+        // 'Entrega en Sitio' no es destino manual: sin resaltado de drop.
+        if (this.state.draggingId && stageKey !== "delivered") {
             this.state.dragOverStage = stageKey;
         }
     }
@@ -328,9 +329,9 @@ export class TransitKanbanView extends Component {
         // destino inválido y el drop jamás dispara.
         ev.preventDefault();
         if (ev.dataTransfer) {
-            ev.dataTransfer.dropEffect = "move";
+            ev.dataTransfer.dropEffect = stageKey === "delivered" ? "none" : "move";
         }
-        if (this.state.draggingId && this.state.dragOverStage !== stageKey) {
+        if (this.state.draggingId && this.state.dragOverStage !== stageKey && stageKey !== "delivered") {
             this.state.dragOverStage = stageKey;
         }
     }
@@ -371,6 +372,20 @@ export class TransitKanbanView extends Component {
         const currentStage = STAGE_MAP[record.custom_status];
         if (record.custom_status === stageKey || (currentStage && currentStage.key === stageKey)) {
             this.state.draggingId = false;
+            return;
+        }
+
+        // 'Entrega en Sitio' NO se mueve a mano: el viaje llega ahí solo
+        // cuando el almacén VALIDA la recepción física (el servidor además
+        // re-enruta cualquier write manual a 'delivered'). Se bloquea el
+        // drop y se explica el porqué.
+        if (stageKey === "delivered") {
+            this.state.draggingId = false;
+            this.notification.add(
+                "Entrega en Sitio no se asigna manualmente: el viaje se moverá " +
+                "solo al VALIDAR la recepción física en el tablero de Recepciones.",
+                { type: "warning", sticky: false }
+            );
             return;
         }
 

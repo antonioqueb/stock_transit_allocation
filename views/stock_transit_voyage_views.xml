@@ -40,17 +40,54 @@
         <field name="arch" type="xml">
             <form string="Gestión de Tránsito" class="o_voyage_form">
                 <header>
-                    <button name="action_advance_status"
-                            type="object"
-                            class="btn-primary"
-                            invisible="custom_status in ['delivered', 'cancel']"
-                            title="Avanzar" icon="fa-forward"/>
+                    <!-- AVANZAR: una variante por estatus para que el botón
+                         diga a DÓNDE avanza. Desde 'reception_pending' no hay
+                         botón: 'Entregado' lo pone SOLO la validación de la
+                         recepción física (_auto_finalize_after_reception). -->
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Producción" title="Avanzar a Producción"
+                            invisible="custom_status != 'solicitud'"/>
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Booking" title="Avanzar a Booking"
+                            invisible="custom_status != 'production'"/>
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Puerto Origen" title="Avanzar a Puerto Origen"
+                            invisible="custom_status != 'booking'"/>
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Altamar" title="Avanzar a En Altamar"
+                            invisible="custom_status != 'puerto_origen'"/>
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Puerto Destino" title="Avanzar a Puerto Destino"
+                            invisible="custom_status != 'on_sea'"/>
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Arribo" title="Avanzar a Arribo a Puerto"
+                            invisible="custom_status != 'puerto_destino'"/>
+                    <button name="action_advance_status" type="object" class="btn-primary"
+                            icon="fa-forward" string="Recepción" title="Avanzar a En Recepción"
+                            invisible="custom_status != 'arrived_port'"/>
 
-                    <button name="action_retreat_status"
-                            type="object"
-                            class="btn-secondary"
-                            invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
-                            title="Retroceder" icon="fa-backward"/>
+                    <!-- RETROCEDER: igual, indicando el estatus al que regresa. -->
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Solicitud" title="Retroceder a Solicitud"
+                            invisible="custom_status != 'production'"/>
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Producción" title="Retroceder a Producción"
+                            invisible="custom_status != 'booking'"/>
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Booking" title="Retroceder a Booking"
+                            invisible="custom_status != 'puerto_origen'"/>
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Puerto Origen" title="Retroceder a Puerto Origen"
+                            invisible="custom_status != 'on_sea'"/>
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Altamar" title="Retroceder a En Altamar"
+                            invisible="custom_status != 'puerto_destino'"/>
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Puerto Destino" title="Retroceder a Puerto Destino"
+                            invisible="custom_status != 'arrived_port'"/>
+                    <button name="action_retreat_status" type="object" class="btn-secondary"
+                            icon="fa-backward" string="Arribo" title="Retroceder a Arribo a Puerto"
+                            invisible="custom_status != 'reception_pending'"/>
 
                     <separator/>
 
@@ -137,9 +174,16 @@
                     <field name="custom_status" widget="statusbar" options="{'clickable': True}"
                            statusbar_visible="puerto_destino,arrived_port,reception_pending"
                            invisible="custom_status != 'arrived_port'"/>
+                    <!-- 'Entregado' NUNCA se activa a mano: lo pone la validación
+                         de la recepción física. En Recepción el botón Entregado
+                         se bloquea por CSS (data-value) y ya Entregado la barra
+                         completa deja de ser clickeable. -->
                     <field name="custom_status" widget="statusbar" options="{'clickable': True}"
                            statusbar_visible="arrived_port,reception_pending,delivered"
-                           invisible="custom_status not in ['reception_pending', 'delivered']"/>
+                           invisible="custom_status != 'reception_pending'"/>
+                    <field name="custom_status" widget="statusbar"
+                           statusbar_visible="arrived_port,reception_pending,delivered"
+                           invisible="custom_status != 'delivered'"/>
                     <field name="custom_status" widget="statusbar"
                            statusbar_visible="cancel"
                            invisible="custom_status != 'cancel'"/>

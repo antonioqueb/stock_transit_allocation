@@ -260,18 +260,28 @@ $vf-page-inset:    16px;
     box-shadow: none !important;
 }
 
+// ── Estatus: diseño sobrio tipo pastilla, al nivel de los botones ──
+// Píldoras blancas con borde discreto, bien separadas entre sí; el
+// estatus ACTUAL se marca con relleno oscuro (mismo negro del hero).
 .o_voyage_form header .o_arrow_button,
 .o_voyage_form .o_form_statusbar .o_arrow_button,
 .o_voyage_form header .o_statusbar_status button,
 .o_voyage_form .o_form_statusbar .o_statusbar_status button {
-    max-width: 148px !important;
+    max-width: 168px !important;
     min-width: 0 !important;
-    min-height: 28px !important;
-    padding-left: 10px !important;
-    padding-right: 10px !important;
+    min-height: 30px !important;
+    padding: 5px 14px !important;
+    margin: 0 !important;
 
     font-size: 11px !important;
-    font-weight: 800 !important;
+    font-weight: 700 !important;
+    letter-spacing: 0 !important;
+
+    border: 1px solid $vf-border-strong !important;
+    border-radius: 999px !important;
+    background: #fff !important;
+    color: $vf-text-sub !important;
+    box-shadow: none !important;
 
     // Cada estatus conserva su ancho: sin encogerse ni encimarse.
     flex: 0 0 auto !important;
@@ -279,11 +289,31 @@ $vf-page-inset:    16px;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
+
+    &::before,
+    &::after {
+        display: none !important;
+    }
+}
+
+.o_voyage_form header .o_statusbar_status,
+.o_voyage_form .o_form_statusbar .o_statusbar_status {
+    column-gap: 10px !important;
 }
 
 .o_voyage_form header .o_statusbar_status .o_arrow_button_current,
 .o_voyage_form .o_form_statusbar .o_statusbar_status .o_arrow_button_current {
-    font-weight: 950 !important;
+    font-weight: 850 !important;
+    background: #17191C !important;
+    border-color: #17191C !important;
+    color: #fff !important;
+}
+
+// 'Entregado' jamás se activa con clic: lo pone la validación de la
+// recepción física. Se anula el clic y se atenúa cuando NO es el actual.
+.o_voyage_form .o_statusbar_status button[data-value="delivered"]:not(.o_arrow_button_current) {
+    pointer-events: none !important;
+    opacity: .55 !important;
 }
 
 .o_voyage_form header .o_statusbar_buttons .o_separator,
