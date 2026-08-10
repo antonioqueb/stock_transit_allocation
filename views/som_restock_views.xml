@@ -7,10 +7,12 @@
         <field name="tag">stock_transit_allocation.som_restock</field>
     </record>
 
+    <!-- Solo ADMINISTRADORES de Compras: el radar expone consumos,
+         coberturas y sugerencias de compra de toda la empresa. -->
     <menuitem id="menu_som_restock_root" name="Restock"
               web_icon="stock_transit_allocation,static/description/restock_icon.svg"
               sequence="33"
-              groups="purchase.group_purchase_user,inventory_shopping_cart.group_dashboard_viewer,inventory_shopping_cart.group_price_authorizer"/>
+              groups="purchase.group_purchase_manager"/>
     <menuitem id="menu_som_restock_dashboard" name="Radar de Restock"
               parent="menu_som_restock_root"
               action="action_som_restock" sequence="1"/>
