@@ -5,7 +5,7 @@ import { StrictMode, useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import {
-  arr, num, money, n0, n1, pct, monthLabel, marginTone, Rec, rpc,
+  arr, num, money, n0, n1, pct, monthLabel, marginTone, Rec, rpc, MONTHS_ES,
   fetchExec, fetchBanks, fetchOrderLines, fetchTimeToSell,
   fetchDashboard, fetchDrill,
 } from "./api";
@@ -1011,6 +1011,61 @@ function TransitoView() {
             data: { labels: arr(d.arrived_monthly).map((r) => monthLabel(r.key)), datasets: [{ label: "m²", data: arr(d.arrived_monthly).map((r) => num(r.m2)), backgroundColor: "rgba(5,150,105,.75)", borderRadius: 6, maxBarThickness: 36 }] },
             options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
           }} />
+        </Panel>
+        <Panel title="Línea de tiempo de embarques (ETD → ETA)" hint="gantt · barra = viaje en el agua · rojo = ETA vencida" wide>
+          {(() => {
+            const gv = voyages.filter((v) => String(v.etd) && String(v.eta)).slice(0, 18);
+            if (!gv.length) return <Empty msg="Sin embarques con ETD y ETA capturados." />;
+            const today = Date.now();
+            return (
+              <EChartBox height={Math.max(220, gv.length * 34 + 60)} deps={[gv]} option={(() => {
+                const names = gv.map((v) => `${String(v.name)} · ${String(v.supplier).slice(0, 16)}`.toUpperCase());
+                return {
+                  ...ecBase(),
+                  grid: { left: 8, right: 30, top: 10, bottom: 26, containLabel: true },
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { dataIndex: number }) => {
+                      const v = gv[pm.dataIndex];
+                      return `${String(v.name)} · ${String(v.supplier)}<br/>${String(v.etd)} → ${String(v.eta)}<br/><b>${n1(v.m2)} m²</b> · ${String(v.status)}`;
+                    } },
+                  xAxis: { type: "time",
+                    axisLabel: { fontSize: 10, fontFamily: "Inter", formatter: (val: number) => {
+                      const dd = new Date(val); return `${dd.getDate()}/${MONTHS_ES[dd.getMonth()]}`;
+                    } },
+                    splitLine: { lineStyle: { color: "rgba(100,116,139,.12)" } } },
+                  yAxis: { type: "category", data: names, inverse: true,
+                    axisLine: { show: false }, axisTick: { show: false },
+                    axisLabel: { fontSize: 10, fontFamily: "Inter" } },
+                  series: [{
+                    type: "custom",
+                    renderItem: (params: { dataIndex: number }, api: { coord: (v: [number | string, number]) => [number, number]; size: (v: [number, number]) => [number, number] }) => {
+                      const i = params.dataIndex;
+                      const v = gv[i];
+                      const start = api.coord([String(v.etd), i]);
+                      const end = api.coord([String(v.eta), i]);
+                      const h = 14;
+                      const overdue = new Date(String(v.eta)).getTime() < today && !String(v.status).toLowerCase().includes("recep");
+                      const fill = overdue
+                        ? { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: "#f87171" }, { offset: 1, color: "#dc2626" }] }
+                        : { type: "linear", x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: "#38bdf8" }, { offset: 1, color: "#0b57d0" }] };
+                      return {
+                        type: "group",
+                        children: [
+                          { type: "rect",
+                            shape: { x: start[0], y: start[1] - h / 2, width: Math.max(end[0] - start[0], 3), height: h, r: 7 },
+                            style: { fill, shadowBlur: 5, shadowColor: "rgba(15,23,42,.2)", shadowOffsetY: 2 } },
+                          { type: "circle",
+                            shape: { cx: end[0], cy: start[1], r: 4.5 },
+                            style: { fill: overdue ? "#dc2626" : "#0b57d0", stroke: "#fff", lineWidth: 1.5 } },
+                        ],
+                      };
+                    },
+                    data: gv.map((_v, i) => i),
+                  }],
+                };
+              })()} />
+            );
+          })()}
         </Panel>
         <Panel title="Embarques activos — proveedor, contenedor, ETA y avance de venta" wide>
           {!voyages.length ? <Empty msg="Sin embarques activos" /> : (
@@ -2084,6 +2139,7 @@ function VitalBar(props: { domainId: string; goHome: () => void }) {
 function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => void; go: (v: ViewKey) => void }) {
   const ex = useData(["exec"], fetchExec, { refetchInterval: 60_000 });
   const rz = useData(["dashboard", "resumen", props.filters], () => fetchDashboard("resumen", props.filters as Rec), { refetchInterval: TV_REFRESH_MS });
+  const cm = useData(["dashboard", "comercial", { ...props.filters, source: "odoo" }], () => fetchDashboard("comercial", { ...props.filters, source: "odoo" } as Rec), { refetchInterval: TV_REFRESH_MS });
   const ct = useData(["dashboard", "control", props.filters], () => fetchDashboard("control", props.filters as Rec), { refetchInterval: TV_REFRESH_MS });
 
   if (ex.loading) return <div className="grid"><Skeleton h={140} /><Skeleton h={280} /></div>;
@@ -2182,6 +2238,40 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
           ]} />
         </Panel>
 
+        {cm.data && arr(cm.data.daily_sales).length > 0 && (
+          <Panel title="Actividad diaria de pedidos" hint="calendario del periodo filtrado · intensidad = venta del día" wide>
+            <EChartBox height={210} deps={[arr(cm.data.daily_sales)]} option={(() => {
+              const daily = arr(cm.data!.daily_sales);
+              const values = daily.map((dd) => [String(dd.date), num(dd.amount)]);
+              const dates = daily.map((dd) => String(dd.date)).sort();
+              const maxV = Math.max(...daily.map((dd) => num(dd.amount)), 1);
+              return {
+                ...ecBase(),
+                tooltip: { ...(ecBase().tooltip as object),
+                  formatter: (pm: { value: [string, number] }) => {
+                    const dd = daily.find((x) => String(x.date) === pm.value[0]);
+                    return `${pm.value[0]}<br/><b>${money(pm.value[1])}</b> · ${n0(dd?.orders)} pedidos`;
+                  } },
+                visualMap: {
+                  min: 0, max: maxV, orient: "horizontal", left: "center", bottom: 0,
+                  itemWidth: 10, itemHeight: 90, calculable: false,
+                  inRange: { color: ["#e0edf9", "#93c5fd", "#3b82f6", "#0b57d0", "#062e6f"] },
+                  textStyle: { fontSize: 10 },
+                },
+                calendar: {
+                  range: [dates[0], dates[dates.length - 1]],
+                  top: 24, left: 40, right: 10, cellSize: ["auto", 15],
+                  dayLabel: { nameMap: ["D", "L", "M", "M", "J", "V", "S"], fontSize: 10 },
+                  monthLabel: { nameMap: MONTHS_ES, fontSize: 10.5 },
+                  yearLabel: { show: false },
+                  itemStyle: { borderWidth: 2.5, borderColor: "rgba(255,255,255,.9)", borderRadius: 4 },
+                  splitLine: { show: false },
+                },
+                series: [{ type: "heatmap", coordinateSystem: "calendar", data: values }],
+              };
+            })()} />
+          </Panel>
+        )}
         <Panel title="Atención hoy" hint="bandeja de control · click = ir" wide>
           {pendientes.length === 0 && <Empty msg="Sin pendientes accionables en la bandeja de control." />}
           {pendientes.length > 0 && (
@@ -2259,45 +2349,78 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
               }} />
             </Panel>
             <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"} wide>
-              <EChartBox height={380} deps={[funnel]} option={{
-                ...ecBase(),
-                tooltip: { ...(ecBase().tooltip as object),
-                  formatter: (pm: { data: Rec }) => {
-                    const it = (pm.data ?? {}) as Rec;
-                    return `${String(it.stage)}<br/><b>${n0(it.count)}</b> cotizaciones · <b>${money(it.amount)}</b>`;
-                  } },
-                series: [{
-                  type: "funnel", sort: "none", gap: 6,
-                  top: 12, bottom: 12, left: "4%", width: "92%",
-                  minSize: "22%", maxSize: "100%",
-                  label: { show: true, position: "inside", fontWeight: 700, fontSize: 13.5,
-                           formatter: (pm: { data: Rec }) => {
-                             const it = (pm.data ?? {}) as Rec;
-                             return `${String(it.stage)}\n${n0(it.count)} · ${money(it.amount)}`;
-                           } },
-                  itemStyle: { borderWidth: 0, shadowBlur: 8, shadowColor: "rgba(15,23,42,.18)", shadowOffsetY: 3 },
-                  // Silueta SIEMPRE de embudo: el ancho lo da la posición de
-                  // la etapa, no el monto — el monto va en el texto. Colores
-                  // vivos con degradado propio por etapa.
-                  data: funnel.map((st, i) => {
-                    const grad = (a: string, b: string) => ({
-                      type: "linear", x: 0, y: 0, x2: 1, y2: 0,
-                      colorStops: [{ offset: 0, color: a }, { offset: 1, color: b }],
-                    });
-                    const stageColors = [
-                      grad("#a78bfa", "#7c3aed"),  // Borrador — violeta
-                      grad("#38bdf8", "#0284c7"),  // Enviada — cielo
-                      grad("#60a5fa", "#0b57d0"),  // Confirmada — azul marca
-                      grad("#34d399", "#059669"),  // Cobrado — verde dinero
-                    ];
-                    return {
-                      stage: String(st.stage), count: num(st.count), amount: num(st.amount),
-                      value: funnel.length - i,
-                      itemStyle: { color: stageColors[i] ?? stageColors[stageColors.length - 1] },
-                    };
-                  }),
-                }],
-              }} />
+              <EChartBox height={420} deps={[funnel]} option={(() => {
+                const stages = funnel;
+                const n = stages.length || 1;
+                const widths = stages.map((_s2, i) => 1 - i * (0.62 / n));
+                const colors = [
+                  ["#a78bfa", "#7c3aed"], ["#38bdf8", "#0284c7"],
+                  ["#60a5fa", "#0b57d0"], ["#34d399", "#059669"],
+                ];
+                const totalCount = num(stages[0]?.count) + num(stages[1]?.count) + num(stages[2]?.count);
+                return {
+                  ...ecBase(),
+                  xAxis: { show: false, min: 0, max: 1, type: "value" },
+                  yAxis: { show: false, min: 0, max: 1, type: "value", inverse: true },
+                  grid: { left: 6, right: 92, top: 8, bottom: 8 },
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { dataIndex: number }) => {
+                      const st = stages[pm.dataIndex];
+                      return st ? `${String(st.stage)}<br/><b>${n0(st.count)}</b> · <b>${money(st.amount)}</b>` : "";
+                    } },
+                  series: [{
+                    type: "custom",
+                    renderItem: (params: { dataIndex: number }, api: { coord: (v: [number, number]) => [number, number] }) => {
+                      const i = params.dataIndex;
+                      const st = stages[i];
+                      const gap = 0.012;
+                      const yT = i / n + gap, yB = (i + 1) / n - gap;
+                      const hw = (w: number) => w * 0.5 * 0.96;
+                      const wT = widths[i];
+                      const wB = widths[i + 1] ?? widths[i] * 0.66;
+                      const pTL = api.coord([0.5 - hw(wT), yT]);
+                      const pTR = api.coord([0.5 + hw(wT), yT]);
+                      const pBR = api.coord([0.5 + hw(wB), yB]);
+                      const pBL = api.coord([0.5 - hw(wB), yB]);
+                      const cx = (pTL[0] + pTR[0]) / 2;
+                      const cy = (pTL[1] + pBL[1]) / 2;
+                      const [c1, c2] = colors[i] ?? colors[colors.length - 1];
+                      // % honesto: participación del total creado; entre
+                      // Confirmada→Cobrado sí es tasa real (subconjunto).
+                      const isCobro = String(st.stage) === "Cobrado";
+                      const conf = stages.find((x) => String(x.stage) === "Confirmada");
+                      const sidePct = isCobro && conf && num(conf.amount) > 0
+                        ? `cobro ${pct((num(st.amount) / num(conf.amount)) * 100)}`
+                        : totalCount > 0 ? `${pct((num(st.count) / totalCount) * 100)} del total` : "";
+                      return {
+                        type: "group",
+                        children: [
+                          { type: "polygon",
+                            shape: { points: [pTL, pTR, pBR, pBL] },
+                            style: {
+                              fill: { type: "linear", x: 0, y: 0, x2: 1, y2: 0,
+                                colorStops: [{ offset: 0, color: c1 }, { offset: 1, color: c2 }] },
+                              shadowBlur: 10, shadowColor: "rgba(15,23,42,.22)", shadowOffsetY: 4,
+                            } },
+                          { type: "text",
+                            style: { x: cx, y: cy - 9, text: String(st.stage).toUpperCase(),
+                              textAlign: "center", fill: "#fff", fontSize: 13, fontWeight: 800,
+                              fontFamily: "Inter" } },
+                          { type: "text",
+                            style: { x: cx, y: cy + 9, text: `${n0(st.count)} · ${money(st.amount)}`,
+                              textAlign: "center", fill: "rgba(255,255,255,.92)", fontSize: 11.5,
+                              fontFamily: "Inter" } },
+                          { type: "text",
+                            style: { x: pTR[0] + 10, y: cy, text: sidePct,
+                              textAlign: "left", fill: c2, fontSize: 10.5, fontWeight: 700,
+                              fontFamily: "Inter" } },
+                        ],
+                      };
+                    },
+                    data: stages.map((_s2, i) => i),
+                  }],
+                };
+              })()} />
             </Panel>
             <Panel title="Antigüedad del backlog abierto" hint="cotizaciones vivas hoy">
               <EChartBox height={380} deps={[aging]} option={{
@@ -2315,7 +2438,49 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
                 }],
               }} />
             </Panel>
-            <Panel title="Cotizaciones estancadas de mayor monto" hint="abiertas hoy · mayor monto primero">
+            <Panel title="Flujo del dinero cotizado en el periodo" hint="creadas → estado actual → cobro (montos reales)">
+              <EChartBox height={380} deps={[funnel]} option={(() => {
+                const stg = (name: string) => funnel.find((x) => String(x.stage) === name);
+                const draft = num(stg("Borrador")?.amount);
+                const sent = num(stg("Enviada")?.amount);
+                const conf = num(stg("Confirmada")?.amount);
+                const cobr = Math.min(num(stg("Cobrado")?.amount), conf);
+                const porCobrar = Math.max(conf - cobr, 0);
+                const nodes = [
+                  { name: "Creadas", itemStyle: { color: "#64748b" } },
+                  { name: "Borrador", itemStyle: { color: "#7c3aed" } },
+                  { name: "Enviada", itemStyle: { color: "#0284c7" } },
+                  { name: "Confirmada", itemStyle: { color: "#0b57d0" } },
+                  { name: "Cobrado", itemStyle: { color: "#059669" } },
+                  { name: "Por cobrar", itemStyle: { color: "#d97706" } },
+                ];
+                const links = [
+                  { source: "Creadas", target: "Borrador", value: draft },
+                  { source: "Creadas", target: "Enviada", value: sent },
+                  { source: "Creadas", target: "Confirmada", value: conf },
+                  { source: "Confirmada", target: "Cobrado", value: cobr },
+                  { source: "Confirmada", target: "Por cobrar", value: porCobrar },
+                ].filter((l) => l.value > 0);
+                return {
+                  ...ecBase(),
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { data: Rec; name: string }) =>
+                      pm.data && (pm.data as Rec).value != null
+                        ? `${String((pm.data as Rec).source)} → ${String((pm.data as Rec).target)}<br/><b>${money((pm.data as Rec).value)}</b>`
+                        : String(pm.name) },
+                  series: [{
+                    type: "sankey", left: 10, right: 90, top: 14, bottom: 14,
+                    nodeWidth: 14, nodeGap: 22,
+                    data: nodes, links,
+                    label: { fontSize: 12, fontWeight: 700, fontFamily: "Inter" },
+                    lineStyle: { color: "gradient", opacity: 0.45, curveness: 0.5 },
+                    itemStyle: { borderRadius: 4 },
+                    emphasis: { focus: "adjacency" },
+                  }],
+                };
+              })()} />
+            </Panel>
+            <Panel title="Cotizaciones estancadas de mayor monto" hint="abiertas hoy · mayor monto primero" wide>
               <MiniTable head={["Cotización · Cliente · Vendedor", "Monto", "Días abierta"]} rows={stalled.map((s, i) => ({
                 key: i,
                 a: `${String(s.name)} · ${String(s.partner)}${s.seller ? ` · ${String(s.seller)}` : ""}`,
@@ -2348,6 +2513,73 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
             <Kpi id="venta_mxn" value={money(k.venta_mxn)} drillTo={cust[0] ? () => props.drill({ kind: "entity", entity: "customer", value: num(cust[0].key), label: String(cust[0].name) }) : undefined} />
             {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
+          <div className="grid">
+            <Panel title="Chord: clientes ↔ categorías" hint="grosor = venta del cruce · ECharts 6">
+              <EChartBox height={420} deps={[arr(d.client_categ)]} option={(() => {
+                const pairs = arr(d.client_categ);
+                const custTotals = new Map<string, number>();
+                const catTotals = new Map<string, number>();
+                for (const pr of pairs) {
+                  custTotals.set(String(pr.customer), (custTotals.get(String(pr.customer)) ?? 0) + num(pr.venta));
+                  catTotals.set(String(pr.categ), (catTotals.get(String(pr.categ)) ?? 0) + num(pr.venta));
+                }
+                const topCust = [...custTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map((e) => e[0]);
+                const topCat = [...catTotals.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map((e) => e[0]);
+                const links = pairs
+                  .filter((pr) => topCust.includes(String(pr.customer)) && topCat.includes(String(pr.categ)))
+                  .map((pr) => ({ source: String(pr.customer).slice(0, 20), target: String(pr.categ).slice(0, 20), value: num(pr.venta) }));
+                const nodes = [
+                  ...topCust.map((c2, i) => ({ name: c2.slice(0, 20), itemStyle: { color: ["#0b57d0", "#0ea5e9", "#7c3aed", "#0e7490", "#db2777", "#2563eb", "#4f46e5", "#0891b2"][i % 8] } })),
+                  ...topCat.map((c2, i) => ({ name: c2.slice(0, 20), itemStyle: { color: ["#059669", "#d97706", "#dc2626", "#65a30d", "#ea580c", "#ca8a04"][i % 6] } })),
+                ];
+                return {
+                  ...ecBase(),
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { data: Rec; name: string }) =>
+                      pm.data && (pm.data as Rec).value != null && (pm.data as Rec).source
+                        ? `${String((pm.data as Rec).source)} ↔ ${String((pm.data as Rec).target)}<br/><b>${money((pm.data as Rec).value)}</b>`
+                        : String(pm.name) },
+                  series: [{
+                    type: "chord",
+                    data: nodes, links,
+                    label: { show: true, fontSize: 10.5, fontFamily: "Inter" },
+                    lineStyle: { opacity: 0.5 },
+                    itemStyle: { borderRadius: 4 },
+                    emphasis: { focus: "adjacency" },
+                  }],
+                };
+              })()} />
+            </Panel>
+            <Panel title="Distribución de órdenes (beeswarm)" hint="cada punto = una orden · click = radiografía">
+              <EChartBox height={420} deps={[arr(d.orders)]}
+                onClick={(pm) => { const o = arr(d.orders)[pm.dataIndex]; if (o?.id) props.drill({ kind: "order", orderId: num(o.id), label: String(o.name) }); }}
+                option={(() => {
+                  const orders = arr(d.orders);
+                  return {
+                    ...ecBase(),
+                    grid: { left: 8, right: 20, top: 16, bottom: 8, containLabel: true },
+                    xAxis: { ...ecAxis("money"), name: "" },
+                    yAxis: { show: false, min: -1, max: 1, type: "value" },
+                    tooltip: { ...(ecBase().tooltip as object),
+                      formatter: (pm: { dataIndex: number }) => {
+                        const o = orders[pm.dataIndex];
+                        return o ? `${String(o.name)} · ${String(o.partner ?? "")}<br/><b>${money(o.venta)}</b>` : "";
+                      } },
+                    series: [{
+                      type: "scatter",
+                      // beeswarm determinístico: dispersión vertical estable
+                      data: orders.map((o, i) => [num(o.venta), ((i * 37) % 17 - 8) / 10]),
+                      symbolSize: (val: [number, number]) => Math.max(8, Math.min(26, Math.sqrt(Math.abs(val[0])) / 18)),
+                      itemStyle: {
+                        color: { type: "radial", x: 0.4, y: 0.4, r: 1,
+                          colorStops: [{ offset: 0, color: "#60a5fa" }, { offset: 1, color: "#0b57d0" }] },
+                        opacity: 0.82, shadowBlur: 6, shadowColor: "rgba(11,87,208,.35)",
+                      },
+                    }],
+                  };
+                })()} />
+            </Panel>
+          </div>
           <Panel title="Pareto de clientes del periodo" hint="click = profundizar" wide>
             <EChartBox height={460} deps={[cust]}
               onClick={(pm) => { const c = cust[pm.dataIndex]; if (c) props.drill({ kind: "entity", entity: "customer", value: num(c.key), label: String(c.name) }); }}
@@ -2373,6 +2605,50 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
         </>
       );
     }}</SalesSub>
+  );
+}
+
+function ProductosJerarquia(props: { data: Rec }) {
+  const [mode, setMode] = useState<"treemap" | "sunburst">("sunburst");
+  const cats = arr(props.data.categ_products);
+  if (!cats.length) return <Empty msg="Sin jerarquía de venta en el periodo." />;
+  const CAT_COLORS = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
+  const treeData = cats.map((c2, i) => ({
+    name: String(c2.categ).slice(0, 26),
+    value: num(c2.total),
+    itemStyle: { color: CAT_COLORS[i % CAT_COLORS.length] },
+    children: arr(c2.products).map((pr) => ({
+      name: String(pr.name).slice(0, 30),
+      value: num(pr.venta),
+    })),
+  }));
+  return (
+    <>
+      <div className="srk-toggle-row">
+        <button className={mode === "sunburst" ? "on" : ""} onClick={() => setMode("sunburst")}>Sunburst</button>
+        <button className={mode === "treemap" ? "on" : ""} onClick={() => setMode("treemap")}>Treemap</button>
+      </div>
+      <EChartBox height={440} deps={[cats, mode]} option={{
+        ...ecBase(),
+        tooltip: { ...(ecBase().tooltip as object),
+          formatter: (pm: { name: string; value: number }) => `${pm.name}<br/><b>${money(pm.value)}</b>` },
+        series: [mode === "sunburst" ? {
+          type: "sunburst", radius: ["18%", "92%"],
+          data: treeData,
+          itemStyle: { borderRadius: 7, borderWidth: 2, borderColor: "rgba(255,255,255,.55)" },
+          label: { fontSize: 10.5, fontFamily: "Inter", minAngle: 8 },
+          emphasis: { focus: "ancestor" },
+        } : {
+          type: "treemap", roam: false, breadcrumb: { show: true, bottom: 0 },
+          top: 6, bottom: 26, left: 6, right: 6,
+          data: treeData,
+          itemStyle: { borderColor: "rgba(255,255,255,.4)", borderWidth: 2, gapWidth: 2 },
+          label: { fontSize: 11.5, fontWeight: 600 },
+          upperLabel: { show: true, height: 22, fontSize: 11, fontWeight: 800, color: "#fff" },
+          levels: [{}, { itemStyle: { gapWidth: 1 } }],
+        }],
+      }} />
+    </>
   );
 }
 
@@ -2422,6 +2698,9 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
                 key: i, a: String(c.name), b: money(c.venta), c: n1(c.m2),
                 onClick: () => props.drill({ kind: "entity", entity: "category", value: num(c.key), label: String(c.name) }),
               }))} />
+            </Panel>
+            <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
+              <ProductosJerarquia data={d as Rec} />
             </Panel>
           </div>
         </>

@@ -10,10 +10,12 @@ import * as echarts from "echarts/core";
 import {
   BarChart, LineChart, PieChart, ScatterChart, FunnelChart, TreemapChart,
   RadarChart, GaugeChart, SankeyChart, HeatmapChart, BoxplotChart, SunburstChart,
+  CustomChart, ChordChart, ThemeRiverChart, PictorialBarChart,
 } from "echarts/charts";
 import {
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   DatasetComponent, VisualMapComponent, MarkLineComponent, AriaComponent,
+  CalendarComponent, MatrixComponent, DataZoomInsideComponent, BrushComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
@@ -23,8 +25,10 @@ echarts.use([
   // visual es requisito del negocio, la semántica la decide cada página.
   BarChart, LineChart, PieChart, ScatterChart, FunnelChart, TreemapChart,
   RadarChart, GaugeChart, SankeyChart, HeatmapChart, BoxplotChart, SunburstChart,
+  CustomChart, ChordChart, ThemeRiverChart, PictorialBarChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   DatasetComponent, VisualMapComponent, MarkLineComponent, AriaComponent,
+  CalendarComponent, MatrixComponent, DataZoomInsideComponent, BrushComponent,
   CanvasRenderer,
 ]);
 

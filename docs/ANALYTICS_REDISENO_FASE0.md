@@ -164,3 +164,18 @@ instrucción previa del negocio.
   margen (con permiso), rosa de Nightingale de niveles de precio, radar
   comparativo del top-6 de vendedores, combos barra+línea con área.
   Chart.js sigue para vistas legacy. Cards con drill a un nivel más.
+- **F2.3 — completada** (v19.0.52.0.0): catálogo ECharts 6 integrado con
+  datos reales — funnel CUSTOM de trapecios continuos (degradado, sombra,
+  métricas internas, % del total y tasa real de cobro), sankey gradiente
+  del dinero cotizado (creadas→estado→cobrado/por cobrar), calendar
+  heatmap de pedidos diarios en Command Center (serie daily_sales nueva),
+  chord clientes↔categorías + beeswarm de órdenes con drill en Clientes
+  (series client_categ y orders), jerarquía categoría→producto con toggle
+  sunburst⇄treemap en Productos (serie categ_products, derivada de rows
+  sin SQL extra), y gantt custom ETD→ETA de embarques en Tránsito (rojo =
+  ETA vencida). Registrados además ThemeRiver/PictorialBar/Matrix/
+  DataZoom/Brush para siguientes páginas. PENDIENTES por datos (brecha B/C
+  documentada): Matrix+sparklines y matriz de correlación (requieren
+  series mensuales por entidad), jitter nativo de eje (beeswarm manual
+  determinístico en su lugar), fisheye y axis-breaks (se adoptarán donde
+  la serie lo amerite en F3).

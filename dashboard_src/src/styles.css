@@ -520,3 +520,11 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
 @media (max-width: 400px) {
   .cc-score { grid-template-columns: 1fr; }
 }
+
+/* Toggle sunburst/treemap (jerarquía de productos) */
+.srk-toggle-row { display: flex; gap: 6px; margin-bottom: 8px; }
+.srk-toggle-row button {
+  padding: 4px 14px; border-radius: 999px; font-size: 11.5px; font-weight: 700;
+  border: 1px solid var(--line); background: var(--panel); color: var(--mut);
+}
+.srk-toggle-row button.on { background: var(--blue); border-color: var(--blue); color: #fff; }

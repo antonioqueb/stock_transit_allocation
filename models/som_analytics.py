@@ -799,6 +799,59 @@ class SomAnalytics(models.AbstractModel):
                   AND write_date >= %s AND write_date <= %s
             ) t
         """, (dtf, dtt), default=[(None, None, None)])[0]
+        # ── Series F2.3 (visuales ECharts 6) ────────────────────────────
+        # Venta DIARIA del periodo (calendar heatmap) — misma conversión USD.
+        _rate = self._current_usd_rate()
+        pack['daily_sales'] = [
+            {'date': str(a), 'amount': round(b or 0.0, 2), 'orders': c}
+            for (a, b, c) in self._sq("""
+                SELECT so.date_order::date,
+                       COALESCE(SUM(CASE WHEN rc.name = 'USD'
+                           THEN so.amount_total
+                                * COALESCE(NULLIF(so.x_delivery_exchange_rate, 0), %(rate)s)
+                           ELSE so.amount_total END), 0),
+                       COUNT(*)
+                FROM sale_order so
+                LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+                LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+                WHERE so.state = 'sale'
+                  AND so.date_order >= %(f)s AND so.date_order <= %(t)s
+                GROUP BY 1
+            """, {'rate': _rate, 'f': dtf, 't': dtt}, default=[])
+        ]
+
+        # Chord clientes ↔ categorías y jerarquía categoría → productos:
+        # derivadas de las MISMAS rows del pack (sin SQL adicional).
+        _pairs = {}
+        _hier = {}
+        for r in rows:
+            ckey = (r['partner_name'] or 'Sin cliente',
+                    r['categ_name'] or 'Sin categoría')
+            _pairs[ckey] = _pairs.get(ckey, 0.0) + r['venta_mxn']
+            hkey = r['categ_name'] or 'Sin categoría'
+            _hier.setdefault(hkey, {})
+            pname = r['product_name'] or 'Sin producto'
+            _hier[hkey][pname] = _hier[hkey].get(pname, 0.0) + r['venta_mxn']
+
+        pack['client_categ'] = [
+            {'customer': a, 'categ': b, 'venta': round(v, 2)}
+            for ((a, b), v) in sorted(
+                _pairs.items(), key=lambda kv: -kv[1])[:30]
+        ]
+
+        _top_categs = sorted(
+            _hier.items(),
+            key=lambda kv: -sum(kv[1].values()))[:6]
+        pack['categ_products'] = [
+            {'categ': categ,
+             'total': round(sum(prods.values()), 2),
+             'products': [
+                 {'name': pn, 'venta': round(pv, 2)}
+                 for pn, pv in sorted(prods.items(), key=lambda x: -x[1])[:5]
+             ]}
+            for categ, prods in _top_categs
+        ]
+
         pack['auth_percentiles'] = {
             'p50': round(float(prow[0]), 1) if prow[0] is not None else None,
             'p75': round(float(prow[1]), 1) if prow[1] is not None else None,
@@ -1932,7 +1985,7 @@ class SomAnalytics(models.AbstractModel):
         voyages = Voyage.search_read(
             [('custom_status', 'not in', ('delivered', 'cancel'))],
             ['name', 'custom_status', 'total_m2', 'allocated_m2',
-             'allocation_percent', 'eta', 'container_number',
+             'allocation_percent', 'eta', 'etd', 'container_number',
              'tc_supplier_id', 'tc_publication_pending'],
             limit=400)
         labels = dict(
@@ -1960,6 +2013,7 @@ class SomAnalytics(models.AbstractModel):
                 'm2': round(m2, 1),
                 'alloc_pct': round(v['allocation_percent'] or 0.0, 1),
                 'eta': str(v['eta'] or ''),
+                'etd': str(v.get('etd') or ''),
             })
         order_st = ['solicitud', 'production', 'booking', 'puerto_origen',
                     'on_sea', 'puerto_destino', 'arrived_port',
