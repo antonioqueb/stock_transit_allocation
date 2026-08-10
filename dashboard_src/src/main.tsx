@@ -1831,6 +1831,44 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
           )}
         </Panel>
 
+        {pago.length > 0 && (
+          <Panel title="Días de entrega a pago por cliente (beeswarm)" hint="cada punto = un cliente · tamaño = entregas · verde <15d, ámbar <30d, rojo 30d+" wide>
+            <EChartBox height={300} deps={[pago]} option={(() => {
+              const maxE = Math.max(...pago.map((r) => num(r.entregas)), 1);
+              return {
+                ...ecBase(),
+                grid: { left: 8, right: 24, top: 16, bottom: 8, containLabel: true },
+                tooltip: { ...(ecBase().tooltip as object),
+                  formatter: (pm: { dataIndex: number }) => {
+                    const r = pago[pm.dataIndex];
+                    return r ? `${String(r.name)}<br/><b>${n1(r.dias)} días</b> promedio · ${n0(r.entregas)} entregas` : "";
+                  } },
+                xAxis: { type: "value",
+                  splitLine: { lineStyle: { color: "rgba(100,116,139,.12)" } },
+                  axisLabel: { fontSize: 10, fontFamily: "Inter", formatter: (v: number) => `${n0(v)} d` } },
+                yAxis: { show: false, min: -1, max: 1, type: "value" },
+                series: [{
+                  type: "scatter",
+                  data: pago.map((r, i) => [num(r.dias), ((i * 41) % 19 - 9) / 11]),
+                  symbolSize: (val: [number, number], pm: { dataIndex: number }) =>
+                    10 + Math.sqrt(num(pago[pm.dataIndex]?.entregas) / maxE) * 22,
+                  itemStyle: {
+                    color: (pm: { dataIndex: number }) => {
+                      const dd = num(pago[pm.dataIndex]?.dias);
+                      const c2 = dd < 15 ? ["#34d399", "#059669"] : dd < 30 ? ["#fbbf24", "#d97706"] : ["#f87171", "#dc2626"];
+                      return { type: "radial", x: 0.4, y: 0.4, r: 1,
+                        colorStops: [{ offset: 0, color: c2[0] }, { offset: 1, color: c2[1] }] };
+                    },
+                    opacity: 0.88, shadowBlur: 6, shadowColor: "rgba(15,23,42,.25)",
+                  },
+                  labelLayout: { hideOverlap: true },
+                  label: { show: true, position: "top", fontSize: 9, color: ecInk().tick,
+                           formatter: (pm: { dataIndex: number }) => String(pago[pm.dataIndex]?.name ?? "").slice(0, 14) },
+                }],
+              };
+            })()} />
+          </Panel>
+        )}
         <Panel title="Facturado vs comprado (12 meses)" wide>
           <ChartBox height={280} deps={[bm]} config={{
             type: "line",
@@ -3218,7 +3256,46 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
               <ProductosJerarquia data={d as Rec} />
             </Panel>
-            <Panel title="Río de categorías: composición de la venta en el tiempo" hint="áreas apiladas · grosor = venta mensual de la categoría" wide>
+            <Panel title="Red de la venta: categorías y sus productos" hint="fuerza dirigida · tamaño = venta · arrastra los nodos" wide>
+              <EChartBox height={430} deps={[arr(d.categ_products)]} option={(() => {
+                const catsN = arr(d.categ_products);
+                if (!catsN.length) return { ...ecBase(), series: [] };
+                const NET = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
+                const nodes: Rec[] = [];
+                const links: Rec[] = [];
+                const maxTot = Math.max(...catsN.map((c2) => num(c2.total)), 1);
+                catsN.forEach((c2, i) => {
+                  nodes.push({ name: String(c2.categ).slice(0, 24), value: num(c2.total),
+                    category: i, symbolSize: 26 + Math.sqrt(num(c2.total) / maxTot) * 34,
+                    label: { show: true, fontWeight: 800, fontSize: 11.5 },
+                    itemStyle: { color: NET[i % 6], shadowBlur: 10, shadowColor: NET[i % 6] + "66" } });
+                  arr(c2.products).forEach((pr) => {
+                    nodes.push({ name: String(pr.name).slice(0, 26), value: num(pr.venta),
+                      category: i, symbolSize: 10 + Math.sqrt(num(pr.venta) / maxTot) * 26,
+                      label: { show: true, fontSize: 9.5 },
+                      itemStyle: { color: NET[i % 6] + "cc" } });
+                    links.push({ source: String(c2.categ).slice(0, 24), target: String(pr.name).slice(0, 26),
+                      lineStyle: { width: 1 + (num(pr.venta) / maxTot) * 5, curveness: 0.18, opacity: 0.5,
+                        color: NET[i % 6] } });
+                  });
+                });
+                return {
+                  ...ecBase(),
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { data: Rec }) =>
+                      pm.data?.name ? `${String(pm.data.name)}<br/><b>${money(pm.data.value)}</b>` : "" },
+                  series: [{
+                    type: "graph", layout: "force", roam: true, draggable: true,
+                    data: nodes, links,
+                    categories: catsN.map((c2, i) => ({ name: String(c2.categ).slice(0, 24) })),
+                    force: { repulsion: 220, edgeLength: [40, 110], gravity: 0.12 },
+                    labelLayout: { hideOverlap: true },
+                    emphasis: { focus: "adjacency", label: { show: true } },
+                  }],
+                };
+              })()} />
+            </Panel>
+                        <Panel title="Río de categorías: composición de la venta en el tiempo" hint="áreas apiladas · grosor = venta mensual de la categoría" wide>
               <EChartBox height={330} deps={[arr(d.categ_monthly)]} option={(() => {
                 const cmr = arr(d.categ_monthly);
                 if (!cmr.length) return { ...ecBase(), series: [] };
@@ -3424,7 +3501,38 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                 })()} />
               </Panel>
             )}
-            <Panel title="Matrix ejecutiva del equipo" hint="tendencia mensual por vendedor · sparkline por celda" wide>
+            <Panel title="Carrera de venta mensual por vendedor" hint="line race · la etiqueta sigue a cada corredor · labels anti-encimado" wide>
+              <EChartBox height={360} deps={[d.seller_monthly]} option={(() => {
+                const sm = (d.seller_monthly ?? {}) as Rec;
+                const sellersR = arr(sm.sellers);
+                const monthsR = arr<string>(sm.months);
+                if (!sellersR.length || monthsR.length < 2) return { ...ecBase(), series: [] };
+                const RACE = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
+                return {
+                  ...ecBase(),
+                  grid: { left: 8, right: 150, top: 14, bottom: 8, containLabel: true },
+                  tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+                  xAxis: ecAxis("cat", monthsR.map((m) => monthLabel(m).toUpperCase())),
+                  yAxis: ecAxis("money"),
+                  animationDuration: 2600,
+                  animationEasing: "cubicOut",
+                  series: sellersR.map((sr, i) => ({
+                    name: String(sr.name).slice(0, 18),
+                    type: "line", smooth: true, symbolSize: 6,
+                    data: arr<number>(sr.serie),
+                    lineStyle: { width: 3, color: RACE[i % 6] },
+                    itemStyle: { color: RACE[i % 6] },
+                    emphasis: { focus: "series", lineStyle: { width: 5 } },
+                    endLabel: { show: true, fontSize: 11, fontWeight: 800, fontFamily: "Inter",
+                                color: RACE[i % 6],
+                                formatter: (pm: { seriesName: string; value: number }) =>
+                                  `${pm.seriesName} · ${money(pm.value)}` },
+                    labelLayout: { hideOverlap: true, moveOverlap: "shiftY" },
+                  })),
+                };
+              })()} />
+            </Panel>
+                        <Panel title="Matrix ejecutiva del equipo" hint="tendencia mensual por vendedor · sparkline por celda" wide>
               <EChartBox height={Math.max(220, (arr((d.seller_monthly as Rec)?.sellers).length + 1) * 46)} deps={[d.seller_monthly]} option={(() => {
                 const sm = (d.seller_monthly ?? {}) as Rec;
                 const sellersM = arr(sm.sellers);

@@ -10,7 +10,7 @@ import * as echarts from "echarts/core";
 import {
   BarChart, LineChart, PieChart, ScatterChart, FunnelChart, TreemapChart,
   RadarChart, GaugeChart, SankeyChart, HeatmapChart, BoxplotChart, SunburstChart,
-  CustomChart, ChordChart, ThemeRiverChart, PictorialBarChart,
+  CustomChart, ChordChart, ThemeRiverChart, PictorialBarChart, GraphChart,
 } from "echarts/charts";
 import {
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
@@ -26,7 +26,7 @@ echarts.use([
   // visual es requisito del negocio, la semántica la decide cada página.
   BarChart, LineChart, PieChart, ScatterChart, FunnelChart, TreemapChart,
   RadarChart, GaugeChart, SankeyChart, HeatmapChart, BoxplotChart, SunburstChart,
-  CustomChart, ChordChart, ThemeRiverChart, PictorialBarChart,
+  CustomChart, ChordChart, ThemeRiverChart, PictorialBarChart, GraphChart,
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   DatasetComponent, VisualMapComponent, MarkLineComponent, AriaComponent,
   CalendarComponent, MatrixComponent, DataZoomInsideComponent, BrushComponent,
