@@ -280,25 +280,14 @@ class TransitVoyageLinesWidget extends Component {
                 action: "Ver materiales",
             });
         }
-        if (unassigned) {
-            out.push({
-                key: "unassigned", level: "info",
-                text: `${unassigned} material(es) sin asignar`,
-                action: "Ver materiales",
-            });
-        }
-        // Diferencias de flujo (del backend, ya cargadas por producto).
-        let pendShip = 0, excess = 0, noLink = 0;
+        // Retiradas por pedido (2026-08-12): las incidencias "N material(es)
+        // sin asignar", "Exceso embarcado vs OC" y "Pendiente por embarcar de
+        // la OC" ya no se muestran. El acceso "Ver materiales" sigue vivo en
+        // el chip "Sin asignar · N" de la toolbar (mismo filtro).
+        void unassigned;
+        let noLink = 0;
         for (const f of Object.values(this.state.productFlow || {})) {
-            pendShip += f.pending_ship || 0;
-            excess += f.excess_ship || 0;
             if (!f.has_po_link) noLink++;
-        }
-        if (excess > 0.005) {
-            out.push({ key: "none", level: "danger", text: `Exceso embarcado vs OC: ${this.fmtNum(excess)}` });
-        }
-        if (pendShip > 0.005) {
-            out.push({ key: "none", level: "warn", text: `Pendiente por embarcar de la OC: ${this.fmtNum(pendShip)}` });
         }
         if (noLink) {
             out.push({ key: "none", level: "info", text: `${noLink} producto(s) sin vínculo con OC` });
