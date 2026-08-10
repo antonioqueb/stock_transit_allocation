@@ -215,8 +215,20 @@ class SomAnalytics(models.AbstractModel):
         """.format(extra=(' AND ' + ' AND '.join(where)) if where else '')
         self.env.cr.execute(sql, params)
         rows = self.env.cr.dictfetchall()
+        # Clave de PERIODO según la granularidad pedida (day|week|month):
+        # con poca historia mensual, las series pueden cortarse por día o
+        # semana ISO. 'month' sigue siendo el default y la clave 'month'
+        # se conserva para los consumidores que no cambian.
+        gran = (f or {}).get('granularity') or 'month'
         for r in rows:
             r['utilidad_mxn'] = r['venta_mxn'] - r['costo_mxn']
+            if gran == 'day':
+                r['period'] = r['d']
+            elif gran == 'week':
+                iso = datetime.strptime(r['d'], '%Y-%m-%d').isocalendar()
+                r['period'] = '%dW%02d' % (iso[0], iso[1])
+            else:
+                r['period'] = r['month']
         return rows
 
     def _agg(self, rows, key_fn, name_fn, order=None, limit=None):
@@ -289,7 +301,8 @@ class SomAnalytics(models.AbstractModel):
                 'ordenes': len({r['order_id'] for r in rows}),
             },
             'by_month': self._agg(
-                rows, lambda r: r['month'], lambda r: r['month'], order='key'),
+                rows, lambda r: r['period'], lambda r: r['period'],
+                order='key'),
             'levels': sorted(
                 self._agg(rows, lambda r: r['level'],
                           lambda r: _LEVELS.get(r['level'], r['level'])),
@@ -859,7 +872,7 @@ class SomAnalytics(models.AbstractModel):
         _cm = {}
         _months_seen = set()
         for r in rows:
-            m = r['month']
+            m = r['period']
             _months_seen.add(m)
             sk = r['user_name'] or 'Sin vendedor'
             _sm.setdefault(sk, {})
@@ -884,7 +897,7 @@ class SomAnalytics(models.AbstractModel):
         for r in rows:
             pk = r['product_name'] or 'Sin producto'
             _pm.setdefault(pk, {})
-            _pm[pk][r['month']] = _pm[pk].get(r['month'], 0.0) + r['venta_mxn']
+            _pm[pk][r['period']] = _pm[pk].get(r['period'], 0.0) + r['venta_mxn']
         _top_pm = sorted(_pm.items(), key=lambda kv: -sum(kv[1].values()))[:6]
         pack['product_monthly'] = {
             'months': _months_sorted,
@@ -900,6 +913,7 @@ class SomAnalytics(models.AbstractModel):
             {'month': m, 'categ': name, 'venta': round(mm.get(m, 0.0), 2)}
             for name, mm in _top_cm for m in _months_sorted
         ]
+        pack['granularity'] = (f or {}).get('granularity') or 'month'
 
         pack['auth_percentiles'] = {
             'p50': round(float(prow[0]), 1) if prow[0] is not None else None,
@@ -2728,8 +2742,12 @@ class SomAnalytics(models.AbstractModel):
             except (TypeError, ValueError):
                 return 0
 
+        _gran = f.get('granularity') or 'month'
+        _period_fmt = {'day': 'YYYY-MM-DD', 'week': 'IYYY"W"IW',
+                       'month': 'YYYY-MM'}.get(_gran, 'YYYY-MM')
         where_map = {
-            'month': ("to_char(so.date_order,'YYYY-MM') = %(dv)s", str(value)),
+            'month': ("to_char(so.date_order,'" + _period_fmt + "') = %(dv)s",
+                      str(value)),
             'product': ('pt.id = %(dv)s', _as_int(value)),
             'seller': ('so.user_id = %(dv)s', _as_int(value)),
             'customer': ('so.partner_id = %(dv)s', _as_int(value)),
@@ -2759,8 +2777,8 @@ class SomAnalytics(models.AbstractModel):
                 'm2': round(sum(r['qty'] for r in rows if r['is_area']), 1),
                 'ordenes': len({r['order_id'] for r in rows}),
             },
-            'by_month': self._agg(rows, lambda r: r['month'],
-                                  lambda r: r['month'], order='key'),
+            'by_month': self._agg(rows, lambda r: r['period'],
+                                  lambda r: r['period'], order='key'),
             'by_seller': self._agg(rows, lambda r: r['user_id'],
                                    lambda r: r['user_name'], order='venta',
                                    limit=10),

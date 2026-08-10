@@ -63,13 +63,13 @@ const VIEWS: Array<{ key: ViewKey; label: string }> = [
   { key: "control", label: "Control" },
 ];
 
-type Filters = { date_from?: string; date_to?: string; month?: string; categ_id?: number; user_id?: number; partner_id?: number; product_id?: number };
+type Filters = { date_from?: string; date_to?: string; month?: string; granularity?: string; categ_id?: number; user_id?: number; partner_id?: number; product_id?: number };
 
 function readHash(): { view: ViewKey; filters: Filters } {
   const p = new URLSearchParams(window.location.hash.slice(1));
   const view = (p.get("view") as ViewKey) || "inicio";
   const filters: Filters = {};
-  for (const k of ["date_from", "date_to", "month"] as const) {
+  for (const k of ["date_from", "date_to", "month", "granularity"] as const) {
     const v = p.get(k);
     if (v) filters[k] = v;
   }
@@ -3833,6 +3833,14 @@ function App() {
         <div className="presets" role="tablist" aria-label="Periodo">
           {PRESETS.map(([k, l]) => (
             <button key={k} role="tab" aria-selected={preset === k} className={preset === k ? "on" : ""} onClick={() => applyPreset(k)}>{l}</button>
+          ))}
+        </div>
+        <div className="granul" role="tablist" aria-label="Granularidad de las series">
+          {([["day", "Día"], ["week", "Semana"], ["month", "Mes"]] as Array<[string, string]>).map(([g, l]) => (
+            <button key={g} role="tab"
+                    aria-selected={(filters.granularity ?? "month") === g}
+                    className={(filters.granularity ?? "month") === g ? "on" : ""}
+                    onClick={() => setFilters((f2) => ({ ...f2, granularity: g }))}>{l}</button>
           ))}
         </div>
         <div className="dates" aria-label="Rango personalizado">

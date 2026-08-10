@@ -637,3 +637,19 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
   .stat-v, .tv-stat .v { overflow-wrap: anywhere; }
   .stat-s, .tv-stat .s { overflow-wrap: anywhere; white-space: normal; }
 }
+
+
+/* ═══════ Selector de granularidad (Día/Semana/Mes) ═══════ */
+.granul {
+  display: inline-flex; gap: 2px; padding: 3px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel2);
+}
+.granul button {
+  padding: 5px 13px; border-radius: 8px; font-size: 12px; font-weight: 700;
+  color: var(--mut);
+}
+.granul button.on { background: var(--blue); color: #fff; }
+@media (max-width: 760px) {
+  .granul { order: 7; align-self: stretch; justify-content: stretch; }
+  .granul button { flex: 1; min-height: 38px; }
+}

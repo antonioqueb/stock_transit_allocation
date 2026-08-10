@@ -54,6 +54,12 @@ export const pct = (v: unknown) => nf1.format(num(v)) + "%";
 export const MONTHS_ES = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
 export function monthLabel(m: unknown): string {
   const s = String(m ?? "");
+  // Día: 2026-08-15 → "15 Ago"
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    return `${parseInt(s.slice(8, 10), 10)} ${MONTHS_ES[parseInt(s.slice(5, 7), 10) - 1]}`;
+  }
+  // Semana ISO: 2026W33 → "S33"
+  if (/^\d{4}W\d{2}$/.test(s)) return `S${s.slice(5, 7)}`;
   if (s.length < 7) return s;
   return `${MONTHS_ES[parseInt(s.slice(5, 7), 10) - 1]} ${s.slice(2, 4)}`;
 }
