@@ -16,14 +16,14 @@
                         confirm="¿Desea publicar el inventario en tránsito? Lo asignado se mostrará como Committed y lo libre como Disponible."/>
 
                 <button name="action_publish_transit_inventory"
-                        string="🔁 Re-publicar Inventario"
+                        string="Republicar"
                         type="object"
                         class="btn-secondary"
                         invisible="not transit_inventory_published or custom_status in ['delivered', 'cancel']"
                         confirm="¿Desea recalcular la publicación del inventario en tránsito con las asignaciones actuales?"/>
 
                 <button name="action_unpublish_transit_inventory"
-                        string="🙈 Ocultar Inventario"
+                        string="Ocultar inventario"
                         type="object"
                         class="btn-secondary"
                         invisible="not transit_inventory_published or custom_status in ['delivered', 'cancel']"

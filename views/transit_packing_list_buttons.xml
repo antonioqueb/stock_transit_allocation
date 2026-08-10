@@ -13,11 +13,13 @@
         <field name="arch" type="xml">
 
             <xpath expr="//header/button[@name='action_load_from_picking']" position="after">
+                <!-- Oculto por pedido (2026-08-10): ya no se usa en el embarque
+                     (el de la orden de compra sigue activo). -->
                 <button name="action_print_transit_packing_list"
                         string="📄 Packing List"
                         type="object"
                         class="btn-secondary"
-                        invisible="not tc_has_packing_list"/>
+                        invisible="1"/>
             </xpath>
 
             <xpath expr="//sheet" position="inside">

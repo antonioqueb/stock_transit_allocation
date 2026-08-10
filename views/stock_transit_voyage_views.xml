@@ -44,13 +44,13 @@
                             type="object"
                             class="btn-primary"
                             invisible="custom_status in ['delivered', 'cancel']"
-                            string="Avanzar" icon="fa-forward"/>
+                            title="Avanzar" icon="fa-forward"/>
 
                     <button name="action_retreat_status"
                             type="object"
                             class="btn-secondary"
                             invisible="custom_status in ['solicitud', 'delivered', 'cancel']"
-                            string="Retroceder" icon="fa-backward"/>
+                            title="Retroceder" icon="fa-backward"/>
 
                     <separator/>
 
@@ -60,23 +60,25 @@
                             class="btn-secondary"
                             invisible="picking_id != False or custom_status == 'delivered'"/>
 
+                    <!-- Ocultos por pedido (2026-08-10): ya no se usan, pero los
+                         nodos permanecen porque otras vistas se anclan a ellos. -->
                     <button name="action_load_from_picking"
                             string="Sincronizar lotes" icon="fa-refresh"
                             type="object"
                             class="btn-secondary"
-                            invisible="picking_id == False or custom_status == 'delivered'"/>
+                            invisible="1"/>
 
                     <button name="action_sync_shipsgo"
                             string="Sincronizar API" icon="fa-wifi"
                             type="object"
                             class="btn-secondary"
-                            invisible="custom_status in ['delivered', 'cancel']"/>
+                            invisible="1"/>
 
                     <button name="action_open_unassign_wizard"
                             string="Desasignar" icon="fa-unlock"
                             type="object"
                             class="btn-secondary"
-                            invisible="custom_status in ['delivered', 'cancel']"/>
+                            invisible="1"/>
 
                     <button name="action_generate_reception"
                             string="Recibir" icon="fa-industry"
@@ -100,7 +102,7 @@
                             string="Etiquetas" icon="fa-tags"
                             type="object"
                             class="btn-secondary"
-                            invisible="custom_status in ['solicitud', 'production', 'booking', 'puerto_origen']"/>
+                            invisible="1"/>
 
                     <button name="action_arrive"
                             string="Cerrar viaje" icon="fa-flag-checkered"
