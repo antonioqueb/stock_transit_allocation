@@ -99,3 +99,35 @@ instrucción previa del negocio.
 - **Línea base numérica**: los fixtures de regresión deben capturarse en QA
   (`qa.recubrimientos.app`) con periodos cerrados conocidos antes de F2;
   desde este repositorio no hay acceso a la base para generarlos.
+
+---
+
+## 6. Bitácora de fases
+
+- **F1 — completada** (v19.0.47.0.0): sidebar anidado declarativo, breadcrumbs,
+  rollback `som_nav_legacy`.
+- **F2 — completada** (v19.0.48.0.0):
+  - `metrics.ts`: registro semántico (unidad, dirección favorable, fórmula,
+    fuentes, frescura) + tooltip "explicar métrica" + tono por dirección
+    (nunca verde solo por subir).
+  - **Command Center** responsivo (`inicio`): portada universal (también
+    móvil — sustituye la regla Ventas-en-móvil); scorecard de 8 señales +
+    "Ver todos", hallazgos determinísticos (InsightStrip con drill), serie
+    venta/utilidad, capital comprometido (liquidez vs no líquido separados)
+    y "Atención hoy" desde la bandeja de control. El Resumen TV se conserva
+    como página de escritorio.
+  - **Barra vital contextual**: ≤4 señales según dominio activo + "Ver
+    resumen"; comparte caché del exec (una sola consulta, 60 s, pausada con
+    pestaña oculta).
+  - **8 subpáginas de Ventas** (todas capacidad A, reutilizan el pack
+    'comercial' con la MISMA query key ⇒ cero consultas duplicadas):
+    conversión, clientes y concentración (insight Top-5), productos y mix
+    (m² y piezas separados), precios/descuentos/margen (insight presión de
+    descuento), autorizaciones (precio separado de IVA), vendedores y
+    comisiones (scatter venta×utilidad + % costo comercial), embajadores y
+    canales, exposición cambiaria (sensibilidad paramétrica no contable).
+  - Brechas B declaradas EN la UI sin cifras simuladas: funnel/cohortes de
+    conversión y series semanales de autorizaciones (requieren nuevas
+    series del backend — candidatas a F2.1).
+- **Pendiente próximo**: F2.1 (series backend para funnel/cohortes/control
+  charts), fixtures de línea base en QA, luego F3.

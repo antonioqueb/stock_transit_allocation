@@ -26,9 +26,10 @@ export const NAV: NavDomain[] = [
     id: "inicio",
     label: "Inicio",
     pages: [
-      // El Resumen actual (formato TV) es la portada de escritorio; el
-      // Command Center móvil llega en Fase 2 y será portada universal.
-      { key: "resumen", label: "Command Center", question: "¿Cuál es el estado integral del negocio hoy?", desktopOnly: true },
+      // Command Center (F2): portada universal, responsivo. El Resumen TV
+      // se conserva como modo pantalla-completa de escritorio.
+      { key: "inicio", label: "Command Center", question: "¿Cuál es el estado integral del negocio y qué necesita atención hoy?" },
+      { key: "resumen", label: "Resumen TV", question: "Modo pantalla completa para sala/TV (solo escritorio).", desktopOnly: true },
     ],
   },
   {
@@ -36,6 +37,14 @@ export const NAV: NavDomain[] = [
     label: "Ventas",
     pages: [
       { key: "ventas", label: "Visión comercial", question: "¿Estamos vendiendo más, mejor y de forma rentable?" },
+      { key: "ventas_conversion", label: "Cotizaciones y conversión", question: "¿Dónde se pierden oportunidades y cuánto dinero está detenido?" },
+      { key: "ventas_clientes", label: "Clientes y concentración", question: "¿Qué clientes crecen, concentran riesgo o dejan de comprar?" },
+      { key: "ventas_productos", label: "Productos y mix", question: "¿Qué productos explican el crecimiento y la rentabilidad?" },
+      { key: "ventas_precios", label: "Precios, descuentos y margen", question: "¿Dónde se erosiona el precio y qué excepciones destruyen margen?" },
+      { key: "ventas_auth", label: "Autorizaciones", question: "¿Cuánto negocio está bloqueado y dónde se incumple el SLA?" },
+      { key: "ventas_equipo", label: "Vendedores y comisiones", question: "¿El costo comercial está alineado con el valor generado?" },
+      { key: "ventas_canales", label: "Embajadores y canales", question: "¿Qué canal origina negocio de calidad?" },
+      { key: "ventas_fx", label: "Exposición cambiaria", question: "¿Qué venta USD no cobrada está expuesta y cuál fue el FX realizado?" },
     ],
   },
   {

@@ -11,6 +11,7 @@ import {
 } from "./api";
 import { ChartBox, baseOptions, axisMoney, axisPlain, C, PALETTE } from "./charts";
 import { NAV, domainOf, pageOf } from "./nav";
+import { METRICS, metricTooltip, deltaTone } from "./metrics";
 import "./styles.css";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -29,12 +30,25 @@ function initTheme(): Theme {
 // Estado de navegación serializable en el hash (#view=ventas&date_from=…)
 // ─────────────────────────────────────────────────────────────────────────────
 type ViewKey =
+  | "inicio"
   | "resumen" | "ventas" | "materiales" | "inventario" | "compras"
   | "transito" | "recepciones" | "taller" | "entregas" | "finanzas"
-  | "pronosticos" | "control";
+  | "pronosticos" | "control"
+  | "ventas_conversion" | "ventas_clientes" | "ventas_productos"
+  | "ventas_precios" | "ventas_auth" | "ventas_equipo"
+  | "ventas_canales" | "ventas_fx";
 
 const VIEWS: Array<{ key: ViewKey; label: string }> = [
+  { key: "inicio", label: "Command Center" },
   { key: "resumen", label: "Resumen" },
+  { key: "ventas_conversion", label: "Conversión" },
+  { key: "ventas_clientes", label: "Clientes" },
+  { key: "ventas_productos", label: "Productos" },
+  { key: "ventas_precios", label: "Precios" },
+  { key: "ventas_auth", label: "Autorizaciones" },
+  { key: "ventas_equipo", label: "Equipo" },
+  { key: "ventas_canales", label: "Canales" },
+  { key: "ventas_fx", label: "FX" },
   { key: "ventas", label: "Ventas" },
   { key: "materiales", label: "Materiales" },
   { key: "inventario", label: "Inventario" },
@@ -52,7 +66,7 @@ type Filters = { date_from?: string; date_to?: string; month?: string; categ_id?
 
 function readHash(): { view: ViewKey; filters: Filters } {
   const p = new URLSearchParams(window.location.hash.slice(1));
-  const view = (p.get("view") as ViewKey) || "resumen";
+  const view = (p.get("view") as ViewKey) || "inicio";
   const filters: Filters = {};
   for (const k of ["date_from", "date_to", "month"] as const) {
     const v = p.get(k);
@@ -62,7 +76,7 @@ function readHash(): { view: ViewKey; filters: Filters } {
     const v = p.get(k);
     if (v) filters[k] = parseInt(v, 10);
   }
-  return { view: VIEWS.some((x) => x.key === view) ? view : "resumen", filters };
+  return { view: VIEWS.some((x) => x.key === view) ? view : "inicio", filters };
 }
 
 function writeHash(view: ViewKey, filters: Filters) {
@@ -1968,6 +1982,490 @@ function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: Dri
 // ─────────────────────────────────────────────────────────────────────────────
 const PRESETS: Array<[string, string]> = [["hoy", "Hoy"], ["sem", "Semana"], ["mes", "Mes"], ["trim", "Trimestre"], ["anio", "Año"]];
 
+// ═════════════════════════════════════════════════════════════════════════════
+// FASE 2 — Componentes base del rediseño (registro semántico + storytelling)
+// ═════════════════════════════════════════════════════════════════════════════
+
+// KPI semántico: color por DIRECCIÓN declarada en el registro (bajar cartera
+// vencida es bueno; subir merma es malo) y "explicar métrica" en el tooltip.
+function Kpi(props: { id: string; value: string; sub?: string; deltaPct?: number | null; drillTo?: () => void }) {
+  const def = METRICS[props.id];
+  const tone = deltaTone(props.id, props.deltaPct);
+  const deltaTxt = props.deltaPct != null && isFinite(props.deltaPct)
+    ? `${props.deltaPct >= 0 ? "▲" : "▼"} ${pct(Math.abs(props.deltaPct))} vs base`
+    : undefined;
+  return (
+    <div
+      className={`kpi-sem${props.drillTo ? " click" : ""}`}
+      title={metricTooltip(props.id)}
+      onClick={props.drillTo}
+      role={props.drillTo ? "button" : undefined}
+      tabIndex={props.drillTo ? 0 : undefined}
+      onKeyDown={(e) => { if (props.drillTo && (e.key === "Enter" || e.key === " ")) props.drillTo(); }}
+    >
+      <Stat label={def?.label ?? props.id} value={props.value} sub={props.sub ?? deltaTxt} tone={tone} />
+    </div>
+  );
+}
+
+// Narrativa determinística: estructura calculada → texto legible. Nunca
+// atribuye causalidad; usa "se concentra en" / "coincide con".
+type Insight = {
+  metric_id: string;
+  severity: "info" | "warn" | "crit";
+  text: string;
+  drillTo?: () => void;
+};
+
+function InsightStrip(props: { insights: Insight[] }) {
+  const items = props.insights.filter(Boolean).slice(0, 5);
+  if (!items.length) return null;
+  return (
+    <div className="insight-strip" aria-label="Hallazgos">
+      {items.map((i, idx) => (
+        <button key={idx} className={`insight insight--${i.severity}${i.drillTo ? "" : " static"}`}
+                onClick={i.drillTo} disabled={!i.drillTo}>
+          {i.text}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// Barra VITAL contextual: máximo 4 señales según el dominio activo, comparte
+// la caché del exec (misma query key) y se pausa con la pestaña oculta
+// (react-query no refetchea en background por default).
+const VITAL_BY_DOMAIN: Record<string, string[]> = {
+  inicio: ["venta_hoy", "fact_real_mes", "bancos_mxn", "auth_pendientes"],
+  ventas: ["venta_hoy", "venta_mes", "m2_mes", "auth_pendientes"],
+  inventario: ["inv_m2", "holds_activos", "inv_edad_dias", "m2_agua"],
+  abastecimiento: ["m2_agua", "tc_banorte", "inv_m2", "fact_previa_mes"],
+  operaciones: ["venta_hoy", "m2_mes", "inv_m2", "holds_activos"],
+  finanzas: ["bancos_mxn", "por_cobrar", "por_pagar", "fact_previa_mes"],
+  inteligencia: ["venta_mes", "m2_agua", "inv_m2", "bancos_mxn"],
+  control: ["auth_pendientes", "fact_previa_mes", "holds_activos", "inv_edad_dias"],
+};
+
+function vitalValue(id: string, d: Rec): string {
+  const v = d[id];
+  switch (id) {
+    case "m2_mes": case "inv_m2": case "m2_agua": return `${n1(v)} m²`;
+    case "inv_edad_dias": return `${n0(v)} días`;
+    case "auth_pendientes": case "holds_activos": return n0(v);
+    case "tc_banorte": return n1(v);
+    default: return money(v);
+  }
+}
+
+function VitalBar(props: { domainId: string; goHome: () => void }) {
+  const q = useData(["exec"], fetchExec, { refetchInterval: 60_000 });
+  if (!q.data) return null;
+  const d = q.data as Rec;
+  const ids = VITAL_BY_DOMAIN[props.domainId] ?? VITAL_BY_DOMAIN.inicio;
+  return (
+    <div className="vitalbar" aria-label="Señales vitales">
+      {ids.map((id) => (
+        <span key={id} className="vital" title={metricTooltip(id)}>
+          <span className="vital-l">{METRICS[id]?.label ?? id}</span>
+          <strong className="vital-v">{vitalValue(id, d)}</strong>
+        </span>
+      ))}
+      <button className="vital-more" onClick={props.goHome}>Ver resumen →</button>
+    </div>
+  );
+}
+
+// ═════════ COMMAND CENTER (portada universal, responsivo) ═════════
+function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => void; go: (v: ViewKey) => void }) {
+  const ex = useData(["exec"], fetchExec, { refetchInterval: 60_000 });
+  const rz = useData(["dashboard", "resumen", props.filters], () => fetchDashboard("resumen", props.filters as Rec), { refetchInterval: TV_REFRESH_MS });
+  const ct = useData(["dashboard", "control", props.filters], () => fetchDashboard("control", props.filters as Rec), { refetchInterval: TV_REFRESH_MS });
+  const [showAll, setShowAll] = useState(false);
+
+  if (ex.loading) return <div className="grid"><Skeleton h={140} /><Skeleton h={280} /></div>;
+  if (ex.error) return <ErrorBox msg={ex.error} retry={ex.retry} />;
+  const d = ex.data! as Rec;
+  const rk = (rz.data?.kpis ?? {}) as Rec;
+  const months = rz.data ? arr(rz.data.by_month) : [];
+  const bandeja = ct.data ? arr(ct.data.bandeja) : [];
+  const pendientes = bandeja
+    .map((b) => ({ label: String(b.label ?? b.name ?? ""), count: num(b.count) }))
+    .filter((b) => b.count > 0)
+    .sort((a, b) => b.count - a.count);
+
+  const mom = num(d.venta_mom_pct);
+  const insights: Insight[] = [];
+  if (isFinite(mom) && mom !== 0) {
+    insights.push({
+      metric_id: "venta_mes", severity: mom < 0 ? "warn" : "info",
+      text: `Los pedidos del mes van ${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} contra el mes anterior (${money(d.venta_mes)} vs ${money(d.venta_mes_prev)}).`,
+      drillTo: () => props.go("ventas"),
+    });
+  }
+  const gapFact = num(d.venta_mes) - num(d.fact_real_mes);
+  if (gapFact > 0 && num(d.venta_mes) > 0) {
+    insights.push({
+      metric_id: "fact_real_mes", severity: "info",
+      text: `${money(gapFact)} de pedidos del mes aún no se reflejan como facturación timbrada (previas: ${money(d.fact_previa_mes)} en ${n0(d.fact_previa_count)} borradores).`,
+      drillTo: () => props.go("finanzas"),
+    });
+  }
+  if (num(d.auth_pendientes) > 0) {
+    insights.push({
+      metric_id: "auth_pendientes", severity: "warn",
+      text: `${n0(d.auth_pendientes)} autorización(es) de precio pendientes deteniendo negocio.`,
+      drillTo: () => props.go("ventas_auth"),
+    });
+  }
+
+  const core: Array<{ id: string; value: string; sub?: string; deltaPct?: number | null; go?: ViewKey }> = [
+    { id: "venta_hoy", value: money(d.venta_hoy), sub: "MXN", go: "ventas" },
+    { id: "fact_real_mes", value: money(d.fact_real_mes), sub: "timbrada, NC descontadas", go: "finanzas" },
+    { id: "fact_previa_mes", value: money(d.fact_previa_mes), sub: `${n0(d.fact_previa_count)} borradores`, go: "finanzas" },
+    { id: "venta_mes", value: money(d.venta_mes), deltaPct: mom, go: "ventas" },
+    { id: "bancos_mxn", value: money(d.bancos_mxn), go: "finanzas" },
+    { id: "por_cobrar", value: money(d.por_cobrar), sub: "al TC del registro", go: "finanzas" },
+    { id: "inv_m2", value: `${n1(d.inv_m2)} m²`, sub: `${n0(d.holds_activos)} holds`, go: "inventario" },
+    { id: "m2_agua", value: `${n1(d.m2_agua)} m²`, sub: `${n0(d.contenedores_agua)} contenedores`, go: "transito" },
+  ];
+  const extra: typeof core = [
+    { id: "utilidad_mes", value: money(d.utilidad_mes), sub: `Margen ${pct(d.margen_mes)}` },
+    { id: "m2_mes", value: n1(d.m2_mes) },
+    { id: "cajas_mes", value: `${n0(d.cajas_mes)} cajas`, sub: money(d.venta_cajas_mes) },
+    { id: "por_pagar", value: money(d.por_pagar), go: "finanzas" },
+    { id: "inv_edad_dias", value: `${n0(d.inv_edad_dias)} días`, go: "materiales" },
+    { id: "auth_pendientes", value: n0(d.auth_pendientes), go: "ventas_auth" },
+    { id: "tc_banorte", value: n1(d.tc_banorte) },
+  ];
+
+  return (
+    <>
+      <InsightStrip insights={insights} />
+      <div className="cc-score">
+        {(showAll ? [...core, ...extra] : core).map((k) => (
+          <Kpi key={k.id} id={k.id} value={k.value} sub={k.sub} deltaPct={k.deltaPct}
+               drillTo={k.go ? () => props.go(k.go!) : undefined} />
+        ))}
+      </div>
+      <button className="cc-toggle" onClick={() => setShowAll((s) => !s)}>
+        {showAll ? "Ver menos" : "Ver todos los indicadores"}
+      </button>
+
+      <div className="grid">
+        {months.length > 0 && (
+          <Panel title="Venta y utilidad por mes" hint="pack Resumen · 5 min" wide>
+            <ChartBox height={260} deps={[months]} config={{
+              type: "bar",
+              data: {
+                labels: months.map((r) => monthLabel(String(r.key))),
+                datasets: [
+                  { label: "Venta", data: months.map((r) => num(r.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 34, isMoney: true },
+                  { label: "Utilidad", data: months.map((r) => num(r.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 34, isMoney: true },
+                ],
+              },
+              options: { ...baseOptions(), scales: { y: axisMoney(), x: axisPlain(12) } },
+            }} />
+          </Panel>
+        )}
+
+        <Panel title="Capital comprometido" hint="liquidez vs activos no líquidos">
+          <MiniTable head={["Componente", "Monto", "Naturaleza"]} rows={[
+            { key: "b", a: "Bancos y cajas", b: money(d.bancos_mxn), c: "Líquido" },
+            { key: "ar", a: "Por cobrar", b: money(d.por_cobrar), c: "Exigible" },
+            { key: "ap", a: "Por pagar", b: `− ${money(d.por_pagar)}`, c: "Obligación" },
+            { key: "inv", a: `Inventario (${n1(d.inv_m2)} m²)`, b: money(rk.inv_valor_mxn), c: "No líquido" },
+            { key: "tr", a: `En el agua (${n1(d.m2_agua)} m²)`, b: `${n0(d.contenedores_agua)} contenedores`, c: "No líquido" },
+          ]} />
+        </Panel>
+
+        <Panel title="Atención hoy" hint="bandeja de control · click = ir" wide>
+          {pendientes.length === 0 && <Empty msg="Sin pendientes accionables en la bandeja de control." />}
+          {pendientes.length > 0 && (
+            <div className="cc-attn">
+              {pendientes.slice(0, 10).map((p, i) => (
+                <button key={i} className="cc-attn-item" onClick={() => props.go("control")}>
+                  <span className="cc-attn-count">{n0(p.count)}</span>
+                  <span className="cc-attn-label">{p.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </Panel>
+      </div>
+    </>
+  );
+}
+
+// ═════════ SUBPÁGINAS DE VENTAS (todas reutilizan el pack 'comercial':
+// misma query key ⇒ una sola consulta compartida entre páginas) ═════════
+function useComercial(filters: Filters) {
+  const f = { ...filters, source: "odoo" } as Rec;
+  return useData(["dashboard", "comercial", f], () => fetchDashboard("comercial", f));
+}
+
+function SalesSub(props: { filters: Filters; children: (k: Rec, d: Rec) => React.ReactNode }) {
+  const q = useComercial(props.filters);
+  if (q.loading) return <div className="grid"><Skeleton h={120} /><Skeleton h={300} /></div>;
+  if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
+  const d = q.data! as Rec;
+  return <>{props.children((d.kpis ?? {}) as Rec, d)}</>;
+}
+
+function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => void }) {
+  return (
+    <SalesSub filters={props.filters}>{(k) => (
+      <>
+        <InsightStrip insights={[
+          num(k.bloqueadas_monto) > 0 ? {
+            metric_id: "bloqueadas_monto", severity: "warn",
+            text: `${money(k.bloqueadas_monto)} en ${n0(k.bloqueadas_precio)} orden(es) detenidas por autorización de precio.`,
+            drillTo: () => props.go("ventas_auth"),
+          } : null as unknown as Insight,
+        ].filter(Boolean) as Insight[]} />
+        <div className="cc-score">
+          <Kpi id="conversion_pct" value={pct(k.conversion_pct)} />
+          <Kpi id="cotizaciones_abiertas" value={n0(k.cotizaciones_abiertas)} />
+          <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes`} drillTo={() => props.go("ventas_auth")} />
+          <Kpi id="venta_mxn" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes confirmadas`} />
+        </div>
+        <Empty msg="Funnel por etapa y cohortes de conversión: clasificados como brecha B (derivables) — se activan cuando el backend exponga la serie borrador→enviada→confirmada. No se muestran cifras simuladas." />
+      </>
+    )}</SalesSub>
+  );
+}
+
+function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+  return (
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const cust = arr(d.top_customers);
+      const total = num(k.venta_mxn);
+      const top5 = cust.slice(0, 5).reduce((s, c) => s + num(c.venta), 0);
+      return (
+        <>
+          <InsightStrip insights={[
+            total > 0 && cust.length > 0 ? {
+              metric_id: "venta_mxn", severity: top5 / total > 0.6 ? "warn" : "info",
+              text: `El Top 5 de clientes concentra ${pct((top5 / total) * 100)} de la venta del periodo.`,
+            } as Insight : null as unknown as Insight,
+          ].filter(Boolean) as Insight[]} />
+          <div className="cc-score">
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
+            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+          </div>
+          <Panel title="Pareto de clientes del periodo" hint="click = profundizar" wide>
+            <ChartBox height={340} deps={[cust]} config={{
+              type: "bar",
+              data: {
+                labels: cust.map((c) => String(c.name).slice(0, 34)),
+                datasets: [{ label: "Venta", data: cust.map((c) => num(c.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 20, isMoney: true }],
+              },
+              options: {
+                ...baseOptions((i) => { const c = cust[i]; props.drill({ kind: "entity", entity: "customer", value: num(c.key), label: String(c.name) }); }),
+                indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } },
+                scales: { x: axisMoney(), y: axisPlain(10.5) },
+              },
+            }} />
+          </Panel>
+        </>
+      );
+    }}</SalesSub>
+  );
+}
+
+function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+  return (
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const prods = arr(d.top_products);
+      const cats = arr(d.by_category);
+      return (
+        <>
+          <div className="cc-score">
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
+            <Kpi id="m2_mes" value={`${n1(k.m2_vendidos)} m²`} sub={`${n0(k.piezas_vendidas)} piezas (unidad separada)`} />
+            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+          </div>
+          <div className="grid">
+            <Panel title="Top productos por utilidad" hint="click = profundizar" wide>
+              <ChartBox height={320} deps={[prods]} config={{
+                type: "bar",
+                data: {
+                  labels: prods.map((p) => String(p.name).slice(0, 34)),
+                  datasets: [{ label: "Utilidad", data: prods.map((p) => num(p.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 18, isMoney: true }],
+                },
+                options: {
+                  ...baseOptions((i) => { const p = prods[i]; props.drill({ kind: "entity", entity: "product", value: num(p.key), label: String(p.name) }); }),
+                  indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } },
+                  scales: { x: axisMoney(), y: axisPlain(10.5) },
+                },
+              }} />
+            </Panel>
+            <Panel title="Venta por categoría" hint="click = profundizar">
+              <MiniTable head={["Categoría", "Venta", "m²"]} rows={cats.map((c, i) => ({
+                key: i, a: String(c.name), b: money(c.venta), c: n1(c.m2),
+                onClick: () => props.drill({ kind: "entity", entity: "category", value: num(c.key), label: String(c.name) }),
+              }))} />
+            </Panel>
+          </div>
+        </>
+      );
+    }}</SalesSub>
+  );
+}
+
+function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+  return (
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const levels = arr(d.levels);
+      const desc = num(k.descuento_mxn);
+      const venta = num(k.venta_mxn);
+      return (
+        <>
+          <InsightStrip insights={[
+            venta > 0 && desc > 0 ? {
+              metric_id: "descuento_mxn", severity: desc / venta > 0.08 ? "warn" : "info",
+              text: `El descuento otorgado equivale a ${pct((desc / venta) * 100)} de la venta del periodo (${money(desc)}); ${n0(k.descuentos_con_auth)} pasaron por autorización.`,
+            } as Insight : null as unknown as Insight,
+          ].filter(Boolean) as Insight[]} />
+          <div className="cc-score">
+            <Kpi id="realizacion_pct" value={pct(k.realizacion_pct)} />
+            <Kpi id="descuento_mxn" value={money(k.descuento_mxn)} sub={`${n0(k.descuentos_con_auth)} con autorización`} />
+            <Kpi id="auth_delta_pct" value={pct(k.auth_delta_pct)} />
+            <Kpi id="reincidencias_piso" value={n0(k.reincidencias_piso)} />
+            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+          </div>
+          <Panel title="Venta por nivel de precio" hint="click = profundizar" wide>
+            <ChartBox height={280} deps={[levels]} config={{
+              type: "bar",
+              data: {
+                labels: levels.map((l) => String(l.name)),
+                datasets: [{ label: "Venta", data: levels.map((l) => num(l.venta)), backgroundColor: PALETTE, borderRadius: 6, maxBarThickness: 46, isMoney: true }],
+              },
+              options: {
+                ...baseOptions((i) => { const l = levels[i]; props.drill({ kind: "entity", entity: "level", value: String(l.key), label: String(l.name) }); }),
+                plugins: { ...baseOptions().plugins, legend: { display: false } },
+                scales: { y: axisMoney(), x: axisPlain(12) },
+              },
+            }} />
+          </Panel>
+        </>
+      );
+    }}</SalesSub>
+  );
+}
+
+function VentasAuthView(props: { filters: Filters }) {
+  return (
+    <SalesSub filters={props.filters}>{(k) => (
+      <>
+        <div className="cc-score">
+          <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes detenidas`} />
+          <Kpi id="auth_horas_resolucion" value={`${n1(k.auth_horas_resolucion)} h`} />
+          <Kpi id="auth_pendientes" value={n0(k.auth_pendientes)} sub={`${n0(k.auth_solicitudes)} solicitadas · ${n0(k.auth_aprobadas)} aprobadas`} />
+          <Kpi id="auth_delta_pct" value={pct(k.auth_delta_pct)} />
+        </div>
+        <Panel title="Solicitudes fiscales (IVA) — flujo separado" hint="no se mezcla con precio">
+          <MiniTable head={["Concepto", "Cantidad", ""]} rows={[
+            { key: "s", a: "Solicitadas", b: n0(k.iva_solicitadas), c: "" },
+            { key: "a", a: "Aprobadas", b: n0(k.iva_aprobadas), c: "" },
+          ]} />
+        </Panel>
+        <Empty msg="Cumulative flow y control chart de resolución: brecha B — requieren la serie semanal de autorizaciones desde backend. Sin cifras simuladas." />
+      </>
+    )}</SalesSub>
+  );
+}
+
+function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
+  return (
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const sellers = arr(d.by_seller);
+      const comm = arr(d.commissions);
+      return (
+        <>
+          <div className="cc-score">
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
+            <Kpi id="comisiones_mxn" value={money(k.comisiones_mxn)}
+                 sub={num(k.venta_mxn) > 0 ? `${pct((num(k.comisiones_mxn) / num(k.venta_mxn)) * 100)} de la venta` : undefined} />
+            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+          </div>
+          <div className="grid">
+            <Panel title="Venta × utilidad por vendedor" hint="click = profundizar" wide>
+              <ChartBox height={320} deps={[sellers]} config={{
+                type: "scatter",
+                data: {
+                  datasets: sellers.map((s, i) => ({
+                    label: String(s.name), data: [{ x: num(s.venta), y: num(s.utilidad) }],
+                    backgroundColor: PALETTE[i % PALETTE.length], pointRadius: 7, pointHoverRadius: 9,
+                  })),
+                },
+                options: {
+                  ...baseOptions(),
+                  onClick: (_e: unknown, els: Array<{ datasetIndex: number }>) => {
+                    if (!els.length) return;
+                    const s = sellers[els[0].datasetIndex];
+                    props.drill({ kind: "entity", entity: "seller", value: num(s.key), label: String(s.name) });
+                  },
+                  scales: { x: axisMoney(), y: axisMoney() },
+                },
+              }} />
+            </Panel>
+            <Panel title="Comisiones del periodo" hint="commission.move · fecha plana">
+              <MiniTable head={["Participante", "Comisión", ""]} rows={comm.map((c, i) => ({
+                key: i, a: String(c.name), b: money(c.total ?? c.amount ?? c.venta), c: "",
+              }))} />
+            </Panel>
+          </div>
+        </>
+      );
+    }}</SalesSub>
+  );
+}
+
+function VentasCanalesView(props: { filters: Filters }) {
+  return (
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const arch = arr(d.architects);
+      return (
+        <>
+          <div className="cc-score">
+            <Kpi id="pct_via_arquitecto" value={pct(k.pct_via_arquitecto)} sub="de las órdenes del periodo" />
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
+          </div>
+          <Panel title="Top embajadores / especificadores" hint="órdenes originadas" wide>
+            <MiniTable head={["Embajador", "Venta", "Órdenes"]} rows={arch.map((a, i) => ({
+              key: i, a: String(a.name), b: money(a.venta), c: n0(a.count ?? a.ordenes),
+            }))} />
+          </Panel>
+        </>
+      );
+    }}</SalesSub>
+  );
+}
+
+function VentasFxView(props: { filters: Filters }) {
+  const ex = useData(["exec"], fetchExec, { refetchInterval: 60_000 });
+  const tc = ex.data ? num((ex.data as Rec).tc_banorte) : 0;
+  return (
+    <SalesSub filters={props.filters}>{(k) => (
+      <>
+        <div className="cc-score">
+          <Kpi id="exposicion_usd" value={`$${n1(k.exposicion_usd)} USD`} sub={`${n0(k.exposicion_ordenes)} órdenes · ${money(k.exposicion_mxn)}`} />
+          <Kpi id="fx_realizado_mxn" value={money(k.fx_realizado_mxn)} sub={`${n0(k.fx_ordenes)} órdenes cobradas`} />
+          <Kpi id="tc_banorte" value={n1(tc)} />
+        </div>
+        <Panel title="Sensibilidad simple (parámetros visibles, no contable)" hint="exposición × Δ TC">
+          <MiniTable head={["Escenario", "Efecto sobre exposición", ""]} rows={[-1, -0.5, 0.5, 1].map((delta) => ({
+            key: String(delta),
+            a: `TC ${delta > 0 ? "+" : ""}${delta.toFixed(2)} MXN`,
+            b: money(num(k.exposicion_usd) * delta),
+            c: "",
+          }))} />
+        </Panel>
+      </>
+    )}</SalesSub>
+  );
+}
+
 function App() {
   const boot = useMemo<Rec>(() => {
     try {
@@ -1982,8 +2480,10 @@ function App() {
   // en Ventas y el chip de Resumen se oculta por CSS.
   const isMobileScreen = typeof window !== "undefined" &&
     window.matchMedia && window.matchMedia("(max-width: 760px)").matches;
+  // El Resumen TV es exclusivo de escritorio; en móvil su equivalente es
+  // el Command Center responsivo (portada universal desde Fase 2).
   const [view, setView] = useState<ViewKey>(
-    isMobileScreen && initial.view === "resumen" ? "ventas" : initial.view
+    isMobileScreen && initial.view === "resumen" ? "inicio" : initial.view
   );
 
   // ── Navegación anidada (Fase 1 del rediseño) ──────────────────────────
@@ -2021,7 +2521,7 @@ function App() {
     if (typeof window === "undefined" || !window.matchMedia) return;
     const mq = window.matchMedia("(max-width: 760px)");
     const enforce = () => {
-      if (mq.matches) setView((v) => (v === "resumen" ? "ventas" : v));
+      if (mq.matches) setView((v) => (v === "resumen" ? "inicio" : v));
     };
     enforce();
     mq.addEventListener?.("change", enforce);
@@ -2153,6 +2653,18 @@ function App() {
               <span className="crumb-q">{crumbPage.question}</span>
             </div>
           )}
+          {!navLegacy && view !== "resumen" && crumbDomain && (
+            <VitalBar domainId={crumbDomain.id} goHome={() => setView("inicio")} />
+          )}
+          {view === "inicio" && <CommandCenterView filters={filters} drill={drill} go={setView} />}
+          {view === "ventas_conversion" && <VentasConversionView filters={filters} go={setView} />}
+          {view === "ventas_clientes" && <VentasClientesView filters={filters} drill={drill} />}
+          {view === "ventas_productos" && <VentasProductosView filters={filters} drill={drill} />}
+          {view === "ventas_precios" && <VentasPreciosView filters={filters} drill={drill} />}
+          {view === "ventas_auth" && <VentasAuthView filters={filters} />}
+          {view === "ventas_equipo" && <VentasEquipoView filters={filters} drill={drill} />}
+          {view === "ventas_canales" && <VentasCanalesView filters={filters} />}
+          {view === "ventas_fx" && <VentasFxView filters={filters} />}
           {view === "resumen" && <ResumenView filters={filters} paused={drillStack.length > 0} />}
           {view === "ventas" && <VentasView filters={filters} drill={drill} />}
           {view === "materiales" && <MaterialesView filters={filters} drill={drill} />}
