@@ -273,7 +273,6 @@ function TvExec() {
       <TvStat label="Inventario en patio" value={`${n1(d.inv_m2)} m²`} sub={`${n0(d.holds_activos)} holds activos`} />
       <TvStat label="Antigüedad de inventario" value={`${n0(d.inv_edad_dias)} días`} sub="promedio desde creación del lote" tone={d.inv_edad_dias > 365 ? "bad" : d.inv_edad_dias > 180 ? "mid" : "good"} />
       <TvStat label="En el agua" value={`${n1(d.m2_agua)} m²`} sub={`${n0(d.contenedores_agua)} contenedores`} />
-      <TvStat label="TC Banorte" value={n1(d.tc_banorte)} sub={`Autorizaciones pendientes: ${n0(d.auth_pendientes)}`} />
     </div>
   );
 }
@@ -2141,7 +2140,6 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
     { id: "por_pagar", value: money(d.por_pagar), go: "finanzas" },
     { id: "inv_edad_dias", value: `${n0(d.inv_edad_dias)} días`, go: "materiales" },
     { id: "auth_pendientes", value: n0(d.auth_pendientes), go: "ventas_auth" },
-    { id: "tc_banorte", value: n1(d.tc_banorte) },
   ];
 
   return (
