@@ -617,19 +617,37 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
 // ─────────────────────────────────────────────────────────────────────────────
 // MATERIALES
 // ─────────────────────────────────────────────────────────────────────────────
+
+// Edad legible en años y meses ("2 a 4 m"), nunca en días crudos.
+function fmtAge(days: number): string {
+  let y = Math.floor(days / 365);
+  let m = Math.round((days % 365) / 30);
+  if (m >= 12) { y += 1; m = 0; }
+  if (!y) return `${m} m`;
+  if (!m) return `${y} a`;
+  return `${y} a ${m} m`;
+}
+
+// Lotes con fechas absurdas (> ~8 años) saturaban la gráfica de capital
+// estancado: fuera del gráfico (siguen en la tabla de abajo).
+const AGE_CAP_DAYS = 3000;
+
 function MaterialesView(props: { filters: Filters; drill: (n: DrillNode) => void }) {
   const q = useData(["time_to_sell"], fetchTimeToSell);
   const inv = useData(["dashboard", "inventario", props.filters], () => fetchDashboard("inventario", props.filters as Rec));
   if (q.loading) return <div className="grid"><Skeleton h={90} /><Skeleton h={480} /></div>;
   if (q.error) return <ErrorBox msg={q.error} retry={q.retry} />;
   const rows = arr(q.data);
-  const slow = rows.filter((r) => r.edad_stock != null).slice(0, 14);
+  const slow = rows
+    .filter((r) => r.edad_stock != null && num(r.edad_stock) <= AGE_CAP_DAYS)
+    .sort((a, b) => num(b.edad_stock) - num(a.edad_stock))
+    .slice(0, 12);
   const topStock = inv.data ? arr(inv.data.top_stock) : [];
   return (
     <>
       <div className="stats">
         <Stat label="Materiales analizados" value={n0(rows.length)} sub="con venta en 12 meses o stock con lote (top 200)" />
-        <Stat label="Más lento en patio" value={slow[0] ? `${n1(slow[0].edad_stock)} días` : "—"} sub={slow[0] ? String(slow[0].name).slice(0, 40) : ""} tone="bad" />
+        <Stat label="Más lento en patio" value={slow[0] ? fmtAge(num(slow[0].edad_stock)) : "—"} sub={slow[0] ? String(slow[0].name).slice(0, 40) : ""} tone="bad" />
         <Stat label="m² en stock (analizados)" value={n1(rows.reduce((s, r) => s + num(r.m2_stock), 0))} />
         <Stat label="m² vendidos 12 meses" value={n1(rows.reduce((s, r) => s + num(r.m2_vendidos), 0))} />
       </div>
@@ -638,23 +656,50 @@ function MaterialesView(props: { filters: Filters; drill: (n: DrillNode) => void
       )}
       <div className="grid">
         {slow.length > 0 && (
-          <Panel title="Capital estancado: edad del stock por material" hint="click = profundizar" wide>
-            <ChartBox height={360} deps={[slow]} config={{
-              type: "bar",
-              data: {
-                labels: slow.map((r) => String(r.name).slice(0, 42)),
-                datasets: [{ label: "Días en patio (stock actual)", data: slow.map((r) => num(r.edad_stock)), backgroundColor: slow.map((r) => (num(r.edad_stock) > 365 ? "rgba(220,38,38,.8)" : "rgba(217,119,6,.8)")), borderRadius: 5, maxBarThickness: 18 }],
-              },
-              options: {
-                ...baseOptions((i) => {
-                  const r = slow[i];
-                  props.drill({ kind: "entity", entity: "product", value: num(r.tmpl_id), label: String(r.name) });
-                }),
-                indexAxis: "y",
-                plugins: { ...baseOptions().plugins, legend: { display: false } },
-                scales: { x: axisMoney(), y: axisPlain(10.5) },
-              },
-            }} />
+          <Panel title="Capital estancado: edad del stock por material" hint="en años y meses · edades > 8 años fuera (lotes legacy) · click = profundizar" wide>
+            <ChartBox height={360} deps={[slow]} config={(() => {
+              const base = baseOptions((i) => {
+                const r = slow[i];
+                props.drill({ kind: "entity", entity: "product", value: num(r.tmpl_id), label: String(r.name) });
+              });
+              return {
+                type: "bar",
+                data: {
+                  labels: slow.map((r) => String(r.name).slice(0, 42)),
+                  datasets: [{
+                    label: "Tiempo en patio",
+                    data: slow.map((r) => num(r.edad_stock)),
+                    backgroundColor: slow.map((r) =>
+                      num(r.edad_stock) > 730 ? "rgba(220,38,38,.85)"
+                      : num(r.edad_stock) > 365 ? "rgba(234,88,12,.85)"
+                      : "rgba(217,119,6,.7)"),
+                    borderRadius: 5, maxBarThickness: 20,
+                  }],
+                },
+                options: {
+                  ...base,
+                  indexAxis: "y",
+                  plugins: {
+                    ...base.plugins,
+                    legend: { display: false },
+                    tooltip: {
+                      ...base.plugins.tooltip,
+                      callbacks: {
+                        label: (ctx: any) => {
+                          const r = slow[ctx.dataIndex];
+                          return ` ${fmtAge(num(r.edad_stock))} en patio · ${n1(num(r.m2_stock))} m² detenidos · ${n0(num(r.lots_stock))} lotes`;
+                        },
+                      },
+                    },
+                  },
+                  scales: {
+                    // Rejilla por AÑOS (365 d) con etiquetas "1 a", "2 a"…
+                    x: { ...axisMoney(), ticks: { ...axisMoney().ticks, stepSize: 365, callback: (v: number) => fmtAge(Number(v)) } },
+                    y: axisPlain(10.5),
+                  },
+                },
+              };
+            })()} />
           </Panel>
         )}
         {rows.length > 0 && (
@@ -665,7 +710,7 @@ function MaterialesView(props: { filters: Filters; drill: (n: DrillNode) => void
                   <tr>
                     <th>Material</th>
                     <th className="r">Días prom. en vender</th><th className="r">m² vendidos 12m</th>
-                    <th className="r">Edad stock (días)</th><th className="r">m² en stock</th><th className="r">Lotes stock</th>
+                    <th className="r">Edad stock</th><th className="r">m² en stock</th><th className="r">Lotes stock</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -674,7 +719,7 @@ function MaterialesView(props: { filters: Filters; drill: (n: DrillNode) => void
                       <td className="ell">{String(r.name)}</td>
                       <td className="r">{r.dias_venta == null ? "—" : n1(r.dias_venta)}</td>
                       <td className="r">{n1(r.m2_vendidos)}</td>
-                      <td className={"r " + (num(r.edad_stock) > 365 ? "neg" : "")}>{r.edad_stock == null ? "—" : n1(r.edad_stock)}</td>
+                      <td className={"r " + (num(r.edad_stock) > 365 ? "neg" : "")}>{r.edad_stock == null ? "—" : fmtAge(num(r.edad_stock))}</td>
                       <td className="r strong">{n1(r.m2_stock)}</td>
                       <td className="r mut">{n0(r.lots_stock)}</td>
                     </tr>
