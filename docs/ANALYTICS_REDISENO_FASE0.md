@@ -131,3 +131,26 @@ instrucción previa del negocio.
     series del backend — candidatas a F2.1).
 - **Pendiente próximo**: F2.1 (series backend para funnel/cohortes/control
   charts), fixtures de línea base en QA, luego F3.
+- **F2.1 — completada** (v19.0.49.0.0):
+  - **SEGURIDAD (payload)**: `_scrub_profit` en el modelo — para usuarios
+    SIN permiso de Autorizador de Precios, utilidad/margen/costos y el
+    valor de inventario (reconstruye costo) viajan como null desde el
+    SERVIDOR en todos los RPCs (dashboard, exec, drill y atajos,
+    time_to_sell, order_lines); `set_product_cost` ya estaba blindado. El
+    front recibe `perm_profit` y NO pinta esos elementos (sin ceros
+    falsos) en: ticker TV, Command Center (tarjeta y serie), subpáginas
+    de Ventas (margen, top-productos cambia a venta, scatter del equipo
+    se sustituye por tabla de venta) y drill de orden (columnas de costo
+    ocultas). LIMITACIÓN documentada: vistas legacy (Ventas visión,
+    Materiales, paneles TV) pueden mostrar $0 en campos enmascarados para
+    visores nivel 1 — la seguridad es de servidor; la limpieza cosmética
+    completa va en el sweep de F6.
+  - **Series nuevas clase B en `_dom_comercial`**: funnel de cotizaciones
+    creadas (borrador→enviada→confirmada + canceladas aparte), aging del
+    backlog abierto (0-7/8-14/15-30/>30), top cotizaciones estancadas,
+    flujo semanal de autorizaciones (entradas vs resueltas por write_date
+    de estados terminales) y percentiles P50/P75/P90 de resolución
+    (percentile_cont — el promedio esconde extremos).
+  - Conversión y Autorizaciones estrenan sus visuales (funnel, aging,
+    estancadas con insight, flujo semanal, percentiles en el KPI) — las
+    dos brechas B declaradas en F2 quedan cerradas.

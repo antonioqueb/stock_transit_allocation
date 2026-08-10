@@ -78,6 +78,10 @@ export const ExecSummarySchema = z.object({
   // Medición mensual diaria
   fact_real_mes: zn, fact_previa_mes: zn, fact_previa_count: zn,
   cajas_mes: zn, venta_cajas_mes: zn,
+  // Permiso de utilidad/costos: default true para compatibilidad con
+  // backend previo; el backend nuevo lo manda explícito y ENMASCARA en
+  // servidor — este flag solo decide qué pintar.
+  perm_profit: z.catch(z.boolean(), true),
 });
 export type ExecSummary = z.infer<typeof ExecSummarySchema>;
 
@@ -94,9 +98,10 @@ export const OrderLinesSchema = z.object({
   }),
   lines: z.catch(z.array(z.object({
     product: zs, categ: zs, qty: zn, is_area: zb,
-    level: zs, price_unit: zn, venta: zn, costo: zn, utilidad: zn,
-    margen: zn, tmpl_id: zn,
+    level: zs, price_unit: zn, venta: zn, costo: znn, utilidad: znn,
+    margen: znn, tmpl_id: zn,
   })), []),
+  perm_profit: z.catch(z.boolean(), true),
 });
 export type OrderLines = z.infer<typeof OrderLinesSchema>;
 

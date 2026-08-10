@@ -313,6 +313,45 @@ class SomAnalytics(models.AbstractModel):
     # RPC 1: tablero por dominio
     # ==================================================================
 
+    # ── F2.1: privacidad de utilidad/costos EN EL PAYLOAD ────────────────
+    # El acceso al tablero es de dos niveles: Visor (nivel 1) y Autorizador
+    # de Precios (nivel 2). La utilidad, el margen y todo derivado del costo
+    # all-in solo pueden viajar al nivel 2; para el nivel 1 se enmascaran en
+    # el SERVIDOR (no ocultamiento CSS). Los valores enmascarados viajan
+    # como null y el front decide no pintarlos (jamás ceros falsos).
+    _PROFIT_KEYS = frozenset({
+        'utilidad', 'utilidad_mxn', 'utilidad_mes', 'margen', 'margen_pct',
+        'margen_mes', 'costo', 'costo_base_usd', 'cost_allin_usd',
+        # Valor de inventario = m² × costo all-in → permite reconstruir costo
+        'valor', 'valor_mxn', 'inv_valor_mxn',
+    })
+
+    def _profit_allowed(self):
+        return self.env.user.has_group(
+            'inventory_shopping_cart.group_price_authorizer')
+
+    def _scrub_profit(self, data):
+        allowed = self._profit_allowed()
+        if allowed:
+            if isinstance(data, dict):
+                data['perm_profit'] = True
+            return data
+
+        keys = self._PROFIT_KEYS
+
+        def walk(x):
+            if isinstance(x, dict):
+                return {k: (None if k in keys else walk(v))
+                        for k, v in x.items()}
+            if isinstance(x, list):
+                return [walk(i) for i in x]
+            return x
+
+        out = walk(data)
+        if isinstance(out, dict):
+            out['perm_profit'] = False
+        return out
+
     @api.model
     def get_dashboard(self, domain, filters=None):
         self._check_access()
@@ -331,7 +370,7 @@ class SomAnalytics(models.AbstractModel):
             'pronosticos': self._dom_pronosticos,
         }.get(domain, self._dom_resumen)
         try:
-            return fn(f)
+            return self._scrub_profit(fn(f))
         except AccessError:
             raise
         except Exception as exc:
@@ -637,6 +676,108 @@ class SomAnalytics(models.AbstractModel):
                 WHERE gs.create_date >= %s AND gs.create_date <= %s
                 GROUP BY 1 ORDER BY 2 DESC LIMIT 10
             """, (dt[0], dt[1]), default=[])]
+
+        # ── F2.1: series para el storytelling de conversión y autorizaciones ──
+        dtf, dtt = self._bounds(f)
+
+        # Funnel de cotizaciones CREADAS en el periodo (solo etapas que el
+        # sistema registra: borrador → enviada → confirmada; canceladas aparte).
+        stage_rows = self._sq("""
+            SELECT so.state, COUNT(*), COALESCE(SUM(so.amount_total), 0)
+            FROM sale_order so
+            WHERE so.create_date >= %s AND so.create_date <= %s
+              AND so.state IN ('draft', 'sent', 'sale', 'cancel')
+            GROUP BY so.state
+        """, (dtf, dtt), default=[])
+        smap = {a: (b, c) for (a, b, c) in stage_rows}
+        pack['funnel'] = [
+            {'stage': lbl, 'count': smap.get(st, (0, 0))[0],
+             'amount': round(smap.get(st, (0, 0))[1] or 0.0, 2)}
+            for (st, lbl) in [('draft', 'Borrador'), ('sent', 'Enviada'),
+                              ('sale', 'Confirmada'), ('cancel', 'Cancelada')]
+        ]
+
+        # Aging de cotizaciones ABIERTAS hoy (borrador/enviada, sin filtro de
+        # periodo: el backlog vivo es lo accionable).
+        pack['quotes_aging'] = [
+            {'bucket': b, 'count': c, 'amount': round(m or 0.0, 2)}
+            for (b, c, m) in self._sq("""
+                SELECT CASE
+                        WHEN CURRENT_DATE - so.create_date::date <= 7 THEN '0-7 días'
+                        WHEN CURRENT_DATE - so.create_date::date <= 14 THEN '8-14 días'
+                        WHEN CURRENT_DATE - so.create_date::date <= 30 THEN '15-30 días'
+                        ELSE '> 30 días' END AS bucket,
+                       COUNT(*), COALESCE(SUM(so.amount_total), 0)
+                FROM sale_order so
+                WHERE so.state IN ('draft', 'sent')
+                GROUP BY 1
+            """, default=[])
+        ]
+        _AGING_ORDER = ['0-7 días', '8-14 días', '15-30 días', '> 30 días']
+        pack['quotes_aging'].sort(key=lambda r: _AGING_ORDER.index(r['bucket']))
+
+        # Cotizaciones estancadas: mayores montos abiertos con su antigüedad.
+        pack['stalled_quotes'] = [
+            {'name': a, 'partner': b, 'seller': c,
+             'amount': round(d or 0.0, 2), 'days': int(e or 0)}
+            for (a, b, c, d, e) in self._sq("""
+                SELECT so.name, COALESCE(rp.name, ''), COALESCE(sp.name, ''),
+                       so.amount_total,
+                       CURRENT_DATE - so.create_date::date
+                FROM sale_order so
+                LEFT JOIN res_partner rp ON rp.id = so.partner_id
+                LEFT JOIN res_users ru ON ru.id = so.user_id
+                LEFT JOIN res_partner sp ON sp.id = ru.partner_id
+                WHERE so.state IN ('draft', 'sent')
+                ORDER BY so.amount_total DESC
+                LIMIT 15
+            """, default=[])
+        ]
+
+        # Flujo semanal de autorizaciones: entradas vs resueltas (la
+        # resolución usa write_date de los estados terminales — mismo criterio
+        # que auth_horas_resolucion).
+        created = dict((a, b) for (a, b) in self._sq("""
+            SELECT to_char(create_date, 'IYYY-IW'), COUNT(*)
+            FROM price_authorization
+            WHERE create_date >= %s AND create_date <= %s
+            GROUP BY 1
+        """, (dtf, dtt), default=[]))
+        resolved = dict((a, b) for (a, b) in self._sq("""
+            SELECT to_char(write_date, 'IYYY-IW'), COUNT(*)
+            FROM price_authorization
+            WHERE state IN ('approved', 'rejected', 'expired')
+              AND write_date >= %s AND write_date <= %s
+            GROUP BY 1
+        """, (dtf, dtt), default=[]))
+        weeks = sorted(set(created) | set(resolved))
+        pack['auth_weekly'] = [
+            {'week': w[5:], 'created': created.get(w, 0),
+             'resolved': resolved.get(w, 0)}
+            for w in weeks
+        ]
+
+        # Percentiles de resolución (mediana/P75/P90 en horas): el promedio
+        # solo esconde los extremos.
+        prow = self._sq("""
+            SELECT
+                percentile_cont(0.5) WITHIN GROUP (ORDER BY horas),
+                percentile_cont(0.75) WITHIN GROUP (ORDER BY horas),
+                percentile_cont(0.9) WITHIN GROUP (ORDER BY horas)
+            FROM (
+                SELECT EXTRACT(EPOCH FROM (write_date - create_date)) / 3600.0
+                       AS horas
+                FROM price_authorization
+                WHERE state IN ('approved', 'rejected')
+                  AND write_date >= %s AND write_date <= %s
+            ) t
+        """, (dtf, dtt), default=[(None, None, None)])[0]
+        pack['auth_percentiles'] = {
+            'p50': round(float(prow[0]), 1) if prow[0] is not None else None,
+            'p75': round(float(prow[1]), 1) if prow[1] is not None else None,
+            'p90': round(float(prow[2]), 1) if prow[2] is not None else None,
+        }
+
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -2441,14 +2582,13 @@ class SomAnalytics(models.AbstractModel):
         self._check_access()
         f = dict(filters or {})
         if entity == 'aging_date':
-            return self._drill_aging_date(str(value))
+            return self._scrub_profit(self._drill_aging_date(str(value)))
         if entity == 'aging_folio':
-            return self._drill_aging_folio(str(value))
+            return self._scrub_profit(self._drill_aging_folio(str(value)))
         if entity in ('partner_ar', 'partner_ap'):
-            return self._drill_partner_fin(int(value),
-                                           'out_invoice'
-                                           if entity == 'partner_ar'
-                                           else 'in_invoice')
+            return self._scrub_profit(self._drill_partner_fin(
+                int(value),
+                'out_invoice' if entity == 'partner_ar' else 'in_invoice'))
         where_map = {
             'month': ("to_char(so.date_order,'YYYY-MM') = %(dv)s", str(value)),
             'product': ('pt.id = %(dv)s', int(value)),
@@ -2520,7 +2660,7 @@ class SomAnalytics(models.AbstractModel):
             except Exception:
                 self.env.cr.execute('SELECT 1')
                 out['por_cobrar'] = 0.0
-        return out
+        return self._scrub_profit(out)
 
     _AGE_CASE = """CASE
         WHEN NOW() - sl.create_date <= INTERVAL '30 days' THEN '0-30 días'
@@ -2848,7 +2988,7 @@ class SomAnalytics(models.AbstractModel):
             cajas_mes = float(row[0] or 0.0)
             venta_cajas_mes = float(row[1] or 0.0)
 
-        return {
+        return self._scrub_profit({
             'fact_real_mes': round(fact_real_mes, 2),
             'fact_previa_mes': round(fact_previa_mes, 2),
             'fact_previa_count': fact_previa_count,
@@ -2875,7 +3015,7 @@ class SomAnalytics(models.AbstractModel):
             'auth_pendientes': pend_precio,
             'tc_banorte': rate,
             'ts': fields.Datetime.now().isoformat(),
-        }
+        })
 
     @api.model
     def get_bank_balances(self):
@@ -2970,13 +3110,13 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE so.id = %s
         """, (int(order_id),), default=[('', '', '', '', 'MXN', 0)])[0]
-        return {
+        return self._scrub_profit({
             'order': {'id': int(order_id), 'name': head[0],
                       'partner': head[1], 'date': head[2],
                       'seller': head[3], 'currency': head[4],
                       'amount_total': round(head[5] or 0, 2)},
             'lines': lines,
-        }
+        })
 
     @api.model
     def get_time_to_sell(self, filters=None):
@@ -3044,7 +3184,7 @@ class SomAnalytics(models.AbstractModel):
                 'lots_stock': qr[4] if qr else 0,
             })
         out.sort(key=lambda x: -(x['edad_stock'] or x['dias_venta'] or 0))
-        return out[:200]
+        return self._scrub_profit(out[:200])
 
 class ProductTemplateCostCurrency(models.Model):
     _inherit = 'product.template'

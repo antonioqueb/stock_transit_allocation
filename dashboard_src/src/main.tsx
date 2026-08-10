@@ -262,7 +262,9 @@ function TvExec() {
       <TvStat label="Venta cajas nacionales" value={`${n0(d.cajas_mes)} cajas`} sub={`${money(d.venta_cajas_mes)} en líneas por empaque estándar`} />
       <TvStat label="Pedidos del mes (sistema)" value={money(d.venta_mes)}
         sub={`${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs mes anterior · cierre en el mes no garantizado`} tone={mom >= 0 ? "good" : "bad"} />
-      <TvStat label="Utilidad del mes" value={money(d.utilidad_mes)} sub={`Margen ${pct(d.margen_mes)}`} tone={marginTone(d.margen_mes)} />
+      {d.perm_profit !== false && (
+        <TvStat label="Utilidad del mes" value={money(d.utilidad_mes)} sub={`Margen ${pct(d.margen_mes)}`} tone={marginTone(d.margen_mes)} />
+      )}
       <TvStat label="m² vendidos del mes" value={n1(d.m2_mes)} />
       <TvStat label="Dinero en bancos" value={money(d.bancos_mxn)} tone="good" />
       <TvStat label="Me deben" value={money(d.por_cobrar)} sub="MXN al TC del día de registro" />
@@ -1798,6 +1800,9 @@ function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: Dri
           const d = q.data!;
           const o = (d.order ?? {}) as Rec;
           const lines = arr(d.lines);
+          // Sin permiso de costos el servidor enmascara utilidad/costo/margen
+          // (viajan null): aquí solo se decide NO pintarlos — cero ceros falsos.
+          const canProfit = (d as Rec).perm_profit !== false;
           const venta = lines.reduce((s, l) => s + num(l.venta), 0);
           const util = lines.reduce((s, l) => s + num(l.utilidad), 0);
           return (
@@ -1805,14 +1810,14 @@ function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: Dri
               <div className="stats drill-stats">
                 <Stat label="Cliente" value={String(o.partner)} sub={`${o.date} · ${o.seller} · ${o.currency}`} />
                 <Stat label="Venta MXN" value={money(venta)} />
-                <Stat label="Utilidad all-in" value={money(util)} tone={util < 0 ? "bad" : "good"} />
-                <Stat label="Margen" value={venta ? pct((util / venta) * 100) : "—"} tone={marginTone(venta ? (util / venta) * 100 : 0)} />
+                {canProfit && <Stat label="Utilidad all-in" value={money(util)} tone={util < 0 ? "bad" : "good"} />}
+                {canProfit && <Stat label="Margen" value={venta ? pct((util / venta) * 100) : "—"} tone={marginTone(venta ? (util / venta) * 100 : 0)} />}
               </div>
-              <Panel title="Utilidad por material de esta venta" hint="click en material = seguir profundizando">
+              <Panel title={canProfit ? "Utilidad por material de esta venta" : "Materiales de esta venta"} hint="click en material = seguir profundizando">
                 <div className="tablewrap tall">
                   <table>
                     <thead>
-                      <tr><th>Material</th><th>Categoría</th><th>Nivel</th><th className="r">Cant.</th><th className="r">Venta</th><th className="r">Costo all-in</th><th className="r">Utilidad</th><th className="r">Margen</th></tr>
+                      <tr><th>Material</th><th>Categoría</th><th>Nivel</th><th className="r">Cant.</th><th className="r">Venta</th>{canProfit && <th className="r">Costo all-in</th>}{canProfit && <th className="r">Utilidad</th>}{canProfit && <th className="r">Margen</th>}</tr>
                     </thead>
                     <tbody>
                       {lines.map((l, i) => (
@@ -1822,9 +1827,9 @@ function DrillPanel(props: { stack: DrillNode[]; filters: Filters; push: (n: Dri
                           <td>{String(l.level)}</td>
                           <td className="r">{n1(l.qty)}{l.is_area ? " m²" : " pz"}</td>
                           <td className="r strong">{money(l.venta)}</td>
-                          <td className="r mut">{money(l.costo)}</td>
-                          <td className={"r " + (num(l.utilidad) < 0 ? "neg" : "")}>{money(l.utilidad)}</td>
-                          <td className="r"><Pill tone={marginTone(num(l.margen))}>{pct(l.margen)}</Pill></td>
+                          {canProfit && <td className="r mut">{money(l.costo)}</td>}
+                          {canProfit && <td className={"r " + (num(l.utilidad) < 0 ? "neg" : "")}>{money(l.utilidad)}</td>}
+                          {canProfit && <td className="r"><Pill tone={marginTone(num(l.margen))}>{pct(l.margen)}</Pill></td>}
                         </tr>
                       ))}
                     </tbody>
@@ -2085,6 +2090,7 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
   if (ex.loading) return <div className="grid"><Skeleton h={140} /><Skeleton h={280} /></div>;
   if (ex.error) return <ErrorBox msg={ex.error} retry={ex.retry} />;
   const d = ex.data! as Rec;
+  const canProfit = d.perm_profit !== false;
   const rk = (rz.data?.kpis ?? {}) as Rec;
   const months = rz.data ? arr(rz.data.by_month) : [];
   const bandeja = ct.data ? arr(ct.data.bandeja) : [];
@@ -2129,7 +2135,7 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
     { id: "m2_agua", value: `${n1(d.m2_agua)} m²`, sub: `${n0(d.contenedores_agua)} contenedores`, go: "transito" },
   ];
   const extra: typeof core = [
-    { id: "utilidad_mes", value: money(d.utilidad_mes), sub: `Margen ${pct(d.margen_mes)}` },
+    ...(canProfit ? [{ id: "utilidad_mes", value: money(d.utilidad_mes), sub: `Margen ${pct(d.margen_mes)}` }] : []),
     { id: "m2_mes", value: n1(d.m2_mes) },
     { id: "cajas_mes", value: `${n0(d.cajas_mes)} cajas`, sub: money(d.venta_cajas_mes) },
     { id: "por_pagar", value: money(d.por_pagar), go: "finanzas" },
@@ -2160,7 +2166,7 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
                 labels: months.map((r) => monthLabel(String(r.key))),
                 datasets: [
                   { label: "Venta", data: months.map((r) => num(r.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 34, isMoney: true },
-                  { label: "Utilidad", data: months.map((r) => num(r.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 34, isMoney: true },
+                  ...(canProfit ? [{ label: "Utilidad", data: months.map((r) => num(r.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 34, isMoney: true }] : []),
                 ],
               },
               options: { ...baseOptions(), scales: { y: axisMoney(), x: axisPlain(12) } },
@@ -2213,24 +2219,63 @@ function SalesSub(props: { filters: Filters; children: (k: Rec, d: Rec) => React
 
 function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => void }) {
   return (
-    <SalesSub filters={props.filters}>{(k) => (
-      <>
-        <InsightStrip insights={[
-          num(k.bloqueadas_monto) > 0 ? {
-            metric_id: "bloqueadas_monto", severity: "warn",
-            text: `${money(k.bloqueadas_monto)} en ${n0(k.bloqueadas_precio)} orden(es) detenidas por autorización de precio.`,
-            drillTo: () => props.go("ventas_auth"),
-          } : null as unknown as Insight,
-        ].filter(Boolean) as Insight[]} />
-        <div className="cc-score">
-          <Kpi id="conversion_pct" value={pct(k.conversion_pct)} />
-          <Kpi id="cotizaciones_abiertas" value={n0(k.cotizaciones_abiertas)} />
-          <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes`} drillTo={() => props.go("ventas_auth")} />
-          <Kpi id="venta_mxn" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes confirmadas`} />
-        </div>
-        <Empty msg="Funnel por etapa y cohortes de conversión: clasificados como brecha B (derivables) — se activan cuando el backend exponga la serie borrador→enviada→confirmada. No se muestran cifras simuladas." />
-      </>
-    )}</SalesSub>
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const funnel = arr(d.funnel).filter((s) => String(s.stage) !== "Cancelada");
+      const cancel = arr(d.funnel).find((s) => String(s.stage) === "Cancelada");
+      const aging = arr(d.quotes_aging);
+      const stalled = arr(d.stalled_quotes);
+      return (
+        <>
+          <InsightStrip insights={[
+            num(k.bloqueadas_monto) > 0 ? {
+              metric_id: "bloqueadas_monto", severity: "warn",
+              text: `${money(k.bloqueadas_monto)} en ${n0(k.bloqueadas_precio)} orden(es) detenidas por autorización de precio.`,
+              drillTo: () => props.go("ventas_auth"),
+            } : null as unknown as Insight,
+            stalled.length > 0 && num(stalled[0].days) > 30 ? {
+              metric_id: "cotizaciones_abiertas", severity: "warn",
+              text: `La cotización abierta de mayor monto (${money(stalled[0].amount)}, ${String(stalled[0].partner)}) lleva ${n0(stalled[0].days)} días sin resolverse.`,
+            } as Insight : null as unknown as Insight,
+          ].filter(Boolean) as Insight[]} />
+          <div className="cc-score">
+            <Kpi id="conversion_pct" value={pct(k.conversion_pct)} />
+            <Kpi id="cotizaciones_abiertas" value={n0(k.cotizaciones_abiertas)} />
+            <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes`} drillTo={() => props.go("ventas_auth")} />
+            <Kpi id="venta_mxn" value={money(k.venta_mxn)} sub={`${n0(k.ordenes)} órdenes confirmadas`} />
+          </div>
+          <div className="grid">
+            <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"} wide>
+              <ChartBox height={240} deps={[funnel]} config={{
+                type: "bar",
+                data: {
+                  labels: funnel.map((s) => `${s.stage} (${n0(s.count)})`),
+                  datasets: [{ label: "Monto", data: funnel.map((s) => num(s.amount)), backgroundColor: ["#94a3b8", "#0ea5e9", "#0b57d0"], borderRadius: 6, maxBarThickness: 46, isMoney: true }],
+                },
+                options: { ...baseOptions(), indexAxis: "y", plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { x: axisMoney(), y: axisPlain(12) } },
+              }} />
+            </Panel>
+            <Panel title="Antigüedad del backlog abierto" hint="cotizaciones vivas hoy">
+              <ChartBox height={240} deps={[aging]} config={{
+                type: "bar",
+                data: {
+                  labels: aging.map((b) => String(b.bucket)),
+                  datasets: [{ label: "Monto abierto", data: aging.map((b) => num(b.amount)), backgroundColor: ["#059669", "#0ea5e9", "#d97706", "#dc2626"], borderRadius: 6, maxBarThickness: 40, isMoney: true }],
+                },
+                options: { ...baseOptions(), plugins: { ...baseOptions().plugins, legend: { display: false } }, scales: { y: axisMoney(), x: axisPlain(11) } },
+              }} />
+            </Panel>
+            <Panel title="Cotizaciones estancadas de mayor monto" hint="abiertas hoy · mayor monto primero" wide>
+              <MiniTable head={["Cotización · Cliente · Vendedor", "Monto", "Días abierta"]} rows={stalled.map((s, i) => ({
+                key: i,
+                a: `${String(s.name)} · ${String(s.partner)}${s.seller ? ` · ${String(s.seller)}` : ""}`,
+                b: money(s.amount),
+                c: <span className={num(s.days) > 30 ? "neg" : undefined}>{n0(s.days)}</span>,
+              }))} />
+            </Panel>
+          </div>
+        </>
+      );
+    }}</SalesSub>
   );
 }
 
@@ -2250,7 +2295,7 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
           ].filter(Boolean) as Insight[]} />
           <div className="cc-score">
             <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
-            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+            {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <Panel title="Pareto de clientes del periodo" hint="click = profundizar" wide>
             <ChartBox height={340} deps={[cust]} config={{
@@ -2277,20 +2322,23 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
     <SalesSub filters={props.filters}>{(k, d) => {
       const prods = arr(d.top_products);
       const cats = arr(d.by_category);
+      const canProfit = (d as Rec).perm_profit !== false;
       return (
         <>
           <div className="cc-score">
             <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
             <Kpi id="m2_mes" value={`${n1(k.m2_vendidos)} m²`} sub={`${n0(k.piezas_vendidas)} piezas (unidad separada)`} />
-            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+            {canProfit && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <div className="grid">
-            <Panel title="Top productos por utilidad" hint="click = profundizar" wide>
-              <ChartBox height={320} deps={[prods]} config={{
+            <Panel title={canProfit ? "Top productos por utilidad" : "Top productos por venta"} hint="click = profundizar" wide>
+              <ChartBox height={320} deps={[prods, canProfit]} config={{
                 type: "bar",
                 data: {
                   labels: prods.map((p) => String(p.name).slice(0, 34)),
-                  datasets: [{ label: "Utilidad", data: prods.map((p) => num(p.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 18, isMoney: true }],
+                  datasets: [canProfit
+                    ? { label: "Utilidad", data: prods.map((p) => num(p.utilidad)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 18, isMoney: true }
+                    : { label: "Venta", data: prods.map((p) => num(p.venta)), backgroundColor: "rgba(11,87,208,.85)", borderRadius: 5, maxBarThickness: 18, isMoney: true }],
                 },
                 options: {
                   ...baseOptions((i) => { const p = prods[i]; props.drill({ kind: "entity", entity: "product", value: num(p.key), label: String(p.name) }); }),
@@ -2331,7 +2379,7 @@ function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => v
             <Kpi id="descuento_mxn" value={money(k.descuento_mxn)} sub={`${n0(k.descuentos_con_auth)} con autorización`} />
             <Kpi id="auth_delta_pct" value={pct(k.auth_delta_pct)} />
             <Kpi id="reincidencias_piso" value={n0(k.reincidencias_piso)} />
-            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+            {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <Panel title="Venta por nivel de precio" hint="click = profundizar" wide>
             <ChartBox height={280} deps={[levels]} config={{
@@ -2355,23 +2403,43 @@ function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => v
 
 function VentasAuthView(props: { filters: Filters }) {
   return (
-    <SalesSub filters={props.filters}>{(k) => (
-      <>
-        <div className="cc-score">
-          <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes detenidas`} />
-          <Kpi id="auth_horas_resolucion" value={`${n1(k.auth_horas_resolucion)} h`} />
-          <Kpi id="auth_pendientes" value={n0(k.auth_pendientes)} sub={`${n0(k.auth_solicitudes)} solicitadas · ${n0(k.auth_aprobadas)} aprobadas`} />
-          <Kpi id="auth_delta_pct" value={pct(k.auth_delta_pct)} />
-        </div>
-        <Panel title="Solicitudes fiscales (IVA) — flujo separado" hint="no se mezcla con precio">
-          <MiniTable head={["Concepto", "Cantidad", ""]} rows={[
-            { key: "s", a: "Solicitadas", b: n0(k.iva_solicitadas), c: "" },
-            { key: "a", a: "Aprobadas", b: n0(k.iva_aprobadas), c: "" },
-          ]} />
-        </Panel>
-        <Empty msg="Cumulative flow y control chart de resolución: brecha B — requieren la serie semanal de autorizaciones desde backend. Sin cifras simuladas." />
-      </>
-    )}</SalesSub>
+    <SalesSub filters={props.filters}>{(k, d) => {
+      const weekly = arr(d.auth_weekly);
+      const pcts = (d.auth_percentiles ?? {}) as Rec;
+      const fmtP = (v: unknown) => (v == null ? "—" : `${n1(v)} h`);
+      return (
+        <>
+          <div className="cc-score">
+            <Kpi id="bloqueadas_monto" value={money(k.bloqueadas_monto)} sub={`${n0(k.bloqueadas_precio)} órdenes detenidas`} />
+            <Kpi id="auth_horas_resolucion" value={`${n1(k.auth_horas_resolucion)} h`}
+                 sub={`mediana ${fmtP(pcts.p50)} · P75 ${fmtP(pcts.p75)} · P90 ${fmtP(pcts.p90)}`} />
+            <Kpi id="auth_pendientes" value={n0(k.auth_pendientes)} sub={`${n0(k.auth_solicitudes)} solicitadas · ${n0(k.auth_aprobadas)} aprobadas`} />
+            <Kpi id="auth_delta_pct" value={pct(k.auth_delta_pct)} />
+          </div>
+          <div className="grid">
+            <Panel title="Flujo semanal: entradas vs resueltas" hint="backlog crece cuando entran más de las que se resuelven" wide>
+              <ChartBox height={260} deps={[weekly]} config={{
+                type: "bar",
+                data: {
+                  labels: weekly.map((w) => `S${String(w.week)}`),
+                  datasets: [
+                    { label: "Solicitadas", data: weekly.map((w) => num(w.created)), backgroundColor: "rgba(217,119,6,.8)", borderRadius: 5, maxBarThickness: 26 },
+                    { label: "Resueltas", data: weekly.map((w) => num(w.resolved)), backgroundColor: "rgba(5,150,105,.8)", borderRadius: 5, maxBarThickness: 26 },
+                  ],
+                },
+                options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(11) } },
+              }} />
+            </Panel>
+            <Panel title="Solicitudes fiscales (IVA) — flujo separado" hint="no se mezcla con precio">
+              <MiniTable head={["Concepto", "Cantidad", ""]} rows={[
+                { key: "s", a: "Solicitadas", b: n0(k.iva_solicitadas), c: "" },
+                { key: "a", a: "Aprobadas", b: n0(k.iva_aprobadas), c: "" },
+              ]} />
+            </Panel>
+          </div>
+        </>
+      );
+    }}</SalesSub>
   );
 }
 
@@ -2380,15 +2448,25 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
     <SalesSub filters={props.filters}>{(k, d) => {
       const sellers = arr(d.by_seller);
       const comm = arr(d.commissions);
+      const canProfit = (d as Rec).perm_profit !== false;
       return (
         <>
           <div className="cc-score">
             <Kpi id="venta_mxn" value={money(k.venta_mxn)} />
             <Kpi id="comisiones_mxn" value={money(k.comisiones_mxn)}
                  sub={num(k.venta_mxn) > 0 ? `${pct((num(k.comisiones_mxn) / num(k.venta_mxn)) * 100)} de la venta` : undefined} />
-            <Kpi id="margen_pct" value={pct(k.margen_pct)} />
+            {canProfit && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <div className="grid">
+            {!canProfit && (
+              <Panel title="Venta por vendedor" hint="click = profundizar" wide>
+                <MiniTable head={["Vendedor", "Venta", "m²"]} rows={sellers.map((sr, i) => ({
+                  key: i, a: String(sr.name), b: money(sr.venta), c: n1(sr.m2),
+                  onClick: () => props.drill({ kind: "entity", entity: "seller", value: num(sr.key), label: String(sr.name) }),
+                }))} />
+              </Panel>
+            )}
+            {canProfit && (
             <Panel title="Venta × utilidad por vendedor" hint="click = profundizar" wide>
               <ChartBox height={320} deps={[sellers]} config={{
                 type: "scatter",
@@ -2409,6 +2487,7 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                 },
               }} />
             </Panel>
+            )}
             <Panel title="Comisiones del periodo" hint="commission.move · fecha plana">
               <MiniTable head={["Participante", "Comisión", ""]} rows={comm.map((c, i) => ({
                 key: i, a: String(c.name), b: money(c.total ?? c.amount ?? c.venta), c: "",
