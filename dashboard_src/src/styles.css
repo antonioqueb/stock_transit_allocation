@@ -97,6 +97,13 @@ b, strong { font-weight: 600; }
 .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 14px 16px; min-width: 0; box-shadow: var(--shadow); }
 .panel.wide { grid-column: 1 / -1; }
+/* Las páginas del rediseño ocupan SIEMPRE la pantalla completa: los
+   paneles se estiran a la altura de su fila y las tablas/insights crecen
+   con ellos (nada de contenido chiquito flotando en vacío). */
+.grid > .panel { display: flex; flex-direction: column; }
+.grid > .panel > .minitable, .grid > .panel > .tablewrap { flex: 1; }
+.grid > .panel .minitable .mrow { min-height: 40px; align-items: center; }
+.insight { font-size: 13.5px; padding: 11px 14px; }
 .panel-h { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .panel-h h3 { font-size: 13px; font-weight: 650; letter-spacing: .01em; color: var(--txt); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .panel-h .hint { font-size: 10.5px; color: var(--mut2); background: var(--panel2); border-radius: 999px; padding: 2px 10px; white-space: nowrap; }
@@ -418,9 +425,9 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
 .nav-domain { display: flex; flex-direction: column; }
 .nav-domain-head {
   display: flex; align-items: center; justify-content: space-between;
-  text-align: left; padding: 9px 12px; border-radius: 9px;
-  font-size: 11px; font-weight: 800; letter-spacing: .05em;
-  text-transform: uppercase; color: var(--mut);
+  text-align: left; padding: 8px 12px; border-radius: 9px;
+  font-size: 13px; font-weight: 700; letter-spacing: 0;
+  color: var(--mut);
 }
 .nav-domain-head:hover { background: var(--panel2); color: var(--txt); }
 .nav-domain-head.on { background: var(--blue); color: #fff; }
@@ -448,25 +455,37 @@ tbody tr:focus-visible { outline: 2px solid var(--sky); outline-offset: -2px; }
 
 /* ═══════ FASE 2: Command Center, barra vital, KPIs semánticos ═══════ */
 .vitalbar {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px 20px;
-  margin: 0 0 12px; padding: 8px 14px;
-  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  display: flex; align-items: stretch; flex-wrap: wrap; gap: 10px;
+  margin: 0 0 14px; padding: 12px 16px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--shadow);
 }
-.vital { display: flex; flex-direction: column; min-width: 0; }
-.vital-l { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); white-space: nowrap; }
-.vital-v { font-size: 14px; font-variant-numeric: tabular-nums; color: var(--txt); white-space: nowrap; }
-.vital-more { margin-left: auto; font-size: 11.5px; font-weight: 700; color: var(--blue); white-space: nowrap; }
+.vital {
+  display: flex; flex-direction: column; justify-content: center; min-width: 0;
+  flex: 1 1 0; padding: 6px 14px; border-radius: 10px; background: var(--panel2);
+}
+.vital-l { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: var(--mut); white-space: nowrap; }
+.vital-v { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--txt); white-space: nowrap; }
+.vital-more { margin-left: auto; align-self: center; font-size: 12.5px; font-weight: 700; color: var(--blue); white-space: nowrap; padding: 0 6px; }
 .vital-more:hover { text-decoration: underline; }
 
 .kpi-sem.click { cursor: pointer; }
 .kpi-sem.click:hover .tv-stat, .kpi-sem.click:hover > div { border-color: var(--blue); }
 
 .cc-score {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px; margin-bottom: 8px;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px; margin-bottom: 14px;
 }
-.cc-toggle { font-size: 11.5px; font-weight: 700; color: var(--blue); margin: 0 0 14px; }
-.cc-toggle:hover { text-decoration: underline; }
+/* Uniformidad total: cada tarjeta ocupa su celda completa con el mismo
+   alto; el contenido se centra verticalmente. */
+.cc-score .kpi-sem { display: flex; min-width: 0; }
+.cc-score .kpi-sem > .stat {
+  flex: 1 1 auto; min-height: 118px;
+  display: flex; flex-direction: column; justify-content: center; gap: 3px;
+}
+.cc-score .stat-v { font-size: 24px; font-weight: 750; }
+.cc-score .stat-l { font-size: 11px; }
+.cc-score .stat-s { font-size: 11.5px; }
 
 .insight-strip { display: flex; flex-direction: column; gap: 6px; margin: 0 0 12px; }
 .insight {

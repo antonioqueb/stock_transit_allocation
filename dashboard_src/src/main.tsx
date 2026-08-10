@@ -2085,7 +2085,6 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
   const ex = useData(["exec"], fetchExec, { refetchInterval: 60_000 });
   const rz = useData(["dashboard", "resumen", props.filters], () => fetchDashboard("resumen", props.filters as Rec), { refetchInterval: TV_REFRESH_MS });
   const ct = useData(["dashboard", "control", props.filters], () => fetchDashboard("control", props.filters as Rec), { refetchInterval: TV_REFRESH_MS });
-  const [showAll, setShowAll] = useState(false);
 
   if (ex.loading) return <div className="grid"><Skeleton h={140} /><Skeleton h={280} /></div>;
   if (ex.error) return <ErrorBox msg={ex.error} retry={ex.retry} />;
@@ -2147,20 +2146,17 @@ function CommandCenterView(props: { filters: Filters; drill: (n: DrillNode) => v
   return (
     <>
       <InsightStrip insights={insights} />
-      <div className="cc-score">
-        {(showAll ? [...core, ...extra] : core).map((k) => (
+      <div className="cc-score cc-score--full">
+        {[...core, ...extra].map((k) => (
           <Kpi key={k.id} id={k.id} value={k.value} sub={k.sub} deltaPct={k.deltaPct}
                drillTo={k.go ? () => props.go(k.go!) : undefined} />
         ))}
       </div>
-      <button className="cc-toggle" onClick={() => setShowAll((s) => !s)}>
-        {showAll ? "Ver menos" : "Ver todos los indicadores"}
-      </button>
 
       <div className="grid">
         {months.length > 0 && (
           <Panel title="Venta y utilidad por mes" hint="pack Resumen · 5 min" wide>
-            <ChartBox height={260} deps={[months]} config={{
+            <ChartBox height={340} deps={[months]} config={{
               type: "bar",
               data: {
                 labels: months.map((r) => monthLabel(String(r.key))),
@@ -2245,7 +2241,7 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
           </div>
           <div className="grid">
             <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"} wide>
-              <ChartBox height={240} deps={[funnel]} config={{
+              <ChartBox height={380} deps={[funnel]} config={{
                 type: "bar",
                 data: {
                   labels: funnel.map((s) => `${s.stage} (${n0(s.count)})`),
@@ -2255,7 +2251,7 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
               }} />
             </Panel>
             <Panel title="Antigüedad del backlog abierto" hint="cotizaciones vivas hoy">
-              <ChartBox height={240} deps={[aging]} config={{
+              <ChartBox height={380} deps={[aging]} config={{
                 type: "bar",
                 data: {
                   labels: aging.map((b) => String(b.bucket)),
@@ -2298,7 +2294,7 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
             {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <Panel title="Pareto de clientes del periodo" hint="click = profundizar" wide>
-            <ChartBox height={340} deps={[cust]} config={{
+            <ChartBox height={460} deps={[cust]} config={{
               type: "bar",
               data: {
                 labels: cust.map((c) => String(c.name).slice(0, 34)),
@@ -2332,7 +2328,7 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
           </div>
           <div className="grid">
             <Panel title={canProfit ? "Top productos por utilidad" : "Top productos por venta"} hint="click = profundizar" wide>
-              <ChartBox height={320} deps={[prods, canProfit]} config={{
+              <ChartBox height={420} deps={[prods, canProfit]} config={{
                 type: "bar",
                 data: {
                   labels: prods.map((p) => String(p.name).slice(0, 34)),
@@ -2382,7 +2378,7 @@ function VentasPreciosView(props: { filters: Filters; drill: (n: DrillNode) => v
             {(d as Rec).perm_profit !== false && <Kpi id="margen_pct" value={pct(k.margen_pct)} />}
           </div>
           <Panel title="Venta por nivel de precio" hint="click = profundizar" wide>
-            <ChartBox height={280} deps={[levels]} config={{
+            <ChartBox height={400} deps={[levels]} config={{
               type: "bar",
               data: {
                 labels: levels.map((l) => String(l.name)),
@@ -2418,7 +2414,7 @@ function VentasAuthView(props: { filters: Filters }) {
           </div>
           <div className="grid">
             <Panel title="Flujo semanal: entradas vs resueltas" hint="backlog crece cuando entran más de las que se resuelven" wide>
-              <ChartBox height={260} deps={[weekly]} config={{
+              <ChartBox height={380} deps={[weekly]} config={{
                 type: "bar",
                 data: {
                   labels: weekly.map((w) => `S${String(w.week)}`),
@@ -2468,7 +2464,7 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
             )}
             {canProfit && (
             <Panel title="Venta × utilidad por vendedor" hint="click = profundizar" wide>
-              <ChartBox height={320} deps={[sellers]} config={{
+              <ChartBox height={420} deps={[sellers]} config={{
                 type: "scatter",
                 data: {
                   datasets: sellers.map((s, i) => ({
@@ -2694,7 +2690,7 @@ function App() {
                   <button
                     className="nav-domain-head"
                     aria-expanded={isOpen}
-                    onClick={() => setOpenDomain(isOpen ? "" : d.id)}
+                    onClick={() => setOpenDomain(d.id)}
                   >
                     <span className="nav-domain-label">{d.label}</span>
                     <span className="nav-chevron" aria-hidden="true">{isOpen ? "▾" : "▸"}</span>
