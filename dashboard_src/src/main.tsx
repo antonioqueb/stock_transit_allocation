@@ -1028,6 +1028,7 @@ function TransitoView() {
                       const v = gv[pm.dataIndex];
                       return `${String(v.name)} · ${String(v.supplier)}<br/>${String(v.etd)} → ${String(v.eta)}<br/><b>${n1(v.m2)} m²</b> · ${String(v.status)}`;
                     } },
+                  dataZoom: [{ type: "inside", xAxisIndex: 0, filterMode: "weakFilter" }],
                   xAxis: { type: "time",
                     axisLabel: { fontSize: 10, fontFamily: "Inter", formatter: (val: number) => {
                       const dd = new Date(val); return `${dd.getDate()}/${MONTHS_ES[dd.getMonth()]}`;
@@ -2702,6 +2703,31 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
               <ProductosJerarquia data={d as Rec} />
             </Panel>
+            <Panel title="Río de categorías: composición de la venta en el tiempo" hint="ThemeRiver · grosor = venta mensual de la categoría" wide>
+              <EChartBox height={330} deps={[arr(d.categ_monthly)]} option={(() => {
+                const cmr = arr(d.categ_monthly);
+                if (!cmr.length) return { ...ecBase(), series: [] };
+                const data = cmr.map((r) => [`${String(r.month)}-15`, num(r.venta), String(r.categ).slice(0, 22)]);
+                return {
+                  ...ecBase(),
+                  legend: { top: 0, textStyle: { fontSize: 10.5 } },
+                  tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
+                  singleAxis: {
+                    type: "time", top: 40, bottom: 24,
+                    axisLabel: { fontSize: 10, fontFamily: "Inter",
+                      formatter: (val: number) => monthLabel(new Date(val).toISOString().slice(0, 7)) },
+                    axisLine: { show: false }, axisTick: { show: false },
+                    splitLine: { show: false },
+                  },
+                  series: [{
+                    type: "themeRiver",
+                    data,
+                    label: { show: false },
+                    emphasis: { itemStyle: { shadowBlur: 16, shadowColor: "rgba(15,23,42,.35)" } },
+                  }],
+                };
+              })()} />
+            </Panel>
           </div>
         </>
       );
@@ -2882,6 +2908,82 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                 })()} />
               </Panel>
             )}
+            <Panel title="Matrix ejecutiva del equipo" hint="tendencia mensual por vendedor · sparkline por celda" wide>
+              <EChartBox height={Math.max(220, (arr((d.seller_monthly as Rec)?.sellers).length + 1) * 46)} deps={[d.seller_monthly]} option={(() => {
+                const sm = (d.seller_monthly ?? {}) as Rec;
+                const sellersM = arr(sm.sellers);
+                const monthsM = arr<string>(sm.months);
+                if (!sellersM.length) return { ...ecBase(), series: [] };
+                const maxTotal = Math.max(...sellersM.map((sr) => num(sr.total)), 1);
+                return {
+                  ...ecBase(),
+                  grid: { left: 6, right: 6, top: 6, bottom: 6 },
+                  xAxis: { show: false, min: 0, max: 1, type: "value" },
+                  yAxis: { show: false, min: 0, max: 1, type: "value", inverse: true },
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { dataIndex: number }) => {
+                      const sr = sellersM[pm.dataIndex];
+                      if (!sr) return "";
+                      const serie = arr<number>(sr.serie);
+                      const lines = serie.map((v, i) => `${monthLabel(monthsM[i])}: <b>${money(v)}</b>`).join("<br/>");
+                      return `<b>${String(sr.name)}</b><br/>${lines}`;
+                    } },
+                  series: [{
+                    type: "custom",
+                    data: sellersM.map((_sr, i) => i),
+                    renderItem: (params: { dataIndex: number }, api: { coord: (v: [number, number]) => [number, number] }) => {
+                      const i = params.dataIndex;
+                      const sr = sellersM[i];
+                      const nRows = sellersM.length;
+                      const serie = arr<number>(sr.serie);
+                      const yT = i / nRows, yB = (i + 1) / nRows;
+                      const pL = api.coord([0, yT]);
+                      const pR = api.coord([1, yT]);
+                      const pB = api.coord([0, yB]);
+                      const rowH = pB[1] - pL[1];
+                      const width = pR[0] - pL[0];
+                      const cy = pL[1] + rowH / 2;
+                      // celdas: nombre (26%), total + barra (26%), sparkline (48%)
+                      const sparkX0 = pL[0] + width * 0.54;
+                      const sparkW = width * 0.44;
+                      const maxSerie = Math.max(...serie, 1);
+                      const pts = serie.map((v, j) => [
+                        sparkX0 + (serie.length > 1 ? (j / (serie.length - 1)) * sparkW : sparkW / 2),
+                        cy + rowH * 0.28 - (v / maxSerie) * rowH * 0.56,
+                      ]);
+                      const barW = width * 0.22 * (num(sr.total) / maxTotal);
+                      const up = serie.length > 1 && serie[serie.length - 1] >= serie[serie.length - 2];
+                      return {
+                        type: "group",
+                        children: [
+                          { type: "rect",
+                            shape: { x: pL[0], y: pL[1] + 3, width, height: rowH - 6, r: 10 },
+                            style: { fill: i % 2 ? "rgba(100,116,139,.05)" : "rgba(100,116,139,.09)" } },
+                          { type: "text",
+                            style: { x: pL[0] + 14, y: cy, text: String(sr.name).slice(0, 20).toUpperCase(),
+                              textVerticalAlign: "middle", fontSize: 11.5, fontWeight: 800, fontFamily: "Inter",
+                              fill: "#334155" } },
+                          { type: "rect",
+                            shape: { x: pL[0] + width * 0.27, y: cy + 6, width: Math.max(barW, 2), height: 5, r: 2.5 },
+                            style: { fill: "#93c5fd" } },
+                          { type: "text",
+                            style: { x: pL[0] + width * 0.27, y: cy - 6, text: money(sr.total),
+                              textVerticalAlign: "middle", fontSize: 12, fontWeight: 750, fontFamily: "Inter",
+                              fill: "#0b57d0" } },
+                          { type: "polyline",
+                            shape: { points: pts },
+                            style: { stroke: up ? "#059669" : "#dc2626", lineWidth: 2.2, fill: "none",
+                              shadowBlur: 4, shadowColor: up ? "rgba(5,150,105,.3)" : "rgba(220,38,38,.3)" } },
+                          ...(pts.length ? [{ type: "circle",
+                            shape: { cx: pts[pts.length - 1][0], cy: pts[pts.length - 1][1], r: 3.4 },
+                            style: { fill: up ? "#059669" : "#dc2626", stroke: "#fff", lineWidth: 1.4 } }] : []),
+                        ],
+                      };
+                    },
+                  }],
+                };
+              })()} />
+            </Panel>
             <Panel title="Comisiones del periodo" hint="commission.move · fecha plana">
               <MiniTable head={["Participante", "Comisión", ""]} rows={comm.map((c, i) => ({
                 key: i, a: String(c.name), b: money(c.total ?? c.amount ?? c.venta), c: "",

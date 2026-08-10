@@ -852,6 +852,39 @@ class SomAnalytics(models.AbstractModel):
             for categ, prods in _top_categs
         ]
 
+        # Series por ENTIDAD (matrix ejecutiva y themeriver): derivadas de
+        # las mismas rows — venta mensual por vendedor y por categoría.
+        _sm = {}
+        _cm = {}
+        _months_seen = set()
+        for r in rows:
+            m = r['month']
+            _months_seen.add(m)
+            sk = r['user_name'] or 'Sin vendedor'
+            _sm.setdefault(sk, {})
+            _sm[sk][m] = _sm[sk].get(m, 0.0) + r['venta_mxn']
+            ck = r['categ_name'] or 'Sin categoría'
+            _cm.setdefault(ck, {})
+            _cm[ck][m] = _cm[ck].get(m, 0.0) + r['venta_mxn']
+
+        _months_sorted = sorted(_months_seen)
+        _top_sellers = sorted(
+            _sm.items(), key=lambda kv: -sum(kv[1].values()))[:6]
+        pack['seller_monthly'] = {
+            'months': _months_sorted,
+            'sellers': [
+                {'name': name,
+                 'total': round(sum(mm.values()), 2),
+                 'serie': [round(mm.get(m, 0.0), 2) for m in _months_sorted]}
+                for name, mm in _top_sellers
+            ],
+        }
+        _top_cm = sorted(_cm.items(), key=lambda kv: -sum(kv[1].values()))[:6]
+        pack['categ_monthly'] = [
+            {'month': m, 'categ': name, 'venta': round(mm.get(m, 0.0), 2)}
+            for name, mm in _top_cm for m in _months_sorted
+        ]
+
         pack['auth_percentiles'] = {
             'p50': round(float(prow[0]), 1) if prow[0] is not None else None,
             'p75': round(float(prow[1]), 1) if prow[1] is not None else None,

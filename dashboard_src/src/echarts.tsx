@@ -16,6 +16,7 @@ import {
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   DatasetComponent, VisualMapComponent, MarkLineComponent, AriaComponent,
   CalendarComponent, MatrixComponent, DataZoomInsideComponent, BrushComponent,
+  SingleAxisComponent,
 } from "echarts/components";
 import { CanvasRenderer } from "echarts/renderers";
 
@@ -29,6 +30,7 @@ echarts.use([
   GridComponent, TooltipComponent, LegendComponent, TitleComponent,
   DatasetComponent, VisualMapComponent, MarkLineComponent, AriaComponent,
   CalendarComponent, MatrixComponent, DataZoomInsideComponent, BrushComponent,
+  SingleAxisComponent,
   CanvasRenderer,
 ]);
 
