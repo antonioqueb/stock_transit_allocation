@@ -34,3 +34,4 @@ registry.category("actions").add("action_transit_sheet_custom", makeLazyAction("
 registry.category("actions").add("action_transit_kanban_custom", makeLazyAction("TransitKanbanView"), { force: true });
 registry.category("actions").add("action_supplier_links_tracking", makeLazyAction("SupplierLinksTracking"), { force: true });
 registry.category("actions").add("stock_transit_allocation.som_analytics", makeLazyAction("SomAnalytics"), { force: true });
+registry.category("actions").add("stock_transit_allocation.som_restock", makeLazyAction("SomRestock"), { force: true });

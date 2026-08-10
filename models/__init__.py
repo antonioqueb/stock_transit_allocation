@@ -27,4 +27,5 @@ from . import transit_packing_report
 from . import supplier_access_tracking
 from . import receptions_dashboard
 from . import som_analytics
+from . import som_restock
 from . import stock_lot_inherit

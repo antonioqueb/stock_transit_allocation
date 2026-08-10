@@ -1,0 +1,390 @@
+// SOM Restock — branding azul de los tableros SOM (#0b57d0 / #38bdf8).
+// Sobrio: tarjetas blancas, bordes discretos, chips de estado.
+
+$srk-blue:        #0b57d0;
+$srk-blue-dark:   #0a3d91;
+$srk-sky:         #38bdf8;
+$srk-bg:          #f3f6fb;
+$srk-border:      #dbe4f0;
+$srk-text:        #17223b;
+$srk-muted:       #64748b;
+$srk-red:         #dc2626;
+$srk-amber:       #d97706;
+$srk-green:       #059669;
+
+.som-restock {
+    height: 100%;
+    overflow: auto;
+    padding: 16px;
+    background: $srk-bg;
+    color: $srk-text;
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+
+    * { box-sizing: border-box; }
+
+    // ── Cabecera ────────────────────────────────────────────────────────
+    .srk-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 12px;
+    }
+
+    .srk-header__title {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+
+        h1 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 850;
+            letter-spacing: -0.02em;
+        }
+
+        p {
+            margin: 1px 0 0;
+            font-size: 12px;
+            color: $srk-muted;
+        }
+    }
+
+    .srk-header__icon {
+        width: 42px;
+        height: 42px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 12px;
+        color: #fff;
+        background: linear-gradient(135deg, $srk-blue, $srk-blue-dark);
+        box-shadow: 0 8px 18px rgba(11, 87, 208, 0.28);
+    }
+
+    .srk-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        min-height: 34px;
+        padding: 6px 14px;
+        border: 1px solid $srk-border;
+        border-radius: 999px;
+        background: #fff;
+        color: $srk-text;
+        font-size: 12px;
+        font-weight: 750;
+        cursor: pointer;
+
+        &:hover { border-color: $srk-blue; color: $srk-blue; }
+
+        &--primary {
+            border: none;
+            color: #fff;
+            background: linear-gradient(135deg, $srk-blue, $srk-blue-dark);
+
+            &:hover { color: #fff; filter: brightness(1.06); }
+            &:disabled { opacity: 0.6; cursor: default; }
+        }
+    }
+
+    // ── Tabs ────────────────────────────────────────────────────────────
+    .srk-tabs {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 14px;
+    }
+
+    .srk-tab {
+        padding: 7px 16px;
+        border: 1px solid $srk-border;
+        border-radius: 999px;
+        background: #fff;
+        color: $srk-muted;
+        font-size: 12.5px;
+        font-weight: 750;
+        cursor: pointer;
+
+        &--on {
+            background: $srk-blue;
+            border-color: $srk-blue;
+            color: #fff;
+        }
+    }
+
+    // ── Loading ─────────────────────────────────────────────────────────
+    .srk-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 14px;
+        padding: 70px 0;
+        color: $srk-muted;
+        font-size: 13px;
+    }
+
+    .srk-loading__spinner {
+        width: 34px;
+        height: 34px;
+        border: 3px solid $srk-border;
+        border-top-color: $srk-blue;
+        border-radius: 50%;
+        animation: srk-spin 0.8s linear infinite;
+    }
+
+    @keyframes srk-spin { to { transform: rotate(360deg); } }
+
+    // ── KPIs / filtros ──────────────────────────────────────────────────
+    .srk-kpis {
+        display: flex;
+        align-items: stretch;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .srk-kpi {
+        min-width: 110px;
+        padding: 10px 14px;
+        border: 1px solid $srk-border;
+        border-radius: 14px;
+        background: #fff;
+        text-align: left;
+        cursor: pointer;
+
+        strong { display: block; font-size: 20px; font-weight: 850; }
+        span   { font-size: 11px; font-weight: 750; color: $srk-muted; text-transform: uppercase; letter-spacing: 0.04em; }
+
+        &--urgent strong { color: $srk-red; }
+        &--soon strong   { color: $srk-amber; }
+        &--ok strong     { color: $srk-green; }
+        &--nodata strong { color: $srk-muted; }
+
+        &--on { border-color: $srk-blue; box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.15); }
+    }
+
+    .srk-search {
+        flex: 1 1 240px;
+        min-height: 44px;
+        padding: 8px 16px;
+        border: 1px solid $srk-border;
+        border-radius: 14px;
+        background: #fff;
+        font-size: 13px;
+
+        &:focus { outline: none; border-color: $srk-blue; }
+    }
+
+    // ── Tabla ───────────────────────────────────────────────────────────
+    .srk-table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border: 1px solid $srk-border;
+        border-radius: 14px;
+        background: #fff;
+    }
+
+    .srk-table {
+        width: 100%;
+        min-width: 980px;
+        border-collapse: collapse;
+        font-size: 12.5px;
+
+        th {
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            padding: 9px 10px;
+            background: #f8fafd;
+            border-bottom: 1px solid $srk-border;
+            color: $srk-muted;
+            font-size: 10.5px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            text-align: left;
+            white-space: nowrap;
+
+            &.text-end { text-align: right; }
+        }
+
+        td {
+            padding: 8px 10px;
+            border-bottom: 1px solid #eef2f8;
+            white-space: nowrap;
+            vertical-align: middle;
+
+            &.text-end { text-align: right; font-variant-numeric: tabular-nums; }
+        }
+
+        tbody tr:hover { background: #f6f9fe; }
+        tfoot td { font-weight: 800; background: #f8fafd; }
+    }
+
+    .srk-cell-name {
+        white-space: normal !important;
+        min-width: 200px;
+
+        strong { display: block; font-weight: 750; }
+        small  { color: $srk-muted; font-size: 11px; }
+    }
+
+    .srk-muted { color: $srk-muted; }
+
+    .srk-lead-src {
+        margin-left: 5px;
+        color: $srk-muted;
+        font-size: 9.5px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+
+    .srk-suggest { color: $srk-blue-dark; }
+
+    .srk-badge {
+        display: inline-block;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 10px;
+        font-weight: 850;
+        letter-spacing: 0.04em;
+
+        &--urgent  { background: #fee2e2; color: $srk-red; }
+        &--soon    { background: #fef3c7; color: $srk-amber; }
+        &--ok      { background: #d1fae5; color: $srk-green; }
+        &--no_data { background: #e2e8f0; color: $srk-muted; }
+    }
+
+    .srk-empty {
+        padding: 26px 12px !important;
+        text-align: center;
+        color: $srk-muted;
+    }
+
+    .srk-footnote {
+        margin: 12px 2px 0;
+        font-size: 11px;
+        color: $srk-muted;
+        line-height: 1.5;
+        max-width: 900px;
+    }
+
+    // ── Asesor ──────────────────────────────────────────────────────────
+    .srk-advisor-form {
+        display: flex;
+        align-items: flex-end;
+        flex-wrap: wrap;
+        gap: 12px;
+        padding: 14px 16px;
+        border: 1px solid $srk-border;
+        border-radius: 14px;
+        background: #fff;
+        margin-bottom: 14px;
+    }
+
+    .srk-field {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        flex: 1 1 220px;
+
+        label {
+            font-size: 10.5px;
+            font-weight: 800;
+            color: $srk-muted;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        select,
+        input {
+            min-height: 36px;
+            padding: 6px 10px;
+            border: 1px solid $srk-border;
+            border-radius: 10px;
+            background: #fff;
+            font-size: 13px;
+
+            &:focus { outline: none; border-color: $srk-blue; }
+        }
+
+        &--qty { flex: 0 1 150px; }
+    }
+
+    .srk-verdict {
+        padding: 16px 18px;
+        border: 1px solid $srk-border;
+        border-left: 4px solid $srk-blue;
+        border-radius: 14px;
+        background: #fff;
+        margin-bottom: 14px;
+    }
+
+    .srk-verdict__head {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 12px;
+
+        strong { font-size: 15px; font-weight: 800; }
+    }
+
+    .srk-verdict__grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+        gap: 10px;
+    }
+
+    .srk-fact {
+        padding: 10px 12px;
+        border: 1px solid #eef2f8;
+        border-radius: 12px;
+        background: #f8fafd;
+
+        span   { display: block; font-size: 10.5px; font-weight: 750; color: $srk-muted; text-transform: uppercase; letter-spacing: 0.04em; }
+        strong { display: block; margin-top: 3px; font-size: 17px; font-weight: 850; }
+        small  { display: block; font-size: 10.5px; color: $srk-muted; }
+
+        &--buy {
+            border-color: rgba(11, 87, 208, 0.35);
+            background: #eef4fe;
+
+            strong { color: $srk-blue-dark; }
+        }
+    }
+
+    .srk-verdict__note {
+        margin: 12px 0 0;
+        font-size: 12.5px;
+        font-weight: 700;
+        color: $srk-green;
+    }
+
+    .srk-fill h3 {
+        margin: 0 0 10px;
+        font-size: 14px;
+        font-weight: 800;
+
+        small {
+            margin-left: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            color: $srk-muted;
+        }
+    }
+}
+
+// ── Móvil: mismas tablas con scroll lateral, formulario apilado ─────────
+@media (max-width: 767.98px) {
+    .som-restock {
+        padding: 10px;
+
+        .srk-header__title h1 { font-size: 17px; }
+        .srk-kpi { flex: 1 1 calc(50% - 10px); min-width: 0; }
+        .srk-search { flex: 1 1 100%; }
+        .srk-advisor-form { padding: 12px; }
+        .srk-field { flex: 1 1 100%; }
+        .srk-btn--primary { flex: 1 1 100%; justify-content: center; }
+    }
+}
