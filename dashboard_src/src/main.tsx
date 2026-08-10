@@ -2334,7 +2334,7 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
           </div>
           <div className="grid">
             <Panel title="Tasa de conversión del periodo" hint="confirmadas ÷ (confirmadas + abiertas)">
-              <EChartBox height={300} deps={[k.conversion_pct]} option={{
+              <EChartBox height={420} deps={[k.conversion_pct]} option={{
                 ...ecBase(),
                 series: [{
                   type: "gauge", startAngle: 210, endAngle: -30, min: 0, max: 100,
@@ -2349,7 +2349,7 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
                 }],
               }} />
             </Panel>
-            <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"} wide>
+            <Panel title="Funnel de cotizaciones creadas en el periodo" hint={cancel ? `+ ${n0(cancel.count)} canceladas (${money(cancel.amount)})` : "solo etapas registradas"}>
               <EChartBox height={420} deps={[funnel]} option={(() => {
                 const stages = funnel;
                 const n = stages.length || 1;
