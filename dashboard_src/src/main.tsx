@@ -728,49 +728,49 @@ function MaterialesView(props: { filters: Filters; drill: (n: DrillNode) => void
       <div className="grid">
         {slow.length > 0 && (
           <Panel title="Capital estancado: edad del stock por material" hint="en años y meses · edades > 8 años fuera (lotes legacy) · click = profundizar" wide>
-            <ChartBox height={360} deps={[slow]} config={(() => {
-              const base = baseOptions((i) => {
-                const r = slow[i];
-                props.drill({ kind: "entity", entity: "product", value: num(r.tmpl_id), label: String(r.name) });
-              });
-              return {
-                type: "bar",
-                data: {
-                  labels: slow.map((r) => String(r.name).slice(0, 42)),
-                  datasets: [{
-                    label: "Tiempo en patio",
-                    data: slow.map((r) => num(r.edad_stock)),
-                    backgroundColor: slow.map((r) =>
-                      num(r.edad_stock) > 730 ? "rgba(220,38,38,.85)"
-                      : num(r.edad_stock) > 365 ? "rgba(234,88,12,.85)"
-                      : "rgba(217,119,6,.7)"),
-                    borderRadius: 5, maxBarThickness: 20,
+            <EChartBox height={Math.max(300, slow.length * 34 + 50)} deps={[slow]}
+              onClick={(pm) => { const r = slow[pm.dataIndex]; if (r) props.drill({ kind: "entity", entity: "product", value: num(r.tmpl_id), label: String(r.name) }); }}
+              option={(() => {
+                const grad = (a: string, b: string) => ({
+                  type: "linear", x: 0, y: 0, x2: 1, y2: 0,
+                  colorStops: [{ offset: 0, color: a }, { offset: 1, color: b }],
+                });
+                return {
+                  ...ecBase(),
+                  grid: { left: 8, right: 84, top: 8, bottom: 8, containLabel: true },
+                  tooltip: { ...(ecBase().tooltip as object),
+                    formatter: (pm: { dataIndex: number }) => {
+                      const r = slow[pm.dataIndex];
+                      return r ? `${String(r.name)}<br/><b>${fmtAge(num(r.edad_stock))}</b> en patio · <b>${n1(r.m2_stock)} m²</b> detenidos · ${n0(r.lots_stock)} lotes` : "";
+                    } },
+                  xAxis: { type: "value",
+                    splitLine: { lineStyle: { color: "rgba(100,116,139,.12)" } },
+                    axisLabel: { fontSize: 10, fontFamily: "Inter",
+                      formatter: (v: number) => fmtAge(v) },
+                    interval: 365 },
+                  yAxis: { type: "category", inverse: true,
+                    data: slow.map((r) => String(r.name).slice(0, 34).toUpperCase()),
+                    axisLine: { show: false }, axisTick: { show: false },
+                    axisLabel: { fontSize: 10.5, fontFamily: "Inter" } },
+                  series: [{
+                    type: "bar", barMaxWidth: 20,
+                    label: { show: true, position: "right", fontSize: 10.5, fontWeight: 800,
+                             fontFamily: "Inter",
+                             formatter: (pm: { dataIndex: number }) => {
+                               const r = slow[pm.dataIndex];
+                               return r ? `${fmtAge(num(r.edad_stock))} · ${n1(r.m2_stock)} m²` : "";
+                             } },
+                    data: slow.map((r) => {
+                      const dias = num(r.edad_stock);
+                      const color = dias > 730 ? grad("#f87171", "#dc2626")
+                        : dias > 365 ? grad("#fb923c", "#ea580c")
+                        : grad("#fbbf24", "#d97706");
+                      return { value: dias, itemStyle: { color, borderRadius: [0, 8, 8, 0],
+                        shadowBlur: 5, shadowColor: "rgba(15,23,42,.18)", shadowOffsetY: 2 } };
+                    }),
                   }],
-                },
-                options: {
-                  ...base,
-                  indexAxis: "y",
-                  plugins: {
-                    ...base.plugins,
-                    legend: { display: false },
-                    tooltip: {
-                      ...base.plugins.tooltip,
-                      callbacks: {
-                        label: (ctx: any) => {
-                          const r = slow[ctx.dataIndex];
-                          return ` ${fmtAge(num(r.edad_stock))} en patio · ${n1(num(r.m2_stock))} m² detenidos · ${n0(num(r.lots_stock))} lotes`;
-                        },
-                      },
-                    },
-                  },
-                  scales: {
-                    // Rejilla por AÑOS (365 d) con etiquetas "1 a", "2 a"…
-                    x: { ...axisMoney(), ticks: { ...axisMoney().ticks, stepSize: 365, callback: (v: number) => fmtAge(Number(v)) } },
-                    y: axisPlain(10.5),
-                  },
-                },
-              };
-            })()} />
+                };
+              })()} />
           </Panel>
         )}
         {rows.length > 0 && (
@@ -3218,28 +3218,29 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
               <ProductosJerarquia data={d as Rec} />
             </Panel>
-            <Panel title="Río de categorías: composición de la venta en el tiempo" hint="ThemeRiver · grosor = venta mensual de la categoría" wide>
+            <Panel title="Río de categorías: composición de la venta en el tiempo" hint="áreas apiladas · grosor = venta mensual de la categoría" wide>
               <EChartBox height={330} deps={[arr(d.categ_monthly)]} option={(() => {
                 const cmr = arr(d.categ_monthly);
                 if (!cmr.length) return { ...ecBase(), series: [] };
-                const data = cmr.map((r) => [`${String(r.month)}-15`, num(r.venta), String(r.categ).slice(0, 22)]);
+                const monthsR = [...new Set(cmr.map((r) => String(r.month)))].sort();
+                const categsR = [...new Set(cmr.map((r) => String(r.categ)))];
+                const val = new Map(cmr.map((r) => [`${r.categ}|${r.month}`, num(r.venta)]));
+                const RIVER = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
                 return {
                   ...ecBase(),
                   legend: { top: 0, textStyle: { fontSize: 10.5 } },
                   tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
-                  singleAxis: {
-                    type: "time", top: 40, bottom: 24,
-                    axisLabel: { fontSize: 10, fontFamily: "Inter",
-                      formatter: (val: number) => monthLabel(new Date(val).toISOString().slice(0, 7)) },
-                    axisLine: { show: false }, axisTick: { show: false },
-                    splitLine: { show: false },
-                  },
-                  series: [{
-                    type: "themeRiver",
-                    data,
-                    label: { show: false },
-                    emphasis: { itemStyle: { shadowBlur: 16, shadowColor: "rgba(15,23,42,.35)" } },
-                  }],
+                  xAxis: ecAxis("cat", monthsR.map((m) => monthLabel(m).toUpperCase())),
+                  yAxis: ecAxis("money"),
+                  series: categsR.map((c2, i) => ({
+                    name: c2.slice(0, 22), type: "line", stack: "rio", smooth: true,
+                    symbol: "none", lineStyle: { width: 0 },
+                    emphasis: { focus: "series" },
+                    areaStyle: { opacity: 0.85,
+                      color: { type: "linear", x: 0, y: 0, x2: 0, y2: 1,
+                        colorStops: [{ offset: 0, color: RIVER[i % 6] }, { offset: 1, color: RIVER[i % 6] + "88" }] } },
+                    data: monthsR.map((m) => val.get(`${c2}|${m}`) ?? 0),
+                  })),
                 };
               })()} />
             </Panel>
