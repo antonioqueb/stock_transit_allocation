@@ -70,6 +70,12 @@ $vf-radius-md:     12px;
 $vf-radius-lg:     18px;
 $vf-radius-xl:     24px;
 
+// Inset lateral ÚNICO de la página: el mismo que usan las tarjetas en
+// producción (vf-hero--exec y vf-data-panel llevan margen lateral de
+// $transit-space-4 = 16px). Todo bloque de primer nivel — incluido el
+// header de acciones — debe arrancar y terminar en estas coordenadas.
+$vf-page-inset:    16px;
+
 // ============================================================================
 // BASE DE ANCHO / CONTENCIÓN
 // ============================================================================
@@ -137,12 +143,18 @@ $vf-radius-xl:     24px;
 // - En pantallas pequeñas se permite envoltura limpia.
 // ============================================================================
 
+// El header comparte el MISMO contenedor horizontal que las tarjetas:
+// mismo inicio (x = $vf-page-inset), mismo final y mismo ancho útil.
+// Nada de width:100% referido al viewport — esa era la causa raíz del
+// desborde (botones pegados al borde izquierdo y estatus saliéndose por
+// el derecho mientras el card vivía con su margen lateral).
 .o_form_view.o_voyage_form .o_form_statusbar,
 .o_voyage_form .o_form_statusbar,
 .o_voyage_form header {
-    width: 100% !important;
-    max-width: 100% !important;
+    width: calc(100% - #{2 * $vf-page-inset}) !important;
+    max-width: calc(100% - #{2 * $vf-page-inset}) !important;
     min-width: 0 !important;
+    margin: 10px $vf-page-inset 0 !important;
     box-sizing: border-box !important;
 
     display: flex !important;
@@ -154,13 +166,14 @@ $vf-radius-xl:     24px;
     flex-wrap: wrap !important;
 
     gap: 6px 18px !important;
-    padding: 8px 12px !important;
+    padding: 8px 14px !important;
 
     overflow: visible !important;
 
     background: rgba(255, 255, 255, .98) !important;
-    border-bottom: 1px solid $vf-border !important;
-    box-shadow: 0 10px 26px rgba(0, 0, 0, .06);
+    border: 1px solid $vf-border !important;
+    border-radius: $vf-radius-md !important;
+    box-shadow: $vf-shadow;
     z-index: 20;
 }
 
