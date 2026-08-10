@@ -177,8 +177,8 @@ function adapt(cfg: CjsConfig): Record<string, unknown> {
         if (isScatter) {
           return list.map((pp) => {
             const pair = Array.isArray(pp.value) ? pp.value as [number, number] : [0, 0];
-            const fmt = moneyBySeries[pp.seriesIndex] !== false ? money : n1;
-            return `${pp.marker} <b>${pp.seriesName}</b><br/>${fmt(pair[0])} · ${fmt(pair[1])}`;
+            // El único scatter legacy es venta×utilidad: ambos ejes en MXN.
+            return `${pp.marker} <b>${pp.seriesName}</b><br/>Venta ${money(pair[0])} · Utilidad ${money(pair[1])}`;
           }).join("<br/>");
         }
         const head = list[0]?.name ? `${list[0].name}<br/>` : "";
