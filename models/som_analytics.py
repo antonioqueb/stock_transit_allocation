@@ -2806,7 +2806,54 @@ class SomAnalytics(models.AbstractModel):
             "SELECT COUNT(*) FROM price_authorization WHERE state='pending'",
             default=[(0,)])[0][0]
 
+        # ── Medición mensual diaria (2026-08-13) ──────────────────────────
+        # Facturación REAL (timbrada = publicada) vs PREVIAS sin timbrar
+        # (borradores), en moneda de compañía (amount_total_signed netea
+        # notas de crédito). Los pedidos del sistema (venta_mes) se comparan
+        # aparte: no garantizan cierre en el mes.
+        fact = self._sq("""
+            SELECT
+                COALESCE(SUM(am.amount_total_signed)
+                         FILTER (WHERE am.state = 'posted'), 0),
+                COALESCE(SUM(am.amount_total_signed)
+                         FILTER (WHERE am.state = 'draft'), 0),
+                COUNT(*) FILTER (WHERE am.state = 'draft')
+            FROM account_move am
+            WHERE am.move_type IN ('out_invoice', 'out_refund')
+              AND to_char(COALESCE(am.invoice_date, am.date,
+                                   am.create_date::date), 'YYYY-MM') = %(m)s
+        """, {'m': month}, default=[(0, 0, 0)])[0]
+        fact_real_mes = float(fact[0] or 0.0)
+        fact_previa_mes = float(fact[1] or 0.0)
+        fact_previa_count = int(fact[2] or 0)
+
+        # Venta de CAJAS nacionales: líneas confirmadas del mes vendidas por
+        # empaque estándar (standard_pack_som) — no. de cajas y monto MXN.
+        cajas_mes = venta_cajas_mes = 0.0
+        if 'pack_qty' in self.env['sale.order.line']._fields:
+            row = self._sq("""
+                SELECT COALESCE(SUM(sol.pack_qty), 0),
+                       COALESCE(SUM(CASE WHEN rc.name='USD'
+                           THEN sol.price_subtotal
+                                * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
+                           ELSE sol.price_subtotal END), 0)
+                FROM sale_order_line sol
+                JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
+                LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+                LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+                WHERE sol.display_type IS NULL
+                  AND sol.standard_pack_id IS NOT NULL
+                  AND to_char(so.date_order,'YYYY-MM') = %(m)s
+            """, {'rate': rate, 'm': month}, default=[(0, 0)])[0]
+            cajas_mes = float(row[0] or 0.0)
+            venta_cajas_mes = float(row[1] or 0.0)
+
         return {
+            'fact_real_mes': round(fact_real_mes, 2),
+            'fact_previa_mes': round(fact_previa_mes, 2),
+            'fact_previa_count': fact_previa_count,
+            'cajas_mes': round(cajas_mes, 1),
+            'venta_cajas_mes': round(venta_cajas_mes, 2),
             'venta_hoy': round(venta_hoy, 2),
             'venta_mes': round(venta_mes, 2),
             'venta_mes_prev': round(venta_mes_prev, 2),

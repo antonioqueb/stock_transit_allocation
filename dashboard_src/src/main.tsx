@@ -241,8 +241,12 @@ function TvExec() {
   return (
     <div className="tv-stats">
       <TvStat label="Venta de hoy" value={money(d.venta_hoy)} sub="MXN" />
-      <TvStat label="Venta del mes" value={money(d.venta_mes)}
-        sub={`${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs mes anterior`} tone={mom >= 0 ? "good" : "bad"} />
+      {/* Medición mensual diaria: facturación real vs previas vs pedidos */}
+      <TvStat label="Facturación real del mes" value={money(d.fact_real_mes)} sub="timbrada (publicada), notas de crédito descontadas" tone="good" />
+      <TvStat label="Previas sin timbrar" value={money(d.fact_previa_mes)} sub={`${n0(d.fact_previa_count)} facturas en borrador`} tone="mid" />
+      <TvStat label="Venta cajas nacionales" value={`${n0(d.cajas_mes)} cajas`} sub={`${money(d.venta_cajas_mes)} en líneas por empaque estándar`} />
+      <TvStat label="Pedidos del mes (sistema)" value={money(d.venta_mes)}
+        sub={`${mom >= 0 ? "▲" : "▼"} ${pct(Math.abs(mom))} vs mes anterior · cierre en el mes no garantizado`} tone={mom >= 0 ? "good" : "bad"} />
       <TvStat label="Utilidad del mes" value={money(d.utilidad_mes)} sub={`Margen ${pct(d.margen_mes)}`} tone={marginTone(d.margen_mes)} />
       <TvStat label="m² vendidos del mes" value={n1(d.m2_mes)} />
       <TvStat label="Dinero en bancos" value={money(d.bancos_mxn)} tone="good" />

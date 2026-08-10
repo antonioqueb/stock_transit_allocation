@@ -75,6 +75,9 @@ export const ExecSummarySchema = z.object({
   utilidad_mes: zn, margen_mes: zn, m2_mes: zn, bancos_mxn: zn,
   por_cobrar: zn, por_pagar: zn, contenedores_agua: zn, m2_agua: zn,
   inv_m2: zn, inv_edad_dias: zn, holds_activos: zn, auth_pendientes: zn, tc_banorte: zn,
+  // Medición mensual diaria
+  fact_real_mes: zn, fact_previa_mes: zn, fact_previa_count: zn,
+  cajas_mes: zn, venta_cajas_mes: zn,
 });
 export type ExecSummary = z.infer<typeof ExecSummarySchema>;
 
