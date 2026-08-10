@@ -1991,6 +1991,22 @@ function App() {
 
   useEffect(() => writeHash(view, filters), [view, filters]);
 
+  // GUARDIÁN móvil: Resumen es exclusivo de escritorio. Si en cualquier
+  // momento (arranque tardío del webview, rotación, resize) la pantalla es
+  // móvil y la vista activa es Resumen, se salta a Ventas. Cubre los casos
+  // donde el chequeo inicial corre antes de que el viewport reporte su
+  // ancho real.
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const mq = window.matchMedia("(max-width: 760px)");
+    const enforce = () => {
+      if (mq.matches) setView((v) => (v === "resumen" ? "ventas" : v));
+    };
+    enforce();
+    mq.addEventListener?.("change", enforce);
+    return () => mq.removeEventListener?.("change", enforce);
+  }, []);
+
   const toggleTheme = useCallback(() => {
     setTheme((t) => {
       const next: Theme = t === "dark" ? "light" : "dark";
