@@ -47,9 +47,10 @@ function isDark(): boolean {
 }
 
 export function ecInk() {
+  // Tinta con CONTRASTE real: nada de grises tenues ilegibles.
   return isDark()
-    ? { tick: "#94a3b8", grid: "rgba(148,163,184,.14)", txt: "#e2e8f0", panel: "#101725" }
-    : { tick: "#64748b", grid: "rgba(15,23,42,.08)", txt: "#17223b", panel: "#ffffff" };
+    ? { tick: "#c3cede", grid: "rgba(148,163,184,.16)", txt: "#e8edf5", panel: "#101725" }
+    : { tick: "#334155", grid: "rgba(15,23,42,.09)", txt: "#0f172a", panel: "#ffffff" };
 }
 
 // Base común: tooltip de la casa, tipografía, ARIA y sin animaciones largas.

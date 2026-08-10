@@ -11,7 +11,7 @@ import {
 } from "./api";
 import { ChartBox, baseOptions, axisMoney, axisPlain, C, PALETTE } from "./charts";
 import { NAV, domainOf, pageOf } from "./nav";
-import { EChartBox, ecBase, ecAxis, EC } from "./echarts";
+import { EChartBox, ecBase, ecAxis, ecInk, EC } from "./echarts";
 import { METRICS, metricTooltip, deltaTone } from "./metrics";
 import "./styles.css";
 
@@ -1000,8 +1000,8 @@ function ComprasView(props: { filters: Filters }) {
               ...ecBase(),
               tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
               legend: { top: 0 },
-              xAxis: { ...ecAxis("cat", rowsS.map((r) => String(r.name).slice(0, 14).toUpperCase())), axisLabel: { rotate: 28, fontSize: 9.5, color: "#64748b" } },
-              yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false }, axisLabel: { formatter: "{value}%", fontSize: 10, color: "#64748b" } }],
+              xAxis: { ...ecAxis("cat", rowsS.map((r) => String(r.name).slice(0, 14).toUpperCase())), axisLabel: { rotate: 28, fontSize: 9.5, color: ecInk().tick } },
+              yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false }, axisLabel: { formatter: "{value}%", fontSize: 10, color: ecInk().tick } }],
               series: [
                 { name: "Compra", type: "bar", barMaxWidth: 26, data: rowsS.map(val),
                   itemStyle: { borderRadius: [6, 6, 0, 0], color: WF_GRADS.violet } },
@@ -1777,9 +1777,9 @@ function FinanzasView(props: { filters: Filters; drill: (n: DrillNode) => void }
                 tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
                 legend: { top: 0 },
                 xAxis: { ...ecAxis("cat", arTop.map((c2) => String(c2.name).slice(0, 18).toUpperCase())),
-                  axisLabel: { rotate: 28, fontSize: 9.5, color: "#64748b" } },
+                  axisLabel: { rotate: 28, fontSize: 9.5, color: ecInk().tick } },
                 yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false },
-                  axisLabel: { formatter: "{value}%", fontSize: 10, color: "#64748b" } }],
+                  axisLabel: { formatter: "{value}%", fontSize: 10, color: ecInk().tick } }],
                 series: [
                   { name: "Saldo", type: "bar", barMaxWidth: 28,
                     data: arTop.map((c2) => num(c2.monto)),
@@ -2942,7 +2942,7 @@ function VentasConversionView(props: { filters: Filters; go: (v: ViewKey) => voi
                 const cobr = Math.min(num(stg("Cobrado")?.amount), conf);
                 const porCobrar = Math.max(conf - cobr, 0);
                 const nodes = [
-                  { name: "Creadas", itemStyle: { color: "#64748b" } },
+                  { name: "Creadas", itemStyle: { color: ecInk().tick } },
                   { name: "Borrador", itemStyle: { color: "#7c3aed" } },
                   { name: "Enviada", itemStyle: { color: "#0284c7" } },
                   { name: "Confirmada", itemStyle: { color: "#0b57d0" } },
@@ -3107,8 +3107,8 @@ function VentasClientesView(props: { filters: Filters; drill: (n: DrillNode) => 
                   ...ecBase(),
                   tooltip: { ...(ecBase().tooltip as object), trigger: "axis" },
                   legend: { top: 0 },
-                  xAxis: { ...ecAxis("cat", cust.map((c) => String(c.name).slice(0, 22))), axisLabel: { rotate: 32, fontSize: 10.5, color: "#64748b" } },
-                  yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false }, axisLabel: { formatter: "{value}%", fontSize: 10.5, color: "#64748b" } }],
+                  xAxis: { ...ecAxis("cat", cust.map((c) => String(c.name).slice(0, 22))), axisLabel: { rotate: 32, fontSize: 10.5, color: ecInk().tick } },
+                  yAxis: [ecAxis("money"), { type: "value", max: 100, splitLine: { show: false }, axisLabel: { formatter: "{value}%", fontSize: 10.5, color: ecInk().tick } }],
                   series: [
                     { name: "Venta", type: "bar", barMaxWidth: 30, data: cust.map((c) => num(c.venta)),
                       itemStyle: { color: EC.blue, borderRadius: [6, 6, 0, 0] } },
@@ -3478,7 +3478,7 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                           { type: "text",
                             style: { x: pL[0] + 14, y: cy, text: String(sr.name).slice(0, 20).toUpperCase(),
                               textVerticalAlign: "middle", fontSize: 11.5, fontWeight: 800, fontFamily: "Inter",
-                              fill: "#334155" } },
+                              fill: ecInk().txt } },
                           { type: "rect",
                             shape: { x: pL[0] + width * 0.27, y: cy + 6, width: Math.max(barW, 2), height: 5, r: 2.5 },
                             style: { fill: "#93c5fd" } },
