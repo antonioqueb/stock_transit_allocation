@@ -185,7 +185,8 @@ class SomAnalytics(models.AbstractModel):
                 pt.id            AS tmpl_id,
                 COALESCE(pt.name->>'es_MX', pt.name->>'en_US', '') AS product_name,
                 COALESCE(pt.categ_id, 0) AS categ_id,
-                COALESCE(pc.complete_name, 'Sin categoría') AS categ_name,
+                COALESCE(NULLIF(regexp_replace(pc.complete_name, '^[^/]+ / ', ''), ''),
+                         pc.complete_name, 'Sin categoría') AS categ_name,
                 COALESCE(sol.x_price_selector, 'custom') AS level,
                 COALESCE(sol.product_uom_qty, 0) AS qty,
                 (sol.product_uom_id IN %(area_uoms)s) AS is_area,
@@ -2804,7 +2805,8 @@ class SomAnalytics(models.AbstractModel):
         self.env.cr.execute("""
             SELECT pt.id,
                    COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS pname,
-                   COALESCE(pc.complete_name, pc.name, 'Sin categoría')
+                   COALESCE(NULLIF(regexp_replace(pc.complete_name, '^[^/]+ / ', ''), ''),
+                            pc.complete_name, pc.name, 'Sin categoría')
                        AS cname,
                    SUM(q.quantity) AS m2,
                    COUNT(DISTINCT sl.id) AS lots,
@@ -2831,7 +2833,8 @@ class SomAnalytics(models.AbstractModel):
         self.env.cr.execute("""
             SELECT pt.id,
                    COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS pname,
-                   COALESCE(pc.complete_name, pc.name, 'Sin categoría')
+                   COALESCE(NULLIF(regexp_replace(pc.complete_name, '^[^/]+ / ', ''), ''),
+                            pc.complete_name, pc.name, 'Sin categoría')
                        AS cname,
                    COALESCE(sl.name, '') AS lot_name,
                    SUM(q.quantity) AS m2,
@@ -3183,7 +3186,8 @@ class SomAnalytics(models.AbstractModel):
         rows = self._sq("""
             SELECT
                 COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS product,
-                COALESCE(pc.complete_name, '') AS categ,
+                COALESCE(NULLIF(regexp_replace(pc.complete_name, '^[^/]+ / ', ''), ''),
+                         pc.complete_name, '') AS categ,
                 COALESCE(sol.product_uom_qty, 0) AS qty,
                 (sol.product_uom_id IN %(uoms)s) AS is_area,
                 COALESCE(sol.x_price_selector, 'custom') AS level,
