@@ -585,16 +585,17 @@ function VentasView(props: { filters: Filters; drill: (n: DrillNode) => void }) 
         </Panel>
       </div>
       <div className="grid" style={{ marginBottom: 12 }}>
-        <Panel title="Carrera de venta mensual por categoría" hint="line race · top 6 categorías del periodo" wide>
+        <Panel title="Carrera de venta por categoría" hint="sigue al selector Día/Semana/Mes · top 6 del periodo" wide>
           <EChartBox height={340} deps={[arr(d.categ_monthly)]} option={(() => {
             const cmr = arr(d.categ_monthly);
             if (!cmr.length) return { ...ecBase(), series: [] };
             const monthsRc = [...new Set(cmr.map((r) => String(r.month)))].sort();
             const categsRc = [...new Set(cmr.map((r) => String(r.categ)))];
             const valRc = new Map(cmr.map((r) => [`${r.categ}|${r.month}`, num(r.venta)]));
-            const ents = categsRc.map((c2) => ({
-              name: c2, serie: monthsRc.map((m) => valRc.get(`${c2}|${m}`) ?? 0),
-            })) as unknown as Rec[];
+            const ents = categsRc.map((c2) => {
+              const serie = monthsRc.map((m) => valRc.get(`${c2}|${m}`) ?? 0);
+              return { name: c2, serie, total: serie.reduce((a2, b2) => a2 + b2, 0) };
+            }) as unknown as Rec[];
             return raceOpt(ents, monthsRc, "name");
           })()} />
         </Panel>
@@ -1980,7 +1981,7 @@ function PronosticosView() {
       </div>
       <div className="grid">
         <Panel title="Venta: historia y proyección a 3 meses" hint="banda = ±1 desviación de los residuos de la tendencia" wide>
-          <ChartBox height={340} deps={[hist, proy]} config={{
+          {hist.length + proy.length === 0 ? <Empty msg="La proyección necesita al menos 2 meses de historia de venta — con una semana de datos aún no hay serie que proyectar." /> : <ChartBox height={340} deps={[hist, proy]} config={{
             type: "line",
             data: {
               labels,
@@ -1992,7 +1993,7 @@ function PronosticosView() {
               ],
             },
             options: { ...baseOptions(), interaction: { mode: "index", intersect: false }, scales: { y: axisMoney(), x: axisPlain(11) } },
-          }} />
+          }} />}
         </Panel>
         <Panel title="Qué comprar primero: cobertura de inventario por material" hint="meses que dura el stock al ritmo de venta de 12 meses — los de arriba se agotan antes" wide>
           {!cob.length ? <Empty msg="Sin historia suficiente de ventas por material" /> : (
@@ -2686,7 +2687,37 @@ function waterfallOpt(steps: Array<{ label: string; value: number; base: number;
 // Line race reutilizable: series mensuales por entidad con endLabel
 // perseguidor y anti-encimado (labelLayout hideOverlap + shiftY).
 function raceOpt(entities: Rec[], months: string[], nameKey: string): Record<string, unknown> {
-  if (!entities.length || months.length < 2) return { ...ecBase(), series: [] };
+  if (!entities.length) return { ...ecBase(), series: [] };
+  // Con UN solo periodo no hay carrera: ranking de barras del periodo
+  // (con más periodos —o granularidad más fina— arranca la carrera).
+  if (months.length < 2) {
+    const sorted = [...entities].sort((a, b) => num(b.total ?? arr<number>(b.serie)[0]) - num(a.total ?? arr<number>(a.serie)[0]));
+    const val = (e: Rec) => num(e.total ?? arr<number>(e.serie)[0]);
+    const RACE = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
+    return {
+      ...ecBase(),
+      grid: { left: 8, right: 90, top: 8, bottom: 8, containLabel: true },
+      tooltip: { ...(ecBase().tooltip as object),
+        formatter: (pm: { dataIndex: number }) => {
+          const e = sorted[pm.dataIndex];
+          return e ? `${String(e[nameKey])}<br/><b>${money(val(e))}</b>` : "";
+        } },
+      xAxis: ecAxis("money"),
+      yAxis: { type: "category", inverse: true,
+        data: sorted.map((e) => String(e[nameKey]).slice(0, 24).toUpperCase()),
+        axisLine: { show: false }, axisTick: { show: false },
+        axisLabel: { fontSize: 10.5, fontFamily: "Inter" } },
+      series: [{
+        type: "bar", barMaxWidth: 22,
+        label: { show: true, position: "right", fontWeight: 800, fontSize: 11,
+                 formatter: (pm: { dataIndex: number }) => money(val(sorted[pm.dataIndex])) },
+        data: sorted.map((e, i) => ({ value: val(e),
+          itemStyle: { borderRadius: [0, 8, 8, 0],
+            color: { type: "linear", x: 0, y: 0, x2: 1, y2: 0,
+              colorStops: [{ offset: 0, color: RACE[i % 6] + "99" }, { offset: 1, color: RACE[i % 6] }] } } })),
+      }],
+    };
+  }
   const RACE = ["#0b57d0", "#0ea5e9", "#059669", "#d97706", "#7c3aed", "#db2777"];
   return {
     ...ecBase(),
@@ -3300,7 +3331,7 @@ function VentasProductosView(props: { filters: Filters; drill: (n: DrillNode) =>
             <Panel title="Estructura de la venta: categoría → producto" hint="toggle sunburst ⇄ treemap · ECharts 6" wide>
               <ProductosJerarquia data={d as Rec} />
             </Panel>
-            <Panel title="Carrera de venta mensual por producto" hint="line race · top 6 productos del periodo" wide>
+            <Panel title="Carrera de venta por producto" hint="sigue al selector Día/Semana/Mes · top 6 del periodo" wide>
               <EChartBox height={340} deps={[d.product_monthly]} option={(() => {
                 const pm = (d.product_monthly ?? {}) as Rec;
                 return raceOpt(arr(pm.products), arr<string>(pm.months), "name");
@@ -3551,7 +3582,7 @@ function VentasEquipoView(props: { filters: Filters; drill: (n: DrillNode) => vo
                 })()} />
               </Panel>
             )}
-            <Panel title="Carrera de venta mensual por vendedor" hint="line race · la etiqueta sigue a cada corredor · labels anti-encimado" wide>
+            <Panel title="Carrera de venta por vendedor" hint="sigue al selector Día/Semana/Mes · con un solo periodo muestra el ranking" wide>
               <EChartBox height={360} deps={[d.seller_monthly]} option={(() => {
                 const sm = (d.seller_monthly ?? {}) as Rec;
                 return raceOpt(arr(sm.sellers), arr<string>(sm.months), "name");

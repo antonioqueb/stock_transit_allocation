@@ -95,11 +95,20 @@ export function EChartBox(props: {
   option: Record<string, unknown> | (() => Record<string, unknown>);
   height?: number;
   deps: unknown[];
+  emptyMsg?: string;
   onClick?: (params: { name: string; dataIndex: number; seriesIndex: number; data: unknown }) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const chartRef = useRef<echarts.ECharts | null>(null);
   const [themeBump, setThemeBump] = useState(0);
+
+  // Nada de lienzos mudos: sin series (o todas vacías) se dice por qué.
+  const resolved = typeof props.option === "function" ? props.option() : props.option;
+  const seriesArr = Array.isArray(resolved?.series) ? resolved.series as Array<Record<string, unknown>> : [];
+  const hasData = seriesArr.some((sr) => {
+    const dd = sr?.data;
+    return Array.isArray(dd) ? dd.length > 0 : dd != null;
+  });
 
   useEffect(() => {
     const onTheme = () => setThemeBump((b) => b + 1);
@@ -108,14 +117,14 @@ export function EChartBox(props: {
   }, []);
 
   useEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current || !hasData) return;
     chartRef.current?.dispose();
     const chart = echarts.init(ref.current);
     chartRef.current = chart;
     // Un gráfico con datos imposibles NO debe tumbar la página completa:
     // se registra el error y el lienzo queda vacío (estado degradado).
     try {
-      const opt = typeof props.option === "function" ? props.option() : props.option;
+      const opt = resolved;
       chart.setOption(opt as never);
     } catch (err) {
       console.error("[EChartBox] option inválida:", err);
@@ -135,7 +144,17 @@ export function EChartBox(props: {
       chartRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [...props.deps, themeBump]);
+  }, [...props.deps, themeBump, hasData]);
+
+  if (!hasData) {
+    return (
+      <div style={{ height: props.height ?? 320, display: "flex", alignItems: "center",
+                    justifyContent: "center", textAlign: "center", padding: "0 24px",
+                    color: ecInk().tick, fontSize: 13, lineHeight: 1.5 }}>
+        {props.emptyMsg ?? "Sin datos suficientes para este visual en el periodo y granularidad seleccionados — prueba el selector Día/Semana/Mes o amplía el rango de fechas."}
+      </div>
+    );
+  }
 
   return <div ref={ref} style={{ height: props.height ?? 320, width: "100%" }} />;
 }
