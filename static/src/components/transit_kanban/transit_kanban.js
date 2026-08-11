@@ -168,6 +168,26 @@ export class TransitKanbanView extends Component {
             tots[stage.key].m2 += r.total_m2 || 0;
         }
 
+        // ORDEN DE COLA por columna: lo más antiguo ARRIBA (lo que sigue),
+        // lo reciente ABAJO — pero una tarjeta nueva del MISMO proveedor
+        // sube a acomodarse junto a sus hermanas (los grupos se ordenan por
+        // su tarjeta más antigua y dentro del grupo por antigüedad).
+        for (const key of Object.keys(cols)) {
+            const arr = cols[key];
+            const groupMin = {};
+            for (const r of arr) {
+                const g = (Array.isArray(r.tc_supplier_id) && r.tc_supplier_id[0])
+                    || (Array.isArray(r.purchase_id) && r.purchase_id[0])
+                    || `solo-${r.id}`;
+                r.__grp = g;
+                if (!(g in groupMin) || r.id < groupMin[g]) {
+                    groupMin[g] = r.id;
+                }
+            }
+            arr.sort((a, b) =>
+                (groupMin[a.__grp] - groupMin[b.__grp]) || (a.id - b.id));
+        }
+
         this.state.columns = cols;
         this.state.totals  = tots;
     }
