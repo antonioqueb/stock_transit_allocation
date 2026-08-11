@@ -97,7 +97,7 @@
                     </div>
 
                     <t t-foreach="cards" t-as="card" t-key="card.id">
-                        <div t-attf-class="tk-card #{isDragging(card.id) ? 'tk-card--dragging' : ''} #{isUpdating(card.id) ? 'tk-card--updating' : ''}"
+                        <div t-attf-class="tk-card #{isReceived(card) ? 'tk-card--received' : ''} #{isDragging(card.id) ? 'tk-card--dragging' : ''} #{isUpdating(card.id) ? 'tk-card--updating' : ''}"
                              draggable="true"
                              t-att-aria-grabbed="isDragging(card.id) ? 'true' : 'false'"
                              title="Arrastrar para cambiar de estado"
@@ -121,19 +121,27 @@
                                 </span>
                             </div>
 
+                            <!-- Recibida: sello compacto en lugar de fechas/alertas -->
+                            <div t-if="isReceived(card)" class="tk-card__received-line">
+                                <i class="fa fa-check-circle"/> RECIBIDA
+                                <span t-if="hasContainer(card.container_number)"
+                                      class="tk-card__received-cont"
+                                      t-esc="card.container_number"/>
+                            </div>
+
                             <!-- Inventario sin publicar (alerta operativa, siempre visible) -->
-                            <div t-if="card.tc_publication_pending" class="tk-card__pending">
+                            <div t-if="card.tc_publication_pending and !isReceived(card)" class="tk-card__pending">
                                 <i class="fa fa-eye-slash"/> Inventario SIN publicar
                             </div>
 
                             <!-- COMPACTO: contenedor -->
-                            <div class="tk-card__compactline">
+                            <div t-if="!isReceived(card)" class="tk-card__compactline">
                                 <span class="tk-card__container"
                                       t-esc="hasContainer(card.container_number) ? card.container_number : 'SIN CONTENEDOR'"/>
                             </div>
 
                             <!-- COMPACTO: fechas ETD → ETA siempre visibles -->
-                            <div class="tk-card__dates">
+                            <div t-if="!isReceived(card)" class="tk-card__dates">
                                 <div class="tk-card__date">
                                     <span class="tk-card__date-label">ETD</span>
                                     <span t-esc="fmtDate(card.etd)"/>

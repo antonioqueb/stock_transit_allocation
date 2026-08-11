@@ -915,3 +915,36 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
         transform:  none !important;
     }
 }
+
+/* ── Viaje RECIBIDO: verde y súper compacto (nada pendiente en torre) ── */
+.tk-card--received {
+    background: #ecfdf5;
+    border-left: 4px solid #059669;
+    padding: 4px 8px;
+    opacity: 0.92;
+
+    .tk-card__header { margin-bottom: 0; }
+    .tk-card__supplier-name { font-size: 11px; color: #065f46; }
+    .tk-eta--done { font-size: 10px; }
+    .tk-card__expand { display: none; }
+}
+.tk-card__received-line {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.6px;
+    color: #059669;
+    text-transform: uppercase;
+
+    .tk-card__received-cont {
+        font-weight: 600;
+        color: #047857;
+        letter-spacing: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 140px;
+    }
+}

@@ -239,6 +239,12 @@ export class TransitKanbanView extends Component {
     // ── Toggle de producción (columna Ordenado) ──────────────────────────────
     // Clic en el ícono de manufactura de la tarjeta: solicitud ⇄ production.
     // Guarda de inmediato y deja el ícono encendido cuando ya está en fábrica.
+    isReceived(card) {
+        // Recepción física validada: el viaje ya no requiere acción en la
+        // torre de control — tarjeta verde y súper compacta.
+        return card.custom_status === "delivered";
+    }
+
     isOrderStage(card) {
         return card.custom_status === "solicitud" || card.custom_status === "production";
     }
