@@ -1288,13 +1288,34 @@ class StockPicking(models.Model):
             and l.lot_id.id in received_by_lot
         )
 
+        by_order_product = {}
         for line in reserved_lines:
             key = (line.order_id.id, line.product_id.id)
             # sudo(): la unión hereda el env del operando IZQUIERDO — con el
             # placeholder sin sudo, las líneas (sudo) se degradaban y el
             # usuario sin grupo Tránsito tronaba al leerlas/escribirlas.
-            assignments_by_key.setdefault(key, self.env['stock.transit.line'].sudo())
-            assignments_by_key[key] |= line
+            by_order_product.setdefault(key, self.env['stock.transit.line'].sudo())
+            by_order_product[key] |= line
+
+        # REPARTO POR LÍNEA DE VENTA: con varias líneas del mismo producto
+        # en la orden, los lotes recibidos se distribuyen por capacidad
+        # pendiente — antes todo el grupo caía en la primera línea
+        # pendiente y las demás quedaban sin material.
+        for (order_id, product_id), group in by_order_product.items():
+            order = self.env['sale.order'].browse(order_id)
+            product = self.env['product.product'].browse(product_id)
+            pairs = []
+            if order.exists() and product.exists() \
+                    and hasattr(order, '_tc_distribute_transit_to_lines'):
+                pairs = order._tc_distribute_transit_to_lines(product, group)
+            if pairs:
+                for sale_line, subset in pairs:
+                    if not subset:
+                        continue
+                    assignments_by_key[
+                        (order_id, product_id, sale_line.id)] = subset
+            else:
+                assignments_by_key[(order_id, product_id, 0)] = group
 
         if not assignments_by_key:
             _logger.info(
@@ -1309,7 +1330,7 @@ class StockPicking(models.Model):
 
         ctx = self._tc_assignment_context()
 
-        for (order_id, product_id), transit_lines in assignments_by_key.items():
+        for (order_id, product_id, sale_line_id), transit_lines in assignments_by_key.items():
             order = self.env['sale.order'].browse(order_id)
             product = self.env['product.product'].browse(product_id)
 
@@ -1321,7 +1342,10 @@ class StockPicking(models.Model):
                     "El pedido %s tiene lotes preasignados desde tránsito, pero no está confirmado."
                 ) % order.name)
 
-            sale_line = self._tc_get_sale_line_for_assignment(order, product)
+            sale_line = (
+                self.env['sale.order.line'].browse(sale_line_id).exists()
+                if sale_line_id else False
+            ) or self._tc_get_sale_line_for_assignment(order, product)
 
             if not sale_line:
                 raise UserError(_(

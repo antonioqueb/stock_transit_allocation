@@ -12,6 +12,77 @@ _logger = logging.getLogger(__name__)
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
 
+    def _tc_distribute_transit_to_lines(self, product, transit_lines):
+        """[(línea de venta, subconjunto de líneas de tránsito)] repartiendo
+        por CAPACIDAD PENDIENTE.
+
+        Con varias líneas del MISMO producto en la orden, cada lote de
+        tránsito se atribuye a la primera línea que lo absorbe completo;
+        si ninguna puede, a la primera con capacidad parcial; sin capacidad
+        en ninguna, a la última (el sobre-asignado queda visible en un solo
+        renglón). Capacidad = solicitado − lotes FIJOS de la línea (los que
+        ya tiene y NO están en esta redistribución). Un lote es atómico:
+        jamás se parte entre dos líneas."""
+        self.ensure_one()
+        lines = self.order_line.filtered(
+            lambda l: not l.display_type
+            and l.product_id.id == product.id
+        ).sorted('id')
+        if not lines:
+            return []
+        empty_subset = transit_lines.browse()
+        if len(lines) == 1:
+            return [(lines, transit_lines)]
+
+        movable = set(transit_lines.mapped('lot_id').ids)
+        Quant = self.env['stock.quant'].sudo()
+
+        def lot_fixed_qty(line, lot):
+            bd = {}
+            if hasattr(line, '_tc_read_lot_breakdown'):
+                bd = line._tc_read_lot_breakdown() or {}
+            key = str(lot.id)
+            if key in bd:
+                try:
+                    return float(bd.get(key) or 0.0)
+                except (TypeError, ValueError):
+                    return 0.0
+            quants = Quant.search([
+                ('lot_id', '=', lot.id),
+                ('location_id.usage', '=', 'internal'),
+                ('quantity', '>', 0),
+            ])
+            qty = sum(quants.mapped('quantity'))
+            return qty or (getattr(lot, 'product_qty', 0.0) or 0.0)
+
+        caps = {}
+        for line in lines:
+            fixed = 0.0
+            for lot in line.lot_ids:
+                if lot.id in movable:
+                    continue
+                fixed += lot_fixed_qty(line, lot)
+            caps[line.id] = max((line.product_uom_qty or 0.0) - fixed, 0.0)
+
+        buckets = {line.id: empty_subset for line in lines}
+        for tl in transit_lines.sorted('id'):
+            qty = tl.product_uom_qty or 0.0
+            target = None
+            for line in lines:
+                if caps[line.id] > 0.0001 and caps[line.id] + 0.0001 >= qty:
+                    target = line
+                    break
+            if target is None:
+                for line in lines:
+                    if caps[line.id] > 0.0001:
+                        target = line
+                        break
+            if target is None:
+                target = lines[-1]
+            caps[target.id] = max(caps[target.id] - qty, 0.0)
+            buckets[target.id] |= tl
+        return [(line, buckets[line.id]) for line in lines]
+
     def _action_cancel(self):
         """Cancelar la venta libera el material reservado EN TRÁNSITO.
 

@@ -709,10 +709,6 @@ class StockTransitLineTransitAllocationSync(models.Model):
         if not order or not product:
             return False
 
-        sale_line = self._tc_get_sale_line_for_assignment(order=order, product=product)
-        if not sale_line or 'lot_ids' not in sale_line._fields:
-            return False
-
         TransitLine = self.env['stock.transit.line'].sudo()
 
         reserved_transit_lines = TransitLine.search([
@@ -729,6 +725,34 @@ class StockTransitLineTransitAllocationSync(models.Model):
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ]).mapped('lot_id').ids)
 
+        # REPARTO POR LÍNEA: con varias líneas del mismo producto en la
+        # orden, cada lote reservado se atribuye por capacidad pendiente.
+        # Antes TODO el tránsito reservado se fusionaba en la primera línea
+        # pendiente y las demás quedaban en cero.
+        if hasattr(order, '_tc_distribute_transit_to_lines'):
+            pairs = order._tc_distribute_transit_to_lines(
+                product, reserved_transit_lines)
+        else:
+            single = self._tc_get_sale_line_for_assignment(
+                order=order, product=product)
+            pairs = [(single, reserved_transit_lines)] if single else []
+
+        done = False
+        for sale_line, subset in pairs:
+            if not sale_line or 'lot_ids' not in sale_line._fields:
+                continue
+            done = self._tal_apply_reserved_to_sale_line(
+                order, product, sale_line, subset,
+                active_transit_lot_ids) or done
+        return done
+
+    def _tal_apply_reserved_to_sale_line(self, order, product, sale_line,
+                                         reserved_transit_lines,
+                                         active_transit_lot_ids):
+        """Aplica a UNA línea de venta su subconjunto de tránsito
+        reservado (cuerpo original del sync, ahora ejecutado por línea).
+        Con subconjunto VACÍO también corre: limpia de la línea los lotes
+        de tránsito que se redistribuyeron a otra línea."""
         reserved_lot_ids = reserved_transit_lines.mapped('lot_id').ids
         current_lot_ids = sale_line.lot_ids.ids if sale_line.lot_ids else []
 
