@@ -91,6 +91,15 @@ class StockTransitVoyage(models.Model):
         tracking=True,
     )
 
+    tc_reception_pending_at = fields_module.Datetime(
+        string='En recepción desde',
+        copy=False,
+        readonly=True,
+        help='Momento en que el viaje quedó LISTO PARA RECIBIR (Entrega en '
+             'Sitio). Arranca el contador de días sin recibir; termina al '
+             'validar la recepción física.',
+    )
+
     etd = fields_module.Date(
         string='ETD (Salida Estimada)',
     )
@@ -1161,6 +1170,23 @@ class StockTransitVoyage(models.Model):
         return records
 
     def write(self, vals):
+        # Contador de 'días sin recibir': se estampa al ENTRAR a
+        # reception_pending y se conserva al pasar a delivered (el contador
+        # simplemente termina); si el viaje regresa a una etapa anterior,
+        # se limpia para que un futuro arribo arranque de cero.
+        if vals.get('custom_status') == 'reception_pending':
+            for rec in self:
+                if not rec.tc_reception_pending_at:
+                    vals_rec = dict(vals,
+                                    tc_reception_pending_at=fields_module.Datetime.now())
+                    super(StockTransitVoyage, rec).write(vals_rec)
+                else:
+                    super(StockTransitVoyage, rec).write(vals)
+            return True
+        if vals.get('custom_status') and vals['custom_status'] not in (
+                'reception_pending', 'delivered'):
+            vals = dict(vals, tc_reception_pending_at=False)
+
         # ENTREGA EN SITIO ≠ RECIBIDO: 'delivered' solo puede persistirse si la
         # recepción física está VALIDADA (picking done). Cualquier otro camino
         # (arrastrar la tarjeta a "Entrega en Sitio" en el kanban de Viajes y
@@ -1578,6 +1604,15 @@ class StockTransitVoyage(models.Model):
                 'allocation_percent': v.allocation_percent or 0.0,
                 'total_m2': v.total_m2 or 0.0,
                 'tc_publication_pending': bool(v.tc_publication_pending),
+                'reception_pending_at': (
+                    v.tc_reception_pending_at.isoformat()
+                    if v.tc_reception_pending_at else (
+                        v.reception_picking_id.create_date.isoformat()
+                        if v.reception_picking_id
+                        and v.custom_status in ('reception_pending', 'delivered')
+                        and v.reception_picking_id.create_date else False
+                    )
+                ),
                 'company_id': v.company_id.id if v.company_id else False,
             })
         return out

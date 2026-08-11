@@ -55,7 +55,7 @@ const STAGES = [
     {
         key:      "delivered",
         label:    "Entrega en Sitio",
-        sublabel: "Listo para recibir · Entregado al validar",
+        sublabel: "Entregado (sin recibir) arriba · Recibido abajo",
         icon:     "fa-check-circle",
         color:    "#22c55e",
         bg:       "#f0fdf4",
@@ -184,8 +184,11 @@ export class TransitKanbanView extends Component {
                     groupMin[g] = r.id;
                 }
             }
+            const closedRank = (r) => (r.custom_status === "delivered" ? 1 : 0);
             arr.sort((a, b) =>
-                (groupMin[a.__grp] - groupMin[b.__grp]) || (a.id - b.id));
+                (closedRank(a) - closedRank(b))
+                || (groupMin[a.__grp] - groupMin[b.__grp])
+                || (a.id - b.id));
         }
 
         this.state.columns = cols;
@@ -490,8 +493,19 @@ export class TransitKanbanView extends Component {
         return Math.round((d - today) / 86400000);
     }
 
+    _pendingDays(card) {
+        if (!card || !card.reception_pending_at) return null;
+        const t = new Date(card.reception_pending_at);
+        if (isNaN(t)) return null;
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        t.setHours(0, 0, 0, 0);
+        return Math.max(Math.round((today - t) / 86400000), 0);
+    }
+
     _etaClass(eta, status) {
         if (status === "delivered") return "tk-eta--done";
+        if (status === "reception_pending") return "tk-eta--urgent";
         const days = this._etaDays(eta);
         if (days === null) return "";
         if (days < 0)  return "tk-eta--overdue";
@@ -500,7 +514,9 @@ export class TransitKanbanView extends Component {
     }
 
     _etaLabel(eta, status) {
-        if (status === "delivered") return "Entregado";
+        // Recibido = recepción física validada; Entregado = llegó a sitio y
+        // corre el contador de días SIN RECIBIR (el de ETA terminó aquí).
+        if (status === "delivered") return "Recibido";
         const days = this._etaDays(eta);
         if (days === null) return "—";
         if (days === 0)  return "Hoy";
@@ -514,7 +530,15 @@ export class TransitKanbanView extends Component {
     fmtDate(val)            { return this._fmtDate(val); }
     fmtNum(val)             { return this._fmtNum(val); }
     etaClass(r)             { return this._etaClass(r.eta, r.custom_status); }
-    etaLabel(r)             { return this._etaLabel(r.eta, r.custom_status); }
+    etaLabel(r)             {
+        if (r.custom_status === "reception_pending") {
+            const days = this._pendingDays(r);
+            return days === null
+                ? "Entregado"
+                : `Entregado · ${days} día${days === 1 ? "" : "s"} sin recibir`;
+        }
+        return this._etaLabel(r.eta, r.custom_status);
+    }
     colCards(key)           { return this.state.columns[key] || []; }
     colTotal(key)           { return this.state.totals[key] || { count: 0, m2: 0 }; }
     isCollapsed(key)        { return !!this.state.collapsed[key]; }
