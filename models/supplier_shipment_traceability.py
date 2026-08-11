@@ -229,9 +229,23 @@ class SupplierShipmentPackingRowTrace(models.Model):
                     delivered_qty[lid] = delivered_qty.get(lid, 0.0) + (qty or 0.0)
 
         # --- Costos desde la orden de compra (en memoria) ---
+        # La fila del packing NO tiene purchase_id directo: su OC se
+        # resuelve por la línea de compra asignada, la PI elegida o la
+        # proforma del embarque (en ese orden).
+        def _row_po(row):
+            if row.purchase_line_id:
+                return row.purchase_line_id.order_id
+            pi = getattr(row, 'pi_header_id', False)
+            if pi and pi.purchase_id:
+                return pi.purchase_id
+            shipment = row.packing_id.shipment_id if row.packing_id else False
+            proforma = shipment.proforma_id if shipment else False
+            return proforma.purchase_id if proforma \
+                else self.env['purchase.order']
+
         po_price = {}
         for row in self:
-            po = row.purchase_id
+            po = _row_po(row)
             if po and po.id not in po_price:
                 po_price[po.id] = {
                     line.product_id.id: line.price_unit
@@ -246,7 +260,7 @@ class SupplierShipmentPackingRowTrace(models.Model):
             row.trace_lot_id = lot
             row.trace_fecha_atencion = row.packing_id.packing_date or False
 
-            po = row.purchase_id
+            po = _row_po(row)
             row.trace_fecha_solicitud = (
                 po.date_order.date() if po and po.date_order else False
             )
