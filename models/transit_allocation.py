@@ -542,7 +542,26 @@ class TransitAllocationLogic(models.AbstractModel):
         requested_qty_before = sale_line.product_uom_qty or 0.0
         assigned_qty_before = sale_line._tc_get_assigned_lot_qty() if hasattr(sale_line, '_tc_get_assigned_lot_qty') else sale_line.tc_qty_assigned_lots
         projected_assigned_qty = float_round(assigned_qty_before + selected_qty, precision_rounding=rounding)
-        over_assigned_qty = max(projected_assigned_qty - requested_qty_before, 0.0) if requested_qty_before > 0 else projected_assigned_qty
+
+        # EXCEDENTE CONTRA TODO EL GRUPO: con varias líneas del mismo
+        # producto la selección se REPARTE, así que el exceso solo existe
+        # si supera la capacidad conjunta (solicitado − asignado de TODAS
+        # las líneas). Medirlo contra la línea clickeada disparaba
+        # decisiones de excedente falsas y editaba cantidades sin deberse.
+        def _line_assigned(l):
+            return l._tc_get_assigned_lot_qty() \
+                if hasattr(l, '_tc_get_assigned_lot_qty') \
+                else (l.tc_qty_assigned_lots or 0.0)
+
+        sibling_lines = sale_line.order_id.order_line.filtered(
+            lambda l: not l.display_type
+            and l.product_id == sale_line.product_id)
+        requested_total = sum((l.product_uom_qty or 0.0) for l in sibling_lines)
+        assigned_total_before = sum(_line_assigned(l) for l in sibling_lines)
+        projected_total = float_round(
+            assigned_total_before + selected_qty, precision_rounding=rounding)
+        over_assigned_qty = max(projected_total - requested_total, 0.0) \
+            if requested_total > 0 else projected_total
         has_over_assignment = float_compare(over_assigned_qty, 0.0, precision_rounding=rounding) > 0
 
         if has_over_assignment and over_assignment_action not in ('free', 'bill'):
@@ -572,14 +591,27 @@ class TransitAllocationLogic(models.AbstractModel):
             'action_label': 'No aplica',
         }
 
-        if has_over_assignment and hasattr(sale_line, '_tc_apply_over_assignment_admin_action'):
-            over_admin_result = sale_line._tc_apply_over_assignment_admin_action(
-                assigned_qty=projected_assigned_qty,
-                requested_qty=requested_qty_before,
-                over_assigned_qty=over_assigned_qty,
-                action=over_assignment_action,
-                reason=over_assignment_reason,
-            )
+        if has_over_assignment:
+            # Tras el reparto, el excedente vive en UNA línea concreta (el
+            # distribuidor lo deja en la última con capacidad). La cantidad
+            # solo se ajusta AHÍ y EXACTAMENTE a lo asignado a esa línea —
+            # nunca en la línea clickeada con el total de la selección.
+            over_line = self.env['sale.order.line']
+            for l in sibling_lines:
+                if float_compare(_line_assigned(l), l.product_uom_qty or 0.0,
+                                 precision_rounding=rounding) > 0:
+                    over_line = l
+                    break
+            if over_line and hasattr(over_line, '_tc_apply_over_assignment_admin_action'):
+                line_assigned = _line_assigned(over_line)
+                over_admin_result = over_line._tc_apply_over_assignment_admin_action(
+                    assigned_qty=line_assigned,
+                    requested_qty=over_line.product_uom_qty or 0.0,
+                    over_assigned_qty=max(
+                        line_assigned - (over_line.product_uom_qty or 0.0), 0.0),
+                    action=over_assignment_action,
+                    reason=over_assignment_reason,
+                )
 
         pending_qty_after = sale_line._tc_get_pending_allocation_qty() if hasattr(sale_line, '_tc_get_pending_allocation_qty') else sale_line.tc_qty_pending_allocation
         assigned_qty_after = sale_line._tc_get_assigned_lot_qty() if hasattr(sale_line, '_tc_get_assigned_lot_qty') else projected_assigned_qty
