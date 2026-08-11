@@ -37,22 +37,37 @@ class SaleOrder(models.Model):
         movable = set(transit_lines.mapped('lot_id').ids)
         Quant = self.env['stock.quant'].sudo()
 
+        # LOTE POR LOTE ERA O(n) BÚSQUEDAS: el desglose se lee UNA vez por
+        # línea y las existencias de TODOS los lotes fijos en un solo
+        # read_group (asignar muchas placas congelaba el hub).
+        bd_by_line = {}
+        fixed_lot_ids = set()
+        for line in lines:
+            bd_by_line[line.id] = (
+                line._tc_read_lot_breakdown() or {}
+                if hasattr(line, '_tc_read_lot_breakdown') else {})
+            for lot in line.lot_ids:
+                if lot.id not in movable:
+                    fixed_lot_ids.add(lot.id)
+        qty_by_lot = {}
+        if fixed_lot_ids:
+            for lot_rec, qty_sum in Quant._read_group(
+                [('lot_id', 'in', list(fixed_lot_ids)),
+                 ('location_id.usage', '=', 'internal'),
+                 ('quantity', '>', 0)],
+                ['lot_id'], ['quantity:sum'],
+            ):
+                qty_by_lot[lot_rec.id] = qty_sum or 0.0
+
         def lot_fixed_qty(line, lot):
-            bd = {}
-            if hasattr(line, '_tc_read_lot_breakdown'):
-                bd = line._tc_read_lot_breakdown() or {}
             key = str(lot.id)
+            bd = bd_by_line.get(line.id, {})
             if key in bd:
                 try:
                     return float(bd.get(key) or 0.0)
                 except (TypeError, ValueError):
                     return 0.0
-            quants = Quant.search([
-                ('lot_id', '=', lot.id),
-                ('location_id.usage', '=', 'internal'),
-                ('quantity', '>', 0),
-            ])
-            qty = sum(quants.mapped('quantity'))
+            qty = qty_by_lot.get(lot.id, 0.0)
             return qty or (getattr(lot, 'product_qty', 0.0) or 0.0)
 
         caps = {}

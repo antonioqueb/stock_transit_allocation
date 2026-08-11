@@ -634,7 +634,15 @@ class StockTransitLine(models.Model):
 
                     line.voyage_id.message_post(body=msg)
 
+            # El sync es idempotente por (orden, producto): correrlo una
+            # vez por LOTE repetía todo el trabajo N veces (asignar 30
+            # placas = 30 pasadas completas → congelamiento del hub).
+            seen_sync = set()
             for line_id, order_id, product_id in sync_targets:
+                key = (order_id, product_id)
+                if key in seen_sync:
+                    continue
+                seen_sync.add(key)
                 line = self.browse(line_id)
                 order = self.env['sale.order'].browse(order_id)
                 product = self.env['product.product'].browse(product_id)

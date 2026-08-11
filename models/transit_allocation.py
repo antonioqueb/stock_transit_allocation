@@ -249,6 +249,20 @@ class TransitAllocationLogic(models.AbstractModel):
 
         result = {}
 
+        # Mapa lote → líneas dueñas, UNA sola vez. Antes el pase 2
+        # reconstruía set(l2.lot_ids.ids) por CADA entrada × CADA línea
+        # (O(n²) con lecturas ORM) y congelaba el hub en asignaciones
+        # grandes.
+        has_lot_ids = 'lot_ids' in (sale_lines._fields if sale_lines else {})
+        lots_by_line = {}
+        owners_by_lot = defaultdict(set)
+        for line in sale_lines:
+            ids = set(line.lot_ids.ids) if has_lot_ids else set()
+            lots_by_line[line.id] = ids
+            key = (line.order_id.id, line.product_id.id)
+            for lid in ids:
+                owners_by_lot[(key, lid)].add(line.id)
+
         # PASE 1 — crédito DIRIGIDO: si el lote reservado ya vive en
         # lot_ids de una línea concreta, su reserva descuenta el pendiente
         # de ESA línea. Sin esto, el reparto FIFO acreditaba a la primera
@@ -259,8 +273,7 @@ class TransitAllocationLogic(models.AbstractModel):
             entries = entries_by_key.get(key)
             if not entries:
                 continue
-            line_lots = set(line.lot_ids.ids) \
-                if 'lot_ids' in line._fields else set()
+            line_lots = lots_by_line.get(line.id) or set()
             if not line_lots:
                 continue
             pending = ((metrics_by_line.get(line.id, {}) or {}).get(
@@ -281,8 +294,7 @@ class TransitAllocationLogic(models.AbstractModel):
             entries = entries_by_key.get(key)
             if not entries:
                 continue
-            line_lots = set(line.lot_ids.ids) \
-                if 'lot_ids' in line._fields else set()
+            line_lots = lots_by_line.get(line.id) or set()
             pending = ((metrics_by_line.get(line.id, {}) or {}).get(
                 'pending_qty', 0.0) or 0.0) - result.get(line.id, 0.0)
             for entry in entries:
@@ -290,17 +302,11 @@ class TransitAllocationLogic(models.AbstractModel):
                     break
                 if entry[1] <= 0:
                     continue
-                # Lo dirigido a OTRA línea no se roba: si el lote vive en
-                # lot_ids de alguna línea distinta, se respeta su destino.
-                if entry[0] and entry[0] not in line_lots and any(
-                    entry[0] in (set(l2.lot_ids.ids)
-                                 if 'lot_ids' in l2._fields else set())
-                    for l2 in sale_lines
-                    if l2.id != line.id
-                    and l2.order_id.id == line.order_id.id
-                    and l2.product_id.id == line.product_id.id
-                ):
-                    continue
+                # Lo dirigido a OTRA línea no se roba.
+                if entry[0] and entry[0] not in line_lots:
+                    owners = owners_by_lot.get((key, entry[0]))
+                    if owners and line.id not in owners:
+                        continue
                 take = min(entry[1], pending)
                 result[line.id] = result.get(line.id, 0.0) + take
                 entry[1] -= take
