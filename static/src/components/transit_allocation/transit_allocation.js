@@ -730,8 +730,21 @@ export class TransitAllocation extends Component {
                 atado: "",
                 voyage: "",
                 purchase: "",
+                container: "",
             },
         };
+
+        // Valores DISTINTOS para los dropdowns de filtro (contenedor,
+        // bloque, atado): se eligen de lista, no se teclean.
+        const distinctVals = (key) => Array.from(new Set(
+            state.allLines.map((l) => String(l[key] || "").trim()).filter(Boolean)
+        )).sort((a, b) => a.localeCompare(b, "es"));
+        const optionsHtml = (vals) => vals.map((v) =>
+            `<option value="${this._escapeHtml(v)}">${this._escapeHtml(v)}</option>`
+        ).join("");
+        const containerOpts = optionsHtml(distinctVals("container_number"));
+        const bloqueOpts = optionsHtml(distinctVals("x_bloque"));
+        const atadoOpts = optionsHtml(distinctVals("x_atado"));
 
         // Cantidad efectiva de una línea: la parcial elegida si es fraccionable
         // y hay un valor capturado; de lo contrario, la cantidad completa.
@@ -809,15 +822,25 @@ export class TransitAllocation extends Component {
                         </div>
                         <div class="stone-filter-group">
                             <label>Bloque</label>
-                            <input type="text" class="stone-filter-input" id="sf-bloque" placeholder="Bloque..."/>
+                            <select class="stone-filter-input" id="sf-bloque">
+                                <option value="">Todos</option>${bloqueOpts}
+                            </select>
                         </div>
                         <div class="stone-filter-group">
                             <label>Atado</label>
-                            <input type="text" class="stone-filter-input" id="sf-atado" placeholder="Atado..."/>
+                            <select class="stone-filter-input" id="sf-atado">
+                                <option value="">Todos</option>${atadoOpts}
+                            </select>
                         </div>
                         <div class="stone-filter-group">
                             <label>Embarque</label>
                             <input type="text" class="stone-filter-input" id="sf-voyage" placeholder="Embarque..."/>
+                        </div>
+                        <div class="stone-filter-group">
+                            <label>Contenedor</label>
+                            <select class="stone-filter-input" id="sf-container">
+                                <option value="">Todos</option>${containerOpts}
+                            </select>
                         </div>
                         <div class="stone-filter-group">
                             <label>OC</label>
@@ -909,13 +932,15 @@ export class TransitAllocation extends Component {
             const atado = state.filters.atado.toLowerCase();
             const voyage = state.filters.voyage.toLowerCase();
             const purchase = state.filters.purchase.toLowerCase();
+            const container = (state.filters.container || "").toLowerCase();
 
             state.filteredLines = state.allLines.filter((line) => {
                 if (lot && !String(line.lot_name || "").toLowerCase().includes(lot)) return false;
-                if (bloque && !String(line.x_bloque || "").toLowerCase().includes(bloque)) return false;
-                if (atado && !String(line.x_atado || "").toLowerCase().includes(atado)) return false;
+                if (bloque && String(line.x_bloque || "").trim().toLowerCase() !== bloque) return false;
+                if (atado && String(line.x_atado || "").trim().toLowerCase() !== atado) return false;
                 if (voyage && !String(line.voyage_name || "").toLowerCase().includes(voyage)) return false;
                 if (purchase && !String(line.purchase_name || "").toLowerCase().includes(purchase)) return false;
+                if (container && String(line.container_number || "").trim().toLowerCase() !== container) return false;
                 return true;
             });
 
@@ -1205,6 +1230,7 @@ export class TransitAllocation extends Component {
         bindFilter("sf-bloque", "bloque");
         bindFilter("sf-atado", "atado");
         bindFilter("sf-voyage", "voyage");
+        bindFilter("sf-container", "container");
         bindFilter("sf-purchase", "purchase");
 
         root.querySelector("#sp-close").addEventListener("click", () => this.destroyTransitPopup());
