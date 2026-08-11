@@ -874,6 +874,12 @@ class StockPicking(models.Model):
             skip_picking_clean=True,
             skip_transit_sale_sync=True,
             skip_tc_allocation_recovery=True,
+            # El techo de stock NO aplica al sync de la RECEPCIÓN: el
+            # material que se está oficializando acaba de llegar en este
+            # mismo picking — compararlo contra el stock libre previo
+            # bloqueaba recibir embarques asignados (p. ej. 2422 llegando
+            # con 1729 libres previos).
+            skip_tc_stock_cap=True,
         ).write(vals)
 
         if hasattr(sale_line, '_tc_get_pending_allocation_qty'):
