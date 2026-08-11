@@ -531,13 +531,24 @@ export class TransitKanbanView extends Component {
     fmtNum(val)             { return this._fmtNum(val); }
     etaClass(r)             { return this._etaClass(r.eta, r.custom_status); }
     etaLabel(r)             {
+        // Chip CORTO para no pelear con el nombre del proveedor; el texto
+        // completo va en el tooltip (etaTitle).
+        if (r.custom_status === "reception_pending") {
+            const days = this._pendingDays(r);
+            return days === null || days === 0
+                ? "Entregado"
+                : `${days} día${days === 1 ? "" : "s"}`;
+        }
+        return this._etaLabel(r.eta, r.custom_status);
+    }
+    etaTitle(r)             {
         if (r.custom_status === "reception_pending") {
             const days = this._pendingDays(r);
             return days === null
-                ? "Entregado"
+                ? "Entregado — pendiente de validar recepción"
                 : `Entregado · ${days} día${days === 1 ? "" : "s"} sin recibir`;
         }
-        return this._etaLabel(r.eta, r.custom_status);
+        return "";
     }
     colCards(key)           { return this.state.columns[key] || []; }
     colTotal(key)           { return this.state.totals[key] || { count: 0, m2: 0 }; }

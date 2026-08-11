@@ -948,3 +948,24 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
         max-width: 140px;
     }
 }
+
+
+/* ── Header de tarjeta: el proveedor manda; el chip jamás lo desborda ── */
+.tk-card__header {
+    display:     flex;
+    align-items: center;
+    gap:         8px;
+    min-width:   0;
+}
+.tk-card__supplier-name {
+    flex:          1 1 auto;
+    min-width:     0;
+    overflow:      hidden;
+    text-overflow: ellipsis;
+    white-space:   nowrap;
+}
+.tk-eta {
+    max-width: 96px;
+    overflow:  hidden;
+    text-overflow: ellipsis;
+}
