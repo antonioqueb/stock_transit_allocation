@@ -123,7 +123,7 @@
             <!-- eliminan únicamente desde Líneas de la orden.              -->
             <!-- ========================================================= -->
             <xpath expr="//page[@name='order_lines']" position="after">
-                <page string="Logística" name="logistics_lines" invisible="state != 'sale'">
+                <page string="Logística" name="logistics_lines" invisible="state == 'cancel'">
                     <field name="order_line" nolabel="1" create="0" delete="0">
                         <list editable="bottom" create="0" delete="0" decoration-muted="tc_assignment_closed">
                             <field name="display_type" column_invisible="True"/>
