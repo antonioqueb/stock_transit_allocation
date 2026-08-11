@@ -706,3 +706,46 @@ $o-tal-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
         white-space: nowrap;
     }
 }
+
+/* ── Chips de contenedor (total m²/pzas · clic = filtrar) ── */
+.stone-cont-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 8px 16px;
+    border-bottom: 1px solid #e5e7eb;
+    background: #f8fafc;
+}
+.stone-cont-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    color: #334155;
+    cursor: pointer;
+    transition: all .12s ease;
+
+    &:hover { border-color: #0b57d0; color: #0b57d0; }
+
+    .stone-cont-chip-qty {
+        font-weight: 800;
+        font-size: 11px;
+        color: #0b57d0;
+        background: #eff6ff;
+        border-radius: 999px;
+        padding: 1px 8px;
+    }
+
+    &.chip-active {
+        background: #0b57d0;
+        border-color: #0b57d0;
+        color: #ffffff;
+
+        .stone-cont-chip-qty { background: rgba(255,255,255,.18); color: #ffffff; }
+    }
+}

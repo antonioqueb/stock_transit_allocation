@@ -743,6 +743,22 @@ export class TransitAllocation extends Component {
             `<option value="${this._escapeHtml(v)}">${this._escapeHtml(v)}</option>`
         ).join("");
         const containerOpts = optionsHtml(distinctVals("container_number"));
+        // Chips de contenedor con su total (m²/piezas): clic = filtrar
+        const containerChips = (() => {
+            const agg = {};
+            for (const l of state.allLines) {
+                const c = String(l.container_number || "").trim();
+                if (!c) continue;
+                if (!agg[c]) agg[c] = { qty: 0, unit: l.unit_label || "" };
+                agg[c].qty += Number(l.qty || 0);
+            }
+            return Object.entries(agg).sort((a, b) => a[0].localeCompare(b[0], "es"));
+        })();
+        const chipsHtml = containerChips.map(([c, info]) =>
+            `<button type="button" class="stone-cont-chip" data-chip-container="${this._escapeHtml(c)}">
+                <i class="fa fa-cube me-1"></i>${this._escapeHtml(c)}
+                <span class="stone-cont-chip-qty">${this._fmtPlain(info.qty)} ${this._escapeHtml(info.unit)}</span>
+            </button>`).join("");
         const bloqueOpts = optionsHtml(distinctVals("x_bloque"));
         const atadoOpts = optionsHtml(distinctVals("x_atado"));
 
@@ -862,6 +878,7 @@ export class TransitAllocation extends Component {
                         </div>
                     </div>
 
+                    ${chipsHtml ? `<div class="stone-cont-chips" id="sp-cont-chips">${chipsHtml}</div>` : ""}
                     <div class="stone-popup-body" id="sp-body"></div>
 
                     <div class="stone-popup-footer">
@@ -1230,7 +1247,32 @@ export class TransitAllocation extends Component {
         bindFilter("sf-bloque", "bloque");
         bindFilter("sf-atado", "atado");
         bindFilter("sf-voyage", "voyage");
-        bindFilter("sf-container", "container");
+        const syncContainerChips = () => {
+            const active = state.filters.container || "";
+            root.querySelectorAll("[data-chip-container]").forEach((c2) => {
+                c2.classList.toggle(
+                    "chip-active",
+                    !!active && c2.getAttribute("data-chip-container") === active);
+            });
+        };
+        const contSelect = root.querySelector("#sf-container");
+        if (contSelect) {
+            contSelect.addEventListener("input", (ev) => {
+                state.filters.container = ev.target.value || "";
+                syncContainerChips();
+                applyPopupFilters();
+            });
+        }
+        root.querySelectorAll("[data-chip-container]").forEach((chip) => {
+            chip.addEventListener("click", () => {
+                const val = chip.getAttribute("data-chip-container") || "";
+                const next = state.filters.container === val ? "" : val;
+                state.filters.container = next;
+                if (contSelect) contSelect.value = next;
+                syncContainerChips();
+                applyPopupFilters();
+            });
+        });
         bindFilter("sf-purchase", "purchase");
 
         root.querySelector("#sp-close").addEventListener("click", () => this.destroyTransitPopup());
