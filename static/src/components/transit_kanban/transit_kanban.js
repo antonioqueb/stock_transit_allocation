@@ -343,7 +343,7 @@ export class TransitKanbanView extends Component {
         // preventDefault siempre (ver onColumnDragOver).
         ev.preventDefault();
         // 'Entrega en Sitio' no es destino manual: sin resaltado de drop.
-        if (this.state.draggingId && stageKey !== "delivered") {
+        if (this.state.draggingId) {
             this.state.dragOverStage = stageKey;
         }
     }
@@ -355,9 +355,9 @@ export class TransitKanbanView extends Component {
         // destino inválido y el drop jamás dispara.
         ev.preventDefault();
         if (ev.dataTransfer) {
-            ev.dataTransfer.dropEffect = stageKey === "delivered" ? "none" : "move";
+            ev.dataTransfer.dropEffect = "move";
         }
-        if (this.state.draggingId && this.state.dragOverStage !== stageKey && stageKey !== "delivered") {
+        if (this.state.draggingId && this.state.dragOverStage !== stageKey) {
             this.state.dragOverStage = stageKey;
         }
     }
@@ -401,24 +401,24 @@ export class TransitKanbanView extends Component {
             return;
         }
 
-        // 'Entrega en Sitio' NO se mueve a mano: el viaje llega ahí solo
-        // cuando el almacén VALIDA la recepción física (el servidor además
-        // re-enruta cualquier write manual a 'delivered'). Se bloquea el
-        // drop y se explica el porqué.
+        // Soltar en 'Entrega en Sitio' pone el viaje EN RECEPCIÓN (listo
+        // para recibir). 'Entregado' de verdad solo lo pone la validación
+        // de la recepción física (el servidor re-enruta cualquier write
+        // manual de 'delivered' a 'reception_pending' de todos modos).
+        let targetStatus = stageKey;
         if (stageKey === "delivered") {
-            this.state.draggingId = false;
+            targetStatus = "reception_pending";
             this.notification.add(
-                "Entrega en Sitio no se asigna manualmente: el viaje se moverá " +
-                "solo al VALIDAR la recepción física en el tablero de Recepciones.",
-                { type: "warning", sticky: false }
+                "El viaje quedó EN RECEPCIÓN (listo para recibir). " +
+                "'Entregado' se pondrá solo al VALIDAR la recepción física.",
+                { type: "info", sticky: false }
             );
-            return;
         }
 
         this.state.updatingStageId = recordId;
         try {
             await this.orm.write("stock.transit.voyage", [recordId], {
-                custom_status: stageKey,
+                custom_status: targetStatus,
             });
 
             // El servidor puede re-enrutar el estado (p. ej. 'delivered' sin
