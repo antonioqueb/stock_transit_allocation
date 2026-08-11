@@ -1295,6 +1295,68 @@ class SaleOrderLine(models.Model):
             'discount_applied': True,
         }
 
+    def _tc_release_transit_for_removed_lots(self, lots_before_by_line):
+        """Al QUITAR lotes de una línea de venta, sus líneas de tránsito
+        reservadas para la orden se LIBERAN (vuelven 'available' en el
+        embarque). Sin esto quedaban en el limbo: fuera de la orden pero
+        'reserved' en el viaje — ni asignables ni visibles.
+
+        Un lote que sigue en OTRA línea de la misma orden NO se libera
+        (fue redistribución, no remoción)."""
+        TransitLine = self.env['stock.transit.line'].sudo()
+        for line in self:
+            before = lots_before_by_line.get(line.id)
+            if not before or not line.order_id:
+                continue
+            removed = before - set(line.lot_ids.ids)
+            if not removed:
+                continue
+            still_in_order = set(line.order_id.order_line.filtered(
+                lambda l: l.id != line.id).mapped('lot_ids').ids)
+            removed -= still_in_order
+            if not removed:
+                continue
+            transit_lines = TransitLine.search([
+                ('order_id', '=', line.order_id.id),
+                ('lot_id', 'in', list(removed)),
+                ('allocation_status', '=', 'reserved'),
+                ('voyage_id.custom_status', 'not in', ('delivered', 'cancel')),
+            ])
+            if not transit_lines:
+                continue
+            allocations = transit_lines.mapped('allocation_id')
+            for transit_line in transit_lines:
+                try:
+                    transit_line._execute_release_logic()
+                except Exception:
+                    _logger.exception(
+                        '[TC_LOT_RELEASE] Fallo en release logic de la '
+                        'transit line %s.', transit_line.id)
+            transit_lines.with_context(
+                skip_reservation_logic=True,
+                skip_transit_sale_sync=True,
+            ).write({
+                'partner_id': False,
+                'order_id': False,
+                'allocation_id': False,
+                'allocation_status': 'available',
+                'notes': 'Liberado: lote removido de %s' % line.order_id.name,
+            })
+            pending = allocations.filtered(
+                lambda a: a.state in ('pending', 'in_transit'))
+            if pending:
+                pending.write({'state': 'cancelled'})
+            lot_names = ', '.join(transit_lines.mapped('lot_id.name'))
+            line.order_id.message_post(body=(
+                'Se liberaron %s lote(s) en tránsito al quitarlos de la '
+                'orden: %s. Vuelven a estar disponibles en su embarque.'
+            ) % (len(transit_lines), lot_names))
+            for voyage in transit_lines.mapped('voyage_id'):
+                voyage.message_post(body=(
+                    'Lotes liberados desde la orden %s (removidos de la '
+                    'venta): %s'
+                ) % (line.order_id.name, lot_names))
+
     def _tc_apply_over_assignment_admin_action(self, assigned_qty, requested_qty, over_assigned_qty, action, reason=False):
         """
         Ejecuta la consecuencia real de una sobreasignación.
@@ -1824,6 +1886,18 @@ class SaleOrderLine(models.Model):
     def write(self, vals):
         vals = dict(vals or {})
 
+        # LIBERACIÓN DE TRÁNSITO AL QUITAR LOTES: snapshot previo para
+        # detectar lotes removidos de la línea. Los syncs internos escriben
+        # con skip_transit_sale_sync/skip_tc_allocation_recovery y NO deben
+        # liberar (redistribuyen entre líneas, no quitan del pedido).
+        _tc_lots_before = {}
+        if 'lot_ids' in vals \
+                and not self.env.context.get('skip_transit_sale_sync') \
+                and not self.env.context.get('skip_tc_allocation_recovery') \
+                and not self.env.context.get('skip_transit_release_on_lot_removal'):
+            for _l in self:
+                _tc_lots_before[_l.id] = set(_l.lot_ids.ids)
+
         # Campos cuyo cambio puede dejar la línea por encima del stock asignable;
         # solo entonces se revalida el techo tras escribir (evita bloquear
         # ediciones ajenas, p. ej. precio, si el stock bajó después de asignar).
@@ -2001,6 +2075,14 @@ class SaleOrderLine(models.Model):
                 tc_cap_old_lots[line.id] = set(line.lot_ids.ids) if line.lot_ids else set()
 
         res = super(SaleOrderLine, self).write(vals)
+
+        if _tc_lots_before:
+            try:
+                self._tc_release_transit_for_removed_lots(_tc_lots_before)
+            except Exception:
+                _logger.exception(
+                    '[TC_LOT_RELEASE] Fallo liberando tránsito al quitar '
+                    'lotes de la línea de venta.')
 
         if must_recover:
             self._tc_after_lot_assignment_change(old_lots_by_line)
