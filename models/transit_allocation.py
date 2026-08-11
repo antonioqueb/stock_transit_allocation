@@ -228,15 +228,13 @@ class TransitAllocationLogic(models.AbstractModel):
             ('allocation_status', '=', 'reserved'),
             ('voyage_id.custom_status', 'not in', ('delivered', 'cancel')),
         ])
-        by_key = defaultdict(float)
-        lots_by_key = defaultdict(set)
+        entries_by_key = defaultdict(list)
         for tl in tls:
             if not tl.product_id:
                 continue
             key = (tl.order_id.id, tl.product_id.id)
             lot = tl.lot_id
             if lot:
-                lots_by_key[key].add(lot.id)
                 try:
                     dims = float(lot.x_alto or 0.0) * float(lot.x_ancho or 0.0)
                 except Exception:
@@ -245,21 +243,68 @@ class TransitAllocationLogic(models.AbstractModel):
                 dims = 0.0
             # Con lote CON medidas: assigned_qty ya lo contará cuando esté
             # en lot_ids de la línea — se marca aparte y se decide abajo.
-            by_key[key] += 0.0 if (lot and dims > 0) else self._tal_transit_line_qty(tl)
+            qty = 0.0 if (lot and dims > 0) else self._tal_transit_line_qty(tl)
+            if qty > 0:
+                entries_by_key[key].append([lot.id if lot else 0, qty])
 
-        remaining = dict(by_key)
         result = {}
+
+        # PASE 1 — crédito DIRIGIDO: si el lote reservado ya vive en
+        # lot_ids de una línea concreta, su reserva descuenta el pendiente
+        # de ESA línea. Sin esto, el reparto FIFO acreditaba a la primera
+        # línea de la orden aunque la asignación fuera de otra, y la línea
+        # asignada jamás desaparecía del hub.
         for line in sale_lines:
             key = (line.order_id.id, line.product_id.id)
-            avail = remaining.get(key, 0.0)
-            if avail <= 0:
+            entries = entries_by_key.get(key)
+            if not entries:
                 continue
-            pending = (metrics_by_line.get(line.id, {}) or {}).get(
-                'pending_qty', 0.0) or 0.0
-            take = min(avail, pending)
-            if take > 0:
-                result[line.id] = take
-                remaining[key] = avail - take
+            line_lots = set(line.lot_ids.ids) \
+                if 'lot_ids' in line._fields else set()
+            if not line_lots:
+                continue
+            pending = ((metrics_by_line.get(line.id, {}) or {}).get(
+                'pending_qty', 0.0) or 0.0) - result.get(line.id, 0.0)
+            for entry in entries:
+                if pending <= 0:
+                    break
+                if entry[0] and entry[0] in line_lots and entry[1] > 0:
+                    take = min(entry[1], pending)
+                    result[line.id] = result.get(line.id, 0.0) + take
+                    entry[1] -= take
+                    pending -= take
+
+        # PASE 2 — FIFO solo para lo NO dirigido (reservas sin lote o de
+        # lotes que ninguna línea tiene todavía).
+        for line in sale_lines:
+            key = (line.order_id.id, line.product_id.id)
+            entries = entries_by_key.get(key)
+            if not entries:
+                continue
+            line_lots = set(line.lot_ids.ids) \
+                if 'lot_ids' in line._fields else set()
+            pending = ((metrics_by_line.get(line.id, {}) or {}).get(
+                'pending_qty', 0.0) or 0.0) - result.get(line.id, 0.0)
+            for entry in entries:
+                if pending <= 0:
+                    break
+                if entry[1] <= 0:
+                    continue
+                # Lo dirigido a OTRA línea no se roba: si el lote vive en
+                # lot_ids de alguna línea distinta, se respeta su destino.
+                if entry[0] and entry[0] not in line_lots and any(
+                    entry[0] in (set(l2.lot_ids.ids)
+                                 if 'lot_ids' in l2._fields else set())
+                    for l2 in sale_lines
+                    if l2.id != line.id
+                    and l2.order_id.id == line.order_id.id
+                    and l2.product_id.id == line.product_id.id
+                ):
+                    continue
+                take = min(entry[1], pending)
+                result[line.id] = result.get(line.id, 0.0) + take
+                entry[1] -= take
+                pending -= take
         return result
 
     @api.model
