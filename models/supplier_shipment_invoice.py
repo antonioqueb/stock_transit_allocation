@@ -11,7 +11,13 @@ class SupplierShipmentInvoice(models.Model):
     @api.constrains('shipment_id', 'invoice_number')
     def _check_unique_invoice_number_per_shipment(self):
         """Un mismo número de invoice no puede capturarse dos veces en el
-        mismo embarque: el cargo quedaba registrado (y pagable) doble."""
+        mismo embarque: el cargo quedaba registrado (y pagable) doble.
+
+        La CAPTURA jamás choca con esto: create() hace UPSERT por folio
+        (si el folio ya existe en el embarque, actualiza ese registro).
+        La restricción queda como red de seguridad para el único caso que
+        sí es un error humano real: RENOMBRAR un invoice existente al folio
+        de otro invoice del mismo embarque."""
         for rec in self:
             number = (rec.invoice_number or '').strip().lower()
             if not rec.shipment_id or not number:
@@ -39,7 +45,42 @@ class SupplierShipmentInvoice(models.Model):
                 shipment = self.env['supplier.shipment'].browse(vals['shipment_id'])
                 if shipment.exists() and shipment.purchase_id.currency_id:
                     vals['currency_id'] = shipment.purchase_id.currency_id.id
-        return super().create(vals_list)
+
+        # UPSERT POR FOLIO: la factura global de la proforma se auto-crea
+        # como invoice del embarque; capturar después el mismo folio (portal
+        # o backend) creaba un duplicado y la restricción tumbaba TODO el
+        # guardado ("El invoice ya está capturado en el embarque..."). Si el
+        # folio ya existe en el embarque, se ACTUALIZA ese registro con lo
+        # capturado — sin error y sin cargo doble.
+        records = self.browse()
+        remaining = []
+        for vals in vals_list:
+            number = (vals.get('invoice_number') or '').strip().lower()
+            shipment_id = vals.get('shipment_id')
+            existing = self.browse()
+            if number and shipment_id:
+                existing = self.search([
+                    ('shipment_id', '=', shipment_id),
+                ]).filtered(
+                    lambda i: (i.invoice_number or '').strip().lower() == number
+                )[:1]
+            if existing:
+                update_vals = {
+                    k: v for k, v in vals.items()
+                    if k != 'shipment_id' and v not in (None, False, '')
+                }
+                # El marcador de factura global no se degrada por una
+                # recaptura manual del mismo folio.
+                update_vals.pop('is_global', None)
+                if update_vals:
+                    existing.write(update_vals)
+                records |= existing
+            else:
+                remaining.append(vals)
+
+        if remaining:
+            records |= super().create(remaining)
+        return records
 
     shipment_id = fields.Many2one(
         'supplier.shipment', string='Embarque',
