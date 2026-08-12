@@ -135,7 +135,9 @@ export class TransitSheetView extends Component {
         }
 
         if (this.state.statusFilter) {
-            data = data.filter(r => r.voyage_status === this.state.statusFilter);
+            // El chip unificado Destino/Arribo usa llave compuesta.
+            const statusKeys = this.state.statusFilter.split(",");
+            data = data.filter(r => statusKeys.includes(r.voyage_status));
         }
 
         if (this.state.alertFilter) {
@@ -337,7 +339,32 @@ export class TransitSheetView extends Component {
     }
 
     get allStatuses() {
-        return Object.entries(STATUS_MAP).map(([k, v]) => ({ key: k, ...v }));
+        // CHIP UNIFICADO: 'Pto. Destino' y 'Arribo Puerto' son la misma
+        // fase operativa para el cronograma — un solo filtro con la suma.
+        // La llave compuesta (separada por coma) filtra ambos estados.
+        const out = [];
+        for (const [k, v] of Object.entries(STATUS_MAP)) {
+            if (k === "puerto_destino") {
+                out.push({
+                    key: "puerto_destino,arrived_port",
+                    label: "Destino / Arribo",
+                    cls: "ts-badge--puerto",
+                });
+                continue;
+            }
+            if (k === "arrived_port") {
+                continue;
+            }
+            out.push({ key: k, ...v });
+        }
+        return out;
+    }
+
+    statusChipCount(chipKey) {
+        const keys = chipKey.split(",");
+        return this.state.records.filter(
+            (r) => keys.includes(r.voyage_status)
+        ).length;
     }
 
     get alertCounts() {

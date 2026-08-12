@@ -77,7 +77,7 @@
             <span class="ts-status-chip__count" t-esc="state.records.length"/>
         </button>
         <t t-foreach="allStatuses" t-as="st" t-key="st.key">
-            <t t-set="cnt" t-value="state.records.filter(r => r.voyage_status === st.key).length"/>
+            <t t-set="cnt" t-value="statusChipCount(st.key)"/>
             <button t-if="cnt > 0"
                     t-attf-class="ts-status-chip #{st.cls} #{isFiltered(st.key) ? 'ts-status-chip--selected' : ''}"
                     t-on-click="() => this.onStatusFilter(st.key)">
