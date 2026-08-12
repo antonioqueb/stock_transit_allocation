@@ -2,12 +2,14 @@
 import { registry } from "@web/core/registry";
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
+import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 
 export class TransitAllocation extends Component {
     setup() {
         this.orm = useService("orm");
         this.action = useService("action");
         this.notification = useService("notification");
+        this.dialog = useService("dialog");
 
         this._transitPopupRoot = null;
         this._transitPopupKeyHandler = null;
@@ -492,6 +494,42 @@ export class TransitAllocation extends Component {
         this.notification.add("Transit Allocation actualizado", {
             type: "success",
             sticky: false,
+        });
+    }
+
+    closeLineDemand(line, ev) {
+        if (ev) ev.stopPropagation();
+        const pending = line.qty_pending || 0;
+        this.dialog.add(ConfirmationDialog, {
+            title: "Cerrar pico",
+            body:
+                `${line.product_name} (${line.so_name}): el Solicitado del pedido ` +
+                `se ajustará a lo ASIGNADO (baja el pico pendiente de ` +
+                `${pending.toFixed(2)} ${line.unit_label || ""}) y esta demanda ` +
+                `desaparecerá de Transit Allocation. ¿Confirmas?`,
+            confirmLabel: "Cerrar pico",
+            cancelLabel: "Cancelar",
+            confirm: async () => {
+                try {
+                    const result = await this.orm.call(
+                        "transit.allocation.manager.logic",
+                        "close_line_demand",
+                        [line.id]
+                    );
+                    this.notification.add(
+                        `Pico cerrado: solicitado ${result.qty_before.toFixed(2)} → ${result.qty_after.toFixed(2)}`,
+                        { type: "success" }
+                    );
+                    await this.loadData();
+                } catch (e) {
+                    console.error("[TransitAllocation] close_line_demand", e);
+                    this.notification.add(
+                        (e.data && e.data.message) || "No se pudo cerrar el pico.",
+                        { type: "danger" }
+                    );
+                }
+            },
+            cancel: () => {},
         });
     }
 

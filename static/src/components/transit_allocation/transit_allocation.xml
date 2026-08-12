@@ -319,11 +319,20 @@
                                                 </button>
 
                                                 <button type="button"
-                                                        class="btn btn-sm btn-outline-secondary"
+                                                        class="btn btn-sm btn-outline-secondary me-1"
                                                         t-on-click="(ev) => this.openSaleOrder(line.so_id, ev)"
                                                         title="Abrir pedido de venta">
                                                     <i class="fa fa-external-link me-1"/>
                                                     Pedido
+                                                </button>
+
+                                                <button type="button"
+                                                        class="btn btn-sm btn-outline-danger"
+                                                        t-if="(line.qty_assigned || 0) &gt; 0"
+                                                        t-on-click="(ev) => this.closeLineDemand(line, ev)"
+                                                        title="Cerrar el pico: ajusta el Solicitado del pedido a lo asignado y esta demanda desaparece del tablero">
+                                                    <i class="fa fa-scissors me-1"/>
+                                                    Cerrar
                                                 </button>
                                             </td>
                                         </tr>
