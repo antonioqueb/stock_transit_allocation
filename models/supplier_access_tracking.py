@@ -61,11 +61,13 @@ class SupplierAccessTracking(models.Model):
                 return 0
             if Cargo is not False and hasattr(Cargo, '_header_capture_percent'):
                 return Cargo._header_capture_percent(header)
+            # Misma precedencia que _header_capture_percent: COMPLETA manda
+            # sobre el snapshot guardado (que puede quedarse viejo en <100).
+            if (header.status or '') == 'complete':
+                return 100
             stored = getattr(header, 'portal_overall_pct', 0) or 0
             if stored > 0:
                 return stored
-            if (header.status or '') == 'complete':
-                return 100
             if hasattr(header, '_portal_progress'):
                 try:
                     return header._portal_progress().get('percent', 0)
@@ -119,6 +121,14 @@ class SupplierAccessTracking(models.Model):
                 state = 'in_progress'
             else:
                 state = 'no_started'
+
+            # LIGA TERMINADA ⇒ AVANCE 100. La fase de captura acabó por
+            # definición (recepción en tránsito validada o PI completa);
+            # promediar snapshots viejos del portal — típico en ligas
+            # multi-proforma, donde las PI hermanas no re-almacenan su % —
+            # dejaba ligas terminadas marcando avance incompleto.
+            if state == 'done':
+                progress = 100
 
             counts['total'] += 1
             counts[state] = counts.get(state, 0) + 1
