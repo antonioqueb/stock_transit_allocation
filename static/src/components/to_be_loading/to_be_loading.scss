@@ -59,6 +59,50 @@ $opo-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
             &:hover { color: $opo-red-dark; }
         }
     }
+    // ── Filtros de agrupación (mismo lenguaje que To Be Purchased) ──
+    .o_opo_group_buttons {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 4px;
+        border-radius: 999px;
+        background: rgba(220, 234, 242, 0.44);
+        border: 1px solid rgba(215, 232, 242, 0.94);
+    }
+    .o_opo_group_btn {
+        border: 1px solid transparent;
+        background: transparent;
+        color: $opo-muted;
+        border-radius: 999px;
+        padding: 7px 13px;
+        font-size: 11px;
+        font-weight: 750;
+        cursor: pointer;
+        transition: all 0.16s ease;
+        white-space: nowrap;
+
+        i { opacity: 0.75; }
+
+        &:hover {
+            background: #ffffff;
+            color: $opo-text-2;
+            box-shadow: $opo-shadow-sm;
+        }
+
+        &.active {
+            border-color: rgba(92, 185, 242, 0.42);
+            background: #ffffff;
+            color: $opo-blue-deep;
+            box-shadow:
+                0 6px 14px rgba(92, 185, 242, 0.16),
+                0 1px 0 rgba(255, 255, 255, 0.95) inset;
+
+            i { opacity: 1; color: $opo-blue-dark; }
+        }
+
+        &:disabled { opacity: 0.6; cursor: default; }
+    }
+
     .o_opo_toolbar_spacer { flex: 1; }
     .o_opo_metrics { display: flex; gap: 8px; }
     .o_opo_metric {
@@ -138,7 +182,24 @@ $opo-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
         &.o_opo_pill_diff.over .o_opo_pill_value { color: $opo-green-dark; }
         &.o_opo_pill_diff.under .o_opo_pill_value { color: $opo-red-dark; }
     }
-    .o_opo_open_btn { border-radius: 999px; font-weight: 700; }
+    // Azul de la casa, SIN depender del tema de bootstrap.
+    .o_opo_open_btn {
+        border: 0;
+        border-radius: 999px;
+        font-weight: 700;
+        font-size: 12px;
+        padding: 7px 15px;
+        color: #fff;
+        background: linear-gradient(180deg, $opo-blue, $opo-blue-dark);
+        box-shadow: 0 6px 14px rgba(92, 185, 242, 0.28);
+        cursor: pointer;
+        transition: all 0.16s ease;
+
+        &:hover {
+            background: linear-gradient(180deg, $opo-blue-dark, $opo-blue-deep);
+            box-shadow: 0 8px 18px rgba(36, 127, 189, 0.32);
+        }
+    }
 
     // ── Tabla de productos (cabecera negra, como TBP) ──
     .o_opo_group_body { border-top: 1px solid $opo-border; }
@@ -169,6 +230,16 @@ $opo-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
         tbody tr:hover { background: $opo-panel-soft; }
 
         .o_opo_prod { font-weight: 600; color: $opo-text-2; }
+        .o_opo_po_link {
+            border: 0;
+            cursor: pointer;
+            font-family: ui-monospace, Menlo, monospace;
+            font-size: 12px; font-weight: 700; color: $opo-blue-dark;
+            background: rgba(92, 185, 242, 0.14);
+            border-radius: 999px; padding: 2px 10px;
+            transition: all 0.15s ease;
+            &:hover { background: rgba(92, 185, 242, 0.28); color: $opo-blue-deep; }
+        }
         .o_opo_uom { font-size: 10px; color: $opo-muted-2; }
         .o_opo_diff { font-weight: 800; }
         .o_opo_diff.over { color: $opo-green-dark; }

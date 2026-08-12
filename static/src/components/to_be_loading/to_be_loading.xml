@@ -17,20 +17,38 @@
                     </button>
                 </div>
 
+                <div class="o_opo_group_buttons">
+                    <button t-attf-class="o_opo_group_btn #{state.groupBy === 'order' ? 'active' : ''}"
+                            t-on-click="() => this.setGroupBy('order')"
+                            title="Agrupar por pedido de compra">
+                        <i class="fa fa-file-text-o me-1"/> Pedido
+                    </button>
+                    <button t-attf-class="o_opo_group_btn #{state.groupBy === 'vendor' ? 'active' : ''}"
+                            t-on-click="() => this.setGroupBy('vendor')"
+                            title="Agrupar por proveedor">
+                        <i class="fa fa-truck me-1"/> Proveedor
+                    </button>
+                    <button t-attf-class="o_opo_group_btn #{state.groupBy === 'product' ? 'active' : ''}"
+                            t-on-click="() => this.setGroupBy('product')"
+                            title="Agrupar por producto">
+                        <i class="fa fa-cube me-1"/> Producto
+                    </button>
+                </div>
+
                 <div class="o_opo_toolbar_spacer"/>
 
                 <div class="o_opo_metrics">
                     <div class="o_opo_metric">
-                        <span class="o_opo_metric_label">Proformas</span>
+                        <span class="o_opo_metric_label" t-esc="groupMetricLabel"/>
                         <span class="o_opo_metric_value"><t t-esc="filteredGroups.length"/></span>
                     </div>
                     <div class="o_opo_metric">
-                        <span class="o_opo_metric_label">Productos con dif.</span>
+                        <span class="o_opo_metric_label">Faltantes</span>
                         <span class="o_opo_metric_value"><t t-esc="totalProducts"/></span>
                     </div>
                 </div>
 
-                <button type="button" class="btn btn-sm btn-outline-primary"
+                <button type="button" class="o_opo_group_btn"
                         t-on-click="loadData" t-att-disabled="state.loading">
                     <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'} me-1"/>
                     Actualizar
@@ -38,7 +56,7 @@
             </div>
 
             <div t-if="state.loading" class="o_opo_empty">
-                <i class="fa fa-circle-o-notch fa-spin me-2"/> Cargando pedidos con diferencias...
+                <i class="fa fa-circle-o-notch fa-spin me-2"/> Cargando pedidos con faltantes...
             </div>
             <div t-elif="state.error" class="o_opo_empty o_opo_error">
                 <span t-esc="state.error"/>
@@ -46,25 +64,23 @@
             </div>
             <div t-elif="!filteredGroups.length" class="o_opo_empty">
                 <i class="fa fa-check-circle me-2" style="color: #04D94F;"/>
-                Sin discrepancias: todo lo embarcado coincide con lo solicitado.
+                Sin faltantes: nada embarcado por debajo de lo solicitado.
             </div>
 
             <div t-else="" class="o_opo_groups">
-                <div t-foreach="filteredGroups" t-as="g" t-key="g.po_id" class="o_opo_group">
+                <div t-foreach="filteredGroups" t-as="g" t-key="g.key" class="o_opo_group">
 
-                    <!-- Cabecera del grupo: la PROFORMA -->
+                    <!-- Cabecera del grupo (PI / proveedor / producto) -->
                     <div class="o_opo_group_head" t-on-click="() => this.toggleGroup(g)">
                         <div class="o_opo_group_left">
                             <i t-attf-class="fa o_opo_chevron #{isCollapsed(g) ? 'fa-chevron-right' : 'fa-chevron-down'}"/>
                             <div class="o_opo_group_titles">
                                 <div class="o_opo_group_title">
-                                    <span class="o_opo_pi_tag">PI</span>
-                                    <span class="o_opo_pi" t-esc="g.pi or 'Sin PI'"/>
-                                    <span class="o_opo_po mono" t-esc="g.po_name"/>
+                                    <span class="o_opo_pi_tag" t-esc="g.tag"/>
+                                    <span class="o_opo_pi" t-esc="g.title"/>
+                                    <span t-if="g.po_name" class="o_opo_po mono" t-esc="g.po_name"/>
                                 </div>
-                                <div class="o_opo_group_sub">
-                                    <t t-esc="g.partner"/> · confirmado <t t-esc="g.date"/>
-                                </div>
+                                <div class="o_opo_group_sub" t-esc="g.sub"/>
                             </div>
                         </div>
 
@@ -77,35 +93,45 @@
                                 <span class="o_opo_pill_label">Embarcado</span>
                                 <span class="o_opo_pill_value"><t t-esc="fmt(g.embarcado)"/></span>
                             </span>
-                            <span t-attf-class="o_opo_pill o_opo_pill_diff #{g.diff &gt; 0 ? 'over' : 'under'}">
-                                <span class="o_opo_pill_label">Diferencia</span>
+                            <span class="o_opo_pill o_opo_pill_diff under">
+                                <span class="o_opo_pill_label">Faltante</span>
                                 <span class="o_opo_pill_value"><t t-esc="diffLabel(g.diff)"/></span>
                             </span>
-                            <button class="btn btn-sm btn-primary o_opo_open_btn"
+                            <button t-if="g.po_id" class="o_opo_open_btn"
                                     t-on-click.stop="() => this.openOrder(g)">
                                 <i class="fa fa-external-link me-1"/> Abrir orden
                             </button>
                         </div>
                     </div>
 
-                    <!-- Productos de la proforma -->
+                    <!-- Líneas con faltante -->
                     <div t-if="!isCollapsed(g)" class="o_opo_group_body">
                         <table class="o_opo_table">
                             <thead>
                                 <tr>
-                                    <th>Producto</th>
+                                    <th t-if="state.groupBy !== 'order'">Pedido</th>
+                                    <th t-if="state.groupBy === 'product'">Proveedor</th>
+                                    <th t-if="state.groupBy !== 'product'">Producto</th>
                                     <th class="r">Solicitado</th>
                                     <th class="r">Embarcado</th>
-                                    <th class="r">Diferencia</th>
+                                    <th class="r">Faltante</th>
                                     <th class="c">Acción</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr t-foreach="g.products" t-as="p" t-key="p.line_id">
-                                    <td class="o_opo_prod" t-esc="p.product"/>
+                                <tr t-foreach="g.rows" t-as="p" t-key="p.line_id">
+                                    <td t-if="state.groupBy !== 'order'">
+                                        <button class="o_opo_po_link mono"
+                                                title="Abrir orden de compra"
+                                                t-on-click="() => this.openOrderById(p.po_id)">
+                                            <t t-esc="p.po_name"/>
+                                        </button>
+                                    </td>
+                                    <td t-if="state.groupBy === 'product'" t-esc="p.partner"/>
+                                    <td t-if="state.groupBy !== 'product'" class="o_opo_prod" t-esc="p.product"/>
                                     <td class="r"><t t-esc="fmt(p.solicitado)"/> <span class="o_opo_uom" t-esc="p.uom"/></td>
                                     <td class="r strong"><t t-esc="fmt(p.embarcado)"/></td>
-                                    <td t-attf-class="r o_opo_diff #{p.diff &gt; 0 ? 'over' : 'under'}">
+                                    <td class="r o_opo_diff under">
                                         <t t-esc="diffLabel(p.diff)"/>
                                     </td>
                                     <td class="c">

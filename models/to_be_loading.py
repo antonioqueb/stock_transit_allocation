@@ -51,16 +51,17 @@ class ToBeLoadingLogic(models.AbstractModel):
                 continue
 
             products = []
-            solicitado = embarcado = 0.0
             for line in lines:
                 req = float(
                     getattr(line, 'x_qty_solicitada_original', 0.0) or 0.0
                 ) or float(line.product_qty or 0.0)
                 shipped = float(
                     getattr(line, 'x_qty_embarcada', 0.0) or 0.0)
-                solicitado += req
-                embarcado += shipped
-                if shipped > 0 and abs(shipped - req) > 0.01:
+                # SOLO FALTANTES: el tablero existe para perseguir material
+                # embarcado POR DEBAJO de lo solicitado. Los excedentes
+                # (embarcado > solicitado) no son deuda del proveedor y no
+                # se muestran.
+                if shipped > 0 and (req - shipped) > 0.01:
                     products.append({
                         'line_id': line.id,
                         'product': line.product_id.display_name,
@@ -72,6 +73,11 @@ class ToBeLoadingLogic(models.AbstractModel):
 
             if not products:
                 continue
+
+            # Totales SOLO de las líneas mostradas: sumar toda la OC hacía
+            # que las píldoras de la cabecera no cuadraran con las filas.
+            solicitado = sum(p['solicitado'] for p in products)
+            embarcado = sum(p['embarcado'] for p in products)
 
             groups.append({
                 'po_id': po.id,

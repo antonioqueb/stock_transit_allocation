@@ -22,7 +22,11 @@ export class ToBeLoading extends Component {
             loading: true,
             groups: [],
             search: "",
-            collapsed: {},
+            groupBy: "order", // 'order' (default) | 'vendor' | 'product'
+            // COLAPSADO POR DEFAULT: solo se registran los grupos ABIERTOS;
+            // un grupo sin entrada está cerrado (así el default no requiere
+            // mutar estado durante el render).
+            expanded: {},
             closing: {},
             error: "",
         });
@@ -35,13 +39,6 @@ export class ToBeLoading extends Component {
         try {
             const data = await this.orm.call("to.be.loading.logic", "get_data", []);
             this.state.groups = data.groups || [];
-            // COLAPSADO POR DEFAULT: cada grupo nuevo arranca cerrado; los
-            // que el usuario ya abrió en la sesión conservan su estado.
-            for (const g of this.state.groups) {
-                if (!(g.po_id in this.state.collapsed)) {
-                    this.state.collapsed[g.po_id] = true;
-                }
-            }
         } catch (e) {
             console.error("[OpenPO]", e);
             this.state.error = "No se pudo cargar el tablero. Reintenta.";
@@ -49,22 +46,99 @@ export class ToBeLoading extends Component {
         this.state.loading = false;
     }
 
+    setGroupBy(mode) {
+        this.state.groupBy = mode;
+    }
+
+    /** Filas planas (línea de OC faltante) con su contexto de pedido. */
+    get rows() {
+        const out = [];
+        for (const g of this.state.groups) {
+            for (const p of g.products) {
+                out.push({
+                    ...p,
+                    po_id: g.po_id,
+                    po_name: g.po_name,
+                    pi: g.pi,
+                    partner: g.partner,
+                    date: g.date,
+                });
+            }
+        }
+        return out;
+    }
+
     get filteredGroups() {
         const q = (this.state.search || "").trim().toUpperCase();
-        if (!q) {
-            return this.state.groups;
+        let rows = this.rows;
+        if (q) {
+            rows = rows.filter((r) =>
+                [r.po_name, r.pi, r.partner, r.product]
+                    .join(" ")
+                    .toUpperCase()
+                    .includes(q)
+            );
         }
-        return this.state.groups.filter((g) =>
-            [g.po_name, g.partner, g.pi]
-                .concat(g.products.map((p) => p.product))
-                .join(" ")
-                .toUpperCase()
-                .includes(q)
-        );
+
+        const mode = this.state.groupBy;
+        const groups = new Map();
+        for (const r of rows) {
+            let key, tag, title, sub, po_id = false;
+            if (mode === "vendor") {
+                key = "v_" + (r.partner || "SIN PROVEEDOR");
+                tag = "PROV";
+                title = r.partner || "Sin proveedor";
+            } else if (mode === "product") {
+                key = "p_" + r.product;
+                tag = "PROD";
+                title = r.product;
+            } else {
+                key = "po_" + r.po_id;
+                tag = "PI";
+                title = r.pi || "Sin PI";
+                po_id = r.po_id;
+            }
+            if (!groups.has(key)) {
+                groups.set(key, {
+                    key, tag, title, po_id,
+                    po_name: mode === "order" ? r.po_name : "",
+                    sub: "",
+                    partner: r.partner,
+                    date: r.date,
+                    solicitado: 0,
+                    embarcado: 0,
+                    diff: 0,
+                    rows: [],
+                });
+            }
+            const g = groups.get(key);
+            g.solicitado += r.solicitado;
+            g.embarcado += r.embarcado;
+            g.diff += r.diff;
+            g.rows.push(r);
+        }
+
+        const result = [...groups.values()];
+        for (const g of result) {
+            if (mode === "order") {
+                g.sub = `${g.partner} · confirmado ${g.date}`;
+            } else {
+                const pos = new Set(g.rows.map((r) => r.po_id));
+                g.sub = `${pos.size} pedido${pos.size === 1 ? "" : "s"} con faltante`;
+            }
+        }
+        result.sort((a, b) => Math.abs(b.diff) - Math.abs(a.diff));
+        return result;
     }
 
     get totalProducts() {
-        return this.filteredGroups.reduce((s, g) => s + g.products.length, 0);
+        return this.filteredGroups.reduce((s, g) => s + g.rows.length, 0);
+    }
+
+    get groupMetricLabel() {
+        return { order: "Proformas", vendor: "Proveedores", product: "Productos" }[
+            this.state.groupBy
+        ];
     }
 
     onSearchInput(ev) {
@@ -76,11 +150,11 @@ export class ToBeLoading extends Component {
     }
 
     toggleGroup(g) {
-        this.state.collapsed[g.po_id] = !this.state.collapsed[g.po_id];
+        this.state.expanded[g.key] = !this.state.expanded[g.key];
     }
 
     isCollapsed(g) {
-        return !!this.state.collapsed[g.po_id];
+        return !this.state.expanded[g.key];
     }
 
     fmt(n) {
@@ -94,10 +168,17 @@ export class ToBeLoading extends Component {
     }
 
     openOrder(g) {
+        this.openOrderById(g.po_id);
+    }
+
+    openOrderById(poId) {
+        if (!poId) {
+            return;
+        }
         this.action.doAction({
             type: "ir.actions.act_window",
             res_model: "purchase.order",
-            res_id: g.po_id,
+            res_id: poId,
             views: [[false, "form"]],
             target: "current",
         });
