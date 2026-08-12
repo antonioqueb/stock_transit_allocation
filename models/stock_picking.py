@@ -138,6 +138,10 @@ class StockPicking(models.Model):
                 continue
             if 'return_id' in pick._fields and pick.return_id:
                 continue
+            # Devolución de cliente sin return_id (flujo del wizard): el
+            # material regresa a stock interno, no a tránsito.
+            if pick.location_id.usage == 'customer':
+                continue
             if pick.location_dest_id.id != loc.id:
                 pick.with_context(
                     som_skip_transit_dest=True).location_dest_id = loc.id
@@ -725,12 +729,25 @@ class StockPicking(models.Model):
                     or any(x in loc_text for x in ('TRANSIT', 'TRANSITO', 'TRANCIT'))
                 )
 
-            if is_transit_loc and pick.picking_type_code == 'incoming':
+            # DEVOLUCIONES NO SON EMBARQUES: material que regresa del
+            # cliente (origen 'customer') o un picking de devolución
+            # (return_id) jamás crea viaje en Torre de Control.
+            is_return_pick = bool(
+                pick.location_id.usage == 'customer'
+                or ('return_id' in pick._fields and pick.return_id)
+            )
+            if is_transit_loc and pick.picking_type_code == 'incoming' \
+                    and not is_return_pick:
                 _logger.info(
                     "[TC_DEBUG] Picking %s detectado como Entrada a Tránsito. Creando Viaje independiente...",
                     pick.name,
                 )
                 pick._create_automatic_transit_voyage()
+            elif is_transit_loc and is_return_pick:
+                _logger.info(
+                    "[TC_DEBUG] Picking %s es DEVOLUCIÓN: no se crea viaje.",
+                    pick.name,
+                )
 
             if pick.picking_type_code == 'internal' and pick.state == 'done':
                 _logger.info(

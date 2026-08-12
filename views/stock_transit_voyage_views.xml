@@ -11,7 +11,7 @@
         <field name="name">stock.transit.voyage.list</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
-            <list decoration-info="custom_status == 'on_sea'"
+            <list create="0" decoration-info="custom_status == 'on_sea'"
                   decoration-success="custom_status == 'delivered'"
                   decoration-warning="custom_status in ['solicitud', 'production']">
                 <field name="name"/>
@@ -38,7 +38,7 @@
         <field name="name">stock.transit.voyage.form</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
-            <form string="Gestión de Tránsito" class="o_voyage_form">
+            <form string="Gestión de Tránsito" class="o_voyage_form" create="0">
                 <header>
                     <!-- AVANZAR: una variante por estatus para que el botón
                          diga a DÓNDE avanza. Desde 'reception_pending' no hay
@@ -353,7 +353,7 @@
         <field name="name">stock.transit.voyage.kanban</field>
         <field name="model">stock.transit.voyage</field>
         <field name="arch" type="xml">
-            <kanban default_group_by="custom_status" class="o_kanban_small_column" sample="1">
+            <kanban default_group_by="custom_status" class="o_kanban_small_column" sample="1" create="0">
                 <field name="custom_status"/>
                 <field name="name"/>
                 <field name="purchase_id"/>
