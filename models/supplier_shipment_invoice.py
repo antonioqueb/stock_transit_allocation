@@ -82,6 +82,47 @@ class SupplierShipmentInvoice(models.Model):
             records |= super().create(remaining)
         return records
 
+    def write(self, vals):
+        # UPSERT TAMBIÉN AL EDITAR: renombrar/corregir el folio de un
+        # invoice para que coincida con otro del mismo embarque (típico:
+        # el auto-creado de la factura global) chocaba con la restricción
+        # y tumbaba el guardado. El registro EDITADO es el canónico:
+        # absorbe los datos que le falten del duplicado y el duplicado se
+        # elimina ANTES de escribir — sin error y sin cargo doble.
+        if vals.get('invoice_number'):
+            number = (vals['invoice_number'] or '').strip().lower()
+            if number:
+                for rec in self:
+                    shipment = rec.shipment_id
+                    if not shipment:
+                        continue
+                    duplicates = shipment.invoice_ids.filtered(
+                        lambda i: i.id not in self.ids
+                        and (i.invoice_number or '').strip().lower() == number
+                    )
+                    for dup in duplicates:
+                        absorb = {}
+                        for fname in ('invoice_date', 'amount', 'currency_id',
+                                      'file', 'filename', 'scope'):
+                            if not rec[fname] and dup[fname]:
+                                value = dup[fname]
+                                if fname == 'currency_id':
+                                    value = value.id
+                                absorb[fname] = value
+                        if dup.container_ids and not rec.container_ids:
+                            absorb['container_ids'] = [(6, 0, dup.container_ids.ids)]
+                        if dup.is_global and not rec.is_global:
+                            absorb['is_global'] = True
+                        # Solo campos que NO vienen en esta edición: lo que
+                        # el usuario captura manda sobre lo absorbido.
+                        absorb = {
+                            k: v for k, v in absorb.items() if k not in vals
+                        }
+                        dup.unlink()
+                        if absorb:
+                            super(SupplierShipmentInvoice, rec).write(absorb)
+        return super().write(vals)
+
     shipment_id = fields.Many2one(
         'supplier.shipment', string='Embarque',
         required=True, ondelete='cascade', index=True,
