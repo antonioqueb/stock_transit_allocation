@@ -159,6 +159,30 @@ class StockTransitVoyage(models.Model):
         domain=[('picking_type_code', '=', 'incoming')],
     )
 
+    # EMBARQUE MULTI-PROFORMA (factura de carga con liga única de portal):
+    # cada proforma/OC amparada genera SU propia recepción a tránsito, pero
+    # todas alimentan ESTE MISMO embarque — el folio del viaje cuenta
+    # embarques físicos, no recepciones administrativas. picking_id se
+    # conserva como recepción primaria (compatibilidad); la composición
+    # completa vive aquí.
+    picking_ids = fields_module.Many2many(
+        'stock.picking',
+        'stock_transit_voyage_picking_rel', 'voyage_id', 'picking_id',
+        string='Recepciones que componen el embarque',
+        copy=False,
+    )
+
+    tc_composition_summary = fields_module.Char(
+        string='Composición del embarque',
+        compute='_compute_tc_composition',
+        compute_sudo=True,
+    )
+    tc_pending_reception_count = fields_module.Integer(
+        string='Recepciones pendientes',
+        compute='_compute_tc_composition',
+        compute_sudo=True,
+    )
+
     reception_picking_id = fields_module.Many2one(
         'stock.picking',
         string='Recepción Física (Bodega)',
@@ -1638,6 +1662,128 @@ class StockTransitVoyage(models.Model):
             ),
         }
 
+    # =========================================================================
+    # COMPOSICIÓN MULTI-PROFORMA (un embarque, varias recepciones)
+    # =========================================================================
+
+    def _tc_component_pickings(self):
+        """Recepciones a tránsito que YA alimentan este embarque."""
+        self.ensure_one()
+        pickings = self.picking_ids
+        if self.picking_id:
+            pickings |= self.picking_id
+        return pickings
+
+    def _tc_linked_portal_shipments(self):
+        """Embarques del portal del proveedor ligados a este viaje."""
+        self.ensure_one()
+
+        if 'supplier.shipment' not in self.env:
+            return None
+
+        Shipment = self.env['supplier.shipment'].sudo()
+        shipments = Shipment.search([('voyage_id', '=', self.id)])
+
+        component = self._tc_component_pickings()
+        if component and 'supplier_shipment_id' in component._fields:
+            shipments |= component.sudo().mapped('supplier_shipment_id')
+
+        return shipments
+
+    def _tc_expected_component_pickings(self):
+        """TODAS las recepciones a tránsito que deben alimentar este embarque.
+
+        Con factura de carga (liga única de portal) el embarque del portal
+        crea una recepción POR PROFORMA: aunque solo una esté validada, las
+        hermanas del mismo supplier.shipment también son parte del embarque
+        y el viaje no está completo hasta que todas lleguen.
+        """
+        self.ensure_one()
+
+        expected = self._tc_component_pickings()
+        shipments = self._tc_linked_portal_shipments()
+
+        Picking = self.env['stock.picking'].sudo()
+        if shipments and 'supplier_shipment_id' in Picking._fields:
+            siblings = Picking.search([
+                ('supplier_shipment_id', 'in', shipments.ids),
+                ('picking_type_code', '=', 'incoming'),
+                ('state', '!=', 'cancel'),
+            ])
+            # Devoluciones no componen embarques (misma regla que la
+            # creación automática de viajes).
+            siblings = siblings.filtered(
+                lambda p: p.location_id.usage != 'customer'
+                and not ('return_id' in p._fields and p.return_id)
+            )
+            expected |= siblings
+
+        return expected
+
+    def _tc_pending_component_pickings(self):
+        """Recepciones del embarque que aún no se validan."""
+        self.ensure_one()
+        return self._tc_expected_component_pickings().filtered(
+            lambda p: p.state != 'done'
+        )
+
+    def _compute_tc_composition(self):
+        for rec in self:
+            rec.tc_composition_summary = ''
+            rec.tc_pending_reception_count = 0
+
+            if not rec.id:
+                continue
+
+            expected = rec._tc_expected_component_pickings()
+            if len(expected) <= 1:
+                continue
+
+            pending = expected.filtered(lambda p: p.state != 'done')
+            parts = []
+            for pick in expected.sorted('id'):
+                po = pick.purchase_id
+                label = po.name if po else (pick.origin or pick.name)
+                parts.append('%s %s' % (
+                    label, '✓' if pick.state == 'done' else '⏳'))
+
+            rec.tc_pending_reception_count = len(pending)
+            rec.tc_composition_summary = _(
+                'Compuesto por %(count)s proformas: %(detail)s'
+            ) % {
+                'count': len(expected),
+                'detail': ' · '.join(parts),
+            }
+
+    def _tc_assert_components_complete(self, operation_label):
+        """Un embarque multi-proforma no avanza a recepción/cierre hasta que
+        TODAS sus recepciones componentes estén validadas."""
+        self.ensure_one()
+
+        pending = self._tc_pending_component_pickings()
+        if not pending:
+            return
+
+        detail = '\n'.join(
+            '- %s (%s)' % (
+                p.purchase_id.name if p.purchase_id else (p.origin or ''),
+                p.name,
+            )
+            for p in pending.sorted('id')
+        )
+        raise UserError(_(
+            'No se puede %(operation)s: este embarque está compuesto por '
+            '%(total)s proformas y aún faltan recepciones por validar:\n\n'
+            '%(detail)s\n\n'
+            'Valide las recepciones pendientes; cada una alimenta este '
+            'mismo embarque (%(voyage)s).'
+        ) % {
+            'operation': operation_label,
+            'total': len(self._tc_expected_component_pickings()),
+            'detail': detail,
+            'voyage': self.name,
+        })
+
     def action_advance_status(self):
         self.ensure_one()
 
@@ -1688,6 +1834,14 @@ class StockTransitVoyage(models.Model):
 
         next_status = self.STATUS_SEQUENCE[next_idx]
 
+        # Embarque multi-proforma: no entra a recepción ni se cierra hasta
+        # que TODAS las recepciones que lo componen estén validadas.
+        if next_status in ('reception_pending', 'delivered'):
+            self._tc_assert_components_complete(
+                _('avanzar el embarque a %s')
+                % self.STATUS_LABELS.get(next_status, next_status)
+            )
+
         if next_status == 'delivered':
             if self.reception_picking_id and self.reception_picking_id.state != 'done':
                 raise UserError(_("No puede cerrar el viaje hasta que la Recepción Física haya sido validada."))
@@ -1701,9 +1855,14 @@ class StockTransitVoyage(models.Model):
                 self.action_generate_reception()
         else:
             if next_status == 'on_sea':
-                if self.picking_id and self.picking_id.purchase_id:
+                # Todas las OC que componen el embarque (multi-proforma),
+                # no solo la de la recepción primaria.
+                purchases = self._tc_component_pickings().mapped('purchase_id')
+                if not purchases and self.purchase_id:
+                    purchases = self.purchase_id
+                if purchases:
                     allocations = self.env['purchase.order.line.allocation'].search([
-                        ('purchase_order_id', '=', self.picking_id.purchase_id.id),
+                        ('purchase_order_id', 'in', purchases.ids),
                         ('state', '=', 'pending'),
                     ])
                     allocations.action_mark_in_transit()
@@ -1848,9 +2007,23 @@ class StockTransitVoyage(models.Model):
             self.env['stock.transit.line'].create(transit_lines)
 
     def action_load_from_picking(self):
+        """Carga/actualiza las líneas del viaje desde TODAS las recepciones
+        que lo componen. En el flujo clásico hay una sola (picking_id); en
+        multi-proforma cada recepción validada complementa el mismo embarque."""
         self.ensure_one()
 
-        if not self.picking_id:
+        pickings = self._tc_component_pickings().sorted('id')
+
+        if not pickings:
+            return
+
+        for picking in pickings:
+            self._tc_load_lines_from_picking(picking)
+
+    def _tc_load_lines_from_picking(self, picking):
+        self.ensure_one()
+
+        if not picking or not picking.exists():
             return
 
         placeholder_lines = self.line_ids.filtered(lambda l: not l.lot_id)
@@ -1869,7 +2042,7 @@ class StockTransitVoyage(models.Model):
 
         from .utils.transit_manager import TransitManager
 
-        purchase = self.picking_id.purchase_id
+        purchase = picking.purchase_id
         allocations_map = {}
         allocation_consumed = {}
 
@@ -1886,7 +2059,7 @@ class StockTransitVoyage(models.Model):
         lines_to_create = []
         hold_orders_map = {}
 
-        for move_line in self.picking_id.move_line_ids:
+        for move_line in picking.move_line_ids:
             if not move_line.lot_id:
                 continue
 
@@ -2746,6 +2919,11 @@ class StockTransitVoyage(models.Model):
         # es historia legítima, no un flujo forzado.
         if picking and picking.state == 'done':
             return self._tc_open_reception_action(picking)
+
+        # Embarque multi-proforma: la recepción física se genera hasta que
+        # TODAS las recepciones a tránsito que lo componen estén validadas
+        # (su material debe existir en tránsito para poder recibirse junto).
+        self._tc_assert_components_complete(_('generar la recepción física'))
 
         # Si la recepción ya existe y todavía no se procesó PL/Worksheet,
         # se puede sanear de forma segura. Esto corrige recepciones creadas por

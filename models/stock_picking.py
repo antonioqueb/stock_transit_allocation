@@ -117,8 +117,18 @@ class StockPicking(models.Model):
             picking.transit_sale_order_ids = picking.move_ids.sale_line_id.order_id
 
     def _compute_transit_count(self):
+        # Incluye los embarques compartidos (multi-proforma) donde esta
+        # recepción es componente aunque no sea la primaria (picking_ids).
+        Voyage = self.env['stock.transit.voyage'].sudo()
         for pick in self:
-            pick.transit_count = len(pick.transit_voyage_ids)
+            if not pick.id:
+                pick.transit_count = len(pick.transit_voyage_ids)
+                continue
+            pick.transit_count = Voyage.search_count([
+                '|',
+                ('picking_id', '=', pick.id),
+                ('picking_ids', 'in', pick.id),
+            ])
 
     # -------------------------------------------------------------------------
     # DESTINO FORZADO DE RECEPCIONES: SOM/TRANSIT
@@ -1526,6 +1536,122 @@ class StockPicking(models.Model):
             total_assigned_lots,
         )
 
+    def _tc_find_shared_shipment_voyage(self):
+        """Viaje compartido del embarque de portal al que pertenece esta
+        recepción (multi-proforma / factura de carga).
+
+        Un supplier.shipment con factura de carga crea UNA recepción por
+        proforma; el embarque físico es UNO solo. Si el embarque del portal
+        ya tiene viaje (o una recepción hermana ya lo creó), esta recepción
+        debe ALIMENTARLO, no abrir otro folio.
+        """
+        self.ensure_one()
+
+        if 'supplier_shipment_id' not in self._fields or not self.supplier_shipment_id:
+            return False
+
+        shipment = self.supplier_shipment_id
+        Voyage = self.env['stock.transit.voyage'].sudo()
+
+        if 'voyage_id' in shipment._fields and shipment.voyage_id \
+                and shipment.voyage_id.custom_status not in ('cancel', 'delivered'):
+            return shipment.voyage_id
+
+        siblings = self.sudo().search([
+            ('supplier_shipment_id', '=', shipment.id),
+            ('id', '!=', self.id),
+        ])
+        if not siblings:
+            return False
+
+        return Voyage.search([
+            ('custom_status', 'not in', ('cancel', 'delivered')),
+            '|',
+            ('picking_id', 'in', siblings.ids),
+            ('picking_ids', 'in', siblings.ids),
+        ], order='id asc', limit=1)
+
+    def _tc_absorb_own_po_orphan_voyage(self, shared_voyage):
+        """Al integrarse a un embarque compartido, el viaje huérfano que nació
+        al confirmar la OC de ESTA recepción (button_confirm crea uno por OC
+        con demanda pre-asignada) queda sin razón de ser: la demanda se
+        re-deriva de purchase.order.line.allocation al cargar las líneas y
+        sus placeholders (sin lote) no aportan material. Se cancela con
+        rastro para no dejar folios fantasma."""
+        self.ensure_one()
+
+        if not self.purchase_id:
+            return
+
+        Voyage = self.env['stock.transit.voyage'].sudo()
+        orphans = Voyage.search([
+            ('purchase_id', '=', self.purchase_id.id),
+            ('picking_id', '=', False),
+            ('picking_ids', '=', False),
+            ('custom_status', '=', 'solicitud'),
+            ('id', '!=', shared_voyage.id),
+        ]).filtered(lambda v: not v.line_ids.filtered(lambda l: l.lot_id))
+
+        if orphans and 'supplier.shipment' in self.env:
+            Ship = self.env['supplier.shipment'].sudo()
+            orphans = orphans.filtered(
+                lambda v: not Ship.search_count([('voyage_id', '=', v.id)])
+            )
+
+        for orphan in orphans:
+            orphan.message_post(body=_(
+                'Viaje de solicitud absorbido por el embarque compartido %s '
+                '(recepción %s de la OC %s se integró al embarque '
+                'multi-proforma).'
+            ) % (shared_voyage.name, self.name, self.purchase_id.name))
+            orphan.write({'custom_status': 'cancel'})
+            _logger.info(
+                "[TC] Viaje huérfano %s de la OC %s cancelado: su recepción "
+                "%s alimenta el embarque compartido %s.",
+                orphan.name, self.purchase_id.name, self.name,
+                shared_voyage.name,
+            )
+
+    def _tc_join_shared_voyage(self, voyage):
+        """Integra esta recepción al embarque compartido y carga sus líneas."""
+        self.ensure_one()
+
+        vals = {}
+        if self.id not in voyage.picking_ids.ids:
+            vals['picking_ids'] = [(4, self.id)]
+        if not voyage.picking_id:
+            vals['picking_id'] = self.id
+        if vals:
+            voyage.write(vals)
+
+        shipment = self.supplier_shipment_id \
+            if 'supplier_shipment_id' in self._fields else False
+        if shipment and 'voyage_id' in shipment._fields and not shipment.voyage_id:
+            shipment.sudo().write({'voyage_id': voyage.id})
+
+        self._tc_absorb_own_po_orphan_voyage(voyage)
+
+        voyage._tc_load_lines_from_picking(self)
+
+        voyage.message_post(body=_(
+            '📦 La recepción %(picking)s (%(po)s) alimentó este embarque. '
+            '%(summary)s'
+        ) % {
+            'picking': self.name,
+            'po': self.purchase_id.name if self.purchase_id else self.origin or '',
+            'summary': voyage.tc_composition_summary or '',
+        })
+        self.message_post(body=_(
+            '🚢 Esta recepción forma parte del embarque compartido %s '
+            '(multi-proforma).'
+        ) % voyage.name)
+
+        _logger.info(
+            "[TC] Picking %s INTEGRADO al voyage compartido %s "
+            "(embarque multi-proforma).",
+            self.name, voyage.name,
+        )
+
     def _create_automatic_transit_voyage(self):
         """
         Un embarque por recepción, SIN duplicar: si la OC ya tiene un viaje
@@ -1533,6 +1659,10 @@ class StockPicking(models.Model):
         el portal), se ADOPTA en lugar de crear un segundo — antes ese
         viaje quedaba en el limbo. Solo se crea uno nuevo si no hay
         huérfano (p.ej. segunda recepción de la misma OC).
+
+        MULTI-PROFORMA (factura de carga): las recepciones que nacen del
+        MISMO embarque de portal comparten UN solo viaje — la primera lo
+        crea/adopta y las siguientes lo alimentan.
         """
         self.ensure_one()
         # sudo(): corre al validar recepciones a Tránsito; el usuario de
@@ -1540,8 +1670,10 @@ class StockPicking(models.Model):
         Voyage = self.env['stock.transit.voyage'].sudo()
 
         existing = Voyage.search([
-            ('picking_id', '=', self.id),
             ('custom_status', '!=', 'cancel'),
+            '|',
+            ('picking_id', '=', self.id),
+            ('picking_ids', 'in', self.id),
         ], limit=1)
 
         if existing:
@@ -1550,7 +1682,12 @@ class StockPicking(models.Model):
                 self.name,
                 existing.name,
             )
-            existing.action_load_from_picking()
+            existing._tc_load_lines_from_picking(self)
+            return
+
+        shared = self._tc_find_shared_shipment_voyage()
+        if shared:
+            self._tc_join_shared_voyage(shared)
             return
 
         bl = (
@@ -1569,7 +1706,10 @@ class StockPicking(models.Model):
                 ('custom_status', 'not in', ('cancel', 'delivered')),
             ], order='id asc', limit=1)
             if orphan:
-                vals = {'picking_id': self.id}
+                vals = {
+                    'picking_id': self.id,
+                    'picking_ids': [(4, self.id)],
+                }
                 if not orphan.bl_number or orphan.bl_number == self.purchase_id.name:
                     vals['bl_number'] = bl
                 orphan.write(vals)
@@ -1578,11 +1718,13 @@ class StockPicking(models.Model):
                     "(no se crea embarque duplicado).",
                     orphan.name, self.purchase_id.name, self.name,
                 )
+                self._tc_stamp_shipment_voyage(orphan)
                 orphan.action_load_from_picking()
                 return
 
         voyage = Voyage.create({
             'picking_id': self.id,
+            'picking_ids': [(4, self.id)],
             'purchase_id': self.purchase_id.id if self.purchase_id else False,
             'bl_number': bl,
             'etd': fields.Date.today(),
@@ -1596,16 +1738,35 @@ class StockPicking(models.Model):
             self.purchase_id.name if self.purchase_id else 'N/A',
         )
 
+        self._tc_stamp_shipment_voyage(voyage)
         voyage.action_load_from_picking()
+
+    def _tc_stamp_shipment_voyage(self, voyage):
+        """Liga el embarque de portal de esta recepción con el viaje recién
+        creado/adoptado, para que las recepciones HERMANAS del mismo embarque
+        (multi-proforma) lo encuentren y lo alimenten en vez de abrir otro."""
+        self.ensure_one()
+
+        shipment = self.supplier_shipment_id \
+            if 'supplier_shipment_id' in self._fields else False
+
+        if shipment and 'voyage_id' in shipment._fields and not shipment.voyage_id:
+            shipment.sudo().write({'voyage_id': voyage.id})
 
     def action_view_transit_voyage(self):
         self.ensure_one()
+        # Multi-proforma: cualquiera de las recepciones que componen el
+        # embarque compartido debe llegar al MISMO viaje.
         return {
             'name': 'Gestión de Tránsito',
             'type': 'ir.actions.act_window',
             'res_model': 'stock.transit.voyage',
             'view_mode': 'list,form',
-            'domain': [('picking_id', '=', self.id)],
+            'domain': [
+                '|',
+                ('picking_id', '=', self.id),
+                ('picking_ids', 'in', self.id),
+            ],
             'context': {'default_picking_id': self.id},
         }
 

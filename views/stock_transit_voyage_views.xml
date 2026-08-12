@@ -247,6 +247,10 @@
                             <span class="vf-qd__label">Recepción ADM</span>
                             <field name="picking_id" readonly="1" options="{'no_open': True}"/>
                         </span>
+                        <span class="vf-qd" invisible="not tc_composition_summary">
+                            <span class="vf-qd__label">Multi-proforma</span>
+                            <field name="tc_composition_summary" readonly="1"/>
+                        </span>
                         <span class="vf-qd" invisible="not etd">
                             <span class="vf-qd__label">ETD</span>
                             <field name="etd" readonly="1"/>
