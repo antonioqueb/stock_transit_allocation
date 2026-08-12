@@ -35,6 +35,13 @@ export class ToBeLoading extends Component {
         try {
             const data = await this.orm.call("to.be.loading.logic", "get_data", []);
             this.state.groups = data.groups || [];
+            // COLAPSADO POR DEFAULT: cada grupo nuevo arranca cerrado; los
+            // que el usuario ya abrió en la sesión conservan su estado.
+            for (const g of this.state.groups) {
+                if (!(g.po_id in this.state.collapsed)) {
+                    this.state.collapsed[g.po_id] = true;
+                }
+            }
         } catch (e) {
             console.error("[OpenPO]", e);
             this.state.error = "No se pudo cargar el tablero. Reintenta.";
