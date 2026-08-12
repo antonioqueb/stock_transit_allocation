@@ -1341,6 +1341,29 @@ class StockTransitLine(models.Model):
 
         return saldo
 
+    def _tc_operational_qty(self):
+        """Cantidad OPERATIVA de la línea de tránsito.
+
+        Es el mismo número que el hub muestra al asignar (min entre la
+        cantidad capturada en la línea y su quant físico de tránsito).
+        Toda métrica de "asignado" sobre lotes en tránsito debe usar ESTA
+        fuente: el quant crudo o las medidas del lote (x_alto × x_ancho)
+        pueden quedar desfasados de la captura y desalinean Solicitado,
+        Asignado y Pendiente entre sí.
+        """
+        self.ensure_one()
+
+        qty = self.product_uom_qty or 0.0
+
+        quant = self.quant_id
+        if not quant or not quant.exists() or not self._tc_is_transit_quant(quant):
+            quant = self._tc_resolve_transit_quant() if hasattr(self, '_tc_resolve_transit_quant') else False
+
+        if quant and quant.quantity > 0:
+            qty = min(quant.quantity, qty)
+
+        return qty
+
     def _tc_apply_partial_assignment_splits(self, partial_qty_by_line):
         """Aplica parcialidades (split) a las líneas fraccionables indicadas.
 

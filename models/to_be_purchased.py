@@ -918,6 +918,41 @@ class AllocationHubPaymentMixin(models.AbstractModel):
     def _hub_get_active_purchase_qty_by_sale_line(self, sale_line_ids):
         return self._get_purchase_coverage_by_sale_line(sale_line_ids)
 
+    def _hub_get_transit_reserved_qty_map(self, sale_lines, lot_ids):
+        """Cantidad OPERATIVA reservada en tránsito por (orden, producto, lote).
+
+        Mientras un lote viaja no tiene quant interno, así que el cálculo de
+        asignado caía al área teórica (x_alto × x_ancho), que puede diferir de
+        lo realmente capturado/asignado en stock.transit.line. Ese desfase
+        creaba pendientes fantasma: el Solicitado (derivado de otra fuente) no
+        coincidía con el Asignado del hub. La fuente única es la línea de
+        tránsito reservada.
+        """
+        if not sale_lines or not lot_ids:
+            return {}
+
+        TransitLine = self.env['stock.transit.line'].sudo()
+
+        if 'allocation_status' not in TransitLine._fields:
+            return {}
+
+        transit_lines = TransitLine.search([
+            ('order_id', 'in', sale_lines.mapped('order_id').ids),
+            ('lot_id', 'in', list(lot_ids)),
+            ('allocation_status', '=', 'reserved'),
+            ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+        ])
+
+        qty_map = defaultdict(float)
+        for tl in transit_lines:
+            if not tl.product_id or not tl.lot_id:
+                continue
+            qty = tl._tc_operational_qty()
+            if qty > 0:
+                qty_map[(tl.order_id.id, tl.product_id.id, tl.lot_id.id)] += qty
+
+        return dict(qty_map)
+
     def _hub_compute_sale_line_metrics(self, sale_lines):
         """Calcula cantidades de asignación en lote para evitar N+1 queries."""
         if not sale_lines:
@@ -927,6 +962,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         line_lot_ids, all_lot_ids = self._hub_get_line_lot_ids(sale_lines)
         lot_metadata = self._hub_get_lot_metadata(all_lot_ids)
         internal_qty_by_product_lot = self._hub_get_internal_qty_by_product_lot(product_ids, all_lot_ids)
+        transit_qty_by_order_product_lot = self._hub_get_transit_reserved_qty_map(sale_lines, all_lot_ids)
         free_qty_by_product = self._hub_get_free_internal_qty_by_product(product_ids)
         active_purchase_qty_by_line = self._hub_get_active_purchase_qty_by_sale_line(sale_lines.ids)
 
@@ -951,6 +987,13 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                         qty = 0.0
                 else:
                     qty = internal_qty_by_product_lot.get((product.id, lot_id), 0.0)
+                    # Lote reservado en tránsito: usa la cantidad operativa de
+                    # stock.transit.line (lo que compras asignó), no el área
+                    # teórica del lote, para que Asignado == Solicitado tras
+                    # una asignación con excedente.
+                    if not self._hub_float_gt_zero(qty):
+                        qty = transit_qty_by_order_product_lot.get(
+                            (line.order_id.id, product.id, lot_id), 0.0)
                     if not self._hub_float_gt_zero(qty):
                         qty = lot_info.get('fallback_qty') or 0.0
 

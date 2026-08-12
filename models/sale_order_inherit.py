@@ -595,6 +595,35 @@ class SaleOrderLine(models.Model):
         quants = Quant.search(domain)
         return sum(quants.mapped('quantity'))
 
+    def _tc_get_lot_transit_reserved_qty(self, lot):
+        """Cantidad de este LOTE reservada en tránsito para la orden de la línea.
+
+        FUENTE OPERATIVA ÚNICA: stock.transit.line (lo mismo que compras vio y
+        seleccionó al asignar). Mientras el material viaja, el quant crudo y
+        las medidas del lote pueden diferir de lo capturado; derivar el
+        Solicitado de cualquiera de esos dos generaba pendientes fantasma
+        (Solicitado ≠ Asignado tras cobrar excedente).
+        """
+        self.ensure_one()
+
+        if not lot or not self.order_id or not self.product_id:
+            return 0.0
+
+        TransitLine = self.env['stock.transit.line'].sudo()
+
+        if 'allocation_status' not in TransitLine._fields:
+            return 0.0
+
+        transit_lines = TransitLine.search([
+            ('order_id', '=', self.order_id.id),
+            ('product_id', '=', self.product_id.id),
+            ('lot_id', '=', lot.id),
+            ('allocation_status', '=', 'reserved'),
+            ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+        ])
+
+        return sum(tl._tc_operational_qty() for tl in transit_lines)
+
     def _tc_get_lot_fallback_qty(self, lot):
         """
         Fallback defensivo para placas cuando el quant ya no está interno
@@ -642,6 +671,14 @@ class SaleOrderLine(models.Model):
                 pass
 
         qty = self._tc_get_lot_internal_qty(lot)
+
+        # EN TRÁNSITO manda stock.transit.line: si el lote sigue reservado en
+        # un viaje activo, lo asignado es exactamente lo que compras seleccionó
+        # (la cantidad operativa de la línea de tránsito). Sin este paso, el
+        # ratchet tomaba el quant crudo de tránsito, que puede diferir de la
+        # captura, e inflaba el Solicitado por encima de lo asignado.
+        if self._tc_float_le_zero(qty):
+            qty = self._tc_get_lot_transit_reserved_qty(lot)
 
         # Si la placa ya no está en stock interno pero sigue asignada, recupera su
         # cantidad física desde cualquier ubicación antes de caer al área teórica.
@@ -777,6 +814,14 @@ class SaleOrderLine(models.Model):
                 rounded_breakdown[lot_key] = qty
             else:
                 qty = float_round(physical_qty, precision_rounding=rounding)
+
+                # Lote reservado en tránsito: cuenta con su cantidad operativa
+                # (stock.transit.line), no con el quant crudo ni el área teórica.
+                if float_compare(qty, 0.0, precision_rounding=rounding) <= 0:
+                    qty = float_round(
+                        self._tc_get_lot_transit_reserved_qty(lot),
+                        precision_rounding=rounding,
+                    )
 
                 if float_compare(qty, 0.0, precision_rounding=rounding) <= 0:
                     qty = float_round(

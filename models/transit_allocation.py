@@ -228,27 +228,6 @@ class TransitAllocationLogic(models.AbstractModel):
             ('allocation_status', '=', 'reserved'),
             ('voyage_id.custom_status', 'not in', ('delivered', 'cancel')),
         ])
-        entries_by_key = defaultdict(list)
-        for tl in tls:
-            if not tl.product_id:
-                continue
-            key = (tl.order_id.id, tl.product_id.id)
-            lot = tl.lot_id
-            if lot:
-                try:
-                    dims = float(lot.x_alto or 0.0) * float(lot.x_ancho or 0.0)
-                except Exception:
-                    dims = 0.0
-            else:
-                dims = 0.0
-            # Con lote CON medidas: assigned_qty ya lo contará cuando esté
-            # en lot_ids de la línea — se marca aparte y se decide abajo.
-            qty = 0.0 if (lot and dims > 0) else self._tal_transit_line_qty(tl)
-            if qty > 0:
-                entries_by_key[key].append([lot.id if lot else 0, qty])
-
-        result = {}
-
         # Mapa lote → líneas dueñas, UNA sola vez. Antes el pase 2
         # reconstruía set(l2.lot_ids.ids) por CADA entrada × CADA línea
         # (O(n²) con lecturas ORM) y congelaba el hub en asignaciones
@@ -262,6 +241,23 @@ class TransitAllocationLogic(models.AbstractModel):
             key = (line.order_id.id, line.product_id.id)
             for lid in ids:
                 owners_by_lot[(key, lid)].add(line.id)
+
+        entries_by_key = defaultdict(list)
+        for tl in tls:
+            if not tl.product_id:
+                continue
+            key = (tl.order_id.id, tl.product_id.id)
+            lot = tl.lot_id
+            # Lote YA en lot_ids de alguna línea: assigned_qty lo cuenta con
+            # su cantidad operativa de tránsito (fuente única) — acreditarlo
+            # aquí también lo duplicaría. Solo se acredita lo NO dirigido:
+            # reservas sin lote o de lotes que ninguna línea tiene todavía.
+            owned = bool(lot and owners_by_lot.get((key, lot.id)))
+            qty = 0.0 if owned else self._tal_transit_line_qty(tl)
+            if qty > 0:
+                entries_by_key[key].append([lot.id if lot else 0, qty])
+
+        result = {}
 
         # PASE 1 — crédito DIRIGIDO: si el lote reservado ya vive en
         # lot_ids de una línea concreta, su reserva descuenta el pendiente
@@ -583,7 +579,15 @@ class TransitAllocationLogic(models.AbstractModel):
 
         # Punto crítico: NO duplicamos lógica. Escribimos sobre stock.transit.line
         # para reutilizar validaciones, publicación y sincronización existentes.
-        transit_lines.write({
+        # La decisión de excedente viaja por CONTEXTO (igual que en la vista de
+        # viaje): el sync dispara el ratchet dentro de este write y, sin la
+        # decisión, subía el Solicitado en silencio ANTES de que el bloque de
+        # abajo pudiera aplicar la acción administrativa (cantidad exacta,
+        # descuento en 'free' y auditoría tc_over_assignment_*).
+        transit_lines.with_context(
+            tc_over_assignment_action=over_assignment_action if has_over_assignment else False,
+            tc_over_assignment_reason=over_assignment_reason or False,
+        ).write({
             'order_id': sale_line.order_id.id,
         })
 
@@ -598,10 +602,12 @@ class TransitAllocationLogic(models.AbstractModel):
         }
 
         if has_over_assignment:
-            # Tras el reparto, el excedente vive en UNA línea concreta (el
-            # distribuidor lo deja en la última con capacidad). La cantidad
-            # solo se ajusta AHÍ y EXACTAMENTE a lo asignado a esa línea —
-            # nunca en la línea clickeada con el total de la selección.
+            # La decisión viajó por contexto y el sync ya la aplicó línea por
+            # línea (cantidad exacta a lo asignado, descuento en 'free' y
+            # auditoría). Este bloque queda como RESPALDO por si alguna línea
+            # siguiera sobreasignada (el distribuidor deja el excedente en la
+            # última con capacidad) y, si no hay nada que corregir, solo
+            # refleja en el resultado lo que el sync aplicó.
             over_line = self.env['sale.order.line']
             for l in sibling_lines:
                 if float_compare(_line_assigned(l), l.product_uom_qty or 0.0,
@@ -618,6 +624,22 @@ class TransitAllocationLogic(models.AbstractModel):
                     action=over_assignment_action,
                     reason=over_assignment_reason,
                 )
+            else:
+                action_label = over_assignment_action
+                if 'tc_over_assignment_action' in sale_line._fields:
+                    action_label = dict(
+                        sale_line._fields['tc_over_assignment_action'].selection
+                    ).get(over_assignment_action, over_assignment_action)
+                qty_now = sale_line.product_uom_qty or 0.0
+                over_admin_result.update({
+                    'qty_after': qty_now,
+                    'qty_updated': float_compare(
+                        qty_now, requested_qty_before,
+                        precision_rounding=rounding) != 0,
+                    'discount_after': sale_line._tc_get_discount_percent() if hasattr(sale_line, '_tc_get_discount_percent') else 0.0,
+                    'discount_applied': over_assignment_action == 'free',
+                    'action_label': action_label,
+                })
 
         pending_qty_after = sale_line._tc_get_pending_allocation_qty() if hasattr(sale_line, '_tc_get_pending_allocation_qty') else sale_line.tc_qty_pending_allocation
         assigned_qty_after = sale_line._tc_get_assigned_lot_qty() if hasattr(sale_line, '_tc_get_assigned_lot_qty') else projected_assigned_qty
