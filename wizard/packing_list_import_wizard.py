@@ -130,7 +130,47 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         )
 
     def _tc_normalize_text(self, value):
-        return str(value or "").strip().lower()
+        text = str(value or "").strip().lower()
+
+        if not text:
+            return ""
+
+        # '1', '01', '1.0' y la celda numérica 1.0 de Excel son la MISMA
+        # identidad en bloque/nº placa/atado/grosor. Sin canonicalizar, la
+        # firma exacta y el puntaje difuso fallaban por puro formato numérico
+        # y el PL físico dejaba de reconocer placas que sí venían en el viaje.
+        try:
+            number = float(text)
+        except ValueError:
+            return text
+
+        if number == int(number):
+            return str(int(number))
+
+        return "%g" % number
+
+    def _tc_pairing_candidate_lots(self, voyage):
+        """Lotes candidatos para emparejar filas del PL físico.
+
+        El VIAJE es la fuente de verdad del contenido del embarque: sus
+        líneas cargan las reservas a pedidos y son lo que la torre muestra.
+        Los lotes que solo viven en las move lines de la recepción (resaca de
+        una conciliación anterior cuya serie ya fue reemplazada en el viaje)
+        NO participan cuando el viaje tiene lotes propios: emparejar contra
+        ellos "roba" las filas de las placas reales y bloquea la importación
+        con el guard de placas reservadas, aunque las placas sí vengan.
+        """
+        voyage_lots = voyage.line_ids.mapped("lot_id").filtered(
+            lambda lot: lot and lot.name
+        )
+
+        if voyage_lots:
+            return voyage_lots
+
+        return (
+            self.picking_id.move_line_ids.mapped("lot_id")
+            | voyage.line_ids.mapped("lot_id")
+        ).filtered(lambda lot: lot and lot.name)
 
     def _tc_effective_qty_from_row(self, row):
         product = row["product"]
@@ -207,13 +247,12 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         """
         Lotes disponibles para detectar el prefijo correcto de la recepción.
 
-        Incluye:
-        - Lotes de la recepción física actual.
-        - Lotes del viaje.
+        Mismos candidatos que el emparejamiento: el viaje manda. Si las move
+        lines de la recepción arrastran una serie vieja (p.ej. S23-*) que el
+        viaje ya reemplazó (S26-*), contarlas aquí hacía ganar al prefijo
+        muerto y los lotes nuevos nacían en la serie equivocada.
         """
-        picking_lots = self.picking_id.move_line_ids.mapped("lot_id")
-        voyage_lots = voyage.line_ids.mapped("lot_id")
-        return (picking_lots | voyage_lots).filtered(lambda lot: lot and lot.name)
+        return self._tc_pairing_candidate_lots(voyage)
 
     def _tc_choose_prefix_from_lots(self, lots):
         """
@@ -443,13 +482,9 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
     def _tc_find_existing_lot(self, voyage, row, used_lot_ids):
         target_sig = self._tc_row_signature(row)
 
-        candidates = (
-            self.picking_id.move_line_ids.mapped("lot_id")
-            | voyage.line_ids.mapped("lot_id")
-        ).filtered(
+        candidates = self._tc_pairing_candidate_lots(voyage).filtered(
             lambda lot: (
-                lot
-                and lot.product_id.id == row["product"].id
+                lot.product_id.id == row["product"].id
                 and lot.id not in used_lot_ids
             )
         )
@@ -483,7 +518,13 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         # Dimensiones físicas (solo placas): alto/ancho casi nunca se editan
         # a la vez, son un identificador fuerte de la placa física.
-        unit_type = str(row.get("tipo") or "").lower()
+        # El layout del PL físico no siempre trae columna 'tipo': si la fila
+        # no lo declara, se toma el tipo del lote candidato (default placa);
+        # antes la ausencia de la columna apagaba este criterio y el difuso
+        # quedaba ciego justo donde más identidad hay.
+        unit_type = self._tc_normalize_text(row.get("tipo")) \
+            or self._tc_normalize_text(getattr(lot, "x_tipo", "")) \
+            or "placa"
         if unit_type == "placa":
             alto = row.get("alto") or 0.0
             ancho = row.get("ancho") or 0.0
@@ -515,10 +556,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         Devuelve {índice_de_fila: stock.lot}.
         """
-        candidates = (
-            self.picking_id.move_line_ids.mapped("lot_id")
-            | voyage.line_ids.mapped("lot_id")
-        ).filtered(lambda lot: lot and lot.name)
+        candidates = self._tc_pairing_candidate_lots(voyage)
 
         pairing = {}
         used = set()
@@ -1193,15 +1231,29 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         # perdía su asignación sin ningún aviso (solo una nota en la línea).
         omitted_reserved = omitted_lines.filtered(lambda l: l.order_id)
         if omitted_reserved:
+            shown = omitted_reserved[:20]
+            more = len(omitted_reserved) - len(shown)
+            detail = "\n".join(
+                "- %s → %s" % (l.lot_id.display_name, l.order_id.name)
+                for l in shown
+            )
+            if more > 0:
+                detail += _("\n… y %s placas reservadas más.") % more
             raise UserError(_(
                 "El PL físico no incluye estas placas que están RESERVADAS a "
-                "pedidos:\n%s\n\nCorrige la identificación en el PL físico "
+                "pedidos:\n%(detail)s\n\n"
+                "El PL trae %(rows)s filas válidas; el viaje tiene %(lots)s "
+                "placas activas (%(paired)s emparejadas).\n\n"
+                "Corrige la identificación en el PL físico "
                 "(bloque/placa/Ref. Interna) o desasigna las placas de sus "
                 "pedidos antes de importar."
-            ) % "\n".join(
-                "- %s → %s" % (l.lot_id.display_name, l.order_id.name)
-                for l in omitted_reserved[:20]
-            ))
+            ) % {
+                "detail": detail,
+                "rows": len(valid_rows),
+                "lots": len(voyage.line_ids.filtered(
+                    lambda l: l.lot_id and l.product_uom_qty > 0)),
+                "paired": len(pairing),
+            })
 
         for line in omitted_lines:
             if line.quant_id and line.quant_id.exists():

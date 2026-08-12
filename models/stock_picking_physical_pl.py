@@ -87,12 +87,49 @@ class StockPickingPhysicalPackingList(models.Model):
         Fuente de datos para el PL físico.
 
         Prioridad:
-        1. move_line_ids, cuando la recepción ya fue confirmada.
-        2. voyage.line_ids, como fallback si aún no hay operaciones detalladas.
+        1. voyage.line_ids (cantidad > 0): el viaje es la fuente de verdad del
+           contenido del embarque y carga las reservas a pedidos. Las move
+           lines pueden arrastrar lotes de una conciliación anterior cuya
+           serie el viaje ya reemplazó; prellenar con ellos entrega al
+           almacén Ref. Internas muertas y el import bloquea las placas
+           reservadas reales.
+        2. move_line_ids, como fallback si el viaje no tiene líneas.
         """
         self.ensure_one()
 
         result = []
+
+        voyage = self._tc_get_physical_reception_voyage()
+
+        transit_lines = voyage.line_ids.filtered(
+            lambda line: (
+                line.product_id.id == product.id
+                and line.lot_id
+                and line.product_uom_qty > 0
+            )
+        ).sorted(lambda line: line.lot_id.name or "") if voyage else []
+
+        for line in transit_lines:
+            lot = line.lot_id
+            result.append({
+                "lot": lot,
+                "qty": line.product_uom_qty or 0.0,
+                "grosor": self._tc_lot_value(lot, "x_grosor"),
+                "alto": self._tc_lot_value(lot, "x_alto", 0.0),
+                "ancho": self._tc_lot_value(lot, "x_ancho", 0.0),
+                "color": self._tc_lot_value(lot, "x_color"),
+                "bloque": self._tc_lot_value(lot, "x_bloque"),
+                "numero_placa": self._tc_lot_value(lot, "x_numero_placa"),
+                "atado": self._tc_lot_value(lot, "x_atado"),
+                "grupo": self._tc_lot_groups_value(lot),
+                "pedimento": self._tc_lot_value(lot, "x_pedimento"),
+                "contenedor": line.container_number or self._tc_lot_value(lot, "x_contenedor"),
+                "ref_proveedor": self._tc_lot_value(lot, "x_referencia_proveedor"),
+                "ref_interna": lot.name or "",
+            })
+
+        if result:
+            return result
 
         product_move_lines = self.move_line_ids.filtered(
             lambda ml: ml.product_id.id == product.id and ml.lot_id
@@ -113,36 +150,6 @@ class StockPickingPhysicalPackingList(models.Model):
                 "grupo": self._tc_lot_groups_value(lot),
                 "pedimento": self._tc_lot_value(lot, "x_pedimento"),
                 "contenedor": self._tc_lot_value(lot, "x_contenedor"),
-                "ref_proveedor": self._tc_lot_value(lot, "x_referencia_proveedor"),
-                "ref_interna": lot.name or "",
-            })
-
-        if result:
-            return result
-
-        voyage = self._tc_get_physical_reception_voyage()
-        if not voyage:
-            return result
-
-        transit_lines = voyage.line_ids.filtered(
-            lambda line: line.product_id.id == product.id and line.lot_id
-        ).sorted(lambda line: line.lot_id.name or "")
-
-        for line in transit_lines:
-            lot = line.lot_id
-            result.append({
-                "lot": lot,
-                "qty": line.product_uom_qty or 0.0,
-                "grosor": self._tc_lot_value(lot, "x_grosor"),
-                "alto": self._tc_lot_value(lot, "x_alto", 0.0),
-                "ancho": self._tc_lot_value(lot, "x_ancho", 0.0),
-                "color": self._tc_lot_value(lot, "x_color"),
-                "bloque": self._tc_lot_value(lot, "x_bloque"),
-                "numero_placa": self._tc_lot_value(lot, "x_numero_placa"),
-                "atado": self._tc_lot_value(lot, "x_atado"),
-                "grupo": self._tc_lot_groups_value(lot),
-                "pedimento": self._tc_lot_value(lot, "x_pedimento"),
-                "contenedor": line.container_number or self._tc_lot_value(lot, "x_contenedor"),
                 "ref_proveedor": self._tc_lot_value(lot, "x_referencia_proveedor"),
                 "ref_interna": lot.name or "",
             })
