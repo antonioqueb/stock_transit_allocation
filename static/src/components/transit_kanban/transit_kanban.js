@@ -223,13 +223,30 @@ export class TransitKanbanView extends Component {
     openVoyage(id, ev) {
         if (ev) ev.stopPropagation();
         if (!id) return;
-        this.action.doAction({
-            type: "ir.actions.act_window",
-            res_model: "stock.transit.voyage",
-            res_id: id,
-            views: [[false, "form"]],
-            target: "current",
-        });
+        // PAGINADOR REAL: abrir solo con res_id deja el form en 1/1 y las
+        // flechas de avanzar/retroceder no llevan a ningún lado. Se pasa el
+        // universo de viajes EN EL ORDEN DEL TABLERO (columnas por etapa,
+        // respetando búsqueda/filtros activos) para poder recorrerlos todos
+        // desde cualquier punto.
+        const orderedIds = [];
+        for (const s of this.STAGES) {
+            for (const card of this.state.columns[s.key] || []) {
+                orderedIds.push(card.id);
+            }
+        }
+        if (!orderedIds.includes(id)) {
+            orderedIds.push(id);
+        }
+        this.action.doAction(
+            {
+                type: "ir.actions.act_window",
+                res_model: "stock.transit.voyage",
+                res_id: id,
+                views: [[false, "form"]],
+                target: "current",
+            },
+            { props: { resIds: orderedIds } }
+        );
     }
 
     // ── Desplegable por tarjeta (vista compacta / detalle) ───────────────────
