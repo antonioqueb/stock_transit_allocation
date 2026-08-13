@@ -71,6 +71,8 @@
                         <t t-if="card.po"><t t-esc="card.po"/> · </t>
                         <span class="o_rcp_folio" t-esc="card.name"/>
                     </div>
+                    <div t-if="card.partial_info" class="o_rcp_partial"
+                         t-esc="card.partial_info"/>
                     <!-- Contenedor SIEMPRE visible, aun con la tarjeta
                          compactada. -->
                 </div>
@@ -212,6 +214,9 @@
                                     <span t-if="row.po" t-esc="row.po"/>
                                     <span t-if="row.po"> · </span>
                                     <span class="f" t-esc="row.folio"/>
+                                    <span t-if="row.partial_tag" class="o_rcp_partial_tag">
+                                        · <t t-esc="row.partial_tag"/>
+                                    </span>
                                     <span t-if="row.embarque"> · <t t-esc="row.embarque"/></span>
                                     <span class="d"> · <t t-esc="row.done"/></span>
                                 </div>

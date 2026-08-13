@@ -135,6 +135,18 @@
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
+                    <!-- RECEPCIONES PARCIALES: avance claro y cierre
+                         CONSCIENTE del pendiente (pide confirmación). -->
+                    <field name="tc_reception_has_pending" invisible="1"/>
+                    <field name="tc_reception_summary" readonly="1"
+                           invisible="custom_status != 'reception_pending' or not tc_reception_summary"
+                           class="fw-bold text-warning"/>
+                    <button name="action_force_close_pending_reception"
+                            type="object" string="✂ Cerrar pendiente de recepción"
+                            class="btn-warning"
+                            invisible="not tc_reception_has_pending"
+                            confirm="¿Cerrar el PENDIENTE de recepción de este embarque?&#10;&#10;Se cancelará la recepción abierta y el embarque quedará ENTREGADO solo con lo ya recibido. Lo no recibido NO entrará al inventario.&#10;&#10;Esta acción queda registrada con tu usuario."/>
+
                     <!-- Flujo post-entrega: imprimir (pone solo "En
                          Impresión") y el CHECK manual de etiquetado. -->
                     <button name="action_print_reception_labels"

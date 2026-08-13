@@ -138,6 +138,10 @@
                                       t-esc="card.container_number"/>
                             </div>
 
+                            <!-- Recepción parcial en curso: números claros -->
+                            <div t-if="card.reception_partial and !isReceived(card)"
+                                 class="tk-card__partial" t-esc="card.reception_partial"/>
+
                             <!-- Inventario sin publicar (alerta operativa, siempre visible) -->
                             <div t-if="card.tc_publication_pending and !isReceived(card)" class="tk-card__pending">
                                 <i class="fa fa-eye-slash"/> Inventario SIN publicar

@@ -1738,6 +1738,7 @@ class StockTransitVoyage(models.Model):
                 'total_m2': v.total_m2 or 0.0,
                 'labeling_status': v.tc_labeling_status or 'none',
                 'label_print_count': v.tc_label_print_count or 0,
+                'reception_partial': v._tc_reception_partial_label(),
                 'tc_publication_pending': bool(v.tc_publication_pending),
                 'reception_pending_at': (
                     v.tc_reception_pending_at.isoformat()
@@ -2870,6 +2871,17 @@ class StockTransitVoyage(models.Model):
         self.ensure_one()
         picking.ensure_one()
 
+        # Liga persistente recepción→viaje (sobrevive al re-apuntado de
+        # reception_picking_id cuando hay parciales).
+        if not picking.tc_reception_voyage_id:
+            picking.sudo().write({'tc_reception_voyage_id': self.id})
+
+        # RECEPCIÓN PARCIAL (backorder): ya nació con EXACTAMENTE el
+        # remanente no recibido — reconstruirla desde las líneas del viaje
+        # re-inyectaría lo ya recibido. No se toca.
+        if picking.backorder_id:
+            return picking
+
         ctx = self._tc_reception_safe_context()
         self._tc_assert_reception_can_be_rebuilt(picking)
 
@@ -3205,12 +3217,168 @@ class StockTransitVoyage(models.Model):
             rec.message_post(body=Markup(
                 '↩️ Etiquetado desmarcado por %s.') % self.env.user.name)
 
+    # ═════════════ RECEPCIONES PARCIALES (cadena de backorders) ═════════════
+    # Un embarque de 3 contenedores puede recibirse en 3 tandas: cada
+    # validación parcial genera sola la siguiente recepción pendiente
+    # (backorder nativo) y el viaje se re-apunta a ella. El viaje solo pasa
+    # a Entregado cuando la cadena queda sin pendientes — o cuando Torre de
+    # Control fuerza el cierre con confirmación.
+
+    def _tc_reception_chain(self):
+        """Todas las recepciones del viaje: la activa, sus ancestros y sus
+        backorders descendientes (más las ligadas por tc_reception_voyage_id)."""
+        self.ensure_one()
+        Picking = self.env['stock.picking'].sudo()
+        chain = Picking.search([('tc_reception_voyage_id', '=', self.id)])
+        pick = self.reception_picking_id
+        if pick:
+            root = pick
+            while root.backorder_id:
+                root = root.backorder_id
+            frontier = root
+            chain |= root
+            while frontier:
+                nxt = Picking.search([('backorder_id', 'in', frontier.ids)])
+                nxt -= chain
+                chain |= nxt
+                frontier = nxt
+        return chain
+
+    def _tc_reception_totals(self):
+        """Números de la cadena: recibido (done), pendiente (abierta) y
+        conteos — la fuente única de los estatus de parcialidad."""
+        self.ensure_one()
+        chain = self._tc_reception_chain()
+        done = chain.filtered(lambda p: p.state == 'done')
+        open_ = chain.filtered(
+            lambda p: p.state not in ('done', 'cancel'))
+        received = sum(
+            ml.quantity for p in done for ml in p.move_line_ids)
+        pending = sum(
+            m.product_uom_qty for p in open_ for m in p.move_ids
+            if m.state not in ('done', 'cancel'))
+        return {
+            'chain': chain,
+            'done': done,
+            'open': open_,
+            'received': received,
+            'pending': pending,
+            'done_count': len(done),
+            'seq': len(done) + (1 if open_ else 0),
+        }
+
+    def _tc_reception_partial_label(self):
+        """Etiqueta corta de parcialidad para payloads masivos (kanban,
+        tableros). A diferencia del campo compute, SOLO se llama para los
+        viajes EN RECEPCIÓN: jamás recorre el histórico de entregados."""
+        self.ensure_one()
+        if self.custom_status != 'reception_pending' or not self.reception_picking_id:
+            return ''
+        t = self._tc_reception_totals()
+        if not (t['done_count'] and t['open']):
+            return ''
+        return 'Parcial · recibido %s · pendiente %s' % (
+            '{:,.1f}'.format(t['received']), '{:,.1f}'.format(t['pending']))
+
+    tc_reception_summary = fields_module.Char(
+        string='Avance de recepción', compute='_compute_tc_reception_summary')
+    tc_reception_has_pending = fields_module.Boolean(
+        string='Recepción con pendiente',
+        compute='_compute_tc_reception_summary')
+
+    def _compute_tc_reception_summary(self):
+        for rec in self:
+            summary = ''
+            rec.tc_reception_has_pending = False
+            if rec.reception_picking_id:
+                t = rec._tc_reception_totals()
+                rec.tc_reception_has_pending = bool(
+                    t['open'] and t['done_count'])
+                if t['done_count'] and t['open']:
+                    summary = _(
+                        'PARCIAL: %(n)s recepción(es) validada(s) · '
+                        'recibido %(r).2f · pendiente %(p).2f') % {
+                            'n': t['done_count'],
+                            'r': t['received'], 'p': t['pending']}
+                elif t['done_count']:
+                    summary = _('Recibido completo: %(r).2f en %(n)s '
+                                'recepción(es)') % {
+                                    'r': t['received'], 'n': t['done_count']}
+                elif t['open']:
+                    summary = _('Sin recibir · pendiente %(p).2f') % {
+                        'p': t['pending']}
+            rec.tc_reception_summary = summary
+
+    def _tc_after_partial_reception(self, picking):
+        """Tras validar una recepción del viaje: si Odoo generó backorder
+        (faltó material), la cadena continúa — el viaje se re-apunta a la
+        nueva recepción pendiente y NO se cierra."""
+        self.ensure_one()
+        picking.sudo().write({'tc_reception_voyage_id': self.id})
+        backorders = self.env['stock.picking'].sudo().search([
+            ('backorder_id', '=', picking.id),
+            ('state', 'not in', ('done', 'cancel')),
+        ])
+        if not backorders:
+            return
+        backorders.write({'tc_reception_voyage_id': self.id})
+        new_active = backorders[0]
+        if self.reception_picking_id == picking:
+            self.write({'reception_picking_id': new_active.id})
+        t = self._tc_reception_totals()
+        self.message_post(body=Markup(
+            '📦 <b>Recepción parcial %s</b>: se validó <b>%s</b> '
+            '(recibido acumulado %.2f). Queda pendiente <b>%.2f</b> en la '
+            'siguiente recepción <b>%s</b> — el embarque sigue EN '
+            'RECEPCIÓN hasta recibir todo o cerrar el pendiente.') % (
+                t['done_count'], picking.name, t['received'],
+                t['pending'], new_active.name))
+
+    def action_force_close_pending_reception(self):
+        """Cierre CONSCIENTE del pendiente: cancela la recepción abierta y
+        finaliza el viaje con lo recibido. El botón de la vista pide
+        confirmación explícita antes de llegar aquí."""
+        for rec in self:
+            t = rec._tc_reception_totals()
+            if not t['open']:
+                raise UserError(_(
+                    'El embarque %s no tiene recepciones pendientes que '
+                    'cerrar.') % rec.name)
+            if not t['done_count']:
+                raise UserError(_(
+                    'El embarque %s no tiene NINGUNA recepción validada: '
+                    'no se puede cerrar el pendiente sin haber recibido '
+                    'nada. Reciba al menos una parcialidad o cancele el '
+                    'viaje.') % rec.name)
+            pendiente = t['pending']
+            for pick in t['open']:
+                pick.sudo().with_context(
+                    tc_allow_physical_reception_done=True).action_cancel()
+            last_done = t['done'].sorted('date_done')[-1]
+            rec.write({'reception_picking_id': last_done.id})
+            rec.message_post(body=Markup(
+                '✂️ <b>Pendiente de recepción CERRADO manualmente</b> por '
+                '%s: se cancelaron %s recepción(es) abierta(s) con '
+                '<b>%.2f</b> sin recibir. Recibido final: <b>%.2f</b> en '
+                '%s recepción(es).') % (
+                    self.env.user.name, len(t['open']), pendiente,
+                    t['received'], t['done_count']))
+            rec._auto_finalize_after_reception()
+        return True
+
     def _auto_finalize_after_reception(self):
         for rec in self:
             if rec.custom_status in ('delivered', 'cancel'):
                 continue
 
             if not rec.reception_picking_id or rec.reception_picking_id.state != 'done':
+                continue
+
+            # Cadena de parciales: mientras exista una recepción abierta,
+            # el embarque NO se cierra (sigue EN RECEPCIÓN con su
+            # pendiente). Solo el cierre manual del pendiente o recibir
+            # todo llegan aquí sin abiertas.
+            if rec._tc_reception_totals()['open']:
                 continue
 
             picking = rec.reception_picking_id

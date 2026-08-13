@@ -320,6 +320,14 @@ class StockPicking(models.Model):
 
         return vals
 
+    # Liga PERSISTENTE recepción→viaje. reception_picking_id del viaje
+    # apunta solo a la recepción ACTIVA (con parciales se re-apunta al
+    # backorder); este campo conserva la liga de TODAS las recepciones de
+    # la cadena, incluidas las ya validadas.
+    tc_reception_voyage_id = fields.Many2one(
+        'stock.transit.voyage', string='Viaje de recepción',
+        index=True, copy=False)
+
     def _get_linked_reception_voyage(self):
         self.ensure_one()
 
@@ -329,6 +337,9 @@ class StockPicking(models.Model):
         # sudo no podía validar ni un traslado interno normal. El grupo
         # restringe la UI de Torre de Control, no el flujo de almacén.
         Voyage = self.env['stock.transit.voyage'].sudo()
+
+        if self.tc_reception_voyage_id:
+            return self.tc_reception_voyage_id
 
         voyage = Voyage.search([
             ('reception_picking_id', '=', self.id),
@@ -712,12 +723,28 @@ class StockPicking(models.Model):
             self.ids,
         )
 
-        res = super(StockPicking, self.with_context(tc_allow_physical_reception_done=True)).button_validate()
+        # RECEPCIONES PARCIALES: si TODO lo validado son recepciones físicas
+        # de viaje, el faltante genera SOLO su backorder (sin preguntar) —
+        # esa es la "siguiente recepción pendiente". El viaje se re-apunta
+        # al backorder más abajo, ANTES del cierre automático.
+        validate_ctx = {'tc_allow_physical_reception_done': True}
+        if physical_voyage_by_pick and len(physical_voyage_by_pick) == len(self):
+            validate_ctx['skip_backorder'] = True
+
+        res = super(StockPicking, self.with_context(**validate_ctx)).button_validate()
 
         for pick in self:
             voyage = physical_voyage_by_pick.get(pick.id)
             if voyage and pick.state == 'done':
                 pick._tc_assert_physical_reception_can_validate(voyage=voyage)
+
+        # Encadenar la recepción parcial (re-apuntar el viaje al backorder)
+        # ANTES de que corra _auto_close_linked_transit_voyage: con
+        # pendiente vivo, el viaje NO debe cerrarse como Entregado.
+        for pick in self:
+            voyage = physical_voyage_by_pick.get(pick.id)
+            if voyage and pick.state == 'done':
+                voyage.sudo()._tc_after_partial_reception(pick)
 
         for pick in self:
             is_transit_loc = False

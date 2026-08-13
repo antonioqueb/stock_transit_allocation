@@ -11,6 +11,15 @@
                             string="🔄 Sincronizar con Torre de Control"
                             class="btn-primary"
                             invisible="status in ['draft']"/>
+                    <field name="tc_reception_has_pending" invisible="1"/>
+                    <field name="tc_reception_summary" readonly="1"
+                           invisible="not tc_reception_summary"
+                           class="fw-bold text-warning"/>
+                    <button name="action_force_close_pending_reception"
+                            type="object" string="✂ Cerrar pendiente de recepción"
+                            class="btn-warning"
+                            invisible="not tc_reception_has_pending"
+                            confirm="¿Cerrar el PENDIENTE de recepción de este embarque?&#10;&#10;Se cancelará la recepción abierta y el embarque quedará ENTREGADO solo con lo ya recibido. Lo no recibido NO entrará al inventario.&#10;&#10;Esta acción queda registrada con tu usuario."/>
                     <!-- Etiquetado (post-entrega): "En Impresión" lo pone
                          sola la primera impresión; aquí solo vive el CHECK
                          manual de etiquetado terminado. -->

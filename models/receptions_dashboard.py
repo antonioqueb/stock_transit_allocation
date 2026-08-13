@@ -136,6 +136,19 @@ class StockTransitVoyageReceptionsDash(models.Model):
             elif phase in ('sailing', 'port') and eta and eta < today:
                 late_days = (today - eta).days
 
+            # Parcialidad: si ya hubo recepciones validadas y sigue abierta
+            # la siguiente, la tarjeta lo dice con números claros.
+            partial_info = ''
+            if phase == 'ready' and picking:
+                t = v._tc_reception_totals()
+                if t['done_count'] and t['open']:
+                    partial_info = (
+                        'Parcial · %sª recepción · recibido %s · '
+                        'pendiente %s' % (
+                            t['seq'],
+                            '{:,.1f}'.format(t['received']),
+                            '{:,.1f}'.format(t['pending'])))
+
             return {
                 'id': v.id,
                 'name': v.name or '',
@@ -147,6 +160,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'status': st,
                 'status_label': status_labels.get(st, st),
                 'phase': phase,
+                'partial_info': partial_info,
                 'eta': som_format_date(eta, empty=''),
                 'etd': som_format_date(v.etd, empty=''),
                 'days_to_eta': days_to_eta,
@@ -169,19 +183,42 @@ class StockTransitVoyageReceptionsDash(models.Model):
         ready.sort(key=lambda c: -c['late_days'])
 
         # ── Recepcionados: mini-lista de folios validados (7 días) ──
+        # CADA recepción validada es su propia fila — un embarque de 3
+        # contenedores recibido en 3 tandas aparece 3 veces, con su folio
+        # y sus m² reales. Se unen la liga persistente
+        # (tc_reception_voyage_id) y el camino legado (reception_picking_id
+        # apuntando a un done).
         cutoff = today - timedelta(days=_DONE_WINDOW_DAYS)
-        done_pairs = []
+        Picking = self.env['stock.picking'].sudo()
+        done_picks = Picking.search([
+            ('tc_reception_voyage_id', '!=', False),
+            ('state', '=', 'done'),
+        ], order='id desc', limit=200)
+        pick_voyage = {p.id: p.tc_reception_voyage_id for p in done_picks}
         for v in Voyage.search([
             ('reception_picking_id.state', '=', 'done'),
         ], order='id desc', limit=120):
-            picking = v.reception_picking_id
+            if v.reception_picking_id.id not in pick_voyage:
+                done_picks |= v.reception_picking_id
+                pick_voyage[v.reception_picking_id.id] = v
+
+        done_pairs = []
+        for picking in done_picks:
+            v = pick_voyage[picking.id]
             if not picking.date_done:
                 continue
             local = fields.Datetime.context_timestamp(
                 self, picking.date_done).date()
             if local < cutoff:
                 continue
-            total_m2 = v.total_m2 or 0.0
+            received_m2 = sum(picking.move_line_ids.mapped('quantity'))
+            t = v._tc_reception_totals()
+            partial_tag = ''
+            if t['done_count'] > 1 or t['open']:
+                idx = list(t['done'].sorted('date_done')).index(picking) + 1 \
+                    if picking in t['done'] else t['done_count']
+                partial_tag = 'Parcial %s/%s' % (
+                    idx, t['done_count'] + len(t['open']))
             done_pairs.append((picking.date_done, {
                 'id': v.id,
                 'reception_id': picking.id,
@@ -190,9 +227,10 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'po': v.purchase_id.name or '',
                 'supplier': v.purchase_id.partner_id.name or '',
                 'containers': v.container_number or '',
-                'qty_label': ('%s m²' % ('{:,.1f}'.format(total_m2)))
-                if total_m2 else '',
+                'qty_label': ('%s m²' % ('{:,.1f}'.format(received_m2)))
+                if received_m2 else '',
                 'done': fmt_dt(picking.date_done),
+                'partial_tag': partial_tag,
                 # Sub-estado de etiquetado: colorea la tarjeta (amarillo/
                 # naranja/verde) y habilita el check manual de Etiquetado.
                 'labeling_status': v.tc_labeling_status or 'none',

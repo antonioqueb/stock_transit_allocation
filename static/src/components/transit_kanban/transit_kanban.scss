@@ -968,6 +968,17 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     .tk-card__supplier-name,
     .tk-card__received-cont { color: #111111 !important; }
 }
+.tk-card__partial {
+    margin-top: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #9a3412;
+    background: #fff7ed;
+    border: 1px solid #fdba74;
+    border-radius: 7px;
+    padding: 2px 7px;
+}
+
 .tk-card__received-line {
     display: flex;
     align-items: center;

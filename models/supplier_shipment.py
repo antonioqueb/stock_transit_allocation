@@ -113,6 +113,19 @@ class SupplierShipment(models.Model):
     tc_label_print_count = fields.Integer(
         related='voyage_id.tc_label_print_count', readonly=True)
 
+    # Avance de recepciones parciales del viaje, visible desde el embarque.
+    tc_reception_summary = fields.Char(
+        related='voyage_id.tc_reception_summary', readonly=True)
+    tc_reception_has_pending = fields.Boolean(
+        related='voyage_id.tc_reception_has_pending', readonly=True)
+
+    def action_force_close_pending_reception(self):
+        self.ensure_one()
+        if not self.voyage_id:
+            raise UserError(_(
+                'Este embarque no tiene viaje en Torre de Control.'))
+        return self.voyage_id.action_force_close_pending_reception()
+
     def action_mark_labeled(self):
         self.ensure_one()
         if not self.voyage_id:
