@@ -200,10 +200,7 @@
                             <b t-esc="state.data.done.length"/>
                         </div>
                         <div t-if="state.data.done.length" class="o_rcp_done_list">
-                            <!-- La tarjeta se tiñe por etiquetado: amarillo =
-                                 entregado, naranja = en impresión (auto),
-                                 verde = etiquetado (el check de aquí). -->
-                            <div t-attf-class="o_rcp_done_row rich o_rcp_lab--{{ row.labeling_status || 'none' }}"
+                            <div class="o_rcp_done_row rich"
                                  t-foreach="state.data.done" t-as="row" t-key="row.id"
                                  t-on-click="() => this.openReception(row.reception_id)">
                                 <div class="o_rcp_done_main">
@@ -225,7 +222,7 @@
                                         Worksheet
                                     </button>
                                     <!-- Check de ETIQUETADO: se habilita solo
-                                         cuando ya hubo impresión (naranja). -->
+                                         cuando ya hubo impresión. -->
                                     <button t-attf-class="o_rcp_lab_check o_rcp_lab_check--{{ row.labeling_status || 'none' }}"
                                             t-att-disabled="labCheckDisabled(row)"
                                             t-att-title="labCheckTitle(row)"

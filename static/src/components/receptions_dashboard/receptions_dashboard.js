@@ -118,7 +118,7 @@ export class ReceptionsDashboard extends Component {
     }
 
     labCheckLabel(row) {
-        return row.labeling_status === "labeled" ? "Etiquetado" : "Etiquetar";
+        return "Etiquetado";
     }
 
     labCheckTitle(row) {
