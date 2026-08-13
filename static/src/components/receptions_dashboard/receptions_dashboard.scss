@@ -413,6 +413,66 @@ $rcp-mut: #64748b;
         color: #91a9b8;
         .f { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
     }
+
+    .o_rcp_row_actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+}
+
+/* ── Tarjeta teñida por el sub-estado de etiquetado ──
+   amarillo = entregado (falta imprimir) → naranja = en impresión (auto)
+   → verde = etiquetado (check manual de la misma tarjeta). */
+.o_receptions_dash .o_rcp_done_row.o_rcp_lab--none {
+    background: #fefce8;
+    border-left: 3px solid #eab308;
+    &:hover { background: #fef9c3; }
+}
+.o_receptions_dash .o_rcp_done_row.o_rcp_lab--printing {
+    background: #fff7ed;
+    border-left: 3px solid #f97316;
+    &:hover { background: #ffedd5; }
+}
+.o_receptions_dash .o_rcp_done_row.o_rcp_lab--labeled {
+    background: #ecfdf5;
+    border-left: 3px solid #059669;
+    &:hover { background: #d1fae5; }
+}
+
+/* ── Check de ETIQUETADO ── */
+.o_receptions_dash .o_rcp_lab_check {
+    margin-top: 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all .15s ease;
+    border: 1px solid #cbd5e1;
+    background: #fff;
+    color: #475569;
+
+    i { font-size: 13px; }
+
+    &.o_rcp_lab_check--none {
+        opacity: 0.45;
+        cursor: not-allowed;
+    }
+    &.o_rcp_lab_check--printing {
+        border-color: #f97316;
+        color: #c2410c;
+        &:hover { background: #fff7ed; }
+    }
+    &.o_rcp_lab_check--labeled {
+        border-color: #059669;
+        background: #059669;
+        color: #ffffff;
+        &:hover { background: #047857; }
+    }
 }
 
 /* ════════════════════════════════════════════════════════════════════

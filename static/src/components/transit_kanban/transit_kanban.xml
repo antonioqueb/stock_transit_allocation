@@ -97,7 +97,7 @@
                     </div>
 
                     <t t-foreach="cards" t-as="card" t-key="card.id">
-                        <div t-attf-class="tk-card #{isReceived(card) ? 'tk-card--received' : ''} #{isDragging(card.id) ? 'tk-card--dragging' : ''} #{isUpdating(card.id) ? 'tk-card--updating' : ''}"
+                        <div t-attf-class="tk-card #{isReceived(card) ? 'tk-card--received tk-card--lab-' + (card.labeling_status || 'none') : ''} #{isDragging(card.id) ? 'tk-card--dragging' : ''} #{isUpdating(card.id) ? 'tk-card--updating' : ''}"
                              draggable="true"
                              t-att-aria-grabbed="isDragging(card.id) ? 'true' : 'false'"
                              title="Arrastrar para cambiar de estado"
@@ -123,9 +123,10 @@
                                 </span>
                             </div>
 
-                            <!-- Recibida: sello del sub-estado de etiquetado.
-                                 Naranja = entregado sin imprimir, amarillo =
-                                 en impresión (auto), verde = etiquetado. -->
+                            <!-- Recibida: la TARJETA entera se tiñe por el
+                                 sub-estado de etiquetado — amarillo =
+                                 entregado sin imprimir, naranja = en
+                                 impresión (auto), verde = etiquetado. -->
                             <div t-if="isReceived(card)" class="tk-card__received-line">
                                 <span t-attf-class="tk-labeling {{ labelingMeta(card).cls }}"
                                       t-att-title="labelingMeta(card).title">

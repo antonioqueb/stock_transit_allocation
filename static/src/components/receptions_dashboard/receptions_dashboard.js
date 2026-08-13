@@ -109,6 +109,54 @@ export class ReceptionsDashboard extends Component {
         }
     }
 
+    // ── Check de ETIQUETADO en la tarjeta ──
+    // amarillo = entregado (check deshabilitado: primero imprimir),
+    // naranja = en impresión (check habilitado), verde = etiquetado.
+
+    labCheckDisabled(row) {
+        return (row.labeling_status || "none") === "none";
+    }
+
+    labCheckLabel(row) {
+        return row.labeling_status === "labeled" ? "Etiquetado" : "Etiquetar";
+    }
+
+    labCheckTitle(row) {
+        const st = row.labeling_status || "none";
+        if (st === "labeled") {
+            return "Etiquetado terminado — clic para desmarcar";
+        }
+        if (st === "printing") {
+            return (row.label_print_count || 0) +
+                " impresión(es) generadas — clic cuando el material quede etiquetado";
+        }
+        return "Aún no se imprimen etiquetas de este embarque; imprime primero (En Impresión se marca solo)";
+    }
+
+    async toggleLabeled(row, ev) {
+        if (ev) {
+            ev.stopPropagation();
+        }
+        if (this.labCheckDisabled(row)) {
+            return;
+        }
+        try {
+            // Endpoint del tablero (sudo del lado servidor): el personal
+            // de almacén no tiene el grupo de Torre de Control.
+            const newStatus = await this.orm.call(
+                "stock.transit.voyage", "rcp_toggle_labeled", [row.id]);
+            if (newStatus) {
+                row.labeling_status = newStatus;
+            }
+            await this.load();
+        } catch (e) {
+            console.error("[Recepciones] Error en etiquetado:", e);
+            const msg = (e && e.data && e.data.message) || e.message ||
+                "No se pudo actualizar el etiquetado.";
+            this.notification.add(msg, { type: "danger" });
+        }
+    }
+
     openReceptionsList() {
         this.action.doAction({
             type: "ir.actions.act_window",

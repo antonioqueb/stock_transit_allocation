@@ -193,6 +193,10 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'qty_label': ('%s m²' % ('{:,.1f}'.format(total_m2)))
                 if total_m2 else '',
                 'done': fmt_dt(picking.date_done),
+                # Sub-estado de etiquetado: colorea la tarjeta (amarillo/
+                # naranja/verde) y habilita el check manual de Etiquetado.
+                'labeling_status': v.tc_labeling_status or 'none',
+                'label_print_count': v.tc_label_print_count or 0,
             }))
         done_pairs.sort(key=lambda t: t[0], reverse=True)
         done_rows = [row for _ts, row in done_pairs]
@@ -202,3 +206,20 @@ class StockTransitVoyageReceptionsDash(models.Model):
             'ready': ready,
             'done': done_rows,
         }
+
+    @api.model
+    def rcp_toggle_labeled(self, voyage_id):
+        """Check de etiquetado desde el tablero de Recepciones.
+
+        El personal de almacén no tiene el grupo de Torre de Control
+        (regla grupo-tránsito-solo-UI): la escritura va con sudo(); las
+        validaciones de negocio (exigir impresión previa) las pone
+        action_mark_labeled."""
+        rec = self.sudo().browse(voyage_id)
+        if not rec.exists():
+            return False
+        if rec.tc_labeling_status == 'labeled':
+            rec.action_unmark_labeled()
+        else:
+            rec.action_mark_labeled()
+        return rec.tc_labeling_status

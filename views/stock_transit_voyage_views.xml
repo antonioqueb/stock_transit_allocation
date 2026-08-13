@@ -150,9 +150,9 @@
                             string="Desmarcar etiquetado"
                             invisible="tc_labeling_status != 'labeled'"/>
                     <field name="tc_labeling_status" widget="badge"
-                           decoration-warning="tc_labeling_status == 'printing'"
+                           decoration-warning="tc_labeling_status == 'none'"
+                           decoration-danger="tc_labeling_status == 'printing'"
                            decoration-success="tc_labeling_status == 'labeled'"
-                           decoration-danger="tc_labeling_status == 'none'"
                            invisible="custom_status != 'delivered'"/>
                     <field name="tc_label_print_count" invisible="1"/>
 

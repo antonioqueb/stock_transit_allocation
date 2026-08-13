@@ -200,7 +200,10 @@
                             <b t-esc="state.data.done.length"/>
                         </div>
                         <div t-if="state.data.done.length" class="o_rcp_done_list">
-                            <div class="o_rcp_done_row rich"
+                            <!-- La tarjeta se tiñe por etiquetado: amarillo =
+                                 entregado, naranja = en impresión (auto),
+                                 verde = etiquetado (el check de aquí). -->
+                            <div t-attf-class="o_rcp_done_row rich o_rcp_lab--{{ row.labeling_status || 'none' }}"
                                  t-foreach="state.data.done" t-as="row" t-key="row.id"
                                  t-on-click="() => this.openReception(row.reception_id)">
                                 <div class="o_rcp_done_main">
@@ -215,11 +218,22 @@
                                     <span t-if="row.embarque"> · <t t-esc="row.embarque"/></span>
                                     <span class="d"> · <t t-esc="row.done"/></span>
                                 </div>
-                                <button class="o_rcp_ws_btn"
-                                        title="Imprimir Worksheet"
-                                        t-on-click.stop="(ev) => this.printWorksheet(row.reception_id, ev)">
-                                    Worksheet
-                                </button>
+                                <div class="o_rcp_row_actions">
+                                    <button class="o_rcp_ws_btn"
+                                            title="Imprimir Worksheet"
+                                            t-on-click.stop="(ev) => this.printWorksheet(row.reception_id, ev)">
+                                        Worksheet
+                                    </button>
+                                    <!-- Check de ETIQUETADO: se habilita solo
+                                         cuando ya hubo impresión (naranja). -->
+                                    <button t-attf-class="o_rcp_lab_check o_rcp_lab_check--{{ row.labeling_status || 'none' }}"
+                                            t-att-disabled="labCheckDisabled(row)"
+                                            t-att-title="labCheckTitle(row)"
+                                            t-on-click.stop="(ev) => this.toggleLabeled(row, ev)">
+                                        <i t-attf-class="fa {{ row.labeling_status === 'labeled' ? 'fa-check-square' : 'fa-square-o' }}"/>
+                                        <span t-esc="labCheckLabel(row)"/>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                         <div t-if="!state.data.done.length" class="o_rcp_empty">Sin recepciones en 7 días</div>

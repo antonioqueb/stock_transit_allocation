@@ -918,15 +918,32 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
 
 /* ── Viaje RECIBIDO: verde y súper compacto (nada pendiente en torre) ── */
 .tk-card--received {
-    background: #ecfdf5;
-    border-left: 4px solid #059669;
     padding: 4px 8px;
-    opacity: 0.92;
+    opacity: 0.95;
 
     .tk-card__header { margin-bottom: 0; }
-    .tk-card__supplier-name { font-size: 11px; color: #065f46; }
+    .tk-card__supplier-name { font-size: 11px; }
     .tk-eta--done { font-size: 10px; }
     .tk-card__expand { display: none; }
+}
+
+/* La TARJETA completa se tiñe por el sub-estado de etiquetado:
+   amarillo = entregado (sin imprimir) → naranja = en impresión (auto) →
+   verde = etiquetado (check manual). Lectura de un vistazo. */
+.tk-card--lab-none {
+    background: #fefce8;
+    border-left: 4px solid #eab308;
+    .tk-card__supplier-name { color: #713f12; }
+}
+.tk-card--lab-printing {
+    background: #fff7ed;
+    border-left: 4px solid #f97316;
+    .tk-card__supplier-name { color: #7c2d12; }
+}
+.tk-card--lab-labeled {
+    background: #ecfdf5;
+    border-left: 4px solid #059669;
+    .tk-card__supplier-name { color: #065f46; }
 }
 .tk-card__received-line {
     display: flex;
@@ -938,8 +955,9 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     color: #059669;
     text-transform: uppercase;
 
-    /* Sub-estado de etiquetado: naranja → amarillo → verde. El color es la
-       lectura de un vistazo de qué entregas ya están fluyendo a etiquetas. */
+    /* Sub-estado de etiquetado: amarillo (entregado) → naranja (en
+       impresión) → verde (etiquetado). El chip acompaña; el color fuerte
+       lo lleva la TARJETA completa (.tk-card--lab-*). */
     .tk-labeling {
         display: inline-flex;
         align-items: center;
@@ -952,14 +970,14 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
         white-space: nowrap;
     }
     .tk-labeling--none {
-        color: #c2410c;
-        background: #fff7ed;
-        border-color: #fed7aa;
-    }
-    .tk-labeling--printing {
         color: #a16207;
         background: #fefce8;
         border-color: #fde047;
+    }
+    .tk-labeling--printing {
+        color: #c2410c;
+        background: #fff7ed;
+        border-color: #fed7aa;
     }
     .tk-labeling--labeled {
         color: #15803d;
