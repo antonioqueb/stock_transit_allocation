@@ -927,23 +927,43 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     .tk-card__expand { display: none; }
 }
 
-/* La TARJETA completa se tiñe por el sub-estado de etiquetado:
-   amarillo = entregado (sin imprimir) → naranja = en impresión (auto) →
-   verde = etiquetado (check manual). Lectura de un vistazo. */
+/* La TARJETA completa lleva el color del sub-estado, SATURADO (nada de
+   pasteles) y con TODO su contenido en el color de contraste:
+   AMARILLO (entregado, texto negro) → NARANJA INDUSTRIAL (en impresión,
+   texto negro) → VERDE (etiquetado, texto blanco). */
 .tk-card--lab-none {
-    background: #fefce8;
-    border-left: 4px solid #eab308;
-    .tk-card__supplier-name { color: #713f12; }
+    background: #facc15;
+    border-left: 4px solid #a16207;
+
+    .tk-card__supplier-name,
+    .tk-card__received-cont,
+    .tk-labeling,
+    .tk-eta { color: #111111 !important; }
+    .tk-eta { background: rgba(0, 0, 0, 0.1); }
 }
 .tk-card--lab-printing {
-    background: #fff7ed;
-    border-left: 4px solid #f97316;
-    .tk-card__supplier-name { color: #7c2d12; }
+    background: #f97316;
+    border-left: 4px solid #9a3412;
+
+    .tk-card__supplier-name,
+    .tk-card__received-cont,
+    .tk-labeling,
+    .tk-eta { color: #111111 !important; }
+    .tk-eta { background: rgba(0, 0, 0, 0.1); }
 }
 .tk-card--lab-labeled {
-    background: #ecfdf5;
-    border-left: 4px solid #059669;
-    .tk-card__supplier-name { color: #065f46; }
+    background: #16a34a;
+    border-left: 4px solid #14532d;
+
+    .tk-card__supplier-name,
+    .tk-card__received-cont,
+    .tk-labeling,
+    .tk-eta { color: #ffffff !important; }
+    .tk-eta { background: rgba(255, 255, 255, 0.18); }
+    .tk-labeling {
+        border-color: rgba(255, 255, 255, 0.5);
+        background: rgba(255, 255, 255, 0.16);
+    }
 }
 .tk-card__received-line {
     display: flex;
@@ -952,42 +972,28 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     font-size: 10.5px;
     font-weight: 800;
     letter-spacing: 0.6px;
-    color: #059669;
+    color: inherit; /* el color lo fija la tarjeta (.tk-card--lab-*) */
     text-transform: uppercase;
 
-    /* Sub-estado de etiquetado: amarillo (entregado) → naranja (en
-       impresión) → verde (etiquetado). El chip acompaña; el color fuerte
-       lo lleva la TARJETA completa (.tk-card--lab-*). */
+    /* Chip del sub-estado: neutro — el COLOR lo lleva la tarjeta completa
+       (.tk-card--lab-*), que también fija el contraste del chip. */
     .tk-labeling {
         display: inline-flex;
         align-items: center;
         gap: 5px;
         padding: 2px 8px;
         border-radius: 10px;
-        border: 1px solid transparent;
+        border: 1px solid rgba(0, 0, 0, 0.28);
+        background: rgba(0, 0, 0, 0.08);
         font-size: 10px;
+        font-weight: 800;
         line-height: 1.4;
         white-space: nowrap;
     }
-    .tk-labeling--none {
-        color: #a16207;
-        background: #fefce8;
-        border-color: #fde047;
-    }
-    .tk-labeling--printing {
-        color: #c2410c;
-        background: #fff7ed;
-        border-color: #fed7aa;
-    }
-    .tk-labeling--labeled {
-        color: #15803d;
-        background: #f0fdf4;
-        border-color: #86efac;
-    }
 
     .tk-card__received-cont {
-        font-weight: 600;
-        color: #047857;
+        font-weight: 700;
+        color: inherit;
         letter-spacing: 0;
         overflow: hidden;
         text-overflow: ellipsis;

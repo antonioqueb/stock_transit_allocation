@@ -1,1 +1,18 @@
 /* Compatibility stub. Original file was absent from the provided module, but it is referenced by __manifest__.py. */
+
+/* ══ Badge de etiquetado (formularios de viaje y embarque) ══
+   Colores EXACTOS del semáforo — decoration-danger de Odoo es ROJO y el
+   sub-estado "En Impresión" debe ser NARANJA INDUSTRIAL; el amarillo y
+   el verde también se fijan aquí para que no dependan del tema. */
+.o_field_badge[name="tc_labeling_status"] .badge.text-bg-warning {
+    background-color: #facc15 !important; /* amarillo real */
+    color: #111111 !important;            /* texto negro */
+}
+.o_field_badge[name="tc_labeling_status"] .badge.text-bg-danger {
+    background-color: #f97316 !important; /* naranja industrial, NO rojo */
+    color: #111111 !important;
+}
+.o_field_badge[name="tc_labeling_status"] .badge.text-bg-success {
+    background-color: #16a34a !important; /* verde verde */
+    color: #ffffff !important;
+}

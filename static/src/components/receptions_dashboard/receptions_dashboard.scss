@@ -421,23 +421,38 @@ $rcp-mut: #64748b;
     }
 }
 
-/* ── Tarjeta teñida por el sub-estado de etiquetado ──
-   amarillo = entregado (falta imprimir) → naranja = en impresión (auto)
-   → verde = etiquetado (check manual de la misma tarjeta). */
-.o_receptions_dash .o_rcp_done_row.o_rcp_lab--none {
-    background: #fefce8;
-    border-left: 3px solid #eab308;
-    &:hover { background: #fef9c3; }
+/* ── Tarjeta con el color SATURADO del sub-estado (sin pasteles) y todo
+   el texto en su color de contraste:
+   AMARILLO = entregado (texto negro) → NARANJA INDUSTRIAL = en impresión
+   (texto negro) → VERDE = etiquetado (texto blanco). */
+.o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--none,
+.o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--printing {
+    .o_rcp_done_main .s,
+    .o_rcp_done_main .c,
+    .o_rcp_done_main .q,
+    .o_rcp_done_meta,
+    .o_rcp_done_meta .f { color: #111111 !important; }
 }
-.o_receptions_dash .o_rcp_done_row.o_rcp_lab--printing {
-    background: #fff7ed;
-    border-left: 3px solid #f97316;
-    &:hover { background: #ffedd5; }
+.o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--none {
+    background: #facc15;
+    border-left: 3px solid #a16207;
+    &:hover { background: #eab308; }
 }
-.o_receptions_dash .o_rcp_done_row.o_rcp_lab--labeled {
-    background: #ecfdf5;
-    border-left: 3px solid #059669;
-    &:hover { background: #d1fae5; }
+.o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--printing {
+    background: #f97316;
+    border-left: 3px solid #9a3412;
+    &:hover { background: #ea580c; }
+}
+.o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--labeled {
+    background: #16a34a;
+    border-left: 3px solid #14532d;
+    &:hover { background: #15803d; }
+
+    .o_rcp_done_main .s,
+    .o_rcp_done_main .c,
+    .o_rcp_done_main .q,
+    .o_rcp_done_meta,
+    .o_rcp_done_meta .f { color: #ffffff !important; }
 }
 
 /* ── Check de ETIQUETADO ── */
@@ -458,20 +473,26 @@ $rcp-mut: #64748b;
 
     i { font-size: 13px; }
 
+    /* Sobre tarjetas saturadas: el check es una pastilla blanca sólida
+       con texto oscuro — contraste garantizado en los tres fondos. */
     &.o_rcp_lab_check--none {
-        opacity: 0.45;
+        opacity: 0.55;
         cursor: not-allowed;
+        border-color: rgba(0, 0, 0, 0.35);
+        color: #111111;
+        background: rgba(255, 255, 255, 0.75);
     }
     &.o_rcp_lab_check--printing {
-        border-color: #f97316;
-        color: #c2410c;
-        &:hover { background: #fff7ed; }
+        border-color: #111111;
+        color: #111111;
+        background: #ffffff;
+        &:hover { background: #f1f5f9; }
     }
     &.o_rcp_lab_check--labeled {
-        border-color: #059669;
-        background: #059669;
-        color: #ffffff;
-        &:hover { background: #047857; }
+        border-color: #ffffff;
+        background: #ffffff;
+        color: #14532d;
+        &:hover { background: #ecfdf5; }
     }
 }
 
