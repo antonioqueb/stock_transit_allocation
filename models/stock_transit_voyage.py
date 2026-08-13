@@ -1597,6 +1597,90 @@ class StockTransitVoyage(models.Model):
     }
 
     @api.model
+    @api.model
+    def tv_get_fleet_map_data(self):
+        """Mapa global de Embarques (vista principal de Torre de Control).
+
+        Devuelve TODOS los viajes no cancelados con su ruta ShipsGo ya
+        parseada (shipsgo_payload guarda el map_data del refresh: rutas
+        pasado/actual/futuro, puertos y posición del buque), más la ficha
+        comercial: OC, proveedor, embarque, contenedores, ETD/ETA."""
+        voyages = self.sudo().search(
+            [('custom_status', '!=', 'cancel')],
+            order='eta asc, id desc', limit=500,
+        )
+
+        Shipment = self.env['supplier.shipment'].sudo()
+        shipments = Shipment.search([('voyage_id', 'in', voyages.ids)])
+        ship_by_voyage = {}
+        for sh in shipments:
+            ship_by_voyage.setdefault(sh.voyage_id.id, sh)
+
+        status_labels = dict(
+            self._fields['custom_status']._description_selection(self.env))
+
+        out = []
+        for v in voyages:
+            route = {}
+            if v.shipsgo_payload:
+                try:
+                    route = json.loads(v.shipsgo_payload)
+                except Exception:
+                    route = {}
+
+            sh = ship_by_voyage.get(v.id)
+            containers = []
+            if v.container_number:
+                containers = [c.strip() for c in
+                              v.container_number.replace(';', ',').split(',')
+                              if c.strip()]
+            if sh:
+                for c in sh.container_ids:
+                    num = (c.container_number or '').strip()
+                    if num and num not in containers:
+                        containers.append(num)
+
+            po = v.purchase_id
+            out.append({
+                'id': v.id,
+                'name': v.name or '',
+                'status': v.custom_status,
+                'status_label': status_labels.get(
+                    v.custom_status, v.custom_status),
+                'labeling_status': v.tc_labeling_status or 'none',
+                'po_name': po.name if po else '',
+                'partner_ref': (po.partner_ref or '') if po else '',
+                'supplier': (
+                    v.tc_supplier_id.display_name if v.tc_supplier_id
+                    else (po.partner_id.name if po else '')
+                ),
+                'shipment_name': sh.name if sh else '',
+                'proforma_ref': (
+                    sh.proforma_id.display_name
+                    if sh and sh.proforma_id else ''
+                ),
+                'containers': containers,
+                'bl_number': v.bl_number or '',
+                'vessel_name': v.vessel_name or route.get('vessel') or '',
+                'shipping_line': v.shipping_line or '',
+                'etd': v.etd.isoformat() if v.etd else '',
+                'eta': v.eta.isoformat() if v.eta else '',
+                'etd_label': som_format_date(v.etd, empty=''),
+                'eta_label': som_format_date(v.eta, empty=''),
+                'delay_days': v.delay_days or 0,
+                'eta_alert_level': v.eta_alert_level or '',
+                'total_m2': v.total_m2 or 0.0,
+                'allocation_percent': v.allocation_percent or 0.0,
+                'transit_pct': route.get('transit_pct') or v.transit_progress or 0,
+                'current_loc': route.get('current_loc') or None,
+                'origin': route.get('origin') or {},
+                'destination': route.get('destination') or {},
+                'route': route.get('route') or {},
+                'carrier': route.get('carrier') or '',
+                'checked_at': route.get('checked_at') or '',
+            })
+        return {'voyages': out}
+
     def tk_get_kanban_records(self):
         """Tarjetas del kanban Viajes y Contenedores en UNA llamada.
 

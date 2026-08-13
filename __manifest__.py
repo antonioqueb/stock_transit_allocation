@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.75.0.0',
+    'version': '19.0.76.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -128,6 +128,15 @@
         # Hubs pesados (~470 KB): se descargan/compilan SOLO al abrir su
         # acción por primera vez (LazyComponent), no en cada arranque.
         'stock_transit_allocation.assets_hubs': [
+            # Leaflet vendorizado (mismo de sale_delivery_wizard) — solo se
+            # descarga al abrir un hub, no en el arranque del webclient.
+            'stock_transit_allocation/static/lib/leaflet/leaflet.css',
+            'stock_transit_allocation/static/lib/leaflet/leaflet.js',
+
+            'stock_transit_allocation/static/src/components/transit_fleet_map/transit_fleet_map.scss',
+            'stock_transit_allocation/static/src/components/transit_fleet_map/transit_fleet_map.js',
+            'stock_transit_allocation/static/src/components/transit_fleet_map/transit_fleet_map.xml',
+
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.scss',
             'stock_transit_allocation/static/src/components/transit_kanban/transit_kanban.scss',
 

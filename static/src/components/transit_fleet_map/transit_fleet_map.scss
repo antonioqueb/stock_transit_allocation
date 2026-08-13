@@ -1,0 +1,391 @@
+// EMBARQUES — mapa global de flota. El mapa ES la vista: ocupa todo el
+// viewport de la acción y el panel flota encima (branding azul SOM).
+
+.tfm {
+    position: relative;
+    width: 100%;
+    height: calc(100vh - var(--o-navbar-height, 46px));
+    overflow: hidden;
+    background: #0f172a;
+
+    .tfm__map {
+        position: absolute;
+        inset: 0;
+        z-index: 0;
+    }
+
+    // ── Panel lateral flotante ──
+    .tfm__panel {
+        position: absolute;
+        top: 14px;
+        left: 14px;
+        bottom: 14px;
+        width: 360px;
+        max-width: calc(100vw - 60px);
+        display: flex;
+        flex-direction: column;
+        background: rgba(255, 255, 255, 0.97);
+        border: 1px solid #dbe3ee;
+        border-radius: 14px;
+        box-shadow: 0 12px 40px rgba(15, 23, 42, 0.28);
+        z-index: 500;
+        transition: transform 0.2s ease, opacity 0.2s ease;
+
+        &.tfm__panel--closed {
+            transform: translateX(-115%);
+            opacity: 0;
+            pointer-events: none;
+        }
+    }
+
+    .tfm__panel-toggle {
+        position: absolute;
+        top: 22px;
+        left: 388px;
+        z-index: 501;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 1px solid #dbe3ee;
+        background: #ffffff;
+        color: #0f172a;
+        cursor: pointer;
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.2);
+        transition: left 0.2s ease;
+    }
+    .tfm__panel--closed + .tfm__panel-toggle {
+        left: 14px;
+    }
+
+    .tfm__header {
+        padding: 14px 14px 10px;
+        border-bottom: 1px solid #e8edf5;
+    }
+
+    .tfm__title {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        font-size: 17px;
+        font-weight: 800;
+        color: #0f172a;
+        letter-spacing: 0.02em;
+
+        .fa-globe { color: #2563eb; }
+
+        .tfm__refresh {
+            margin-left: auto;
+            border: none;
+            background: transparent;
+            color: #64748b;
+            cursor: pointer;
+            &:hover { color: #2563eb; }
+        }
+    }
+
+    .tfm__search {
+        position: relative;
+        margin-top: 10px;
+        display: flex;
+        align-items: center;
+
+        .fa-search {
+            position: absolute;
+            left: 11px;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+        input {
+            width: 100%;
+            padding: 8px 30px 8px 30px;
+            border: 1px solid #dbe3ee;
+            border-radius: 9px;
+            font-size: 12.5px;
+            background: #f8fafc;
+            &:focus {
+                outline: none;
+                border-color: #2563eb;
+                background: #ffffff;
+            }
+        }
+        .tfm__search-clear {
+            position: absolute;
+            right: 7px;
+            border: none;
+            background: transparent;
+            color: #94a3b8;
+            cursor: pointer;
+            &:hover { color: #ef4444; }
+        }
+    }
+
+    .tfm__chips {
+        display: flex;
+        gap: 6px;
+        margin-top: 10px;
+
+        .tfm__chip {
+            border: 1px solid #dbe3ee;
+            background: #ffffff;
+            border-radius: 999px;
+            padding: 3px 11px;
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+            cursor: pointer;
+            b { margin-left: 3px; color: #0f172a; }
+
+            &.tfm__chip--on {
+                background: #0f172a;
+                border-color: #0f172a;
+                color: #ffffff;
+                b { color: #93c5fd; }
+            }
+            &.tfm__chip--fit { margin-left: auto; }
+        }
+    }
+
+    // ── Lista de tarjetas ──
+    .tfm__list {
+        flex: 1;
+        overflow-y: auto;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .tfm__empty {
+        text-align: center;
+        color: #94a3b8;
+        font-size: 12.5px;
+        padding: 26px 0;
+    }
+
+    .tfm-card {
+        border: 1px solid #e5eaf2;
+        border-radius: 11px;
+        padding: 9px 11px;
+        background: #ffffff;
+        cursor: pointer;
+        transition: border-color 0.12s ease, box-shadow 0.12s ease;
+
+        &:hover {
+            border-color: #93c5fd;
+            box-shadow: 0 3px 12px rgba(37, 99, 235, 0.12);
+        }
+        &.tfm-card--selected {
+            border-color: #2563eb;
+            box-shadow: 0 3px 14px rgba(37, 99, 235, 0.22);
+        }
+        &.tfm-card--notrack { opacity: 0.75; }
+    }
+
+    .tfm-card__top {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+
+        .tfm-card__dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            flex: none;
+        }
+        .tfm-card__name {
+            font-size: 12.5px;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .tfm-card__status {
+            margin-left: auto;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            flex: none;
+        }
+    }
+
+    .tfm-card__supplier {
+        font-size: 11.5px;
+        font-weight: 700;
+        color: #334155;
+        margin-top: 2px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .tfm-card__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px 12px;
+        margin-top: 4px;
+        font-size: 10.5px;
+        color: #64748b;
+        i { margin-right: 3px; color: #94a3b8; }
+    }
+
+    .tfm-card__route {
+        margin-top: 4px;
+        font-size: 10.5px;
+        font-weight: 600;
+        color: #475569;
+        i { margin: 0 5px; color: #2563eb; }
+    }
+
+    .tfm-card__bottom {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-top: 6px;
+        font-size: 10.5px;
+
+        .tfm-card__eta {
+            padding: 1px 8px;
+            border-radius: 999px;
+            font-weight: 700;
+            &.tfm-eta--ok   { background: #eff6ff; color: #1d4ed8; }
+            &.tfm-eta--late { background: #fef2f2; color: #b91c1c; }
+            &.tfm-eta--done { background: #f0fdf4; color: #15803d; }
+            &.tfm-eta--none { background: #f1f5f9; color: #64748b; }
+        }
+        .tfm-card__m2 { color: #475569; margin-left: auto; }
+        .tfm-card__notrack-tag { color: #94a3b8; }
+    }
+
+    .tfm-card__bar {
+        margin-top: 6px;
+        height: 4px;
+        border-radius: 4px;
+        background: #eef2f7;
+        overflow: hidden;
+        div { height: 100%; border-radius: 4px; }
+    }
+
+    // ── Leyenda ──
+    .tfm__legend {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        padding: 8px 14px;
+        border-top: 1px solid #e8edf5;
+        font-size: 10.5px;
+        color: #64748b;
+
+        .tfm__line {
+            display: inline-block;
+            width: 22px;
+            height: 0;
+            border-top: 3px solid #2563eb;
+            vertical-align: middle;
+            margin-right: 5px;
+            &.tfm__line--dash { border-top-style: dashed; opacity: 0.6; }
+        }
+        .tfm__legend-count { margin-left: auto; }
+    }
+
+    .tfm__loading {
+        position: absolute;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #0f172a;
+        color: #ffffff;
+        font-size: 12px;
+        padding: 7px 16px;
+        border-radius: 999px;
+        z-index: 600;
+        i { margin-right: 7px; }
+    }
+}
+
+// ── Elementos inyectados en el mapa (fuera del scope del componente) ──
+.tfm-ship-icon { background: transparent; border: none; }
+
+.tfm-ship {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2.5px solid #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+}
+
+.tfm-popup {
+    .leaflet-popup-content { margin: 0; }
+    .leaflet-popup-content-wrapper {
+        border-radius: 12px;
+        overflow: hidden;
+        padding: 0;
+    }
+
+    .tfm-popup__card { width: 320px; font-size: 11.5px; }
+
+    .tfm-popup__head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 12px;
+        border-bottom: 3px solid;
+        b { font-size: 13px; color: #0f172a; }
+
+        .tfm-popup__status {
+            margin-left: auto;
+            color: #ffffff;
+            font-size: 9.5px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 2px 8px;
+            border-radius: 999px;
+            letter-spacing: 0.04em;
+        }
+    }
+
+    .tfm-popup__grid {
+        display: grid;
+        grid-template-columns: 92px 1fr;
+        gap: 3px 10px;
+        padding: 10px 12px 6px;
+        span { color: #64748b; }
+        b { color: #0f172a; overflow-wrap: anywhere; }
+    }
+
+    .tfm-popup__delay { color: #b91c1c; font-weight: 700; margin-left: 5px; }
+
+    .tfm-popup__bar {
+        margin: 6px 12px 0;
+        height: 5px;
+        border-radius: 5px;
+        background: #eef2f7;
+        overflow: hidden;
+        div { height: 100%; }
+    }
+
+    .tfm-popup__pct {
+        padding: 3px 12px 0;
+        font-size: 10px;
+        color: #64748b;
+    }
+
+    .tfm-popup__open {
+        display: block;
+        width: calc(100% - 24px);
+        margin: 10px 12px 12px;
+        padding: 7px 0;
+        border: none;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #ffffff;
+        font-weight: 700;
+        font-size: 11.5px;
+        cursor: pointer;
+        &:hover { background: #1d4ed8; }
+    }
+}

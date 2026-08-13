@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="stock_transit_allocation.TransitFleetMap">
+    <div class="tfm">
+        <!-- Mapa a pantalla completa -->
+        <div class="tfm__map" t-ref="fleetMap"/>
+
+        <!-- Panel lateral: búsqueda + lista de embarques -->
+        <div t-attf-class="tfm__panel {{ state.panelOpen ? '' : 'tfm__panel--closed' }}">
+            <div class="tfm__header">
+                <div class="tfm__title">
+                    <i class="fa fa-globe"/>
+                    <span>Embarques</span>
+                    <button class="tfm__refresh" t-on-click="refresh" title="Actualizar">
+                        <i t-attf-class="fa fa-refresh {{ state.loading ? 'fa-spin' : '' }}"/>
+                    </button>
+                </div>
+                <div class="tfm__search">
+                    <i class="fa fa-search"/>
+                    <input type="text" placeholder="Buscar viaje, OC, proveedor, contenedor, BL, buque…"
+                           t-att-value="state.searchText" t-on-input="onSearch"/>
+                    <button t-if="state.searchText" t-on-click="clearSearch" class="tfm__search-clear">
+                        <i class="fa fa-times"/>
+                    </button>
+                </div>
+                <div class="tfm__chips">
+                    <button t-attf-class="tfm__chip {{ state.statusFilter === 'active' ? 'tfm__chip--on' : '' }}"
+                            t-on-click="() => this.setFilter('active')">
+                        En curso <b t-esc="counters.active"/>
+                    </button>
+                    <button t-attf-class="tfm__chip {{ state.statusFilter === 'delivered' ? 'tfm__chip--on' : '' }}"
+                            t-on-click="() => this.setFilter('delivered')">
+                        Entregados <b t-esc="counters.delivered"/>
+                    </button>
+                    <button t-attf-class="tfm__chip {{ state.statusFilter === 'all' ? 'tfm__chip--on' : '' }}"
+                            t-on-click="() => this.setFilter('all')">
+                        Todos <b t-esc="counters.total"/>
+                    </button>
+                    <button class="tfm__chip tfm__chip--fit" t-on-click="fitAll" title="Ver toda la flota">
+                        <i class="fa fa-arrows-alt"/>
+                    </button>
+                </div>
+            </div>
+
+            <div class="tfm__list">
+                <t t-if="!state.loading and !filteredVoyages.length">
+                    <div class="tfm__empty">Sin embarques que coincidan.</div>
+                </t>
+                <t t-foreach="filteredVoyages" t-as="v" t-key="v.id">
+                    <div t-attf-class="tfm-card {{ state.selectedId === v.id ? 'tfm-card--selected' : '' }} {{ hasRoute(v) ? '' : 'tfm-card--notrack' }}"
+                         t-on-click="() => this.focusVoyage(v)">
+                        <div class="tfm-card__top">
+                            <span class="tfm-card__dot" t-attf-style="background: {{ statusColor(v) }}"/>
+                            <b class="tfm-card__name" t-esc="v.name"/>
+                            <span class="tfm-card__status" t-attf-style="color: {{ statusColor(v) }}"
+                                  t-esc="v.status_label"/>
+                        </div>
+                        <div class="tfm-card__supplier" t-esc="v.supplier || '—'"/>
+                        <div class="tfm-card__meta">
+                            <span t-if="v.po_name"><i class="fa fa-file-text-o"/> <t t-esc="v.po_name"/></span>
+                            <span t-if="v.vessel_name"><i class="fa fa-ship"/> <t t-esc="v.vessel_name"/></span>
+                            <span t-if="v.containers.length">
+                                <i class="fa fa-cube"/>
+                                <t t-esc="v.containers.length === 1 ? v.containers[0] : v.containers.length + ' contenedores'"/>
+                            </span>
+                        </div>
+                        <div class="tfm-card__route" t-if="v.origin.name or v.destination.name">
+                            <t t-esc="v.origin.name or '?'"/>
+                            <i class="fa fa-long-arrow-right"/>
+                            <t t-esc="v.destination.name or '?'"/>
+                        </div>
+                        <div class="tfm-card__bottom">
+                            <span t-attf-class="tfm-card__eta {{ etaBadge(v).cls }}" t-esc="etaBadge(v).label"/>
+                            <span class="tfm-card__m2"><b t-esc="fmtM2(v.total_m2)"/> m²</span>
+                            <span t-if="!hasRoute(v)" class="tfm-card__notrack-tag" title="Sin datos de tracking ShipsGo">
+                                <i class="fa fa-map-o"/> sin mapa
+                            </span>
+                        </div>
+                        <div class="tfm-card__bar" t-if="hasRoute(v)">
+                            <div t-attf-style="width: {{ pct(v) }}%; background: {{ statusColor(v) }}"/>
+                        </div>
+                    </div>
+                </t>
+            </div>
+
+            <div class="tfm__legend">
+                <span><i class="tfm__line tfm__line--solid"/> Recorrido</span>
+                <span><i class="tfm__line tfm__line--dash"/> Por recorrer</span>
+                <span class="tfm__legend-count"><b t-esc="counters.tracked"/> con tracking</span>
+            </div>
+        </div>
+
+        <!-- Botón para plegar/desplegar el panel (después del panel en el
+             DOM: el selector CSS '+' lo reacomoda cuando el panel se pliega) -->
+        <button class="tfm__panel-toggle" t-on-click="togglePanel"
+                t-att-title="state.panelOpen ? 'Ocultar panel' : 'Mostrar panel'">
+            <i t-attf-class="fa {{ state.panelOpen ? 'fa-chevron-left' : 'fa-chevron-right' }}"/>
+        </button>
+
+        <div t-if="state.loading" class="tfm__loading">
+            <i class="fa fa-circle-o-notch fa-spin"/> Cargando flota…
+        </div>
+    </div>
+</t>
+
+</templates>
