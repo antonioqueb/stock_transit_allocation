@@ -64,18 +64,32 @@ export class TransitFleetMap extends Component {
             this.notification.add("No se pudo inicializar el mapa (Leaflet).", { type: "danger" });
             return;
         }
+        // UN SOLO MUNDO: sin réplicas horizontales de los continentes.
+        // noWrap corta la repetición de tiles, maxBounds encierra el
+        // paneo en una sola copia y minZoom impide alejarse tanto que
+        // quepan dos mundos en pantalla.
+        const WORLD = L.latLngBounds([[-85, -180], [85, 180]]);
         this.map = L.map(this.mapRef.el, {
             scrollWheelZoom: true,
             preferCanvas: true,
             zoomAnimation: true,
             wheelDebounceTime: 25,
-            worldCopyJump: true,
+            worldCopyJump: false,
             zoomControl: false,
+            maxBounds: WORLD,
+            maxBoundsViscosity: 1.0,
+            minZoom: 2,
         }).setView([23.0, -60.0], 3);
         L.control.zoom({ position: "bottomright" }).addTo(this.map);
         L.tileLayer(
             "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
-            { attribution: "&copy; OpenStreetMap &copy; CARTO", maxZoom: 19, updateWhenZooming: false }
+            {
+                attribution: "&copy; OpenStreetMap &copy; CARTO",
+                maxZoom: 19,
+                updateWhenZooming: false,
+                noWrap: true,
+                bounds: WORLD,
+            }
         ).addTo(this.map);
         this.layerGroup = L.layerGroup().addTo(this.map);
         await this.load();
