@@ -927,43 +927,46 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     .tk-card__expand { display: none; }
 }
 
-/* La TARJETA completa lleva el color del sub-estado, SATURADO (nada de
-   pasteles) y con TODO su contenido en el color de contraste:
-   AMARILLO (entregado, texto negro) → NARANJA INDUSTRIAL (en impresión,
-   texto negro) → VERDE (etiquetado, texto blanco). */
+/* La TARJETA completa lleva el color del sub-estado, SATURADO y SIN
+   franja lateral de otro color: el acento ::before (que hereda el verde
+   de la columna) y el borde se pintan DEL MISMO color de la tarjeta.
+   Contraste pedido: AMARILLO texto negro · NARANJA texto blanco ·
+   VERDE texto negro. Los chips (etiquetas) SIEMPRE negros con texto
+   blanco para que resalten sobre cualquiera de los tres fondos. */
+.tk-card--lab-none,
+.tk-card--lab-printing,
+.tk-card--lab-labeled {
+    /* Chips: negro sólido, texto blanco, siempre. */
+    .tk-labeling,
+    .tk-eta {
+        background: #111111 !important;
+        color: #ffffff !important;
+        border-color: #111111 !important;
+    }
+}
 .tk-card--lab-none {
     background: #facc15;
-    border-left: 4px solid #a16207;
+    border-left: 4px solid #facc15;
+    &::before { background: #facc15 !important; }
 
     .tk-card__supplier-name,
-    .tk-card__received-cont,
-    .tk-labeling,
-    .tk-eta { color: #111111 !important; }
-    .tk-eta { background: rgba(0, 0, 0, 0.1); }
+    .tk-card__received-cont { color: #111111 !important; }
 }
 .tk-card--lab-printing {
     background: #f97316;
-    border-left: 4px solid #9a3412;
+    border-left: 4px solid #f97316;
+    &::before { background: #f97316 !important; }
 
     .tk-card__supplier-name,
-    .tk-card__received-cont,
-    .tk-labeling,
-    .tk-eta { color: #111111 !important; }
-    .tk-eta { background: rgba(0, 0, 0, 0.1); }
+    .tk-card__received-cont { color: #ffffff !important; }
 }
 .tk-card--lab-labeled {
     background: #16a34a;
-    border-left: 4px solid #14532d;
+    border-left: 4px solid #16a34a;
+    &::before { background: #16a34a !important; }
 
     .tk-card__supplier-name,
-    .tk-card__received-cont,
-    .tk-labeling,
-    .tk-eta { color: #ffffff !important; }
-    .tk-eta { background: rgba(255, 255, 255, 0.18); }
-    .tk-labeling {
-        border-color: rgba(255, 255, 255, 0.5);
-        background: rgba(255, 255, 255, 0.16);
-    }
+    .tk-card__received-cont { color: #111111 !important; }
 }
 .tk-card__received-line {
     display: flex;

@@ -425,34 +425,39 @@ $rcp-mut: #64748b;
    el texto en su color de contraste:
    AMARILLO = entregado (texto negro) → NARANJA INDUSTRIAL = en impresión
    (texto negro) → VERDE = etiquetado (texto blanco). */
+/* Contraste pedido: amarillo texto negro · naranja texto BLANCO ·
+   verde texto negro. */
 .o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--none,
+.o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--labeled {
+    .o_rcp_done_main .s,
+    .o_rcp_done_main .c,
+    .o_rcp_done_main .q,
+    .o_rcp_done_meta,
+    .o_rcp_done_meta .f,
+    .o_rcp_done_meta .d { color: #111111 !important; }
+}
 .o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--printing {
     .o_rcp_done_main .s,
     .o_rcp_done_main .c,
     .o_rcp_done_main .q,
     .o_rcp_done_meta,
-    .o_rcp_done_meta .f { color: #111111 !important; }
+    .o_rcp_done_meta .f,
+    .o_rcp_done_meta .d { color: #ffffff !important; }
 }
 .o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--none {
     background: #facc15;
-    border-left: 3px solid #a16207;
+    border-left: 3px solid #facc15;
     &:hover { background: #eab308; }
 }
 .o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--printing {
     background: #f97316;
-    border-left: 3px solid #9a3412;
+    border-left: 3px solid #f97316;
     &:hover { background: #ea580c; }
 }
 .o_receptions_dash .o_rcp_done_row.rich.o_rcp_lab--labeled {
     background: #16a34a;
-    border-left: 3px solid #14532d;
+    border-left: 3px solid #16a34a;
     &:hover { background: #15803d; }
-
-    .o_rcp_done_main .s,
-    .o_rcp_done_main .c,
-    .o_rcp_done_main .q,
-    .o_rcp_done_meta,
-    .o_rcp_done_meta .f { color: #ffffff !important; }
 }
 
 /* ── Check de ETIQUETADO ── */

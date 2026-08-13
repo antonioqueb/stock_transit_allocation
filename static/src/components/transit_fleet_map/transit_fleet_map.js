@@ -64,11 +64,14 @@ export class TransitFleetMap extends Component {
             this.notification.add("No se pudo inicializar el mapa (Leaflet).", { type: "danger" });
             return;
         }
-        // UN SOLO MUNDO: sin réplicas horizontales de los continentes.
-        // noWrap corta la repetición de tiles, maxBounds encierra el
-        // paneo en una sola copia y minZoom impide alejarse tanto que
-        // quepan dos mundos en pantalla.
-        const WORLD = L.latLngBounds([[-85, -180], [85, 180]]);
+        // LIENZO PEDIDO: América aparece DOS veces (extremo izquierdo en
+        // -170..-30 y extremo derecho en 190..330) y el resto del mundo UNA
+        // sola vez. Los tiles sí se repiten (wrap), pero maxBounds encierra
+        // el paneo en la ventana [-180°, 330°]: el borde este corta justo
+        // después de Brasil duplicado, ANTES de que Europa vuelva a salir.
+        // Así una ruta Asia→México continúa hacia la copia derecha de
+        // América sin cortarse, y nada más se ve repetido.
+        const CANVAS = L.latLngBounds([[-85, -180], [85, 330]]);
         this.map = L.map(this.mapRef.el, {
             scrollWheelZoom: true,
             preferCanvas: true,
@@ -76,7 +79,7 @@ export class TransitFleetMap extends Component {
             wheelDebounceTime: 25,
             worldCopyJump: false,
             zoomControl: false,
-            maxBounds: WORLD,
+            maxBounds: CANVAS,
             maxBoundsViscosity: 1.0,
             minZoom: 2,
         }).setView([23.0, -60.0], 3);
@@ -87,8 +90,6 @@ export class TransitFleetMap extends Component {
                 attribution: "&copy; OpenStreetMap &copy; CARTO",
                 maxZoom: 19,
                 updateWhenZooming: false,
-                noWrap: true,
-                bounds: WORLD,
             }
         ).addTo(this.map);
         this.layerGroup = L.layerGroup().addTo(this.map);
@@ -175,36 +176,69 @@ export class TransitFleetMap extends Component {
 
     // ─── Dibujo ──────────────────────────────────────────────────────────
 
-    // ── Antimeridiano ────────────────────────────────────────────────────
-    // Una ruta Japón→México cruza los ±180°. En un mundo único (noWrap),
-    // Leaflet dibujaría el tramo "de regreso" atravesando todo el mapa, o
-    // se cortaría al salir del borde. Partimos cada línea EXACTAMENTE en el
-    // cruce: el tramo sale por el borde derecho y el siguiente entra por el
-    // izquierdo hasta su destino — la ruta completa, sin repetir el mundo.
-    _splitAntimeridian(line) {
-        if (!line || line.length < 2) return line && line.length ? [line] : [];
-        const segments = [];
-        let current = [line[0]];
-        for (let i = 1; i < line.length; i++) {
-            const [lat1, lng1] = line[i - 1];
-            const [lat2, lng2] = line[i];
-            const delta = lng2 - lng1;
-            if (Math.abs(delta) > 180) {
-                // Cruce: interpolar la latitud en el borde ±180
-                const sign = delta > 0 ? -1 : 1; // lado por el que SALE
-                const lngA = lng1;
-                const lngB = lng2 + (delta > 0 ? -360 : 360); // desenrollado
-                const t = (sign * 180 - lngA) / (lngB - lngA);
-                const latX = lat1 + (lat2 - lat1) * (isFinite(t) ? t : 0.5);
-                current.push([latX, sign * 180]);
-                segments.push(current);
-                current = [[latX, -sign * 180], [lat2, lng2]];
-            } else {
-                current.push([lat2, lng2]);
-            }
+    // ── Antimeridiano: DESENROLLADO continuo ─────────────────────────────
+    // Una ruta Japón→México cruza los ±180°. En este lienzo (América
+    // duplicada a la derecha, hasta 330°) la ruta NO se parte: cada punto
+    // se ajusta ±360° para quedar continuo respecto al anterior, así el
+    // trazo sigue derecho de Asia hacia la copia derecha de América. Si el
+    // desenrollado cayera bajo -180° (ruta América→Asia), toda la ruta se
+    // corre +360° para permanecer dentro del lienzo. Los marcadores de
+    // puerto/buque se pegan al marco de su tramo con _snapLng.
+    _unwrapRoute(r) {
+        const order = [];
+        for (const l of (r.past || [])) {
+            if (l && l.length) order.push(["past", l]);
         }
-        if (current.length > 1) segments.push(current);
-        return segments;
+        if (r.current_past && r.current_past.length) {
+            order.push(["current_past", r.current_past]);
+        }
+        if (r.current_future && r.current_future.length) {
+            order.push(["current_future", r.current_future]);
+        }
+        for (const l of (r.future || [])) {
+            if (l && l.length) order.push(["future", l]);
+        }
+
+        let prev = null;
+        let minLng = Infinity;
+        const adjusted = [];
+        for (const [kind, line] of order) {
+            const newLine = [];
+            for (const pt of line) {
+                const lat = pt[0];
+                let lng = pt[1];
+                if (prev !== null) {
+                    while (lng - prev > 180) lng -= 360;
+                    while (lng - prev < -180) lng += 360;
+                }
+                prev = lng;
+                if (lng < minLng) minLng = lng;
+                newLine.push([lat, lng]);
+            }
+            adjusted.push([kind, newLine]);
+        }
+
+        const shift = minLng < -180 ? 360 : 0;
+        const out = { past: [], current_past: null, current_future: null, future: [] };
+        for (const [kind, line] of adjusted) {
+            const l2 = shift
+                ? line.map((p) => [p[0], p[1] + shift]) : line;
+            if (kind === "past") out.past.push(l2);
+            else if (kind === "future") out.future.push(l2);
+            else out[kind] = l2;
+        }
+        return out;
+    }
+
+    // Acomoda un [lat, lng] al marco (copia del mundo) más cercano a refLng.
+    _snapLng(loc, refLng) {
+        if (!loc || loc.length !== 2 || refLng === null || refLng === undefined) {
+            return loc;
+        }
+        let lng = loc[1];
+        while (lng - refLng > 180) lng -= 360;
+        while (lng - refLng < -180) lng += 360;
+        return [loc[0], lng];
     }
 
     hasRoute(v) {
@@ -231,48 +265,61 @@ export class TransitFleetMap extends Component {
             if (!this.hasRoute(v)) continue;
             const color = this.statusColor(v);
             const layers = [];
-            const r = v.route || {};
+            const u = this._unwrapRoute(v.route || {});
 
             // Recorrido: sólido. Por recorrer: punteado (mismo color, tenue).
-            const past = [...(r.past || []), ...(r.current_past ? [r.current_past] : [])];
-            const future = [...(r.current_future ? [r.current_future] : []), ...(r.future || [])];
+            const past = [...u.past, ...(u.current_past ? [u.current_past] : [])];
+            const future = [...(u.current_future ? [u.current_future] : []), ...u.future];
             for (const line of past) {
-                for (const seg of this._splitAntimeridian(line)) {
-                    if (seg.length > 1) {
-                        layers.push(L.polyline(seg, {
-                            color, weight: 3, opacity: 0.85,
-                        }));
-                    }
+                if (line.length > 1) {
+                    layers.push(L.polyline(line, {
+                        color, weight: 3, opacity: 0.85,
+                    }));
                 }
             }
             for (const line of future) {
-                for (const seg of this._splitAntimeridian(line)) {
-                    if (seg.length > 1) {
-                        layers.push(L.polyline(seg, {
-                            color, weight: 2.5, opacity: 0.5, dashArray: "6 7",
-                        }));
-                    }
+                if (line.length > 1) {
+                    layers.push(L.polyline(line, {
+                        color, weight: 2.5, opacity: 0.5, dashArray: "6 7",
+                    }));
                 }
             }
 
+            // Marcos de referencia del desenrollado, para pegar cada
+            // marcador al tramo que le corresponde (una ruta transpacífica
+            // termina en la América duplicada de la derecha).
+            const allLines = [...past, ...future];
+            const firstPt = allLines.length ? allLines[0][0] : null;
+            const lastLine = allLines.length ? allLines[allLines.length - 1] : null;
+            const lastPt = lastLine ? lastLine[lastLine.length - 1] : null;
+            const boundaryPt = (u.current_past && u.current_past.length)
+                ? u.current_past[u.current_past.length - 1]
+                : ((u.current_future && u.current_future.length)
+                    ? u.current_future[0] : lastPt);
+
             // Puertos: origen (salida) y destino (llegada)
             if (v.origin && v.origin.loc) {
-                layers.push(L.circleMarker(v.origin.loc, {
+                const loc = this._snapLng(v.origin.loc, firstPt ? firstPt[1] : null);
+                layers.push(L.circleMarker(loc, {
                     radius: 5, color, weight: 2, fillColor: "#ffffff",
                     fillOpacity: 1,
                 }).bindTooltip(`Origen: ${v.origin.name || "?"}`));
             }
             if (v.destination && v.destination.loc) {
-                layers.push(L.circleMarker(v.destination.loc, {
+                const loc = this._snapLng(v.destination.loc, lastPt ? lastPt[1] : null);
+                layers.push(L.circleMarker(loc, {
                     radius: 6, color, weight: 2.5, fillColor: color,
                     fillOpacity: 0.9,
                 }).bindTooltip(`Destino: ${v.destination.name || "?"} · ETA ${v.eta_label || "?"}`));
             }
 
             // Buque: marcador principal con popup de ficha completa
-            const anchor = v.current_loc
-                || (v.destination && v.destination.loc)
-                || (v.origin && v.origin.loc);
+            const anchor = this._snapLng(
+                v.current_loc, boundaryPt ? boundaryPt[1] : null)
+                || this._snapLng(
+                    v.destination && v.destination.loc, lastPt ? lastPt[1] : null)
+                || this._snapLng(
+                    v.origin && v.origin.loc, firstPt ? firstPt[1] : null);
             if (anchor) {
                 const icon = L.divIcon({
                     className: "tfm-ship-icon",
