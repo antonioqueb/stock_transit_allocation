@@ -4,6 +4,7 @@ import logging
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from odoo.tools import float_compare
 
 _logger = logging.getLogger(__name__)
 
@@ -722,6 +723,64 @@ class StockPicking(models.Model):
             "=== [TC_DEBUG] VALIDATE BUTTON CLICKED - Picking IDs: %s ===",
             self.ids,
         )
+
+        # SOBRE-RECEPCIÓN PROHIBIDA (sin tolerancias silenciosas): en una
+        # recepción física de viaje, lo capturado por línea jamás puede
+        # exceder la demanda pendiente de esa línea. La demanda original
+        # es INMUTABLE — para recibir de más se corrige el embarque, no
+        # la recepción.
+        for pick in self:
+            if pick.id not in physical_voyage_by_pick or pick.state == 'done':
+                continue
+            for mv in pick.move_ids:
+                if mv.state in ('done', 'cancel'):
+                    continue
+                done_qty = sum(mv.move_line_ids.mapped('quantity'))
+                demand = mv.product_uom_qty or 0.0
+                rounding = mv.product_uom.rounding or 0.01
+                if float_compare(done_qty, demand,
+                                 precision_rounding=rounding) > 0:
+                    raise UserError(_(
+                        'No es posible recibir %(got).2f de "%(prod)s": la '
+                        'cantidad pendiente de esta línea es %(dem).2f.\n\n'
+                        'La demanda original del embarque es inmutable: si '
+                        'físicamente llegó más material, corrige el embarque '
+                        '(packing list) antes de recibir.') % {
+                            'got': done_qty,
+                            'prod': mv.product_id.display_name,
+                            'dem': demand,
+                        })
+
+        # CONFIRMACIÓN DE PARCIALIDAD (una sola pregunta, no línea por
+        # línea): si tras esta validación quedará pendiente, el usuario
+        # confirma explícitamente cuánto entra y cuánto queda.
+        if (physical_voyage_by_pick and len(self) == 1
+                and self.state != 'done'
+                and not self.env.context.get('tc_partial_reception_confirmed')
+                and not self.env.context.get('skip_tc_partial_confirm')):
+            pick = self
+            receiving = 0.0
+            pending_after = 0.0
+            for mv in pick.move_ids:
+                if mv.state in ('done', 'cancel'):
+                    continue
+                done_qty = sum(mv.move_line_ids.mapped('quantity'))
+                receiving += done_qty
+                pending_after += max((mv.product_uom_qty or 0.0) - done_qty, 0.0)
+            if pending_after > 0.001 and receiving > 0:
+                wiz = self.env['tc.partial.reception.confirm'].create({
+                    'picking_id': pick.id,
+                    'qty_now': receiving,
+                    'qty_pending': pending_after,
+                })
+                return {
+                    'type': 'ir.actions.act_window',
+                    'name': _('Recepción parcial'),
+                    'res_model': 'tc.partial.reception.confirm',
+                    'res_id': wiz.id,
+                    'view_mode': 'form',
+                    'target': 'new',
+                }
 
         # RECEPCIONES PARCIALES: si TODO lo validado son recepciones físicas
         # de viaje, el faltante genera SOLO su backorder (sin preguntar) —

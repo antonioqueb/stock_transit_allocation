@@ -118,6 +118,25 @@ class SupplierShipment(models.Model):
         related='voyage_id.tc_reception_summary', readonly=True)
     tc_reception_has_pending = fields.Boolean(
         related='voyage_id.tc_reception_has_pending', readonly=True)
+    tc_reception_expected_qty = fields.Float(
+        related='voyage_id.tc_reception_expected_qty', readonly=True)
+    tc_reception_received_qty = fields.Float(
+        related='voyage_id.tc_reception_received_qty', readonly=True)
+    tc_reception_pending_qty = fields.Float(
+        related='voyage_id.tc_reception_pending_qty', readonly=True)
+    tc_reception_pct = fields.Float(
+        related='voyage_id.tc_reception_pct', readonly=True)
+    tc_reception_count = fields.Integer(
+        related='voyage_id.tc_reception_count', readonly=True)
+    tc_reception_state = fields.Selection(
+        related='voyage_id.tc_reception_state', readonly=True)
+
+    def action_view_reception_history(self):
+        self.ensure_one()
+        if not self.voyage_id:
+            raise UserError(_(
+                'Este embarque no tiene viaje en Torre de Control.'))
+        return self.voyage_id.action_view_reception_history()
 
     def action_open_purchase_order(self):
         """Acceso directo del embarque a su Orden de Compra."""

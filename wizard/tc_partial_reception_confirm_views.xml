@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_tc_partial_reception_confirm_form" model="ir.ui.view">
+        <field name="name">tc.partial.reception.confirm.form</field>
+        <field name="model">tc.partial.reception.confirm</field>
+        <field name="arch" type="xml">
+            <form string="Recepción parcial">
+                <div class="alert alert-warning" role="alert">
+                    <b>Esta recepción es PARCIAL.</b><br/>
+                    Se recibirán ahora <b><field name="qty_now" readonly="1" class="oe_inline"/></b>
+                    y quedarán pendientes <b><field name="qty_pending" readonly="1" class="oe_inline"/></b>.<br/>
+                    El sistema generará automáticamente la siguiente recepción
+                    pendiente del embarque con exactamente el saldo restante.
+                </div>
+                <field name="picking_id" invisible="1"/>
+                <footer>
+                    <button name="action_confirm" type="object"
+                            string="Validar recepción parcial" class="btn-primary"/>
+                    <button string="Cancelar" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>

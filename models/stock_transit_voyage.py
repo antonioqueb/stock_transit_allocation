@@ -3300,6 +3300,86 @@ class StockTransitVoyage(models.Model):
         string='Recepción con pendiente',
         compute='_compute_tc_reception_summary')
 
+    # ── Indicadores de recepción (siempre CALCULADOS desde los movimientos
+    #    reales — jamás un porcentaje almacenado que envejezca) ──
+    tc_reception_expected_qty = fields_module.Float(
+        string='Esperado', compute='_compute_tc_reception_metrics')
+    tc_reception_received_qty = fields_module.Float(
+        string='Recibido', compute='_compute_tc_reception_metrics')
+    tc_reception_pending_qty = fields_module.Float(
+        string='Pendiente de recibir', compute='_compute_tc_reception_metrics')
+    tc_reception_pct = fields_module.Float(
+        string='% Recepcionado', compute='_compute_tc_reception_metrics')
+    tc_reception_count = fields_module.Integer(
+        string='Recepciones', compute='_compute_tc_reception_metrics')
+    tc_reception_state = fields_module.Selection([
+        ('none', 'Pendiente de recepción'),
+        ('in_process', 'Recepción en proceso'),
+        ('partial', 'Parcialmente recibido'),
+        ('done', 'Completamente recibido'),
+    ], string='Estado de recepción', compute='_compute_tc_reception_metrics')
+
+    def _tc_reception_pct_by_uom(self, totals):
+        """% de avance respetando unidades: se calcula por grupo de UoM y
+        el global es el promedio de los grupos — JAMÁS se suman m² con
+        piezas o kg como si fueran la misma unidad. Con una sola UoM (el
+        caso normal) equivale al cociente exacto recibido/esperado."""
+        by_uom = {}
+        for p in totals['done']:
+            for ml in p.move_line_ids:
+                key = ml.product_uom_id.id
+                exp, rec = by_uom.get(key, (0.0, 0.0))
+                by_uom[key] = (exp + ml.quantity, rec + ml.quantity)
+        for p in totals['open']:
+            for mv in p.move_ids:
+                if mv.state in ('done', 'cancel'):
+                    continue
+                key = mv.product_uom.id
+                exp, rec = by_uom.get(key, (0.0, 0.0))
+                by_uom[key] = (exp + mv.product_uom_qty, rec)
+        pcts = [
+            (rec / exp * 100.0) for exp, rec in by_uom.values() if exp > 0
+        ]
+        return (sum(pcts) / len(pcts)) if pcts else 0.0
+
+    def _compute_tc_reception_metrics(self):
+        for rec in self:
+            rec.tc_reception_expected_qty = 0.0
+            rec.tc_reception_received_qty = 0.0
+            rec.tc_reception_pending_qty = 0.0
+            rec.tc_reception_pct = 0.0
+            rec.tc_reception_count = 0
+            rec.tc_reception_state = 'none'
+            if not rec.reception_picking_id:
+                continue
+            t = rec._tc_reception_totals()
+            rec.tc_reception_received_qty = t['received']
+            rec.tc_reception_pending_qty = t['pending']
+            rec.tc_reception_expected_qty = t['received'] + t['pending']
+            rec.tc_reception_count = len(t['chain'].filtered(
+                lambda p: p.state != 'cancel'))
+            rec.tc_reception_pct = rec._tc_reception_pct_by_uom(t)
+            if t['received'] and t['pending']:
+                rec.tc_reception_state = 'partial'
+            elif t['received']:
+                rec.tc_reception_state = 'done'
+            elif t['open']:
+                rec.tc_reception_state = 'in_process'
+
+    def action_view_reception_history(self):
+        """Historial completo de recepciones del embarque (validadas,
+        pendientes y canceladas) para auditoría."""
+        self.ensure_one()
+        chain = self._tc_reception_chain()
+        return {
+            'type': 'ir.actions.act_window',
+            'name': _('Recepciones de %s') % self.name,
+            'res_model': 'stock.picking',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', chain.ids)],
+            'context': {'create': False},
+        }
+
     def _compute_tc_reception_summary(self):
         for rec in self:
             summary = ''
