@@ -1846,6 +1846,25 @@ class StockTransitVoyage(models.Model):
 
         return expected
 
+    def _tc_assert_some_component_in_transit(self, operation_label):
+        """Versión SUAVE del candado de completitud, para RECIBIR.
+
+        La recepción es TRÁNSITO → STOCK y opera al nivel del embarque:
+        basta que exista material en tránsito (al menos un componente
+        validado) para poder recibirlo — los componentes que faltan son
+        la parcialidad natural del embarque y NO bloquean. El candado
+        duro completo queda solo para CERRAR (delivered)."""
+        self.ensure_one()
+        expected = self._tc_expected_component_pickings()
+        if not expected:
+            return
+        done = expected.filtered(lambda p: p.state == 'done')
+        if not done:
+            raise UserError(_(
+                'No se puede %(operation)s: ninguna recepción a tránsito de '
+                'este embarque está validada todavía — no hay material en '
+                'tránsito que recibir.') % {'operation': operation_label})
+
     def _tc_pending_component_pickings(self):
         """Recepciones del embarque que aún no se validan."""
         self.ensure_one()
@@ -1960,9 +1979,15 @@ class StockTransitVoyage(models.Model):
 
         next_status = self.STATUS_SEQUENCE[next_idx]
 
-        # Embarque multi-proforma: no entra a recepción ni se cierra hasta
-        # que TODAS las recepciones que lo componen estén validadas.
-        if next_status in ('reception_pending', 'delivered'):
+        # RECIBIR opera por lo LLEGADO (tránsito→stock, nivel embarque):
+        # basta un componente validado. CERRAR sí exige el embarque
+        # completo (candado duro).
+        if next_status == 'reception_pending':
+            self._tc_assert_some_component_in_transit(
+                _('avanzar el embarque a %s')
+                % self.STATUS_LABELS.get(next_status, next_status)
+            )
+        elif next_status == 'delivered':
             self._tc_assert_components_complete(
                 _('avanzar el embarque a %s')
                 % self.STATUS_LABELS.get(next_status, next_status)
@@ -2892,8 +2917,10 @@ class StockTransitVoyage(models.Model):
 
         # RECEPCIÓN PARCIAL (backorder): ya nació con EXACTAMENTE el
         # remanente no recibido — reconstruirla desde las líneas del viaje
-        # re-inyectaría lo ya recibido. No se toca.
+        # re-inyectaría lo ya recibido. Solo se le SUMAN las llegadas
+        # NUEVAS del embarque (componentes validados después del parcial).
         if picking.backorder_id:
+            self._tc_append_new_arrivals_to_reception(picking)
             return picking
 
         ctx = self._tc_reception_safe_context()
@@ -3060,7 +3087,8 @@ class StockTransitVoyage(models.Model):
         # Embarque multi-proforma: la recepción física se genera hasta que
         # TODAS las recepciones a tránsito que lo componen estén validadas
         # (su material debe existir en tránsito para poder recibirse junto).
-        self._tc_assert_components_complete(_('generar la recepción física'))
+        self._tc_assert_some_component_in_transit(
+            _('generar la recepción física'))
 
         # Si la recepción ya existe y todavía no se procesó PL/Worksheet,
         # se puede sanear de forma segura. Esto corrige recepciones creadas por
@@ -3359,7 +3387,8 @@ class StockTransitVoyage(models.Model):
             rec.tc_reception_count = len(t['chain'].filtered(
                 lambda p: p.state != 'cancel'))
             rec.tc_reception_pct = rec._tc_reception_pct_by_uom(t)
-            if t['received'] and t['pending']:
+            components_pending = bool(rec._tc_pending_component_pickings())
+            if t['received'] and (t['pending'] or components_pending):
                 rec.tc_reception_state = 'partial'
             elif t['received']:
                 rec.tc_reception_state = 'done'
@@ -3402,6 +3431,72 @@ class StockTransitVoyage(models.Model):
                     summary = _('Sin recibir · pendiente %(p).2f') % {
                         'p': t['pending']}
             rec.tc_reception_summary = summary
+
+    def _tc_append_new_arrivals_to_reception(self, picking):
+        """Suma a la recepción ABIERTA la demanda de material del embarque
+        que llegó a tránsito DESPUÉS de una parcial.
+
+        Cobertura = recibido acumulado de la cadena + demanda ya presente
+        en la recepción abierta; lo esperado = líneas del viaje. Solo la
+        diferencia positiva se agrega (idempotente)."""
+        self.ensure_one()
+        picking.ensure_one()
+        if picking.state in ('done', 'cancel'):
+            return
+
+        t = self._tc_reception_totals()
+        covered = {}
+        for p in t['done']:
+            for ml in p.move_line_ids:
+                covered[ml.product_id.id] = (
+                    covered.get(ml.product_id.id, 0.0) + ml.quantity)
+        for mv in picking.move_ids:
+            if mv.state in ('done', 'cancel'):
+                continue
+            covered[mv.product_id.id] = (
+                covered.get(mv.product_id.id, 0.0) + mv.product_uom_qty)
+
+        expected = {}
+        for line in self.line_ids.filtered(
+                lambda l: l.lot_id and l.product_id and l.product_uom_qty > 0):
+            expected[line.product_id.id] = (
+                expected.get(line.product_id.id, 0.0) + line.product_uom_qty)
+
+        ctx = self._tc_reception_safe_context()
+        added = []
+        for product_id, exp_qty in expected.items():
+            missing = exp_qty - covered.get(product_id, 0.0)
+            if missing <= 0.001:
+                continue
+            product = self.env['product.product'].browse(product_id)
+            move = picking.move_ids.filtered(
+                lambda m: m.product_id.id == product_id
+                and m.state not in ('done', 'cancel'))[:1]
+            if move:
+                move.with_context(ctx).write({
+                    'product_uom_qty': move.product_uom_qty + missing,
+                })
+            else:
+                move_vals = self._tc_prepare_reception_move_vals(
+                    picking=picking, product=product, total_qty=missing)
+                self.env['stock.move'].with_context(ctx).create(move_vals)
+            added.append('%s (+%.2f)' % (product.display_name, missing))
+
+        if added:
+            # Material nuevo => el PL físico y el Worksheet de esta
+            # recepción deben re-trabajarse para cubrirlo.
+            reset_vals = {}
+            if 'packing_list_imported' in picking._fields and picking.packing_list_imported:
+                reset_vals['packing_list_imported'] = False
+            if 'worksheet_imported' in picking._fields and picking.worksheet_imported:
+                reset_vals['worksheet_imported'] = False
+            if reset_vals:
+                picking.with_context(ctx).write(reset_vals)
+            self.message_post(body=Markup(
+                '📦 <b>Llegadas nuevas sumadas a la recepción %s</b>: %s. '
+                'El PL físico y el Worksheet deben reprocesarse para '
+                'cubrir el material nuevo.') % (
+                    picking.name, ', '.join(added)))
 
     def _tc_after_partial_reception(self, picking):
         """Tras validar una recepción del viaje: si Odoo generó backorder
@@ -3457,7 +3552,15 @@ class StockTransitVoyage(models.Model):
                 '%s recepción(es).') % (
                     self.env.user.name, len(t['open']), pendiente,
                     t['received'], t['done_count']))
-            rec._auto_finalize_after_reception()
+            missing = rec._tc_pending_component_pickings()
+            if missing:
+                rec.message_post(body=Markup(
+                    '✂️ Cierre forzado con <b>%s componente(s) sin llegar a '
+                    'tránsito</b>: %s.') % (
+                        len(missing),
+                        ', '.join(missing.mapped('name'))))
+            rec.with_context(
+                tc_force_close_pending=True)._auto_finalize_after_reception()
         return True
 
     def _auto_finalize_after_reception(self):
@@ -3473,6 +3576,16 @@ class StockTransitVoyage(models.Model):
             # pendiente). Solo el cierre manual del pendiente o recibir
             # todo llegan aquí sin abiertas.
             if rec._tc_reception_totals()['open']:
+                continue
+
+            # Embarque incompleto: faltan componentes por llegar a
+            # tránsito — recibir lo llegado NO cierra el embarque (salvo
+            # cierre forzado explícito).
+            if (rec._tc_pending_component_pickings()
+                    and not self.env.context.get('tc_force_close_pending')):
+                rec.message_post(body=_(
+                    'Recepción validada; el embarque sigue ABIERTO: aún '
+                    'faltan componentes por llegar a tránsito.'))
                 continue
 
             picking = rec.reception_picking_id
