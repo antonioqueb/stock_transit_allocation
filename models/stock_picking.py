@@ -814,6 +814,16 @@ class StockPicking(models.Model):
                     )
                     raise
 
+                # PISO SOLICITADO ≥ ASIGNADO tras la recepción física: al
+                # recibirse, el Asignado de las líneas comprometidas cambia de
+                # la cantidad de proforma al FÍSICO real medido (quants). Si la
+                # placa real mide más de lo vendido, el ratchet sube el
+                # Solicitado — sin este paso la línea quedaba con
+                # Solicitado < Asignado sin que nadie tocara la venta.
+                lots = pick.move_line_ids.mapped('lot_id')
+                if lots:
+                    lots.sudo()._tc_ratchet_open_sale_lines()
+
         _logger.info(
             "=== [TC_DEBUG] VALIDATION FINISHED - Picking IDs: %s ===",
             self.ids,
