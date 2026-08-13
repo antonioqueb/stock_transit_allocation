@@ -14,6 +14,7 @@ from . import supplier_shipment_container
 from . import supplier_shipment_traceability
 from . import stock_location
 from . import stock_picking
+from . import stock_return_picking
 from . import stock_picking_physical_pl
 from . import stock_transit_publication
 from . import sale_order_inherit
