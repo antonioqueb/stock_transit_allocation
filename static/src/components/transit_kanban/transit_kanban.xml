@@ -117,7 +117,11 @@
                                             t-on-click="(ev) => this.toggleProduction(card, ev)">
                                         <i class="fa fa-industry"/>
                                     </button>
-                                    <span t-attf-class="tk-eta #{etaClass(card)}"
+                                    <!-- En recibidas la etiqueta 'Recibido'
+                                         sobraba: el chip de etiquetado ya
+                                         dice el estado. -->
+                                    <span t-if="!isReceived(card)"
+                                          t-attf-class="tk-eta #{etaClass(card)}"
                                           t-att-title="etaTitle(card)"
                                           t-esc="etaLabel(card)"/>
                                 </span>
