@@ -11,6 +11,9 @@
                             string="🔄 Sincronizar con Torre de Control"
                             class="btn-primary"
                             invisible="status in ['draft']"/>
+                    <button name="action_open_purchase_order" type="object"
+                            string="Ver Orden de Compra" icon="fa-file-text-o"
+                            invisible="not purchase_id"/>
                     <field name="tc_reception_has_pending" invisible="1"/>
                     <field name="tc_reception_summary" readonly="1"
                            invisible="not tc_reception_summary"

@@ -119,6 +119,20 @@ class SupplierShipment(models.Model):
     tc_reception_has_pending = fields.Boolean(
         related='voyage_id.tc_reception_has_pending', readonly=True)
 
+    def action_open_purchase_order(self):
+        """Acceso directo del embarque a su Orden de Compra."""
+        self.ensure_one()
+        if not self.purchase_id:
+            raise UserError(_(
+                'Este embarque no tiene Orden de Compra ligada.'))
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'purchase.order',
+            'res_id': self.purchase_id.id,
+            'view_mode': 'form',
+            'target': 'current',
+        }
+
     def action_force_close_pending_reception(self):
         self.ensure_one()
         if not self.voyage_id:
