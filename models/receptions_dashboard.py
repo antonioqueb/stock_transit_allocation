@@ -137,13 +137,19 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 late_days = (today - eta).days
 
             # Parcialidad: si ya hubo recepciones validadas y sigue abierta
-            # la siguiente, la tarjeta lo dice con números claros.
+            # la siguiente, la tarjeta lo dice con números claros y su
+            # barra de avance — el almacenista NUNCA entra al embarque:
+            # todo su contexto vive en esta tarjeta.
             partial_info = ''
+            partial_pct = 0
             if phase == 'ready' and picking:
                 t = v._tc_reception_totals()
                 if t['done_count'] and t['open']:
+                    total = t['received'] + t['pending']
+                    partial_pct = int(round(
+                        t['received'] / total * 100)) if total else 0
                     partial_info = (
-                        'Parcial · %sª recepción · recibido %s · '
+                        '%sª recepción · recibido %s · '
                         'pendiente %s' % (
                             t['seq'],
                             '{:,.1f}'.format(t['received']),
@@ -161,6 +167,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'status_label': status_labels.get(st, st),
                 'phase': phase,
                 'partial_info': partial_info,
+                'partial_pct': partial_pct,
                 'eta': som_format_date(eta, empty=''),
                 'etd': som_format_date(v.etd, empty=''),
                 'days_to_eta': days_to_eta,

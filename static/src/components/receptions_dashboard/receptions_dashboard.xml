@@ -71,8 +71,13 @@
                         <t t-if="card.po"><t t-esc="card.po"/> · </t>
                         <span class="o_rcp_folio" t-esc="card.name"/>
                     </div>
-                    <div t-if="card.partial_info" class="o_rcp_partial"
-                         t-esc="card.partial_info"/>
+                    <div t-if="card.partial_info" class="o_rcp_partial">
+                        <div class="o_rcp_partial_txt" t-esc="card.partial_info"/>
+                        <div class="o_rcp_partial_bar">
+                            <div t-attf-style="width: {{ card.partial_pct }}%;"/>
+                            <span t-esc="card.partial_pct + '%'"/>
+                        </div>
+                    </div>
                     <!-- Contenedor SIEMPRE visible, aun con la tarjeta
                          compactada. -->
                 </div>

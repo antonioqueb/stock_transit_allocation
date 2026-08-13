@@ -3522,6 +3522,18 @@ class StockTransitVoyage(models.Model):
             'RECEPCIÓN hasta recibir todo o cerrar el pendiente.') % (
                 t['done_count'], picking.name, t['received'],
                 t['pending'], new_active.name))
+        # El almacenista NO entra al embarque: el aviso de continuidad
+        # vive en las PROPIAS recepciones (la validada apunta a la
+        # siguiente, y la nueva explica qué es).
+        picking.message_post(body=Markup(
+            '✅ Recepción parcial validada. <b>Continúa con la siguiente '
+            'recepción %s</b> (pendiente %.2f) desde el tablero de '
+            'Recepciones.') % (new_active.name, t['pending']))
+        new_active.message_post(body=Markup(
+            '📦 Recepción <b>%sª parcialidad</b> del embarque: contiene '
+            'exactamente el material pendiente (%.2f) tras validar %s. '
+            'Procese su PL físico y Worksheet como siempre.') % (
+                t['seq'], t['pending'], picking.name))
 
     def action_force_close_pending_reception(self):
         """Cierre CONSCIENTE del pendiente: cancela la recepción abierta y
