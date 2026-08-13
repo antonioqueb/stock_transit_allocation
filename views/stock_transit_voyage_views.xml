@@ -488,7 +488,7 @@
     </record>
 
     <record id="action_transit_fleet_map_client" model="ir.actions.client">
-        <field name="name">Embarques</field>
+        <field name="name">Embarques en Vivo</field>
         <field name="tag">action_transit_fleet_map</field>
     </record>
 
@@ -501,33 +501,28 @@
               sequence="10"
               groups="purchase.group_purchase_user"/>
 
-    <!-- Orden pedido: 1) Embarques (mapa, la vista principal),
-         2) Viajes y Contenedores, 3) Cronograma. -->
-    <menuitem id="menu_transit_fleet_map"
-              name="Embarques"
-              parent="menu_transit_root"
-              action="action_transit_fleet_map_client"
-              sequence="1"
-              groups="purchase.group_purchase_user"/>
-
+    <!-- Orden pedido (2026-08-13): 1) Viajes y Contenedores,
+         2) Cronograma, 3) Embarques en Vivo, 4) Seguimiento de Ligas,
+         5) Portal Proveedor. Lista de Viajes y Líneas en tránsito
+         se retiraron del menú (las acciones siguen existiendo). -->
     <menuitem id="menu_transit_voyage_dashboard"
               name="Viajes y Contenedores"
               parent="menu_transit_root"
               action="action_transit_kanban_custom_client"
-              sequence="2"
+              sequence="1"
               groups="purchase.group_purchase_user"/>
 
     <menuitem id="menu_transit_sheet"
               name="Cronograma"
               parent="menu_transit_root"
               action="action_transit_sheet_custom_client"
-              sequence="3"
+              sequence="2"
               groups="purchase.group_purchase_user"/>
 
-    <menuitem id="menu_transit_voyage_list"
-              name="Lista de Viajes"
+    <menuitem id="menu_transit_fleet_map"
+              name="Embarques en Vivo"
               parent="menu_transit_root"
-              action="action_stock_transit_voyage_main"
-              sequence="4"
+              action="action_transit_fleet_map_client"
+              sequence="3"
               groups="purchase.group_purchase_user"/>
 </odoo>

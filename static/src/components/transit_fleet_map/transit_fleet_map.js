@@ -175,6 +175,38 @@ export class TransitFleetMap extends Component {
 
     // ─── Dibujo ──────────────────────────────────────────────────────────
 
+    // ── Antimeridiano ────────────────────────────────────────────────────
+    // Una ruta Japón→México cruza los ±180°. En un mundo único (noWrap),
+    // Leaflet dibujaría el tramo "de regreso" atravesando todo el mapa, o
+    // se cortaría al salir del borde. Partimos cada línea EXACTAMENTE en el
+    // cruce: el tramo sale por el borde derecho y el siguiente entra por el
+    // izquierdo hasta su destino — la ruta completa, sin repetir el mundo.
+    _splitAntimeridian(line) {
+        if (!line || line.length < 2) return line && line.length ? [line] : [];
+        const segments = [];
+        let current = [line[0]];
+        for (let i = 1; i < line.length; i++) {
+            const [lat1, lng1] = line[i - 1];
+            const [lat2, lng2] = line[i];
+            const delta = lng2 - lng1;
+            if (Math.abs(delta) > 180) {
+                // Cruce: interpolar la latitud en el borde ±180
+                const sign = delta > 0 ? -1 : 1; // lado por el que SALE
+                const lngA = lng1;
+                const lngB = lng2 + (delta > 0 ? -360 : 360); // desenrollado
+                const t = (sign * 180 - lngA) / (lngB - lngA);
+                const latX = lat1 + (lat2 - lat1) * (isFinite(t) ? t : 0.5);
+                current.push([latX, sign * 180]);
+                segments.push(current);
+                current = [[latX, -sign * 180], [lat2, lng2]];
+            } else {
+                current.push([lat2, lng2]);
+            }
+        }
+        if (current.length > 1) segments.push(current);
+        return segments;
+    }
+
     hasRoute(v) {
         const r = v.route || {};
         return Boolean(
@@ -205,17 +237,21 @@ export class TransitFleetMap extends Component {
             const past = [...(r.past || []), ...(r.current_past ? [r.current_past] : [])];
             const future = [...(r.current_future ? [r.current_future] : []), ...(r.future || [])];
             for (const line of past) {
-                if (line && line.length > 1) {
-                    layers.push(L.polyline(line, {
-                        color, weight: 3, opacity: 0.85,
-                    }));
+                for (const seg of this._splitAntimeridian(line)) {
+                    if (seg.length > 1) {
+                        layers.push(L.polyline(seg, {
+                            color, weight: 3, opacity: 0.85,
+                        }));
+                    }
                 }
             }
             for (const line of future) {
-                if (line && line.length > 1) {
-                    layers.push(L.polyline(line, {
-                        color, weight: 2.5, opacity: 0.5, dashArray: "6 7",
-                    }));
+                for (const seg of this._splitAntimeridian(line)) {
+                    if (seg.length > 1) {
+                        layers.push(L.polyline(seg, {
+                            color, weight: 2.5, opacity: 0.5, dashArray: "6 7",
+                        }));
+                    }
                 }
             }
 

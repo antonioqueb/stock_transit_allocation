@@ -253,7 +253,7 @@
 
     <!-- MENÚS -->
     <menuitem id="menu_transit_portal_data" name="Portal Proveedor"
-              parent="menu_transit_root" sequence="20"
+              parent="menu_transit_root" sequence="5"
               groups="purchase.group_purchase_user"/>
 
     <menuitem id="menu_supplier_proformas"

@@ -11,7 +11,7 @@
             <div class="tfm__header">
                 <div class="tfm__title">
                     <i class="fa fa-globe"/>
-                    <span>Embarques</span>
+                    <span>Embarques en Vivo</span>
                     <button class="tfm__refresh" t-on-click="refresh" title="Actualizar">
                         <i t-attf-class="fa fa-refresh {{ state.loading ? 'fa-spin' : '' }}"/>
                     </button>

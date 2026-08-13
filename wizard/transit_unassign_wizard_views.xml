@@ -95,9 +95,6 @@
         <field name="domain">[('partner_id', '!=', False)]</field>
     </record>
 
-    <menuitem id="menu_transit_line_list"
-              name="Líneas en tránsito"
-              parent="menu_transit_root"
-              action="action_stock_transit_line_list"
-              sequence="4"/>
+    <!-- Menú "Líneas en tránsito" retirado del menú raíz (2026-08-13);
+         la acción se conserva para accesos directos. -->
 </odoo>
