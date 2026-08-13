@@ -104,6 +104,26 @@ class SupplierShipment(models.Model):
     )
 
     # --- Vínculo con Torre de Control ---
+    # Sub-estado de etiquetado del viaje, visible y accionable desde el
+    # embarque: 'printing' lo pone sola la primera impresión de etiquetas;
+    # 'labeled' es el check manual de este formulario.
+    tc_labeling_status = fields.Selection(
+        related='voyage_id.tc_labeling_status', string='Etiquetado',
+        readonly=True)
+    tc_label_print_count = fields.Integer(
+        related='voyage_id.tc_label_print_count', readonly=True)
+
+    def action_mark_labeled(self):
+        self.ensure_one()
+        if not self.voyage_id:
+            raise UserError(_(
+                'Este embarque no tiene viaje en Torre de Control.'))
+        return self.voyage_id.action_mark_labeled()
+
+    def action_unmark_labeled(self):
+        self.ensure_one()
+        return self.voyage_id.action_unmark_labeled()
+
     voyage_id = fields.Many2one(
         'stock.transit.voyage', string='Viaje Torre de Control',
         ondelete='set null', index=True, tracking=True,

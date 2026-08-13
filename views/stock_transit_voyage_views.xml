@@ -135,11 +135,26 @@
                             class="btn-primary"
                             invisible="reception_picking_id == False or custom_status == 'delivered'"/>
 
+                    <!-- Flujo post-entrega: imprimir (pone solo "En
+                         Impresión") y el CHECK manual de etiquetado. -->
                     <button name="action_print_reception_labels"
                             string="Etiquetas" icon="fa-tags"
                             type="object"
                             class="btn-secondary"
-                            invisible="1"/>
+                            invisible="custom_status != 'delivered'"/>
+                    <button name="action_mark_labeled" type="object"
+                            string="✔ Marcar Etiquetado"
+                            class="btn-success"
+                            invisible="custom_status != 'delivered' or tc_labeling_status != 'printing'"/>
+                    <button name="action_unmark_labeled" type="object"
+                            string="Desmarcar etiquetado"
+                            invisible="tc_labeling_status != 'labeled'"/>
+                    <field name="tc_labeling_status" widget="badge"
+                           decoration-warning="tc_labeling_status == 'printing'"
+                           decoration-success="tc_labeling_status == 'labeled'"
+                           decoration-danger="tc_labeling_status == 'none'"
+                           invisible="custom_status != 'delivered'"/>
+                    <field name="tc_label_print_count" invisible="1"/>
 
                     <button name="action_arrive"
                             string="Cerrar viaje" icon="fa-flag-checkered"

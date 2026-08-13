@@ -63,6 +63,28 @@ class StockTransitVoyage(models.Model):
         tracking=True,
     )
 
+    # ── SUB-ESTADO DE ETIQUETADO (vive DENTRO de Entregado) ──
+    # 'delivered' sigue siendo el estado logístico terminal: hay 73
+    # referencias en el sistema que lo tratan así (syncs, hubs, analytics).
+    # El avance del etiquetado se registra aparte y solo matiza cómo se ve
+    # un viaje entregado: Entregado (naranja) → En Impresión (amarillo,
+    # AUTOMÁTICO al generarse la primera impresión de etiquetas) →
+    # Etiquetado (verde, check MANUAL desde el embarque/viaje).
+    tc_labeling_status = fields_module.Selection([
+        ('none', 'Entregado'),
+        ('printing', 'En Impresión'),
+        ('labeled', 'Etiquetado'),
+    ], string='Etiquetado', default='none', tracking=True, copy=False)
+    tc_label_print_count = fields_module.Integer(
+        string='Impresiones de etiquetas', copy=False)
+    tc_label_first_print_at = fields_module.Datetime(
+        string='Primera impresión', copy=False)
+    tc_label_last_print_at = fields_module.Datetime(
+        string='Última impresión', copy=False)
+    tc_labeled_at = fields_module.Datetime(string='Etiquetado el', copy=False)
+    tc_labeled_by = fields_module.Many2one(
+        'res.users', string='Etiquetado por', copy=False)
+
     shipping_line = fields_module.Char(
         string='Naviera',
         tracking=True,
@@ -1628,6 +1650,8 @@ class StockTransitVoyage(models.Model):
                 'etd': v.etd.isoformat() if v.etd else False,
                 'allocation_percent': v.allocation_percent or 0.0,
                 'total_m2': v.total_m2 or 0.0,
+                'labeling_status': v.tc_labeling_status or 'none',
+                'label_print_count': v.tc_label_print_count or 0,
                 'tc_publication_pending': bool(v.tc_publication_pending),
                 'reception_pending_at': (
                     v.tc_reception_pending_at.isoformat()
@@ -3043,6 +3067,57 @@ class StockTransitVoyage(models.Model):
                 'default_picking_id': self.reception_picking_id.id if self.reception_picking_id else False,
             }
         }
+
+    def tc_register_label_print(self, label_format, label_count):
+        """Bitácora de impresión de etiquetas del embarque.
+
+        La llama el wizard de impresión con cada generación. NADIE pone
+        'En Impresión' a mano: la primera impresión lo estampa sola. Un
+        viaje ya Etiquetado no se degrada por reimprimir."""
+        now = fields_module.Datetime.now()
+        for rec in self:
+            vals = {
+                'tc_label_print_count': (rec.tc_label_print_count or 0) + 1,
+                'tc_label_last_print_at': now,
+            }
+            if not rec.tc_label_first_print_at:
+                vals['tc_label_first_print_at'] = now
+            if rec.tc_labeling_status == 'none':
+                vals['tc_labeling_status'] = 'printing'
+            rec.write(vals)
+            rec.message_post(body=Markup(
+                '🏷️ <b>Impresión de etiquetas</b> #%s: %s etiqueta(s) '
+                'formato <b>%s</b>.') % (
+                    vals['tc_label_print_count'], label_count, label_format))
+
+    def action_mark_labeled(self):
+        """Check MANUAL de etiquetado terminado (verde). Exige que exista
+        al menos una impresión: sin impresión no hay nada que pegar."""
+        for rec in self:
+            if not rec.tc_label_print_count:
+                raise UserError(_(
+                    'El embarque %s no tiene ninguna impresión de '
+                    'etiquetas registrada. Imprime las etiquetas primero: '
+                    'el paso En Impresión se marca solo.') % rec.name)
+            rec.write({
+                'tc_labeling_status': 'labeled',
+                'tc_labeled_at': fields_module.Datetime.now(),
+                'tc_labeled_by': self.env.user.id,
+            })
+            rec.message_post(body=Markup(
+                '✅ <b>Etiquetado terminado</b>, confirmado por %s.')
+                % self.env.user.name)
+
+    def action_unmark_labeled(self):
+        """Deshacer el check (vuelve a En Impresión, no borra la bitácora)."""
+        for rec in self.filtered(lambda r: r.tc_labeling_status == 'labeled'):
+            rec.write({
+                'tc_labeling_status': 'printing',
+                'tc_labeled_at': False,
+                'tc_labeled_by': False,
+            })
+            rec.message_post(body=Markup(
+                '↩️ Etiquetado desmarcado por %s.') % self.env.user.name)
 
     def _auto_finalize_after_reception(self):
         for rec in self:

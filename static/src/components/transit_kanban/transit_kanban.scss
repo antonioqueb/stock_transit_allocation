@@ -938,6 +938,35 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     color: #059669;
     text-transform: uppercase;
 
+    /* Sub-estado de etiquetado: naranja → amarillo → verde. El color es la
+       lectura de un vistazo de qué entregas ya están fluyendo a etiquetas. */
+    .tk-labeling {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        padding: 2px 8px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        font-size: 10px;
+        line-height: 1.4;
+        white-space: nowrap;
+    }
+    .tk-labeling--none {
+        color: #c2410c;
+        background: #fff7ed;
+        border-color: #fed7aa;
+    }
+    .tk-labeling--printing {
+        color: #a16207;
+        background: #fefce8;
+        border-color: #fde047;
+    }
+    .tk-labeling--labeled {
+        color: #15803d;
+        background: #f0fdf4;
+        border-color: #86efac;
+    }
+
     .tk-card__received-cont {
         font-weight: 600;
         color: #047857;

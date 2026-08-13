@@ -488,6 +488,36 @@ export class TransitKanbanView extends Component {
         return somFormatDate(val);
     }
 
+    // Sub-estado de etiquetado de un viaje ENTREGADO. La transición a
+    // 'printing' la hace sola la primera impresión; 'labeled' es el check
+    // manual desde el embarque/viaje.
+    _labelingMeta(card) {
+        const st = card.labeling_status || "none";
+        if (st === "labeled") {
+            return {
+                label: "ETIQUETADO",
+                icon: "fa-check-circle",
+                cls: "tk-labeling--labeled",
+                title: "Etiquetado terminado (confirmado manualmente)",
+            };
+        }
+        if (st === "printing") {
+            const n = card.label_print_count || 0;
+            return {
+                label: "EN IMPRESIÓN",
+                icon: "fa-print",
+                cls: "tk-labeling--printing",
+                title: n + " impresión(es) de etiquetas generadas — falta el check manual de Etiquetado",
+            };
+        }
+        return {
+            label: "ENTREGADO",
+            icon: "fa-truck",
+            cls: "tk-labeling--none",
+            title: "Recibido — aún no se imprimen etiquetas",
+        };
+    }
+
     _fmtNum(val) {
         if (!val && val !== 0) return "0";
         return Number(val).toLocaleString("es-MX", {
@@ -540,6 +570,7 @@ export class TransitKanbanView extends Component {
     // Wrappers para template (sin lógica en OWL)
     strOf(val)              { return this._str(val); }
     fmtDate(val)            { return this._fmtDate(val); }
+    labelingMeta(card)      { return this._labelingMeta(card); }
     fmtNum(val)             { return this._fmtNum(val); }
     etaClass(r)             { return this._etaClass(r.eta, r.custom_status); }
     etaLabel(r)             {

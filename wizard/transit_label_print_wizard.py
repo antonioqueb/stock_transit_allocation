@@ -76,6 +76,21 @@ class TransitLabelPrintWizard(models.TransientModel):
             'mimetype': 'text/plain',
         })
 
+        # Bitácora del EMBARQUE: cada impresión queda registrada en el viaje
+        # y la primera lo pasa sola a 'En Impresión'. Si el wizard se abrió
+        # desde la recepción, el viaje se resuelve por su picking.
+        voyage = self.voyage_id
+        if not voyage and self.picking_id:
+            voyage = self.env['stock.transit.voyage'].search([
+                ('reception_picking_id', '=', self.picking_id.id),
+            ], limit=1)
+        if voyage:
+            voyage.sudo().tc_register_label_print(
+                dict(self._fields['label_format'].selection).get(
+                    self.label_format, self.label_format),
+                len(quant_ids),
+            )
+
         return {
             'type': 'ir.actions.act_url',
             'url': f'/web/content/{attachment.id}?download=true',

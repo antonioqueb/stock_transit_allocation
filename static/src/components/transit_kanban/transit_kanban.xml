@@ -123,9 +123,15 @@
                                 </span>
                             </div>
 
-                            <!-- Recibida: sello compacto en lugar de fechas/alertas -->
+                            <!-- Recibida: sello del sub-estado de etiquetado.
+                                 Naranja = entregado sin imprimir, amarillo =
+                                 en impresión (auto), verde = etiquetado. -->
                             <div t-if="isReceived(card)" class="tk-card__received-line">
-                                <i class="fa fa-check-circle"/> RECIBIDA
+                                <span t-attf-class="tk-labeling {{ labelingMeta(card).cls }}"
+                                      t-att-title="labelingMeta(card).title">
+                                    <i t-attf-class="fa {{ labelingMeta(card).icon }}"/>
+                                    <t t-esc="labelingMeta(card).label"/>
+                                </span>
                                 <span t-if="hasContainer(card.container_number)"
                                       class="tk-card__received-cont"
                                       t-esc="card.container_number"/>
