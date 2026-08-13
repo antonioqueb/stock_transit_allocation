@@ -820,9 +820,22 @@ class StockPicking(models.Model):
                 # placa real mide más de lo vendido, el ratchet sube el
                 # Solicitado — sin este paso la línea quedaba con
                 # Solicitado < Asignado sin que nadie tocara la venta.
-                lots = pick.move_line_ids.mapped('lot_id')
-                if lots:
-                    lots.sudo()._tc_ratchet_open_sale_lines()
+                #
+                # SOLO EN RECEPCIONES (viaje ligado o origen tránsito). En el
+                # PICK de una ENTREGA (Existencias→Salida) los quants están en
+                # pleno movimiento y el conteo interno (que ignora negativos)
+                # puede ver el lote DOBLE: el ratchet inflaba el Solicitado en
+                # caliente (caso V/150: 13.46→26.92, la orden subió $80,050.93
+                # y el candado de pago bloqueó la entrega).
+                is_reception = bool(
+                    pick.tc_reception_voyage_id
+                    or pick._get_linked_reception_voyage()
+                    or (pick.location_id and pick.location_id._som_is_transit())
+                )
+                if is_reception:
+                    lots = pick.move_line_ids.mapped('lot_id')
+                    if lots:
+                        lots.sudo()._tc_ratchet_open_sale_lines()
 
         _logger.info(
             "=== [TC_DEBUG] VALIDATION FINISHED - Picking IDs: %s ===",
