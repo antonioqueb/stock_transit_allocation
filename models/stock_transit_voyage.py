@@ -1597,7 +1597,6 @@ class StockTransitVoyage(models.Model):
     }
 
     @api.model
-    @api.model
     def tv_get_fleet_map_data(self):
         """Mapa global de Embarques (vista principal de Torre de Control).
 
@@ -1681,6 +1680,7 @@ class StockTransitVoyage(models.Model):
             })
         return {'voyages': out}
 
+    @api.model
     def tk_get_kanban_records(self):
         """Tarjetas del kanban Viajes y Contenedores en UNA llamada.
 
