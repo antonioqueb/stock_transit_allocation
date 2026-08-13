@@ -11,6 +11,19 @@
             <i class="fa fa-ship tk-toolbar__icon"/>
             <span class="tk-toolbar__title">Viajes y Contenedores</span>
             <span class="tk-badge-count" t-esc="totalVoyages"/>
+            <!-- Menú interno: tablero Marítimo / Plataformas Nacionales -->
+            <div class="tk-mode-tabs">
+                <button t-attf-class="tk-mode-tab #{state.boardMode === 'maritime' ? 'tk-mode-tab--on' : ''}"
+                        t-on-click="() => this.setBoardMode('maritime')">
+                    <i class="fa fa-ship"/> Marítimo
+                    <b t-esc="maritimeCount"/>
+                </button>
+                <button t-attf-class="tk-mode-tab #{state.boardMode === 'national' ? 'tk-mode-tab--on' : ''}"
+                        t-on-click="() => this.setBoardMode('national')">
+                    <i class="fa fa-truck"/> Plataformas Nacionales
+                    <b t-esc="nationalCount"/>
+                </button>
+            </div>
         </div>
 
         <div class="tk-search-wrap">
@@ -51,7 +64,7 @@
          BOARD
     ══════════════════════════════════════════════════════ -->
     <div class="tk-board" t-elif="!state.loading">
-        <t t-foreach="STAGES" t-as="stage" t-key="stage.key">
+        <t t-foreach="activeStages" t-as="stage" t-key="stage.key">
             <t t-set="cards"    t-value="colCards(stage.key)"/>
             <t t-set="total"    t-value="colTotal(stage.key)"/>
             <t t-set="collapsed" t-value="isCollapsed(stage.key)"/>

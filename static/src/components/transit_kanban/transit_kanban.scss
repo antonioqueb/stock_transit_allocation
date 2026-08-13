@@ -125,6 +125,47 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     box-shadow:    0 1px 0 rgba(255, 255, 255, .18) inset, 0 3px 8px -3px rgba(15, 23, 42, .5);
 }
 
+// ─── Menú interno Marítimo / Nacionales ─────────────────────────────────────
+.tk-mode-tabs {
+    display: inline-flex;
+    gap: 4px;
+    margin-left: 10px;
+    padding: 3px;
+    background: #eef2f7;
+    border-radius: $tk-radius-pill;
+    border: 1px solid $tk-border;
+}
+.tk-mode-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    background: transparent;
+    border-radius: $tk-radius-pill;
+    padding: 6px 14px;
+    font-size: 11.5px;
+    font-weight: 700;
+    color: $tk-text-secondary;
+    cursor: pointer;
+    transition: all .15s $tk-ease;
+
+    b {
+        font-size: 10px;
+        background: rgba(15, 23, 42, .08);
+        border-radius: $tk-radius-pill;
+        padding: 1px 7px;
+    }
+
+    &:hover { color: $tk-ink; }
+
+    &.tk-mode-tab--on {
+        background: #fff;
+        color: $tk-brand;
+        box-shadow: 0 1px 3px rgba(15, 23, 42, .15);
+        b { background: rgba(21, 95, 148, .12); color: $tk-brand; }
+    }
+}
+
 // ─── Búsqueda ─────────────────────────────────────────────────────────────────
 .tk-search-wrap {
     position:    relative;

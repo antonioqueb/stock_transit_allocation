@@ -67,14 +67,54 @@ const STAGES = [
     },
 ];
 
-// Mapa rápido key → stage para lookups
-const STAGE_MAP = {};
-for (const s of STAGES) {
-    STAGE_MAP[s.key] = s;
-    if (s.extraKeys) {
-        for (const ek of s.extraKeys) STAGE_MAP[ek] = s;
+// PLATAFORMAS NACIONALES: mismas llaves de estatus, columnas en
+// lenguaje TERRESTRE (no hay booking naviero ni altamar ni aduana).
+const NATIONAL_STAGES = [
+    {
+        key: "solicitud", label: "Ordenado",
+        sublabel: "Solicitud · clic en el engrane = en producción",
+        icon: "fa-file-text-o", color: "#f59e0b", bg: "#fffbeb",
+        border: "#fde68a", extraKeys: ["production"],
+    },
+    {
+        key: "booking", label: "Carga en Origen",
+        sublabel: "Plataforma cargando en planta/banco",
+        icon: "fa-cubes", color: "#8b5cf6", bg: "#f5f3ff",
+        border: "#ddd6fe", extraKeys: ["puerto_origen"],
+    },
+    {
+        key: "on_sea", label: "En Ruta",
+        sublabel: "Plataforma en carretera",
+        icon: "fa-truck", color: "#3b82f6", bg: "#eff6ff",
+        border: "#bfdbfe",
+    },
+    {
+        key: "puerto_destino", label: "Arribo",
+        sublabel: "Llegó a destino",
+        icon: "fa-map-marker", color: "#ec4899", bg: "#fdf2f8",
+        border: "#fbcfe8", extraKeys: ["arrived_port"],
+    },
+    {
+        key: "delivered", label: "Entrega en Sitio",
+        sublabel: "Entregado (sin recibir) arriba · Recibido abajo",
+        icon: "fa-check-circle", color: "#22c55e", bg: "#f0fdf4",
+        border: "#bbf7d0", extraKeys: ["reception_pending"],
+    },
+];
+
+// Mapa rápido key → stage para lookups (uno por modo)
+const buildStageMap = (stages) => {
+    const map = {};
+    for (const s of stages) {
+        map[s.key] = s;
+        if (s.extraKeys) {
+            for (const ek of s.extraKeys) map[ek] = s;
+        }
     }
-}
+    return map;
+};
+const STAGE_MAP = buildStageMap(STAGES);
+const NATIONAL_STAGE_MAP = buildStageMap(NATIONAL_STAGES);
 
 export class TransitKanbanView extends Component {
     static template = "stock_transit_allocation.TransitKanbanView";
@@ -89,6 +129,7 @@ export class TransitKanbanView extends Component {
         this.state = useState({
             records:      [],
             loading:      true,
+            boardMode:    "maritime",  // maritime | national (menú interno)
             searchText:   "",
             pendingOnly:  false,  // filtro "Pendiente de publicar"
             columns:      {},   // { stageKey: [records] }
@@ -135,12 +176,19 @@ export class TransitKanbanView extends Component {
         const cols  = {};
         const tots  = {};
 
-        for (const s of STAGES) {
+        for (const s of (this.state.boardMode === "national" ? NATIONAL_STAGES : STAGES)) {
             cols[s.key]  = [];
             tots[s.key]  = { count: 0, m2: 0 };
         }
 
+        const national = this.state.boardMode === "national";
+        const stageMap = national ? NATIONAL_STAGE_MAP : STAGE_MAP;
+
         for (const r of records) {
+            // Menú interno: Marítimo y Plataformas Nacionales son tableros
+            // separados — cada viaje vive solo en el suyo.
+            if (!!r.is_national !== national) continue;
+
             // Filtro "Pendiente de publicar": PL procesado + Puerto Origen o
             // superior + X días + inventario sin publicar. Meta: verlo vacío.
             if (this.state.pendingOnly && !r.tc_publication_pending) continue;
@@ -162,7 +210,7 @@ export class TransitKanbanView extends Component {
                 if (!haystack.includes(q)) continue;
             }
 
-            const stage = STAGE_MAP[r.custom_status];
+            const stage = stageMap[r.custom_status];
             if (!stage) continue;
 
             cols[stage.key].push(r);
@@ -215,6 +263,24 @@ export class TransitKanbanView extends Component {
     }
 
     // ─── Handlers ─────────────────────────────────────────────────────────────
+
+    get activeStages() {
+        return this.state.boardMode === "national" ? NATIONAL_STAGES : STAGES;
+    }
+
+    get nationalCount() {
+        return this.state.records.filter((r) => r.is_national).length;
+    }
+
+    get maritimeCount() {
+        return this.state.records.filter((r) => !r.is_national).length;
+    }
+
+    setBoardMode(mode) {
+        if (this.state.boardMode === mode) return;
+        this.state.boardMode = mode;
+        this._buildColumns(this.state.records);
+    }
 
     get pendingCount() {
         return this.state.records.filter((r) => r.tc_publication_pending).length;

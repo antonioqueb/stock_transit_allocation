@@ -1713,6 +1713,7 @@ class StockTransitVoyage(models.Model):
         # Folios de invoice CAPTURADOS EN EL PORTAL (supplier.shipment.invoice),
         # resueltos en bloque vía el embarque ligado al viaje.
         portal_inv_by_voyage = {}
+        land_voyage_ids = set()
         for sh in self.env['supplier.shipment'].sudo().search([
             ('voyage_id', 'in', voyages.ids),
         ]):
@@ -1721,6 +1722,8 @@ class StockTransitVoyage(models.Model):
             if nums:
                 portal_inv_by_voyage.setdefault(
                     sh.voyage_id.id, []).extend(nums)
+            if sh.shipment_type == 'land':
+                land_voyage_ids.add(sh.voyage_id.id)
 
         out = []
         for v in voyages:
@@ -1740,6 +1743,12 @@ class StockTransitVoyage(models.Model):
                 'cargo_invoices': ', '.join(cargo_by_po.get(po.id, [])) if po else '',
                 'portal_invoices': ', '.join(
                     dict.fromkeys(portal_inv_by_voyage.get(v.id, []))),
+                # NACIONAL (plataformas terrestres): alcance de pago
+                # nacional en la OC o embarque tipo terrestre.
+                'is_national': bool(
+                    (po and 'purchase_payment_scope' in po._fields
+                     and po.purchase_payment_scope == 'national')
+                    or v.id in land_voyage_ids),
                 'container_number': v.container_number or '',
                 'bl_number': v.bl_number or '',
                 'vessel_name': v.vessel_name or '',
