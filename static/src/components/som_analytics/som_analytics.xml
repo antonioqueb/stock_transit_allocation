@@ -549,7 +549,7 @@
                                         <tr t-foreach="state.drill.orders" t-as="o" t-key="o.id"
                                             t-on-click="() => this.openOrder(o.id)">
                                             <td class="mono" t-esc="o.name"/>
-                                            <td class="muted" t-esc="o.date"/>
+                                            <td class="muted" t-esc="fmtDate(o.date)"/>
                                             <td class="ellipsis" t-esc="o.partner"/>
                                             <td class="r" t-esc="num(o.m2)"/>
                                             <td class="r strong" t-esc="money(o.venta)"/>

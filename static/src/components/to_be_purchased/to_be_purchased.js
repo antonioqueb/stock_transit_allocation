@@ -2,6 +2,7 @@
 import { registry } from "@web/core/registry";
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
+import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
 
 export class ToBePurchased extends Component {
     setup() {
@@ -948,6 +949,11 @@ export class ToBePurchased extends Component {
             views: [[false, "form"]],
             target: "current",
         });
+    }
+
+    // Formato único del sistema: "13 ago 2026".
+    fmtDate(value) {
+        return somFormatDate(value, { empty: "N/A" });
     }
 
     fmtNum(value) {

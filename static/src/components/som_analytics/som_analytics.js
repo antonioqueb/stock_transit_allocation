@@ -1,4 +1,5 @@
 /** @odoo-module **/
+import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
 // SOM Analytics v2 — BI por DOMINIOS con PROFUNDIZACIÓN real.
 //
 //  · Pestañas: Resumen · Comercial · Inventario · Compras · Tránsito ·
@@ -107,6 +108,12 @@ export class SomAnalytics extends Component {
             await this.loadTab(this.state.tab);
         });
         onWillUnmount(() => this.destroyCharts());
+    }
+
+    // Formato único del sistema: "13 ago 2026". Las fechas llegan en
+    // ISO a propósito (el orden de las listas se calcula con ellas).
+    fmtDate(value) {
+        return somFormatDate(value, { empty: "" });
     }
 
     defaultFilters() {

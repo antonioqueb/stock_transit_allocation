@@ -225,7 +225,7 @@
 
                                                 <div class="o_tba_cell_sub">
                                                     <i class="fa fa-calendar-o me-1"/>
-                                                    <t t-esc="line.commitment_date || 'N/A'"/>
+                                                    <t t-esc="fmtDate(line.commitment_date)"/>
                                                 </div>
                                             </td>
 

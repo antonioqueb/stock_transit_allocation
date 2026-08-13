@@ -3,6 +3,7 @@ import { registry } from "@web/core/registry";
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
 
 export class TransitAllocation extends Component {
     setup() {
@@ -1459,6 +1460,11 @@ export class TransitAllocation extends Component {
         if (num === null || num === undefined || isNaN(num)) return "0";
         const v = parseFloat(num);
         return v % 1 === 0 ? v.toFixed(0) : v.toFixed(1);
+    }
+
+    // Formato único del sistema: "13 ago 2026".
+    fmtDate(value) {
+        return somFormatDate(value, { empty: "N/A" });
     }
 
     fmtNum(value) {

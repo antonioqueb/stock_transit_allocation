@@ -6,6 +6,7 @@ import re
 import requests
 
 from markupsafe import Markup
+from odoo.addons.stock_transit_allocation.models.som_date_format import som_format_date
 
 from odoo import models, api, _
 from odoo import fields as fields_module
@@ -1457,7 +1458,7 @@ class StockTransitVoyage(models.Model):
         if self.custom_status in ('delivered', 'cancel'):
             return
 
-        eta_str = self.eta.strftime('%d/%m/%Y') if self.eta else '—'
+        eta_str = som_format_date(self.eta)
 
         body = Markup(
             "📅 <b>Cambio importante de ETA detectado</b><br/>"
@@ -1490,7 +1491,7 @@ class StockTransitVoyage(models.Model):
             days_to_eta = (rec.eta - today).days
 
             if days_to_eta == ETA_WARNING_DAYS_BEFORE and not rec.eta_warning_notified:
-                eta_str = rec.eta.strftime('%d/%m/%Y')
+                eta_str = som_format_date(rec.eta)
                 body = Markup(
                     "⚠️ <b>Embarque próximo a llegar</b><br/>"
                     "El embarque <b>%s</b> tiene ETA <b>mañana (%s)</b> y está en estado <b>%s</b>."
@@ -1514,7 +1515,7 @@ class StockTransitVoyage(models.Model):
             days_overdue = (today - rec.eta).days
 
             if days_overdue == ETA_OVERDUE_DAYS_AFTER and not rec.eta_overdue_notified:
-                eta_str = rec.eta.strftime('%d/%m/%Y')
+                eta_str = som_format_date(rec.eta)
                 body = Markup(
                     "🚨 <b>Embarque vencido</b><br/>"
                     "El embarque <b>%s</b> tenía ETA <b>%s</b> y aún no ha llegado. "

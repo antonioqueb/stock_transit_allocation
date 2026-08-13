@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 from odoo import models, api, fields
+from odoo.addons.stock_transit_allocation.models.som_date_format import som_format_date
 
 
 class SupplierAccessTracking(models.Model):
@@ -79,7 +80,7 @@ class SupplierAccessTracking(models.Model):
             if not dt:
                 return ''
             local = fields.Datetime.context_timestamp(self, dt)
-            return local.strftime('%d/%m/%Y %H:%M' if with_time else '%d/%m/%Y')
+            return som_format_date(local, empty='', with_time=with_time)
 
         rows = []
         # SOLO tres estados (pedido explícito): no atendida / en captura /

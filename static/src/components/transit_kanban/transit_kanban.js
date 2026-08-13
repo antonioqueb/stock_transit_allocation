@@ -2,6 +2,7 @@
 import { registry } from "@web/core/registry";
 import { Component, useState, onWillStart } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
+import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
 
 /**
  * Columnas en orden fijo y definitivo.
@@ -484,13 +485,7 @@ export class TransitKanbanView extends Component {
     }
 
     _fmtDate(val) {
-        if (!val) return "—";
-        const raw      = typeof val === "string" ? val : "";
-        if (!raw) return "—";
-        const datepart = raw.indexOf(" ") > -1 ? raw.split(" ")[0] : raw;
-        const parts    = datepart.split("-");
-        if (parts.length !== 3) return raw;
-        return parts[2] + "/" + parts[1] + "/" + parts[0];
+        return somFormatDate(val);
     }
 
     _fmtNum(val) {

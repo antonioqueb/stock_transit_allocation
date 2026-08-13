@@ -19,6 +19,10 @@ from datetime import timedelta
 
 from odoo import api, fields, models
 
+from odoo.addons.stock_transit_allocation.models.som_date_format import (
+    som_format_date,
+)
+
 _logger = logging.getLogger(__name__)
 
 # Fases del tablero
@@ -50,8 +54,9 @@ class StockTransitVoyageReceptionsDash(models.Model):
         def fmt_dt(ts):
             if not ts:
                 return ''
-            return fields.Datetime.context_timestamp(
-                self, ts).strftime('%d/%m %H:%M')
+            return som_format_date(
+                fields.Datetime.context_timestamp(self, ts),
+                empty='', with_time=True)
 
         def voyage_card(v):
             lines = v.line_ids
@@ -142,8 +147,8 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'status': st,
                 'status_label': status_labels.get(st, st),
                 'phase': phase,
-                'eta': eta.strftime('%d/%m/%Y') if eta else '',
-                'etd': v.etd.strftime('%d/%m/%Y') if v.etd else '',
+                'eta': som_format_date(eta, empty=''),
+                'etd': som_format_date(v.etd, empty=''),
                 'days_to_eta': days_to_eta,
                 'published': published,
                 'published_at': fmt_dt(pub_at),

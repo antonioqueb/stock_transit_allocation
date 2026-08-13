@@ -242,7 +242,7 @@
 
                                                 <div class="o_tba_cell_sub">
                                                     <i class="fa fa-calendar-o me-1"/>
-                                                    <t t-esc="line.commitment_date || 'N/A'"/>
+                                                    <t t-esc="fmtDate(line.commitment_date)"/>
                                                 </div>
                                             </td>
 
@@ -295,10 +295,10 @@
 
                                             <td>
                                                 <div class="o_tba_cell_main">
-                                                    ETA: <t t-esc="line.transit_eta || 'N/A'"/>
+                                                    ETA: <t t-esc="fmtDate(line.transit_eta)"/>
                                                 </div>
                                                 <div class="o_tba_cell_sub">
-                                                    ETD: <t t-esc="line.transit_etd || 'N/A'"/>
+                                                    ETD: <t t-esc="fmtDate(line.transit_etd)"/>
                                                 </div>
                                             </td>
 

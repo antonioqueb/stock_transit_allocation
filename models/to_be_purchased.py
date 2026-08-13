@@ -4,6 +4,7 @@ import json
 import logging
 
 from odoo import models, fields, api
+from odoo.addons.stock_transit_allocation.models.som_date_format import som_format_date
 
 _logger = logging.getLogger(__name__)
 
@@ -662,7 +663,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
             eta_date = voyage.eta if voyage else False
             eta_key = eta_date.strftime('%Y-%m-%d') if eta_date else 'sin_eta'
-            eta_label = eta_date.strftime('%d/%m/%Y') if eta_date else 'Sin ETA'
+            eta_label = som_format_date(eta_date, empty='Sin ETA')
             sort_key = eta_key if eta_date else '9999-12-31'
 
             shipment_key = 'voyage_%s' % voyage.id if voyage else 'line_%s' % line.id

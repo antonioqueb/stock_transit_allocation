@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.73.2.0',
+    'version': '19.0.74.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -102,6 +102,9 @@
         # Bundle principal: SOLO lo que necesitan las vistas estándar
         # (widgets de campo/form del viaje) + los cargadores perezosos.
         'web.assets_backend': [
+            # Formato de fecha único ("13 ago 2026"). Va PRIMERO: lo
+            # importan los componentes de abajo.
+            'stock_transit_allocation/static/src/utils/som_date.js',
             'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.scss',
             'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.xml',
             'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.js',

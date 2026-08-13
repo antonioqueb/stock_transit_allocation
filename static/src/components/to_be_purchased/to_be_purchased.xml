@@ -306,8 +306,8 @@
                                                         <t t-esc="so.client_ref || '—'"/>
                                                     </div>
                                                 </td>
-                                                <td><t t-esc="so.date"/></td>
-                                                <td><t t-esc="so.commitment_date"/></td>
+                                                <td><t t-esc="fmtDate(so.date)"/></td>
+                                                <td><t t-esc="fmtDate(so.commitment_date)"/></td>
                                                 <td>
                                                     <div class="o_tbp_cell_main" t-att-title="so.customer">
                                                         <t t-esc="so.customer"/>
@@ -392,7 +392,7 @@
                                             <span class="o_tbp_dot">•</span>
                                             <span><t t-esc="so.location || 'Sin ubicación'"/></span>
                                             <span class="o_tbp_dot">•</span>
-                                            <span>Req. <t t-esc="so.commitment_date"/></span>
+                                            <span>Req. <t t-esc="fmtDate(so.commitment_date)"/></span>
                                         </div>
                                     </div>
                                 </div>
@@ -562,7 +562,7 @@
                                                         <t t-esc="prod.customer"/>
                                                     </div>
                                                 </td>
-                                                <td><t t-esc="prod.date"/></td>
+                                                <td><t t-esc="fmtDate(prod.date)"/></td>
                                                 <td t-attf-class="text-end o_tbp_available_qty #{(prod.qty_a || 0) > 0 ? 'is-positive' : ''}" t-att-title="fmtAvailableStockTitle(prod)">
                                                     <t t-esc="fmtAvailableStock(prod)"/>
                                                 </td>
@@ -748,7 +748,7 @@
                                                 <div class="o_tbp_po_info">
                                                     <div class="fw-semibold"><t t-esc="po.name"/></div>
                                                     <div class="d-flex gap-3 text-muted" style="font-size: 11px;">
-                                                        <span><i class="fa fa-calendar me-1"/><t t-esc="po.date"/></span>
+                                                        <span><i class="fa fa-calendar me-1"/><t t-esc="fmtDate(po.date)"/></span>
                                                         <span><i class="fa fa-list me-1"/><t t-esc="po.lines_count"/> líneas</span>
                                                         <span t-if="po.state_label"><i class="fa fa-tag me-1"/><t t-esc="po.state_label"/></span>
                                                         <span t-if="po.origin"><i class="fa fa-link me-1"/><t t-esc="po.origin"/></span>
