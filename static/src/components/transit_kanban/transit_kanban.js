@@ -169,27 +169,44 @@ export class TransitKanbanView extends Component {
             tots[stage.key].m2 += r.total_m2 || 0;
         }
 
-        // ORDEN DE COLA por columna: lo más antiguo ARRIBA (lo que sigue),
-        // lo reciente ABAJO — pero una tarjeta nueva del MISMO proveedor
-        // sube a acomodarse junto a sus hermanas (los grupos se ordenan por
-        // su tarjeta más antigua y dentro del grupo por antigüedad).
+        // ORDEN POR COLUMNA (pedido explícito, cada etapa con su regla):
+        // - Ordenado y Booking: los más NUEVOS arriba (fecha de creación
+        //   descendente), los viejos se hunden.
+        // - Salida a Mar: ETA ascendente — lo más próximo a llegar arriba.
+        // - Puerto Destino: ETA ascendente — lo más VENCIDO arriba.
+        // - Entrega en Sitio: pendientes de recibir arriba y recibidos
+        //   abajo (como siempre); dentro de cada bloque, lo recién movido
+        //   arriba y lo primero que se movió se va hundiendo (fecha de
+        //   entrada a la etapa, descendente).
+        const ts = (iso) => (iso ? Date.parse(iso) : null);
+        const byNewest = (a, b) =>
+            ((ts(b.create_date) ?? b.id) - (ts(a.create_date) ?? a.id))
+            || (b.id - a.id);
+        const byEtaAsc = (a, b) => {
+            const ea = ts(a.eta);
+            const eb = ts(b.eta);
+            if (ea === null && eb === null) return byNewest(a, b);
+            if (ea === null) return 1;   // sin ETA: al fondo
+            if (eb === null) return -1;
+            return ea - eb || (b.id - a.id);
+        };
+        const enteredAt = (r) =>
+            ts(r.reception_pending_at) ?? ts(r.eta) ?? r.id;
+        const closedRank = (r) => (r.custom_status === "delivered" ? 1 : 0);
+
         for (const key of Object.keys(cols)) {
             const arr = cols[key];
-            const groupMin = {};
-            for (const r of arr) {
-                const g = (Array.isArray(r.tc_supplier_id) && r.tc_supplier_id[0])
-                    || (Array.isArray(r.purchase_id) && r.purchase_id[0])
-                    || `solo-${r.id}`;
-                r.__grp = g;
-                if (!(g in groupMin) || r.id < groupMin[g]) {
-                    groupMin[g] = r.id;
-                }
+            if (key === "solicitud" || key === "booking") {
+                arr.sort(byNewest);
+            } else if (key === "on_sea" || key === "puerto_destino") {
+                arr.sort(byEtaAsc);
+            } else if (key === "delivered") {
+                arr.sort((a, b) =>
+                    (closedRank(a) - closedRank(b))
+                    || (enteredAt(b) - enteredAt(a)));
+            } else {
+                arr.sort(byNewest);
             }
-            const closedRank = (r) => (r.custom_status === "delivered" ? 1 : 0);
-            arr.sort((a, b) =>
-                (closedRank(a) - closedRank(b))
-                || (groupMin[a.__grp] - groupMin[b.__grp])
-                || (a.id - b.id));
         }
 
         this.state.columns = cols;

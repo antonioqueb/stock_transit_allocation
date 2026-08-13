@@ -1732,6 +1732,8 @@ class StockTransitVoyage(models.Model):
                 'shipping_line': v.shipping_line or '',
                 'eta': v.eta.isoformat() if v.eta else False,
                 'etd': v.etd.isoformat() if v.etd else False,
+                'create_date': (
+                    v.create_date.isoformat() if v.create_date else False),
                 'allocation_percent': v.allocation_percent or 0.0,
                 'total_m2': v.total_m2 or 0.0,
                 'labeling_status': v.tc_labeling_status or 'none',
