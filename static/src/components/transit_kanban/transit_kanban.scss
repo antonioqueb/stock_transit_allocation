@@ -968,6 +968,53 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     .tk-card__supplier-name,
     .tk-card__received-cont { color: #111111 !important; }
 }
+.tk-card__quick {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 3px;
+    font-size: 10.5px;
+    min-width: 0;
+
+    .tk-card__po-link {
+        font-weight: 800;
+        color: #155f94;
+        text-decoration: none;
+        white-space: nowrap;
+        i { margin-right: 4px; }
+        &:hover { text-decoration: underline; color: #0e4a75; }
+    }
+    .tk-card__portal-inv {
+        color: #64748b;
+        font-weight: 600;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        min-width: 0;
+        i { margin-right: 4px; color: #94a3b8; }
+    }
+}
+
+/* Contraste del quick-info sobre tarjetas recibidas coloreadas */
+.tk-card--lab-none .tk-card__quick,
+.tk-card--lab-printing .tk-card__quick {
+    .tk-card__po-link,
+    .tk-card__portal-inv,
+    .tk-card__portal-inv i { color: #111111; }
+    .tk-card__po-link { text-decoration: underline; }
+}
+.tk-card--lab-printing .tk-card__quick {
+    .tk-card__po-link { color: #ffffff; }
+    .tk-card__portal-inv,
+    .tk-card__portal-inv i { color: #ffffff; }
+}
+.tk-card--lab-labeled .tk-card__quick {
+    .tk-card__po-link,
+    .tk-card__portal-inv,
+    .tk-card__portal-inv i { color: #111111; }
+    .tk-card__po-link { text-decoration: underline; }
+}
+
 .tk-card__partial {
     margin-top: 4px;
     font-size: 10px;

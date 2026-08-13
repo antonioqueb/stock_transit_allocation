@@ -1710,6 +1710,18 @@ class StockTransitVoyage(models.Model):
         status_labels = dict(
             self._fields['custom_status']._description_selection(self.env))
 
+        # Folios de invoice CAPTURADOS EN EL PORTAL (supplier.shipment.invoice),
+        # resueltos en bloque vía el embarque ligado al viaje.
+        portal_inv_by_voyage = {}
+        for sh in self.env['supplier.shipment'].sudo().search([
+            ('voyage_id', 'in', voyages.ids),
+        ]):
+            nums = [i.invoice_number for i in sh.invoice_ids
+                    if i.invoice_number]
+            if nums:
+                portal_inv_by_voyage.setdefault(
+                    sh.voyage_id.id, []).extend(nums)
+
         out = []
         for v in voyages:
             po = v.purchase_id
@@ -1726,6 +1738,8 @@ class StockTransitVoyage(models.Model):
                     [supplier.id, supplier.display_name] if supplier else False
                 ),
                 'cargo_invoices': ', '.join(cargo_by_po.get(po.id, [])) if po else '',
+                'portal_invoices': ', '.join(
+                    dict.fromkeys(portal_inv_by_voyage.get(v.id, []))),
                 'container_number': v.container_number or '',
                 'bl_number': v.bl_number or '',
                 'vessel_name': v.vessel_name or '',

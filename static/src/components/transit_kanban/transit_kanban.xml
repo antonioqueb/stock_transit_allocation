@@ -138,6 +138,25 @@
                                       t-esc="card.container_number"/>
                             </div>
 
+                            <!-- SIEMPRE visible (sin abrir detalle): OC como
+                                 hipervínculo + folios de invoice del portal -->
+                            <div t-if="card.purchase_id or card.portal_invoices"
+                                 class="tk-card__quick">
+                                <a t-if="card.purchase_id" href="#"
+                                   class="tk-card__po-link"
+                                   title="Abrir la Orden de Compra"
+                                   t-on-click="(ev) => this.openPurchase(card, ev)">
+                                    <i class="fa fa-file-text-o"/>
+                                    <t t-esc="strOf(card.purchase_id)"/>
+                                </a>
+                                <span t-if="card.portal_invoices"
+                                      class="tk-card__portal-inv"
+                                      t-att-title="'Invoices del portal: ' + card.portal_invoices">
+                                    <i class="fa fa-files-o"/>
+                                    <t t-esc="card.portal_invoices"/>
+                                </span>
+                            </div>
+
                             <!-- Recepción parcial en curso: números claros -->
                             <div t-if="card.reception_partial and !isReceived(card)"
                                  class="tk-card__partial" t-esc="card.reception_partial"/>
