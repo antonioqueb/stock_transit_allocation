@@ -3162,7 +3162,12 @@ class StockTransitVoyage(models.Model):
                         resolved_lines=resolved_lines,
                     )
 
-            if self.custom_status != 'reception_pending':
+            # tc_keep_status: crear la recepción SIN mover el estatus del
+            # viaje (flujo del portal: el documento nace al completar la
+            # captura, pero el barco sigue su viaje — a Listos para
+            # recibir llega hasta Entrega en Sitio).
+            if (self.custom_status != 'reception_pending'
+                    and not self.env.context.get('tc_keep_status')):
                 self.write({'custom_status': 'reception_pending'})
             return self._tc_open_reception_action(picking)
 
