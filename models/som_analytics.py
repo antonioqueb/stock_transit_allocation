@@ -128,6 +128,33 @@ class SomAnalytics(models.AbstractModel):
     # Dataset central de VENTAS (una sola consulta SQL)
     # ==================================================================
 
+    def _src_where(self, f, alias='so'):
+        """Fragmento SQL del filtro global Odoo/SPS/Mixto para CUALQUIER
+        consulta sobre sale_order (mismo criterio que _sale_rows):
+        Odoo = referencia de cliente vacía, SPS = con folio del legado,
+        mixto/None = sin filtro."""
+        col = ('%s.client_order_ref' % alias) if alias else 'client_order_ref'
+        if f.get('source') == 'sps':
+            return " AND COALESCE(%s, '') != ''" % col
+        if f.get('source') == 'odoo':
+            return " AND COALESCE(%s, '') = ''" % col
+        return ''
+
+    def _src_where_invoice(self, f):
+        """El mismo filtro de origen para FACTURAS de cliente (alias m):
+        la factura hereda el origen de su(s) órdenes vía las líneas.
+        Solo restringe out_invoice/out_refund — proveedores pasan libres."""
+        cond = self._src_where(f, alias='so2')
+        if not cond:
+            return ''
+        return (" AND (m.move_type NOT IN ('out_invoice', 'out_refund')"
+                " OR EXISTS(SELECT 1 FROM account_move_line aml"
+                " JOIN sale_order_line_invoice_rel rel"
+                "   ON rel.invoice_line_id = aml.id"
+                " JOIN sale_order_line sol2 ON sol2.id = rel.order_line_id"
+                " JOIN sale_order so2 ON so2.id = sol2.order_id"
+                " WHERE aml.move_id = m.id" + cond + "))")
+
     def _sale_rows(self, f, extra_where='', extra_params=None):
         date_from, date_to = self._dates(f)
         dt_from, dt_to = self._bounds(f)
@@ -421,6 +448,8 @@ class SomAnalytics(models.AbstractModel):
     def _dom_comercial(self, f):
         rows = self._sale_rows(f)
         pack = self._sales_pack(rows)
+        _src = self._src_where(f)          # alias so.
+        _srcb = self._src_where(f, alias='')  # sin alias
 
         # Conversión cotización → orden (mismo periodo, sin respaldos)
         date_from, date_to = self._dates(f)
@@ -428,9 +457,9 @@ class SomAnalytics(models.AbstractModel):
         self.env.cr.execute("""
             SELECT state, COUNT(*) FROM sale_order
             WHERE date_order >= %s AND date_order <= %s
-              AND COALESCE(x_is_quote_backup, false) = false
+              AND COALESCE(x_is_quote_backup, false) = false {src}
             GROUP BY state
-        """, (dt_from, dt_to))
+        """.format(src=_srcb), (dt_from, dt_to))
         st = dict(self.env.cr.fetchall())
         quotes = st.get('draft', 0) + st.get('sent', 0) + st.get('sale', 0)
         pack['kpis']['conversion_pct'] = round(
@@ -443,8 +472,8 @@ class SomAnalytics(models.AbstractModel):
             SELECT COALESCE(SUM(x_discount_amount_mxn),0),
                    COUNT(*) FILTER (WHERE COALESCE(x_discount_needs_auth,false))
             FROM sale_order
-            WHERE state='sale' AND date_order >= %s AND date_order <= %s
-        """, (dt_from, dt_to))
+            WHERE state='sale' AND date_order >= %s AND date_order <= %s {src}
+        """.format(src=_srcb), (dt_from, dt_to))
         desc, desc_auth = self.env.cr.fetchone()
         pack['kpis']['descuento_mxn'] = round(desc or 0.0, 2)
         pack['kpis']['descuentos_con_auth'] = desc_auth or 0
@@ -554,12 +583,12 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE sol.display_type IS NULL
-              AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s
+              AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s {src}
               AND CASE WHEN rc.name='USD'
                        THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
                        ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
                   END > 0
-        """, {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
+        """.format(src=_src), {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
             default=[(0, 0)])[0]
         pack['kpis']['realizacion_pct'] = round(
             (row[0] or 0) / row[1] * 100, 1) if row[1] else 0.0
@@ -604,8 +633,8 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(*) FILTER (WHERE x_discount_auth_result = 'rejected'),
                    COALESCE(SUM(x_discount_rejected_amount), 0)
             FROM sale_order
-            WHERE date_order >= %s AND date_order <= %s
-        """, dt, default=[(0, 0, 0)])[0]
+            WHERE date_order >= %s AND date_order <= %s {src}
+        """.format(src=_srcb), dt, default=[(0, 0, 0)])[0]
         pack['kpis']['desc_aprobados'] = row[0]
         pack['kpis']['desc_rechazados'] = row[1]
         pack['kpis']['descuento_evitado_mxn'] = round(row[2] or 0.0, 2)
@@ -614,10 +643,10 @@ class SomAnalytics(models.AbstractModel):
         # confirmados en el periodo
         row = self._sq("""
             SELECT AVG(EXTRACT(EPOCH FROM (NOW() - date_order)) / 86400.0)
-            FROM sale_order
+            FROM sale_order so
             WHERE state IN ('draft','sent')
-              AND COALESCE(x_is_quote_backup, false) = false
-        """, default=[(None,)])[0]
+              AND COALESCE(x_is_quote_backup, false) = false {src}
+        """.format(src=_src), default=[(None,)])[0]
         pack['kpis']['cotiz_edad_media'] = round(row[0] or 0.0, 1)
 
         row = self._sq("""
@@ -707,9 +736,9 @@ class SomAnalytics(models.AbstractModel):
             SELECT so.state, COUNT(*), COALESCE(SUM(so.amount_total), 0)
             FROM sale_order so
             WHERE so.date_order >= %s AND so.date_order <= %s
-              AND so.state IN ('draft', 'sent', 'sale', 'cancel')
+              AND so.state IN ('draft', 'sent', 'sale', 'cancel') {src}
             GROUP BY so.state
-        """, (dtf, dtt), default=[])
+        """.format(src=_src), (dtf, dtt), default=[])
         smap = {a: (b, c) for (a, b, c) in stage_rows}
         pack['funnel'] = []
 
@@ -748,8 +777,8 @@ class SomAnalytics(models.AbstractModel):
                                           so.amount_total)), 0)
                 FROM sale_order so
                 WHERE so.date_order >= %s AND so.date_order <= %s
-                  AND so.state = 'sale'
-            """, (dtf, dtt), default=[(0, 0)])[0]
+                  AND so.state = 'sale' {src}
+            """.format(src=_src), (dtf, dtt), default=[(0, 0)])[0]
             pack['funnel'].append({
                 'stage': 'Cobrado',
                 'count': paid_row[0] or 0,
@@ -774,8 +803,8 @@ class SomAnalytics(models.AbstractModel):
                        COUNT(*) FILTER (WHERE COALESCE(so.delivery_paid_amount, 0) > 0)
                 FROM sale_order so
                 WHERE so.date_order >= %s AND so.date_order <= %s
-                  AND so.state = 'sale'
-            """, (dtf, dtt), default=[(0, 0)])[0]
+                  AND so.state = 'sale' {src}
+            """.format(src=_src), (dtf, dtt), default=[(0, 0)])[0]
             total, pagadas = pr[0] or 0, pr[1] or 0
             pack['kpis']['confirmadas_count'] = total
             pack['kpis']['pagadas_count'] = pagadas
@@ -787,7 +816,7 @@ class SomAnalytics(models.AbstractModel):
         # (oculto/respaldo) — no es backlog y no debe salir en aging ni en
         # estancadas.
         SO = self.env['sale.order']
-        _alive = ""
+        _alive = self._src_where(f)
         if 'x_is_quote_backup' in SO._fields:
             _alive += " AND COALESCE(so.x_is_quote_backup, false) = false"
         if 'active' in SO._fields:
@@ -837,12 +866,13 @@ class SomAnalytics(models.AbstractModel):
             for (a, b, c) in self._sq("""
                 WITH firsts AS (
                     SELECT partner_id, MIN(date_order) AS fdt
-                    FROM sale_order WHERE state = 'sale' GROUP BY 1
+                    FROM sale_order so
+                    WHERE state = 'sale' {src} GROUP BY 1
                 ), mo AS (
                     SELECT so.partner_id,
                            to_char(so.date_order, 'YYYY-MM') AS m
                     FROM sale_order so
-                    WHERE so.state = 'sale'
+                    WHERE so.state = 'sale' {src}
                       AND so.date_order >= date_trunc(
                           'month', CURRENT_DATE) - INTERVAL '11 months'
                     GROUP BY 1, 2
@@ -854,16 +884,17 @@ class SomAnalytics(models.AbstractModel):
                            WHERE to_char(f.fdt, 'YYYY-MM') <> mo.m)
                 FROM mo JOIN firsts f ON f.partner_id = mo.partner_id
                 GROUP BY mo.m ORDER BY mo.m
-            """, default=[])
+            """.format(src=_src), default=[])
         ]
         pack['kpis']['clientes_nuevos'] = int(self._sq("""
             WITH firsts AS (
                 SELECT partner_id, MIN(date_order) AS fdt
-                FROM sale_order WHERE state = 'sale' GROUP BY 1
+                FROM sale_order so
+                WHERE state = 'sale' {src} GROUP BY 1
             )
             SELECT COUNT(*) FROM firsts
             WHERE fdt >= %s AND fdt <= %s
-        """, dt, default=[(0,)])[0][0] or 0)
+        """.format(src=_src), dt, default=[(0,)])[0][0] or 0)
 
         # Recencia: días desde la ÚLTIMA compra de cada cliente con
         # historial, con su venta de los últimos 12 meses (para dimensionar
@@ -887,7 +918,7 @@ class SomAnalytics(models.AbstractModel):
                     FROM sale_order so
                     LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
                     LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
-                    WHERE so.state = 'sale'
+                    WHERE so.state = 'sale' {src}
                     GROUP BY 1
                 )
                 SELECT CASE
@@ -898,7 +929,7 @@ class SomAnalytics(models.AbstractModel):
                         ELSE '> 180 días' END,
                        COUNT(*), COALESCE(SUM(v12), 0)
                 FROM last GROUP BY 1
-            """, {'rate': rate}, default=[])
+            """.format(src=_src), {'rate': rate}, default=[])
         ]
         _rec_order = ['0-30 días', '31-60 días', '61-90 días',
                       '91-180 días', '> 180 días']
@@ -938,13 +969,13 @@ class SomAnalytics(models.AbstractModel):
                 FROM sale_order so
                 LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
                 LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
-                WHERE so.state = 'sale'
+                WHERE so.state = 'sale' {src}
                   AND so.date_order >= %(pf)s AND so.date_order <= %(ct)s
             ) so
             JOIN res_partner rp ON rp.id = so.partner_id
             GROUP BY 1
             HAVING SUM(amt) <> 0
-        """, {'cf': dt[0], 'ct': dt[1], 'pf': _prev_from,
+        """.format(src=_src), {'cf': dt[0], 'ct': dt[1], 'pf': _prev_from,
                'pt': _prev_to, 'rate': rate}, default=[])
         _growth = [
             {'name': a, 'cur': round(b or 0.0, 2),
@@ -1022,7 +1053,7 @@ class SomAnalytics(models.AbstractModel):
                 LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
                 LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
                 WHERE sol.display_type IS NULL
-                  AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s
+                  AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s {src}
                   AND CASE WHEN rc.name = 'USD'
                            THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
                            ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
@@ -1031,7 +1062,7 @@ class SomAnalytics(models.AbstractModel):
                 HAVING SUM(sol.price_unit * sol.product_uom_qty) > 0
                 ORDER BY 2 DESC
                 LIMIT 12
-            """, {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
+            """.format(src=_src), {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
                 default=[])
         ]
 
@@ -1082,7 +1113,7 @@ class SomAnalytics(models.AbstractModel):
                 LEFT JOIN res_partner rp ON rp.id = so.partner_id
                 LEFT JOIN res_users ru ON ru.id = so.user_id
                 LEFT JOIN res_partner sp ON sp.id = ru.partner_id
-                WHERE so.state = 'sale'
+                WHERE so.state = 'sale' {src}
                   AND so.amount_total > 0
                   AND COALESCE(so.delivery_paid_amount, 0)
                       < so.amount_total - 0.01
@@ -1091,7 +1122,7 @@ class SomAnalytics(models.AbstractModel):
                          so.amount_total DESC
                 LIMIT 20
             """.format(proof=proof_sql, cash=cash_sql,
-                       assigned=assigned_sql), default=[])
+                       assigned=assigned_sql, src=_src), default=[])
             for (nm, prt, sel, amt, paid, days, hp, hc) in rows_ua:
                 paid = float(paid or 0.0)
                 amt = float(amt or 0.0)
@@ -2767,6 +2798,7 @@ class SomAnalytics(models.AbstractModel):
 
     def _dom_financiero(self, f):
         tot = self._finance_totals()
+        _srcm = self._src_where_invoice(f)  # Odoo/SPS/Mixto vía órdenes
 
         def buckets_and_top_safe(move_type, sign):
             try:
@@ -2786,9 +2818,9 @@ class SomAnalytics(models.AbstractModel):
                       SUM({s} m.amount_residual_signed) AS monto
                     FROM account_move m
                     WHERE m.state = 'posted' AND m.move_type = %s
-                      AND m.amount_residual != 0
+                      AND m.amount_residual != 0 {src}
                     GROUP BY 1
-                """.format(s=sign), (move_type,))
+                """.format(s=sign, src=_srcm), (move_type,))
                 b = dict(self.env.cr.fetchall())
             except Exception:
                 self.env.cr.execute('SELECT 1')
@@ -2806,9 +2838,9 @@ class SomAnalytics(models.AbstractModel):
                     FROM account_move m
                     JOIN res_partner p ON p.id = m.partner_id
                     WHERE m.state = 'posted' AND m.move_type = %s
-                      AND m.amount_residual != 0
+                      AND m.amount_residual != 0 {src}
                     GROUP BY p.id, p.name ORDER BY monto DESC LIMIT 12
-                """.format(s=sign), (move_type,))
+                """.format(s=sign, src=_srcm), (move_type,))
                 top = [{'key': a, 'name': b_, 'monto': round(c or 0, 2),
                         'facturas': d, 'oldest': e}
                        for (a, b_, c, d, e) in self.env.cr.fetchall()]
@@ -2820,21 +2852,42 @@ class SomAnalytics(models.AbstractModel):
         ar_buckets, ar_top = buckets_and_top_safe('out_invoice', '')
         ap_buckets, ap_top = buckets_and_top_safe('in_invoice', '-')
 
-        # Facturación y cobranza mensual (12 meses)
-        self.env.cr.execute("""
-            SELECT to_char(m.date,'YYYY-MM') AS month,
-                   COALESCE(SUM(m.amount_total_signed) FILTER (
-                       WHERE m.move_type='out_invoice'),0) AS facturado,
-                   COALESCE(-SUM(m.amount_total_signed) FILTER (
-                       WHERE m.move_type='in_invoice'),0) AS comprado
-            FROM account_move m
-            WHERE m.state='posted'
-              AND m.date >= (CURRENT_DATE - INTERVAL '12 months')
-              AND m.move_type IN ('out_invoice','in_invoice')
-            GROUP BY 1 ORDER BY 1
-        """)
-        by_month = [{'key': a, 'facturado': round(b, 2), 'comprado': round(c, 2)}
-                    for (a, b, c) in self.env.cr.fetchall()]
+        # Vendido vs comprado mensual (12 meses) por FECHA DE ORDEN:
+        # date_order de la venta (con filtro de origen) y date_order de la
+        # orden de compra — jamás la fecha de creación del documento.
+        rate = self._current_usd_rate()
+        vend = dict((a, b) for (a, b) in self._sq("""
+            SELECT to_char(so.date_order, 'YYYY-MM'),
+                   COALESCE(SUM(CASE WHEN rc.name = 'USD'
+                       THEN so.amount_total * COALESCE(NULLIF(
+                           so.x_delivery_exchange_rate, 0), %(rate)s)
+                       ELSE so.amount_total END), 0)
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state = 'sale'
+              AND so.date_order >= date_trunc(
+                  'month', CURRENT_DATE) - INTERVAL '11 months' {src}
+            GROUP BY 1
+        """.format(src=self._src_where(f)), {'rate': rate}, default=[]))
+        comp = dict((a, b) for (a, b) in self._sq("""
+            SELECT to_char(po.date_order, 'YYYY-MM'),
+                   COALESCE(SUM(CASE WHEN rc.name = 'USD'
+                       THEN po.amount_total * %(rate)s
+                       ELSE po.amount_total END), 0)
+            FROM purchase_order po
+            LEFT JOIN res_currency rc ON rc.id = po.currency_id
+            WHERE po.state IN ('purchase', 'done')
+              AND po.date_order >= date_trunc(
+                  'month', CURRENT_DATE) - INTERVAL '11 months'
+            GROUP BY 1
+        """, {'rate': rate}, default=[]))
+        months = sorted(set(vend) | set(comp))
+        by_month = [
+            {'key': m, 'facturado': round(vend.get(m, 0.0), 2),
+             'comprado': round(comp.get(m, 0.0), 2),
+             'neto': round(vend.get(m, 0.0) - comp.get(m, 0.0), 2)}
+            for m in months]
 
         # 9.1 Efectivo: recibos entregados al cliente vs con pago aplicado
         date_from, date_to = self._dates(f)
@@ -2864,9 +2917,9 @@ class SomAnalytics(models.AbstractModel):
                     FROM account_move m
                     LEFT JOIN res_currency rc ON rc.id = m.currency_id
                     WHERE m.state = 'posted' AND m.move_type = %s
-                      AND m.amount_residual != 0
+                      AND m.amount_residual != 0 {src}
                     GROUP BY 1 ORDER BY 3 DESC
-                """.format(s=sign), (move_type,), default=[])]
+                """.format(s=sign, src=_srcm), (move_type,), default=[])]
 
         ar_currency = by_currency('out_invoice', '')
         ap_currency = by_currency('in_invoice', '-')
@@ -2894,9 +2947,9 @@ class SomAnalytics(models.AbstractModel):
             FROM account_move m
             WHERE m.state = 'posted'
               AND m.move_type IN ('out_invoice', 'in_invoice')
-              AND m.amount_residual != 0
+              AND m.amount_residual != 0 {src}
             GROUP BY 1
-        """, default=[])
+        """.format(src=_srcm), default=[])
         due_order = ['Ya venció', 'Esta semana', '8-30 días', '31-60 días',
                      '61-90 días', 'Más de 90 días']
         due_map = {a: (b, c) for (a, b, c) in due_rows}
