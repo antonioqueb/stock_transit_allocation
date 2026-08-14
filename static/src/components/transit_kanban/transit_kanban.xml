@@ -93,9 +93,13 @@
                         <i t-attf-class="fa #{collapsed ? 'fa-chevron-down' : 'fa-chevron-up'} tk-col-chevron"/>
                     </div>
                     <!-- Subtítulo eliminado (redundante); solo el total de m² -->
-                    <div t-if="total.m2 > 0" class="tk-col-header__sub">
-                        <span class="tk-col-m2">
+                    <div t-if="total.m2 > 0 or total.containerCount" class="tk-col-header__sub">
+                        <span t-if="total.m2 > 0" class="tk-col-m2">
                             <t t-esc="fmtNum(total.m2)"/> m²
+                        </span>
+                        <span t-if="total.containerCount" class="tk-col-m2"
+                              t-att-title="total.containerCount + ' contenedor(es) único(s) en la columna'">
+                            <i class="fa fa-cube me-1" title="Contenedores"/><t t-esc="total.containerCount"/> cont.
                         </span>
                     </div>
                 </div>

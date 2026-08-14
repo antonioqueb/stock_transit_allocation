@@ -198,7 +198,7 @@ export class TransitKanbanView extends Component {
 
         for (const s of (this.state.boardMode === "national" ? NATIONAL_STAGES : STAGES)) {
             cols[s.key]  = [];
-            tots[s.key]  = { count: 0, m2: 0 };
+            tots[s.key]  = { count: 0, m2: 0, containers: new Set() };
         }
 
         const national = this.state.boardMode === "national";
@@ -241,6 +241,15 @@ export class TransitKanbanView extends Component {
             cols[stage.key].push(r);
             tots[stage.key].count++;
             tots[stage.key].m2 += r.total_m2 || 0;
+            // Contenedores ÚNICOS de la columna: un mismo código puede
+            // venir repetido en la card (multi-recepción) o compartido —
+            // se cuenta una sola vez por código.
+            for (const code of String(r.containers || "")
+                .split(/[\s,;\/]+/)
+                .map((c) => c.trim().toUpperCase())
+                .filter(Boolean)) {
+                tots[stage.key].containers.add(code);
+            }
         }
 
         // ORDEN POR COLUMNA (pedido explícito, cada etapa con su regla):
@@ -284,6 +293,10 @@ export class TransitKanbanView extends Component {
         }
 
         this.state.columns = cols;
+        for (const k of Object.keys(tots)) {
+            tots[k].containerCount = tots[k].containers.size;
+            delete tots[k].containers;
+        }
         this.state.totals  = tots;
     }
 
