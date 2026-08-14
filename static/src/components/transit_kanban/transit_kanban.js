@@ -65,6 +65,16 @@ const STAGES = [
         // 'Entregado' lo pone la validación de la recepción física.
         extraKeys: ["reception_pending"],
     },
+    {
+        key:      "labeled_done",
+        label:    "Etiquetados",
+        sublabel: "Ciclo completo · colapsada por default",
+        icon:     "fa-check-square",
+        color:    "#15803d",
+        bg:       "#ecfdf5",
+        border:   "#bbf7d0",
+        virtual:  true, // no es un estatus: se llena por sub-estado de etiquetado
+    },
 ];
 
 // PLATAFORMAS NACIONALES: mismas llaves de estatus, columnas en
@@ -100,6 +110,16 @@ const NATIONAL_STAGES = [
         icon: "fa-check-circle", color: "#22c55e", bg: "#f0fdf4",
         border: "#bbf7d0", extraKeys: ["reception_pending"],
     },
+    {
+        key:      "labeled_done",
+        label:    "Etiquetados",
+        sublabel: "Ciclo completo · colapsada por default",
+        icon:     "fa-check-square",
+        color:    "#15803d",
+        bg:       "#ecfdf5",
+        border:   "#bbf7d0",
+        virtual:  true, // no es un estatus: se llena por sub-estado de etiquetado
+    },
 ];
 
 // Mapa rápido key → stage para lookups (uno por modo)
@@ -134,7 +154,7 @@ export class TransitKanbanView extends Component {
             pendingOnly:  false,  // filtro "Pendiente de publicar"
             columns:      {},   // { stageKey: [records] }
             totals:          {},   // { stageKey: { count, m2 } }
-            collapsed:       {},   // { stageKey: bool }
+            collapsed:       { labeled_done: true },   // { stageKey: bool } — Etiquetados nace colapsada
             draggingId:      false,
             dragOverStage:   false,
             updatingStageId: false,
@@ -210,7 +230,12 @@ export class TransitKanbanView extends Component {
                 if (!haystack.includes(q)) continue;
             }
 
-            const stage = stageMap[r.custom_status];
+            // Etiquetado terminado: la tarjeta vive en su propia columna
+            // (colapsada por default) en lugar de Entrega en Sitio.
+            const stage = (r.custom_status === "delivered"
+                && r.labeling_status === "labeled")
+                ? { key: "labeled_done" }
+                : stageMap[r.custom_status];
             if (!stage) continue;
 
             cols[stage.key].push(r);
@@ -249,7 +274,7 @@ export class TransitKanbanView extends Component {
                 arr.sort(byNewest);
             } else if (key === "on_sea" || key === "puerto_destino") {
                 arr.sort(byEtaAsc);
-            } else if (key === "delivered") {
+            } else if (key === "delivered" || key === "labeled_done") {
                 arr.sort((a, b) =>
                     (closedRank(a) - closedRank(b))
                     || (enteredAt(b) - enteredAt(a)));
@@ -487,6 +512,14 @@ export class TransitKanbanView extends Component {
 
         if (!recordId || !stageKey) {
             this.state.draggingId = false;
+            return;
+        }
+
+        if (stageKey === "labeled_done") {
+            this.state.draggingId = false;
+            this.notification.add(
+                "A Etiquetados no se arrastra: se llega con el check de Etiquetado.",
+                { type: "info" });
             return;
         }
 
