@@ -556,6 +556,23 @@ class StockTransitVoyagePublicationPending(models.Model):
         "arrived_port", "reception_pending",
     )
 
+    tc_fully_received = fields.Boolean(
+        string="Recibido al 100%",
+        compute="_compute_tc_fully_received",
+        help="Todas las recepciones físicas del embarque están validadas y "
+             "no queda material pendiente: el tránsito terminó, es stock.",
+    )
+
+    def _compute_tc_fully_received(self):
+        for rec in self:
+            try:
+                t = rec._tc_reception_totals()
+                rec.tc_fully_received = bool(
+                    t['done_count'] and not t['open']
+                    and (t['pending'] or 0.0) <= 0.01)
+            except Exception:
+                rec.tc_fully_received = False
+
     tc_publication_pending = fields.Boolean(
         string="Pendiente de publicar",
         compute="_compute_tc_publication_pending",
@@ -579,6 +596,11 @@ class StockTransitVoyagePublicationPending(models.Model):
         self.ensure_one()
 
         if self.custom_status not in self._TC_PUBLICATION_STAGES:
+            return False
+
+        # Embarque recibido al 100%% con la operación validada: ya no hay
+        # nada que publicar — dejó de ser tránsito, es stock.
+        if self.tc_fully_received:
             return False
 
         lines = self.line_ids

@@ -12,26 +12,27 @@
                         string="📢 Publicar Inventario"
                         type="object"
                         class="btn-primary"
-                        invisible="transit_inventory_published or custom_status in ['solicitud', 'production', 'delivered', 'cancel']"
+                        invisible="transit_inventory_published or tc_fully_received or custom_status in ['solicitud', 'production', 'delivered', 'cancel']"
                         confirm="¿Desea publicar el inventario en tránsito? Lo asignado se mostrará como Committed y lo libre como Disponible."/>
 
                 <button name="action_publish_transit_inventory"
                         string="Republicar"
                         type="object"
                         class="btn-secondary"
-                        invisible="not transit_inventory_published or custom_status in ['delivered', 'cancel']"
+                        invisible="not transit_inventory_published or tc_fully_received or custom_status in ['delivered', 'cancel']"
                         confirm="¿Desea recalcular la publicación del inventario en tránsito con las asignaciones actuales?"/>
 
                 <button name="action_unpublish_transit_inventory"
                         string="Ocultar inventario"
                         type="object"
                         class="btn-secondary"
-                        invisible="not transit_inventory_published or custom_status in ['delivered', 'cancel']"
+                        invisible="not transit_inventory_published or tc_fully_received or custom_status in ['delivered', 'cancel']"
                         confirm="¿Desea ocultar nuevamente este inventario en tránsito del Inventario Visual?"/>
             </xpath>
 
             <xpath expr="//sheet" position="inside">
                 <field name="transit_inventory_published" invisible="1"/>
+                <field name="tc_fully_received" invisible="1"/>
                 <field name="transit_inventory_published_at" invisible="1"/>
                 <field name="transit_inventory_published_by" invisible="1"/>
             </xpath>
