@@ -166,23 +166,22 @@ export class ReceptionsDashboard extends Component {
         if (ev) {
             ev.stopPropagation();
         }
-        if (this.labCheckDisabled(row)) {
-            return;
-        }
         try {
-            // Endpoint del tablero (sudo del lado servidor): el personal
-            // de almacén no tiene el grupo de Torre de Control.
-            const newStatus = await this.orm.call(
-                "stock.transit.voyage", "rcp_toggle_labeled", [row.id]);
-            if (newStatus) {
-                row.labeling_status = newStatus;
+            const st = await this.orm.call(
+                "stock.transit.voyage", "rcp_toggle_labeled",
+                [row.id, row.reception_id || false]
+            );
+            if (st === false) {
+                this.notification.add("El embarque ya no existe.", { type: "warning" });
+                return;
             }
+            this.lastPayload = null;
             await this.load();
         } catch (e) {
-            console.error("[Recepciones] Error en etiquetado:", e);
-            const msg = (e && e.data && e.data.message) || e.message ||
-                "No se pudo actualizar el etiquetado.";
-            this.notification.add(msg, { type: "danger" });
+            this.notification.add(
+                (e && e.data && e.data.message) || "No se pudo cambiar el etiquetado.",
+                { type: "danger" }
+            );
         }
     }
 

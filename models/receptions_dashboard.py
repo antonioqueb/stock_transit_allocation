@@ -17,6 +17,8 @@ Reglas del tablero:
 import logging
 from datetime import timedelta
 
+from markupsafe import Markup
+
 from odoo import _, api, fields, models
 
 from odoo.addons.stock_transit_allocation.models.som_date_format import (
@@ -243,7 +245,12 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 done_picks |= v.reception_picking_id
                 pick_voyage[v.reception_picking_id.id] = v
 
+        # UNIFICACIÓN: un embarque completo (sin abiertas ni pendiente)
+        # con TODAS sus parcialidades etiquetadas vuelve a ser UNA sola
+        # fila; mientras no, cada parcialidad validada es su propia fila
+        # con su worksheet y su check de etiquetado independiente.
         done_pairs = []
+        unified_emitted = set()
         for picking in done_picks:
             v = pick_voyage[picking.id]
             if not picking.date_done:
@@ -252,14 +259,51 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 self, picking.date_done).date()
             if local < cutoff:
                 continue
-            received_m2 = sum(picking.move_line_ids.mapped('quantity'))
             t = v._tc_reception_totals()
+            done_sorted = list(t['done'].sorted('date_done'))
+            complete = bool(done_sorted) and not t['open'] and (
+                t['pending'] or 0.0) <= 0.01
+            all_labeled = bool(done_sorted) and all(
+                (pk.tc_labeling_status or 'none') == 'labeled'
+                for pk in done_sorted)
+
+            if (complete and all_labeled and len(done_sorted) > 1):
+                if v.id in unified_emitted:
+                    continue
+                unified_emitted.add(v.id)
+                total_m2 = sum(
+                    ml.quantity for pk in done_sorted
+                    for ml in pk.move_line_ids)
+                last = done_sorted[-1]
+                done_pairs.append((last.date_done, {
+                    'id': v.id,
+                    'reception_id': last.id,
+                    'folio': v.name or last.name or '',
+                    'embarque': v.name or '',
+                    'po': v.purchase_id.name or '',
+                    'supplier': v.purchase_id.partner_id.name or '',
+                    'containers': v.container_number or '',
+                    'qty_label': ('%s m²' % ('{:,.1f}'.format(total_m2)))
+                    if total_m2 else '',
+                    'done': fmt_dt(last.date_done),
+                    'partial_tag': 'Unificado · %s parciales' % len(
+                        done_sorted),
+                    'unified': True,
+                    'labeling_status': 'labeled',
+                    'label_print_count': v.tc_label_print_count or 0,
+                }))
+                continue
+
+            received_m2 = sum(picking.move_line_ids.mapped('quantity'))
             partial_tag = ''
             if t['done_count'] > 1 or t['open']:
-                idx = list(t['done'].sorted('date_done')).index(picking) + 1 \
+                idx = done_sorted.index(picking) + 1 \
                     if picking in t['done'] else t['done_count']
                 partial_tag = 'Parcial %s/%s' % (
                     idx, t['done_count'] + len(t['open']))
+            plab = picking.tc_labeling_status or 'none'
+            if plab == 'none' and (v.tc_label_print_count or 0):
+                plab = 'printing'
             done_pairs.append((picking.date_done, {
                 'id': v.id,
                 'reception_id': picking.id,
@@ -272,9 +316,10 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 if received_m2 else '',
                 'done': fmt_dt(picking.date_done),
                 'partial_tag': partial_tag,
-                # Sub-estado de etiquetado: colorea la tarjeta (amarillo/
-                # naranja/verde) y habilita el check manual de Etiquetado.
-                'labeling_status': v.tc_labeling_status or 'none',
+                # Etiquetado POR PARCIALIDAD (el del viaje solo aplica a
+                # embarques de una sola recepción / legado).
+                'labeling_status': plab if t['done_count'] > 1
+                else (v.tc_labeling_status or plab or 'none'),
                 'label_print_count': v.tc_label_print_count or 0,
             }))
         done_pairs.sort(key=lambda t: t[0], reverse=True)
@@ -359,18 +404,44 @@ class StockTransitVoyageReceptionsDash(models.Model):
         return new.id
 
     @api.model
-    def rcp_toggle_labeled(self, voyage_id):
+    def rcp_toggle_labeled(self, voyage_id, picking_id=False):
         """Check de etiquetado desde el tablero de Recepciones.
 
-        El personal de almacén no tiene el grupo de Torre de Control
-        (regla grupo-tránsito-solo-UI): la escritura va con sudo(); las
-        validaciones de negocio (exigir impresión previa) las pone
-        action_mark_labeled."""
+        Con picking_id: alterna el etiquetado de ESA PARCIALIDAD y el
+        viaje se refresca (si todas quedan etiquetadas y no hay
+        pendiente → unificación; si se desmarca una → separación).
+        Sin picking_id (legado / embarque de una sola recepción):
+        alterna el viaje completo. Todo con sudo(): el almacén no tiene
+        el grupo de Torre de Control."""
         rec = self.sudo().browse(voyage_id)
         if not rec.exists():
             return False
+        t = rec._tc_reception_totals()
+        pk = self.env['stock.picking'].sudo().browse(picking_id) \
+            if picking_id else self.env['stock.picking']
+        multi = t['done_count'] > 1 or bool(t['open'])
+        if pk and pk.exists() and multi:
+            if pk.tc_labeling_status == 'labeled':
+                pk.write({'tc_labeling_status': 'printing'})
+                pk.message_post(body=Markup(
+                    '↩️ Etiquetado de la parcialidad desmarcado por %s.')
+                    % self.env.user.name)
+            else:
+                pk.write({'tc_labeling_status': 'labeled'})
+                pk.message_post(body=Markup(
+                    '✅ Parcialidad ETIQUETADA por %s.')
+                    % self.env.user.name)
+            rec._tc_labeling_refresh_from_partials()
+            return pk.tc_labeling_status
         if rec.tc_labeling_status == 'labeled':
             rec.action_unmark_labeled()
+            # separar: las parcialidades vuelven a su check individual
+            if t['done']:
+                t['done'].sudo().filtered(
+                    lambda p2: p2.tc_labeling_status == 'labeled'
+                ).write({'tc_labeling_status': 'printing'})
         else:
             rec.action_mark_labeled()
+            if t['done']:
+                t['done'].sudo().write({'tc_labeling_status': 'labeled'})
         return rec.tc_labeling_status

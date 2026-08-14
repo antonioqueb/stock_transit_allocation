@@ -3243,6 +3243,12 @@ class StockTransitVoyage(models.Model):
             if rec.tc_labeling_status == 'none':
                 vals['tc_labeling_status'] = 'printing'
             rec.write(vals)
+            # Cada parcialidad validada también pasa a 'en impresión'
+            # (habilita su check independiente en el tablero).
+            done_recs = rec._tc_reception_totals()['done'].filtered(
+                lambda pk: pk.tc_labeling_status == 'none')
+            if done_recs:
+                done_recs.sudo().write({'tc_labeling_status': 'printing'})
             rec.message_post(body=Markup(
                 '🏷️ <b>Impresión de etiquetas</b> #%s: %s etiqueta(s) '
                 'formato <b>%s</b>.') % (
@@ -3265,6 +3271,42 @@ class StockTransitVoyage(models.Model):
             rec.message_post(body=Markup(
                 '✅ <b>Etiquetado terminado</b>, confirmado por %s.')
                 % self.env.user.name)
+
+    def _tc_labeling_refresh_from_partials(self):
+        """UNIFICACIÓN: si el embarque quedó completo (sin recepciones
+        abiertas ni pendiente) y TODAS sus parcialidades validadas están
+        etiquetadas, el viaje pasa a labeled — el tablero de Recepciones
+        vuelve a mostrar UNA sola tarjeta y en Torre de Control la card
+        entra a la columna Etiquetados. Si alguna parcialidad se
+        desmarca, el viaje se degrada y las tarjetas se separan otra
+        vez."""
+        for rec in self:
+            t = rec._tc_reception_totals()
+            done = t['done']
+            complete = bool(done) and not t['open'] and (
+                t['pending'] or 0.0) <= 0.01
+            all_labeled = bool(done) and all(
+                pk.tc_labeling_status == 'labeled' for pk in done)
+            if complete and all_labeled:
+                if rec.tc_labeling_status != 'labeled':
+                    rec.sudo().write({
+                        'tc_labeling_status': 'labeled',
+                        'tc_labeled_at': fields_module.Datetime.now(),
+                        'tc_labeled_by': self.env.user.id,
+                    })
+                    rec.message_post(body=Markup(
+                        '🧩 <b>Parcialidades unificadas:</b> las %s '
+                        'recepciones del embarque quedaron etiquetadas '
+                        'y la tarjeta vuelve a ser UNA.') % len(done))
+            elif rec.tc_labeling_status == 'labeled':
+                rec.sudo().write({
+                    'tc_labeling_status': 'printing',
+                    'tc_labeled_at': False,
+                    'tc_labeled_by': False,
+                })
+                rec.message_post(body=Markup(
+                    '↩️ Unificación deshecha: una parcialidad se '
+                    'desmarcó o hay material pendiente.'))
 
     def action_unmark_labeled(self):
         """Deshacer el check (vuelve a En Impresión, no borra la bitácora)."""

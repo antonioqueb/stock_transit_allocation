@@ -329,6 +329,32 @@ class StockPicking(models.Model):
         'stock.transit.voyage', string='Viaje de recepción',
         index=True, copy=False)
 
+    # Etiquetado POR PARCIALIDAD: cada recepción validada de un embarque
+    # se etiqueta de forma independiente; cuando TODAS las parcialidades
+    # quedan etiquetadas (y no hay pendiente), el viaje se marca labeled
+    # y el tablero re-unifica las tarjetas (siempre fueron un embarque).
+    tc_labeling_status = fields.Selection([
+        ('none', 'Entregado'),
+        ('printing', 'En impresión'),
+        ('labeled', 'Etiquetado'),
+    ], string='Etiquetado (parcialidad)', default='none', copy=False)
+    tc_label_print_count = fields.Integer(
+        string='Impresiones de etiquetas (parcialidad)', default=0,
+        copy=False)
+
+    def action_tc_close_demand(self):
+        """CERRAR DEMANDA del embarque desde la recepción (la única forma
+        legítima de matar el pendiente: decisión explícita del usuario;
+        jamás debe ocurrir de forma implícita al validar de menos)."""
+        self.ensure_one()
+        voyage = self.tc_reception_voyage_id \
+            or self._get_linked_reception_voyage()
+        if not voyage:
+            raise UserError(_(
+                'Esta recepción no está ligada a ningún embarque.'))
+        return voyage.action_force_close_pending_reception()
+
+
     def _get_linked_reception_voyage(self):
         self.ensure_one()
 
