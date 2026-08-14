@@ -706,7 +706,24 @@ class SomAnalytics(models.AbstractModel):
             GROUP BY so.state
         """, (dtf, dtt), default=[])
         smap = {a: (b, c) for (a, b, c) in stage_rows}
-        pack['funnel'] = [
+        pack['funnel'] = []
+
+        # Capa CRM (si el módulo está instalado): oportunidades CREADAS en
+        # el periodo — la boca real del embudo, antes de cotizar.
+        if 'crm.lead' in self.env:
+            crm_row = self._sq("""
+                SELECT COUNT(*), COALESCE(SUM(expected_revenue), 0)
+                FROM crm_lead
+                WHERE create_date >= %s AND create_date <= %s
+            """, (dtf, dtt), default=[(0, 0)])[0]
+            if crm_row[0]:
+                pack['funnel'].append({
+                    'stage': 'Oportunidad CRM',
+                    'count': crm_row[0] or 0,
+                    'amount': round(crm_row[1] or 0.0, 2),
+                })
+
+        pack['funnel'] += [
             {'stage': lbl, 'count': smap.get(st, (0, 0))[0],
              'amount': round(smap.get(st, (0, 0))[1] or 0.0, 2)}
             for (st, lbl) in [('draft', 'Borrador'), ('sent', 'Enviada'),
@@ -740,6 +757,37 @@ class SomAnalytics(models.AbstractModel):
             'amount': round(smap.get('cancel', (0, 0))[1] or 0.0, 2),
         })
 
+        # Conversión de PEDIDOS CON PAGO REGISTRADO: de las órdenes
+        # confirmadas creadas en el periodo, cuántas ya tienen al menos un
+        # pago aplicado (delivery_paid_amount > 0).
+        pack['kpis']['pago_conv_pct'] = 0.0
+        pack['kpis']['pagadas_count'] = 0
+        pack['kpis']['confirmadas_count'] = 0
+        if 'delivery_paid_amount' in self.env['sale.order']._fields:
+            pr = self._sq("""
+                SELECT COUNT(*),
+                       COUNT(*) FILTER (WHERE COALESCE(so.delivery_paid_amount, 0) > 0)
+                FROM sale_order so
+                WHERE so.create_date >= %s AND so.create_date <= %s
+                  AND so.state = 'sale'
+            """, (dtf, dtt), default=[(0, 0)])[0]
+            total, pagadas = pr[0] or 0, pr[1] or 0
+            pack['kpis']['confirmadas_count'] = total
+            pack['kpis']['pagadas_count'] = pagadas
+            pack['kpis']['pago_conv_pct'] = round(
+                pagadas / total * 100, 1) if total else 0.0
+
+        # Cotización VIVA = ni respaldo de conversión ni archivada. Al
+        # convertir, la cotización original queda como documento aparte
+        # (oculto/respaldo) — no es backlog y no debe salir en aging ni en
+        # estancadas.
+        SO = self.env['sale.order']
+        _alive = ""
+        if 'x_is_quote_backup' in SO._fields:
+            _alive += " AND COALESCE(so.x_is_quote_backup, false) = false"
+        if 'active' in SO._fields:
+            _alive += " AND COALESCE(so.active, true)"
+
         # Aging de cotizaciones ABIERTAS hoy (borrador/enviada, sin filtro de
         # periodo: el backlog vivo es lo accionable).
         pack['quotes_aging'] = [
@@ -752,9 +800,9 @@ class SomAnalytics(models.AbstractModel):
                         ELSE '> 30 días' END AS bucket,
                        COUNT(*), COALESCE(SUM(so.amount_total), 0)
                 FROM sale_order so
-                WHERE so.state IN ('draft', 'sent')
+                WHERE so.state IN ('draft', 'sent') {alive}
                 GROUP BY 1
-            """, default=[])
+            """.format(alive=_alive), default=[])
         ]
         _AGING_ORDER = ['0-7 días', '8-14 días', '15-30 días', '> 30 días']
         pack['quotes_aging'].sort(key=lambda r: _AGING_ORDER.index(r['bucket']))
@@ -771,10 +819,10 @@ class SomAnalytics(models.AbstractModel):
                 LEFT JOIN res_partner rp ON rp.id = so.partner_id
                 LEFT JOIN res_users ru ON ru.id = so.user_id
                 LEFT JOIN res_partner sp ON sp.id = ru.partner_id
-                WHERE so.state IN ('draft', 'sent')
+                WHERE so.state IN ('draft', 'sent') {alive}
                 ORDER BY so.amount_total DESC
                 LIMIT 15
-            """, default=[])
+            """.format(alive=_alive), default=[])
         ]
 
         # Flujo semanal de autorizaciones: entradas vs resueltas (la
