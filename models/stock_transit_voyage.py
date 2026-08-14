@@ -1306,6 +1306,37 @@ class StockTransitVoyage(models.Model):
         if arriving:
             arriving._som_schedule_reception_activity()
 
+        # ENTRAR A 'EN RECEPCIÓN' POR CUALQUIER VÍA crea la recepción
+        # física automáticamente si no existe. El hook de 'delivered' no
+        # bastaba: el kanban de Viajes y Contenedores traduce el drop en
+        # 'Entrega en Sitio' a reception_pending ANTES de escribir, y el
+        # viaje quedaba listo-para-recibir SIN recepción (el usuario tenía
+        # que entrar al embarque y dar Recibir a mano).
+        if (
+            vals.get('custom_status') == 'reception_pending'
+            and not self.env.context.get('tc_skip_auto_reception')
+        ):
+            for rec in self.filtered(lambda v: not v.reception_picking_id):
+                try:
+                    rec.with_context(
+                        tc_skip_auto_reception=True,
+                    ).action_generate_reception()
+                    if rec.reception_picking_id:
+                        rec.message_post(body=Markup(_(
+                            '📦 Recepción física <b>%s</b> creada '
+                            'automáticamente al pasar a EN RECEPCIÓN.'
+                        )) % rec.reception_picking_id.name)
+                except Exception as exc:
+                    _logger.exception(
+                        '[TC_VOYAGE] No se pudo crear la recepción '
+                        'automática del viaje %s al entrar a EN '
+                        'RECEPCIÓN.', rec.name)
+                    rec.message_post(body=Markup(_(
+                        '⚠️ El viaje quedó EN RECEPCIÓN pero la recepción '
+                        'automática no pudo crearse: %s. Usa el botón '
+                        'Recibir del embarque cuando se resuelva.'
+                    )) % str(exc))
+
         # ---------------------------------------------------------
         # SINCRONIZACIÓN BIDIRECCIONAL A OC Y PORTAL
         # ---------------------------------------------------------
