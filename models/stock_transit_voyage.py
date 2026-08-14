@@ -2282,7 +2282,16 @@ class StockTransitVoyage(models.Model):
                 update_vals = {}
 
                 if len(lot_lines) == 1:
-                    if self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done):
+                    # ANTI-VACIADO (caso 0038): una recepción interna recién
+                    # preparada trae move lines con cantidad 0 — si el loader
+                    # corre en ese momento, escribiría 0 en TODAS las líneas
+                    # del viaje y el faltante del embarque desaparece. Una
+                    # línea con lote y cantidad viva JAMÁS se reduce a 0
+                    # desde aquí (la demanda solo baja recibiendo).
+                    if (
+                        qty_done > 0.01
+                        and self._qty_differs(move_line.product_id, existing_line.product_uom_qty, qty_done)
+                    ):
                         update_vals['product_uom_qty'] = qty_done
                 else:
                     # GEMELAS (parcialidad): la cantidad física del lote se
