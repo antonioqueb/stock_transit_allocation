@@ -76,9 +76,10 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
                 "title": _("Worksheet físico procesado"),
                 "message": _(
                     "Actualizados: %(updated)s. "
-                    "Marcados como faltantes: %(missing)s. "
+                    "PENDIENTES para la siguiente recepción: %(missing)s. "
                     "No encontrados: %(not_found)s. "
-                    "La recepción física quedó lista para validar."
+                    "Al validar, el sistema generará la recepción del "
+                    "material pendiente."
                 ) % stats,
                 "type": "warning" if stats.get("missing") else "success",
                 "sticky": bool(stats.get("missing")),
@@ -226,14 +227,19 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
 
         for move in picking.move_ids.filtered(lambda m: m.state not in ("done", "cancel")):
             qty = product_totals.get(move.product_id.id, 0.0)
-            if self._tc_is_zero(move.product_id, qty):
-                move.with_context(ctx).unlink()
-            else:
-                move.with_context(ctx).write({
-                    "product_uom_qty": qty,
-                    "location_id": picking.location_id.id,
-                    "location_dest_id": picking.location_dest_id.id,
-                })
+            # LA DEMANDA ES INMUTABLE HACIA ABAJO: el capturado menor a la
+            # demanda es una PARCIALIDAD (el pendiente genera backorder al
+            # validar); solo se sube la demanda si las medidas reales
+            # exceden lo declarado (evita el bloqueo de sobre-recepción
+            # por correcciones de medida). Borrar el move o reducir su
+            # demanda mataba el derecho a recibir el resto.
+            vals = {
+                "location_id": picking.location_id.id,
+                "location_dest_id": picking.location_dest_id.id,
+            }
+            if qty > (move.product_uom_qty or 0.0) + 1e-6:
+                vals["product_uom_qty"] = qty
+            move.with_context(ctx).write(vals)
 
     # -------------------------------------------------------------------------
     #  APLICACIÓN WS FÍSICO
@@ -289,18 +295,16 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
                 no_capture = self._tc_is_zero(product, qty_real)
 
             if no_capture:
-                if source_quant:
-                    self._tc_zero_quant(product, lot, source_quant)
-
-                if voyage_line:
-                    notes = (voyage_line.notes or "")
-                    notes += "\n[Recepción Física] Marcado como faltante desde Worksheet."
-                    voyage_line.with_context(skip_reservation_logic=True).write({
-                        "product_uom_qty": 0.0,
-                        "quant_id": False,
-                        "notes": notes.strip(),
-                    })
-
+                # PENDIENTE, NO FALTANTE (la lección del 0029/0038/0039):
+                # este bloque EVAPORABA el material — vaciaba el quant de
+                # tránsito, ponía la línea del viaje en 0 y luego el
+                # recompute mataba la demanda del move, con lo que la
+                # validación veía la recepción completa y jamás nacía el
+                # backorder. Una fila en 0 significa "no llegó EN ESTA
+                # parcialidad": el quant de tránsito, la línea del viaje y
+                # la demanda del move quedan INTACTOS; solo se retira la
+                # move line de esta recepción. La demanda únicamente muere
+                # con el botón Cerrar demanda.
                 move_line.with_context(ctx).unlink()
                 missing += 1
                 continue
@@ -370,7 +374,8 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
 
         picking.message_post(body=_(
             "📐 Worksheet físico procesado. "
-            "Actualizados: %(updated)s. Faltantes: %(missing)s. No encontrados: %(not_found)s."
+            "Actualizados: %(updated)s. Pendientes para la siguiente "
+            "recepción: %(missing)s. No encontrados: %(not_found)s."
         ) % {
             "updated": updated,
             "missing": missing,
