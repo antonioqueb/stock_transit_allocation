@@ -185,7 +185,10 @@
 
                             <!-- COMPACTO: contenedor -->
                             <div t-if="!isReceived(card)" class="tk-card__compactline">
+                                <!-- Nacional: la plataforma se muestra si existe; sin valor
+                                     no se inventa etiqueta marítima. -->
                                 <span class="tk-card__container"
+                                      t-if="state.boardMode !== 'national' or hasContainer(card.container_number)"
                                       t-esc="hasContainer(card.container_number) ? card.container_number : 'SIN CONTENEDOR'"/>
                             </div>
 
