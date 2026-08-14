@@ -17,7 +17,7 @@ Reglas del tablero:
 import logging
 from datetime import timedelta
 
-from odoo import api, fields, models
+from odoo import _, api, fields, models
 
 from odoo.addons.stock_transit_allocation.models.som_date_format import (
     som_format_date,
@@ -119,15 +119,27 @@ class StockTransitVoyageReceptionsDash(models.Model):
             # "Listo para recibir" = el viaje fue movido a Entrega en Sitio
             # (estatus En Recepción); PUBLICAR ya no alista recepciones —
             # es un acto comercial, no operativo.
+            # Pendiente REAL: la demanda de recepciones abiertas Y el hueco
+            # contra las líneas del viaje (si el backorder no nació — p. ej.
+            # demanda borrada — las abiertas dicen 0 pero el hueco no miente).
+            pending_material = 0.0
+            if totals is not None:
+                pending_material = totals['pending'] or 0.0
+                if not totals['open']:
+                    expected = sum(v.line_ids.mapped('product_uom_qty'))
+                    gap = expected - (totals['received'] or 0.0)
+                    if gap > 0.01:
+                        pending_material = max(pending_material, gap)
+
+            needs_reopen = False
             if st == 'delivered':
                 phase = 'done'
             elif picking and picking.state == 'done':
                 # Sin recepción abierta: solo pasa a Recepcionados si NO
-                # queda material pendiente (si el pendiente existe pero
-                # nadie le creó recepción — p. ej. demanda borrada — la
-                # tarjeta se queda en Listos exhibiendo el faltante).
-                pending = totals['pending'] if totals else 0.0
-                phase = 'done' if pending <= 0.01 else 'ready'
+                # queda material pendiente; con faltante la tarjeta se queda
+                # en Listos y ofrece REABRIR la siguiente recepción.
+                phase = 'done' if pending_material <= 0.01 else 'ready'
+                needs_reopen = phase == 'ready'
             elif st in _READY:
                 phase = 'ready'
             elif st in _PORT:
@@ -163,16 +175,18 @@ class StockTransitVoyageReceptionsDash(models.Model):
             partial_pct = 0
             if phase == 'ready' and picking:
                 t = totals or v._tc_reception_totals()
-                if t['done_count'] and (t['open'] or t['pending'] > 0.01):
-                    total = t['received'] + t['pending']
+                pend_show = max(t['pending'] or 0.0, pending_material)
+                if t['done_count'] and (t['open'] or pend_show > 0.01):
+                    total = t['received'] + pend_show
                     partial_pct = int(round(
                         t['received'] / total * 100)) if total else 0
                     partial_info = (
                         '%sª recepción · recibido %s · '
-                        'pendiente %s' % (
+                        'pendiente %s%s' % (
                             t['seq'],
                             '{:,.1f}'.format(t['received']),
-                            '{:,.1f}'.format(t['pending'])))
+                            '{:,.1f}'.format(pend_show),
+                            ' · SIN RECEPCIÓN ABIERTA' if needs_reopen else ''))
 
             return {
                 'id': v.id,
@@ -193,6 +207,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
                 'published': published,
                 'published_at': fmt_dt(pub_at),
                 'published_by': pub_by,
+                'needs_reopen': needs_reopen,
                 'reception_id': picking.id or False,
                 'reception_name': picking.name or '',
                 'reception_state': picking.state if picking else '',
@@ -270,6 +285,78 @@ class StockTransitVoyageReceptionsDash(models.Model):
             'ready': ready,
             'done': done_rows,
         }
+
+    @api.model
+    def rcp_reopen_next_reception(self, voyage_id):
+        """Crea la SIGUIENTE recepción de un embarque con faltante cuya
+        cadena quedó sin recepción abierta (p. ej. la demanda del backorder
+        fue destruida). Calcula el pendiente por producto contra las líneas
+        del viaje y lo materializa como backorder de la última validada.
+        Con sudo(): lo dispara el almacén desde el tablero."""
+        v = self.sudo().browse(voyage_id)
+        if not v.exists():
+            return False
+        t = v._tc_reception_totals()
+        if t['open']:
+            return t['open'].sorted('id')[0].id
+        done = t['done'].sorted('date_done')
+        if not done:
+            return False
+        last = done[-1]
+
+        expected = {}
+        for line in v.line_ids:
+            if line.product_id:
+                expected[line.product_id] = expected.get(
+                    line.product_id, 0.0) + (line.product_uom_qty or 0.0)
+        received = {}
+        for ml in done.mapped('move_line_ids'):
+            received[ml.product_id] = received.get(
+                ml.product_id, 0.0) + ml.quantity
+        missing = {p: round(q - received.get(p, 0.0), 3)
+                   for p, q in expected.items()
+                   if q - received.get(p, 0.0) > 0.01}
+        if not missing:
+            return False
+
+        ctx = v._tc_reception_safe_context()
+        new = last.with_context(ctx).copy({
+            'name': '/', 'move_ids': [], 'move_line_ids': [],
+            'backorder_id': last.id, 'tc_reception_voyage_id': v.id,
+        })
+        reset = {}
+        if 'packing_list_imported' in new._fields:
+            reset['packing_list_imported'] = False
+        if 'worksheet_imported' in new._fields:
+            reset['worksheet_imported'] = False
+        if reset:
+            new.with_context(ctx).write(reset)
+        Move = self.env['stock.move'].sudo()
+        for p, q in missing.items():
+            Move.with_context(ctx).create({
+                'picking_id': new.id, 'product_id': p.id,
+                'product_uom_qty': q, 'product_uom': p.uom_id.id,
+                'location_id': last.location_id.id,
+                'location_dest_id': last.location_dest_id.id,
+                'company_id': last.company_id.id,
+                'picking_type_id': last.picking_type_id.id,
+                'origin': last.origin or v.name,
+                'description_picking': p.display_name,
+            })
+        new.move_ids.with_context(ctx)._action_confirm()
+        v.write({'reception_picking_id': new.id,
+                 'custom_status': 'reception_pending'})
+        v.message_post(body=_(
+            '🔁 Recepción REABIERTA desde el tablero por %(user)s: '
+            '%(new)s con el pendiente del embarque (%(qty)s).') % {
+            'user': self.env.user.name, 'new': new.name,
+            'qty': ', '.join('%s: %.2f' % (p.display_name, q)
+                             for p, q in missing.items())})
+        new.message_post(body=_(
+            '🔁 Recepción del PENDIENTE del embarque %(v)s, creada desde '
+            'el tablero de Recepciones (continúa a %(prev)s).') % {
+            'v': v.name or '', 'prev': last.name})
+        return new.id
 
     @api.model
     def rcp_toggle_labeled(self, voyage_id):

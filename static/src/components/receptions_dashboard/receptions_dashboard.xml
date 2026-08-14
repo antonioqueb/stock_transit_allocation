@@ -112,10 +112,16 @@
                     <button class="o_rcp_btn ghost" t-on-click.stop="() => this.showMaterials(card)">
                         Materiales
                     </button>
-                    <button t-if="card.reception_id and card.phase === 'ready'"
+                    <button t-if="card.reception_id and card.phase === 'ready' and !card.needs_reopen"
                             class="o_rcp_btn primary"
                             t-on-click.stop="() => this.openReception(card.reception_id)">
                         Recepción <t t-esc="card.reception_name ? '· ' + card.reception_name : ''"/>
+                    </button>
+                    <button t-if="card.needs_reopen"
+                            class="o_rcp_btn primary"
+                            title="Crear la recepción del material pendiente"
+                            t-on-click.stop="(ev) => this.reopenReception(card, ev)">
+                        Reabrir recepción
                     </button>
                     <button t-if="card.reception_id"
                             class="o_rcp_btn ghost"

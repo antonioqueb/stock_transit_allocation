@@ -71,6 +71,35 @@ export class ReceptionsDashboard extends Component {
         this.state.detail = null;
     }
 
+    // Reapertura de la SIGUIENTE recepción cuando la cadena quedó con
+    // faltante y sin recepción abierta: el backend calcula el pendiente
+    // contra las líneas del viaje y crea el backorder.
+    async reopenReception(card, ev) {
+        if (ev) {
+            ev.stopPropagation();
+        }
+        try {
+            const newId = await this.orm.call(
+                "stock.transit.voyage", "rcp_reopen_next_reception", [card.id]
+            );
+            if (!newId) {
+                this.notification.add(
+                    "No hay pendiente que reabrir en este embarque.",
+                    { type: "warning" }
+                );
+                return;
+            }
+            this.lastPayload = null;
+            await this.load();
+            this.openReception(newId);
+        } catch (e) {
+            this.notification.add(
+                (e && e.data && e.data.message) || "No se pudo reabrir la recepción.",
+                { type: "danger" }
+            );
+        }
+    }
+
     openReception(id) {
         if (!id) {
             return;
