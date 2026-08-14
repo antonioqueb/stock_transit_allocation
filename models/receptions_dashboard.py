@@ -92,6 +92,21 @@ class StockTransitVoyageReceptionsDash(models.Model):
             )
 
             picking = v.reception_picking_id
+            st = v.custom_status
+
+            # PARCIALES — el material manda: si la recepción apuntada ya
+            # validó pero la cadena sigue abierta o queda pendiente, la
+            # tarjeta JAMÁS se va completa a Recepcionados. Se re-apunta a
+            # la recepción abierta y permanece en Listos con su avance; lo
+            # ya validado aparece abajo como SU PROPIA fila (división por
+            # tandas). Cerrar de verdad = delivered (incluye el cierre
+            # forzado, que es una decisión consciente).
+            totals = None
+            if st != 'delivered' and picking and picking.state == 'done':
+                totals = v._tc_reception_totals()
+                if totals['open']:
+                    picking = totals['open'].sorted('id')[0]
+
             eta = v.eta
             days_to_eta = (eta - today).days if eta else None
 
@@ -104,11 +119,15 @@ class StockTransitVoyageReceptionsDash(models.Model):
             # "Listo para recibir" = el viaje fue movido a Entrega en Sitio
             # (estatus En Recepción); PUBLICAR ya no alista recepciones —
             # es un acto comercial, no operativo.
-            st = v.custom_status
-            if picking and picking.state == 'done':
+            if st == 'delivered':
                 phase = 'done'
-            elif st == 'delivered':
-                phase = 'done'
+            elif picking and picking.state == 'done':
+                # Sin recepción abierta: solo pasa a Recepcionados si NO
+                # queda material pendiente (si el pendiente existe pero
+                # nadie le creó recepción — p. ej. demanda borrada — la
+                # tarjeta se queda en Listos exhibiendo el faltante).
+                pending = totals['pending'] if totals else 0.0
+                phase = 'done' if pending <= 0.01 else 'ready'
             elif st in _READY:
                 phase = 'ready'
             elif st in _PORT:
@@ -143,8 +162,8 @@ class StockTransitVoyageReceptionsDash(models.Model):
             partial_info = ''
             partial_pct = 0
             if phase == 'ready' and picking:
-                t = v._tc_reception_totals()
-                if t['done_count'] and t['open']:
+                t = totals or v._tc_reception_totals()
+                if t['done_count'] and (t['open'] or t['pending'] > 0.01):
                     total = t['received'] + t['pending']
                     partial_pct = int(round(
                         t['received'] / total * 100)) if total else 0
