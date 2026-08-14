@@ -951,6 +951,85 @@ class SomAnalytics(models.AbstractModel):
         pack['customers_growth'] = (
             _growth[:8] + [g for g in _growth[-8:] if g['delta'] < 0])
 
+        # ── PRECIOS Y MÁRGENES (página Precios del dashboard) ──
+        # TODO margen aquí es MARGEN DE GANANCIA (utilidad ÷ venta), jamás
+        # markup. Y la trampa a exhibir: líneas SIN costo all-in capturado
+        # reportan margen 100%% falso — se separan, no se mezclan.
+        _sin_costo_venta = sum(
+            r['venta_mxn'] for r in rows if not r.get('costo_mxn'))
+        pack['kpis']['venta_sin_costo_mxn'] = round(_sin_costo_venta, 2)
+        pack['kpis']['venta_sin_costo_pct'] = round(
+            _sin_costo_venta / pack['kpis']['venta_mxn'] * 100, 1
+        ) if pack['kpis']['venta_mxn'] else 0.0
+
+        # Histograma de MARGEN DE GANANCIA por orden: la realidad de los
+        # márgenes, orden por orden. Órdenes sin costo van a su propia
+        # banda 'Sin costo (revisar)'.
+        _ord = {}
+        for r in rows:
+            o = _ord.setdefault(r['order_id'], {
+                'venta': 0.0, 'util': 0.0, 'costo': 0.0})
+            o['venta'] += r['venta_mxn']
+            o['util'] += r['utilidad_mxn']
+            o['costo'] += r.get('costo_mxn') or 0.0
+        _bands = ['< 0%', '0-15%', '15-30%', '30-45%', '45-60%', '> 60%',
+                  'Sin costo (revisar)']
+        _hist = {b: {'bucket': b, 'orders': 0, 'venta': 0.0}
+                 for b in _bands}
+        for o in _ord.values():
+            if o['venta'] <= 0:
+                continue
+            if not o['costo']:
+                b = 'Sin costo (revisar)'
+            else:
+                mg = o['util'] / o['venta'] * 100
+                b = ('< 0%' if mg < 0 else '0-15%' if mg < 15
+                     else '15-30%' if mg < 30 else '30-45%' if mg < 45
+                     else '45-60%' if mg < 60 else '> 60%')
+            _hist[b]['orders'] += 1
+            _hist[b]['venta'] += o['venta']
+        pack['margin_hist'] = [
+            {'bucket': b, 'orders': _hist[b]['orders'],
+             'venta': round(_hist[b]['venta'], 2)} for b in _bands]
+        if not self._profit_allowed():
+            # la distribución de márgenes ES información de utilidad
+            pack['margin_hist'] = []
+
+        # Realización de precio POR CATEGORÍA (cobrado vs Precio 1 de
+        # lista) — dónde se respeta la lista y dónde se regala.
+        pack['realizacion_categ'] = [
+            {'categ': a, 'pct': round((b or 0) / c * 100, 1) if c else 0.0,
+             'cobrado': round(b or 0.0, 2)}
+            for (a, b, c) in self._sq("""
+                SELECT COALESCE(NULLIF(regexp_replace(
+                           pc.complete_name, '^[^/]+ / ', ''), ''),
+                           pc.complete_name, 'Sin categoría') AS categ,
+                       SUM(sol.price_unit * sol.product_uom_qty),
+                       SUM(CASE WHEN rc.name = 'USD'
+                                THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
+                                ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                           END * sol.product_uom_qty)
+                FROM sale_order_line sol
+                JOIN sale_order so ON so.id = sol.order_id AND so.state = 'sale'
+                JOIN product_product pp ON pp.id = sol.product_id
+                JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                LEFT JOIN product_category pc ON pc.id = pt.categ_id
+                LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+                LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+                WHERE sol.display_type IS NULL
+                  AND so.create_date >= %(d1)s AND so.create_date <= %(d2)s
+                  AND CASE WHEN rc.name = 'USD'
+                           THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
+                           ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                      END > 0
+                GROUP BY 1
+                HAVING SUM(sol.price_unit * sol.product_uom_qty) > 0
+                ORDER BY 2 DESC
+                LIMIT 12
+            """, {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
+                default=[])
+        ]
+
         # ── Órdenes con MATERIAL ASIGNADO sin pago aplicado ──
         # Riesgo vivo: la orden ya tiene placas/quants amarrados (carrito o
         # selector) pero el pago no está aplicado al 100%. Incluye las que
