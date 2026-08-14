@@ -2106,6 +2106,10 @@ class SaleOrderLine(models.Model):
         )
 
         qty_derive_line_ids = set()
+        if is_qty_sync and lots_in_vals:
+            _logger.info(
+                '[TC_RATCHET] write con lot_ids SUPRIMIDO por contexto '
+                'tc_qty_sync_from_lots en líneas %s', self.ids)
         if not is_qty_sync and (lots_in_vals or unchecking_purchase):
             for line in self:
                 if line.display_type or not line.product_id:
@@ -2215,6 +2219,8 @@ class SaleOrderLine(models.Model):
             # Servicios: la cantidad es libre (no hay placas ni stock que la
             # derive). Sin este guard, un sync forzado la regresaría a 0.
             if line._tc_is_service_product():
+                _logger.info(
+                    '[TC_RATCHET] línea %s omitida: producto servicio', line.id)
                 continue
 
             # 'Solo taller': lo cobrado lo define el VENDEDOR. Los lotes
@@ -2223,11 +2229,19 @@ class SaleOrderLine(models.Model):
             # deben mover el Solicitado — sin este guard, el ratchet subía la
             # cantidad a cobrar sin decisión comercial.
             if 'stone_workshop_required' in line._fields and line.stone_workshop_required:
+                _logger.info(
+                    '[TC_RATCHET] línea %s omitida: Solo taller (la cantidad '
+                    'la define el vendedor)', line.id)
                 continue
 
             assigned_qty = line._tc_get_assigned_lot_qty()
             rounding = line._tc_get_qty_rounding()
             current_qty = line.product_uom_qty or 0.0
+            _logger.info(
+                '[TC_RATCHET] línea %s (%s): solicitado=%.4f asignado=%.4f '
+                'force=%s over_action=%s',
+                line.id, line.product_id.display_name, current_qty,
+                assigned_qty, bool(force), over_action or '-')
 
             # DECISIÓN DE SOBRE-ASIGNACIÓN (popup del Viaje): cuando se asignó
             # más de lo solicitado y el usuario eligió free/bill, se aplica el
@@ -2273,6 +2287,13 @@ class SaleOrderLine(models.Model):
             write_vals = {}
             if float_compare(current_qty, target_qty, precision_rounding=rounding) != 0:
                 write_vals['product_uom_qty'] = target_qty
+                _logger.info(
+                    '[TC_RATCHET] línea %s: Solicitado %.4f -> %.4f',
+                    line.id, current_qty, target_qty)
+            else:
+                _logger.info(
+                    '[TC_RATCHET] línea %s: sin cambio (target=%.4f)',
+                    line.id, target_qty)
 
             # El ajuste forzado a la selección saca la línea del modo 'Asignar':
             # el Solicitado ya quedó igualado a lo seleccionado.
