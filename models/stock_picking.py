@@ -1883,6 +1883,67 @@ class StockPicking(models.Model):
 class StockMove(models.Model):
     _inherit = 'stock.move'
 
+    def unlink(self):
+        """BLINDAJE DE DEMANDA de recepciones físicas de viaje.
+
+        Caso SOM/INT/00056 (EMBARQUE/2026/0038): durante el procesamiento
+        del Worksheet con faltantes, ALGO eliminó los stock.move cuyos
+        move lines quedaron todos en 0 (el wizard solo borra move lines;
+        ni el core 19 ni nuestros módulos borran el move padre). Sin esa
+        demanda, la validación vio la recepción completa: ni confirmación
+        de parcialidad, ni backorder, y el viaje se auto-cerró.
+
+        Hasta identificar al autor (el stack de abajo lo delata en el
+        log), cualquier demanda viva de una recepción física que alguien
+        intente borrar se RECONSTRUYE de inmediato: mismo producto,
+        misma cantidad, sin move lines — la parcialidad sobrevive a
+        cualquier borrado. El rebuild legítimo de la recepción viaja con
+        tc_physical_reception_prepare y queda exento."""
+        respawn = []
+        if not self.env.context.get('tc_physical_reception_prepare'):
+            for move in self:
+                pick = move.picking_id
+                if (
+                    pick
+                    and move.state not in ('done', 'cancel')
+                    and move.product_uom_qty > 0
+                    and pick.state not in ('done', 'cancel')
+                    and pick._tc_get_physical_reception_voyage_for_validation()
+                ):
+                    respawn.append({
+                        'picking_id': pick.id,
+                        'product_id': move.product_id.id,
+                        'product_uom_qty': move.product_uom_qty,
+                        'product_uom': move.product_uom.id,
+                        'location_id': move.location_id.id,
+                        'location_dest_id': move.location_dest_id.id,
+                        'company_id': move.company_id.id,
+                        'picking_type_id': move.picking_type_id.id,
+                        'origin': move.origin or pick.origin or '',
+                        'description_picking': move.description_picking
+                        or move.product_id.display_name,
+                    })
+            if respawn:
+                _logger.warning(
+                    "[TC_GUARD] Intento de borrar %s move(s) de DEMANDA de "
+                    "recepción física (%s) — se reconstruirán. Stack del "
+                    "autor:",
+                    len(respawn),
+                    ', '.join(sorted({v['origin'] or '?' for v in respawn})),
+                    stack_info=True,
+                )
+        res = super().unlink()
+        if respawn:
+            Move = self.env['stock.move'].sudo()
+            recreated = Move.create(respawn)
+            try:
+                recreated._action_confirm()
+            except Exception:
+                _logger.exception(
+                    "[TC_GUARD] Demanda reconstruida pero sin confirmar "
+                    "(quedó en borrador): %s", recreated.ids)
+        return res
+
     def _tc_guarded_physical_reception_pickings(self):
         return self.mapped('picking_id').filtered(
             lambda picking: picking
