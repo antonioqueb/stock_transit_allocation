@@ -247,7 +247,7 @@ export class TransitKanbanView extends Component {
             for (const code of String(r.containers || "")
                 .split(/[\s,;\/]+/)
                 .map((c) => c.trim().toUpperCase())
-                .filter(Boolean)) {
+                .filter((c) => c && c !== "PENDIENTE" && c !== "SIN")) {
                 tots[stage.key].containers.add(code);
             }
         }
