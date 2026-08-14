@@ -530,8 +530,9 @@ export class SomAnalytics extends Component {
     renderInventario(d) {
         const k = d.kpis || {};
         this.doughnut("i_s", "som_i_states",
-            ["Disponible", "En hold"], [k.disponible_m2 || 0, k.hold_m2 || 0],
-            { center: fmtNum((k.disponible_m2 || 0) + (k.hold_m2 || 0)), sub: "m² totales" });
+            ["Disponible", "En hold", "Vendido en bodega"],
+            [k.disponible_m2 || 0, k.hold_m2 || 0, k.vendido_m2 || 0],
+            { center: fmtNum((k.disponible_m2 || 0) + (k.hold_m2 || 0) + (k.vendido_m2 || 0)), sub: "m² totales" });
         const ag = d.aging || [];
         this.barChart("i_a", "som_i_aging",
             ag.map((r) => r.bucket),

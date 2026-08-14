@@ -338,6 +338,8 @@ class SomAnalytics(models.AbstractModel):
         'margen_mes', 'costo', 'costo_base_usd', 'cost_allin_usd',
         # Valor de inventario = m² × costo all-in → permite reconstruir costo
         'valor', 'valor_mxn', 'inv_valor_mxn',
+        # Vital compuesto del dashboard ejecutivo (string ya formateado)
+        'vital_utilidad',
     })
 
     def _profit_allowed(self):
@@ -937,6 +939,33 @@ class SomAnalytics(models.AbstractModel):
                      if hold_field is not None and hold_field.store
                      else 'false')
 
+        # COMMITTED = quants internos amarrados a una OV CONFIRMADA, por
+        # cualquiera de las dos vías (quants del carrito y lotes del
+        # selector de placas). Ese material está VENDIDO aunque siga en
+        # bodega: sale de las métricas de stock (disponible, top,
+        # antigüedad) y se mide aparte como 'Vendido en bodega' — sin
+        # mezclar métricas.
+        committed_sql = (
+            "SELECT rel.stock_quant_id AS qid "
+            "FROM sale_order_line_stock_quant_rel rel "
+            "JOIN sale_order_line csol ON csol.id = rel.sale_order_line_id "
+            "JOIN sale_order cso ON cso.id = csol.order_id "
+            "     AND cso.state = 'sale'"
+        )
+        lot_rel = self.env['sale.order.line']._fields.get('lot_ids')
+        if lot_rel is not None and lot_rel.type == 'many2many' and lot_rel.relation:
+            committed_sql += (
+                " UNION "
+                "SELECT cq.id AS qid "
+                "FROM {rel} rl "
+                "JOIN sale_order_line lsol ON lsol.id = rl.{c1} "
+                "JOIN sale_order lso ON lso.id = lsol.order_id "
+                "     AND lso.state = 'sale' "
+                "JOIN stock_quant cq ON cq.lot_id = rl.{c2}"
+            ).format(rel=lot_rel.relation, c1=lot_rel.column1,
+                     c2=lot_rel.column2)
+        not_committed = ' AND q.id NOT IN (%s)' % committed_sql
+
         self.env.cr.execute("""
             SELECT
                 pt.id AS tmpl_id,
@@ -954,10 +983,40 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %(area_uoms)s
             LEFT JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0 {pw}
+            WHERE q.quantity > 0 {pw} {nc}
             GROUP BY pt.id, product_name, lot_name, has_hold
-        """.format(hold=hold_expr, pw=prod_where), params)
+        """.format(hold=hold_expr, pw=prod_where, nc=not_committed), params)
         rows = self.env.cr.dictfetchall()
+
+        # ── VENDIDO EN BODEGA: el espejo committed, medido APARTE ──
+        self.env.cr.execute("""
+            SELECT
+                pt.id AS tmpl_id,
+                COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS product_name,
+                SUM(q.quantity) AS m2,
+                SUM(q.quantity
+                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0)) AS valor,
+                COUNT(DISTINCT q.lot_id) AS lots
+            FROM stock_quant q
+            JOIN stock_location loc ON loc.id = q.location_id
+                 AND loc.usage = 'internal'
+            JOIN product_product pp ON pp.id = q.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+                 AND pt.uom_id IN %(area_uoms)s
+            WHERE q.quantity > 0 {pw}
+              AND q.id IN ({committed})
+            GROUP BY pt.id, product_name
+            ORDER BY SUM(q.quantity) DESC
+        """.format(pw=prod_where, committed=committed_sql), params)
+        vend_rows = self.env.cr.dictfetchall()
+        vendido_m2 = sum(r['m2'] for r in vend_rows)
+        vendido_valor = sum(r['valor'] for r in vend_rows)
+        vendido_lotes = sum(r['lots'] or 0 for r in vend_rows)
+        top_vendido = [
+            {'key': r['tmpl_id'], 'name': r['product_name'],
+             'm2': round(r['m2'], 1), 'valor': round(r['valor'], 2),
+             'lots': r['lots']}
+            for r in vend_rows[:12]]
 
         disp = holdm = valor = 0.0
         prods = defaultdict(lambda: {'m2': 0.0, 'valor': 0.0, 'lots': 0})
@@ -1015,9 +1074,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
+            WHERE q.quantity > 0 {nc}
             GROUP BY 1
-        """.format(age=self._AGE_CASE), default=[])
+        """.format(age=self._AGE_CASE, nc=not_committed), default=[])
         order_edad = self._AGE_ORDER
         edad_map = {a: (b, c) for (a, b, c) in edad_rows}
 
@@ -1030,8 +1089,8 @@ class SomAnalytics(models.AbstractModel):
                  AND loc.usage = 'internal'
             JOIN stock_lot_hold h ON h.quant_id = q.id
                  AND h.estado = 'activo'
-            WHERE q.quantity > 0
-        """, default=[(0,)])[0][0]
+            WHERE q.quantity > 0 {nc}
+        """.format(nc=not_committed), default=[(0,)])[0][0]
         if hold_real:
             holdm = float(hold_real)
             disp = max(sum(r['m2'] for r in rows) - holdm, 0.0)
@@ -1057,8 +1116,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
-        """, default=[(0,)])[0][0]
+            WHERE q.quantity > 0 {nc}
+        """.format(nc=not_committed), default=[(0,)])[0][0]
 
         return {
             'kpis': {
@@ -1071,6 +1130,11 @@ class SomAnalytics(models.AbstractModel):
                     fl_con / fl_total * 100, 1) if fl_total else 0.0,
                 'lotes_con_foto': fl_con,
                 'lotes_sin_foto': fl_total - fl_con,
+                # Vendido en bodega (committed): métrica APARTE — no es
+                # stock disponible ni hold.
+                'vendido_m2': round(vendido_m2, 1),
+                'vendido_valor_mxn': round(vendido_valor, 2),
+                'vendido_lotes': vendido_lotes,
             },
             'aging': [
                 {'bucket': b, 'm2': round(ag[b]['m2'], 1),
@@ -1081,6 +1145,7 @@ class SomAnalytics(models.AbstractModel):
                  'lots': edad_map[b][1]}
                 for b in order_edad if b in edad_map],
             'top_stock': top,
+            'top_vendido': top_vendido,
         }
 
     def _dom_inventario(self, f):
@@ -1193,7 +1258,10 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
         """, default=[(0,)])[0]
-        pack['kpis']['committed_m2'] = round(row[0] or 0.0, 1)
+        # Fuente única con 'Vendido en bodega' (incluye la vía de lotes
+        # del selector, no solo quants del carrito).
+        pack['kpis']['committed_m2'] = pack['kpis'].get(
+            'vendido_m2', round(row[0] or 0.0, 1))
 
         # 3.1c Tránsito publicado: T.Committed (con pedido) vs T.Available
         row = self._sq("""
@@ -3147,7 +3215,78 @@ class SomAnalytics(models.AbstractModel):
             cajas_mes = float(row[0] or 0.0)
             venta_cajas_mes = float(row[1] or 0.0)
 
+        # ── Vitales comerciales del MES (dominio Ventas del dashboard).
+        # FUENTE: Odoo puro (sale_order/commission_move) — el legado SPS
+        # tiene su propio filtro DENTRO de SOM Analytics y aquí no se
+        # mezcla. Van como strings ya formateados: la barra vital del
+        # dashboard los muestra tal cual.
+        ordenes_mes = int(one("""
+            SELECT COUNT(*) FROM sale_order
+            WHERE state='sale' AND to_char(date_order,'YYYY-MM') = %(m)s
+        """, {'m': month}))
+        stm = dict(self._sq("""
+            SELECT state, COUNT(*) FROM sale_order
+            WHERE to_char(date_order,'YYYY-MM') = %(m)s
+              AND COALESCE(x_is_quote_backup, false) = false
+            GROUP BY state
+        """, {'m': month}, default=[]))
+        _quotes = stm.get('draft', 0) + stm.get('sent', 0) + stm.get('sale', 0)
+        conv_pct = round(
+            stm.get('sale', 0) / _quotes * 100, 1) if _quotes else 0.0
+        cotiz_abiertas = stm.get('draft', 0) + stm.get('sent', 0)
+
+        row = self._sq("""
+            SELECT COALESCE(SUM(x_discount_amount_mxn)
+                            FILTER (WHERE state='sale'), 0),
+                   COALESCE(SUM(x_discount_rejected_amount), 0)
+            FROM sale_order
+            WHERE to_char(date_order,'YYYY-MM') = %(m)s
+        """, {'m': month}, default=[(0, 0)])[0]
+        desc_mes, desc_evitado = float(row[0] or 0), float(row[1] or 0)
+
+        com_mes = float(self._sq("""
+            SELECT COALESCE(SUM(cm.amount * CASE WHEN rc.name='USD'
+                            THEN %(rate)s ELSE 1 END), 0)
+            FROM commission_move cm
+            LEFT JOIN res_currency rc ON rc.id = cm.currency_id
+            WHERE to_char(cm.date,'YYYY-MM') = %(m)s
+        """, {'m': month, 'rate': rate}, default=[(0,)])[0][0] or 0)
+
+        rowr = self._sq("""
+            SELECT SUM(sol.price_unit * sol.product_uom_qty),
+                   SUM(CASE WHEN rc.name='USD'
+                            THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
+                            ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                       END * sol.product_uom_qty)
+            FROM sale_order_line sol
+            JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
+            JOIN product_product pp ON pp.id = sol.product_id
+            JOIN product_template pt ON pt.id = pp.product_tmpl_id
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE sol.display_type IS NULL
+              AND to_char(so.date_order,'YYYY-MM') = %(m)s
+              AND CASE WHEN rc.name='USD'
+                       THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
+                       ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                  END > 0
+        """, {'cid': cid, 'm': month}, default=[(0, 0)])[0]
+        real_pct = round(
+            (rowr[0] or 0) / rowr[1] * 100, 1) if rowr[1] else 0.0
+
+        def _money(v):
+            return '$' + format(int(round(v or 0.0)), ',d')
+
         return self._scrub_profit({
+            'vital_venta': '%s · %s órdenes' % (_money(venta_mes), ordenes_mes),
+            'vital_utilidad': '%s · margen %s%%' % (
+                _money(utilidad_mes),
+                int(round(utilidad_mes / venta_mes * 100)) if venta_mes else 0),
+            'vital_conv': '%s%% · %s abiertas' % (conv_pct, cotiz_abiertas),
+            'vital_desc': '%s · evitado %s' % (
+                _money(desc_mes), _money(desc_evitado)),
+            'vital_com': _money(com_mes),
+            'vital_real': '%s%% vs N1' % real_pct,
             'fact_real_mes': round(fact_real_mes, 2),
             'fact_previa_mes': round(fact_previa_mes, 2),
             'fact_previa_count': fact_previa_count,

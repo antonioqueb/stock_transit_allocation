@@ -199,7 +199,7 @@
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Rotación 12m</t><t t-set="val" t-value="num(data.kpis.rotacion,2) + 'x'"/><t t-set="sub" t-value="num(data.kpis.meses_inventario) + ' meses de inventario'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Salidas 12m</t><t t-set="val" t-value="num(data.kpis.salidas_12m_m2) + ' m²'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Edad de holds</t><t t-set="val" t-value="num(data.kpis.holds_edad_dias) + ' días'"/><t t-set="sub" t-value="num(data.kpis.holds_eternos,0) + ' holds de +30 días'"/></t>
-                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Committed (en OV)</t><t t-set="val" t-value="num(data.kpis.committed_m2) + ' m²'"/><t t-set="sub">placas seleccionadas en ventas confirmadas</t></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Vendido en bodega (committed)</t><t t-set="val" t-value="num(data.kpis.vendido_m2) + ' m²'"/><t t-set="sub" t-value="num(data.kpis.vendido_lotes,0) + ' lotes en OVs confirmadas · fuera del stock disponible'"/></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Tránsito publicado</t><t t-set="val" t-value="num(data.kpis.t_available_m2) + ' / ' + num(data.kpis.t_committed_m2)"/><t t-set="sub">T.Available / T.Committed m²</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">m² sin foto</t><t t-set="val" t-value="num(data.kpis.m2_sin_foto)"/><t t-set="sub">material invisible para venta remota</t></t>
                             <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Conversión de holds</t><t t-set="val" t-value="num(data.kpis.holds_conversion_pct) + '%'"/><t t-set="sub">terminan en venta vs liberados</t></t>
@@ -213,12 +213,24 @@
                                 <div class="som_bi__canvas tall"><canvas id="som_i_states"/></div>
                             </div>
                             <div class="som_bi__panel wide" style="grid-row: span 2;">
-                                <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Top materiales en stock (m²)</span><span class="drill">click = profundizar</span></div>
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Top materiales en stock (m² sin committed)</span><span class="drill">click = profundizar</span></div>
                                 <div class="som_bi__canvas xtall"><canvas id="som_i_top"/></div>
                             </div>
                             <div class="som_bi__panel">
                                 <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Antigüedad (regla Stone Profit)</span></div>
                                 <div class="som_bi__canvas tall"><canvas id="som_i_aging"/></div>
+                            </div>
+                            <div class="som_bi__panel">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot red"/> Stock vendido en bodega (committed)</span></div>
+                                <div class="som_bi__minitable">
+                                    <div class="row head3"><span>Material</span><b>m²</b><b>Lotes</b></div>
+                                    <div t-foreach="data.top_vendido or []" t-as="tv" t-key="tv.key" class="row row3">
+                                        <span t-att-title="tv.name" t-esc="tv.name"/>
+                                        <b t-esc="num(tv.m2)"/>
+                                        <b t-esc="num(tv.lots,0)"/>
+                                    </div>
+                                    <div t-if="!(data.top_vendido or []).length" class="row"><span>Sin material vendido almacenado</span></div>
+                                </div>
                             </div>
                             <div class="som_bi__panel wide">
                                 <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Merma dimensional por proveedor (PL vs medidas reales)</span></div>
