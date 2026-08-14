@@ -524,6 +524,32 @@ class StockTransitLine(models.Model):
     # -------------------------------------------------------------------------
 
     def write(self, vals):
+        # TRAMPA VACÍA-LÍNEAS (caso EMBARQUE/2026/0038): las líneas de los
+        # lotes no recibidos amanecieron con product_uom_qty = 0 sin que
+        # ningún código conocido las vacíe. Cualquier escritura que ponga
+        # en 0 (o reduzca) la cantidad de una línea CON LOTE de un viaje
+        # operativo queda registrada con el stack completo del autor.
+        if 'product_uom_qty' in (vals or {}):
+            try:
+                new_qty = float(vals.get('product_uom_qty') or 0.0)
+                suspects = self.filtered(
+                    lambda l: l.lot_id
+                    and l.voyage_id
+                    and l.voyage_id.custom_status not in ('cancel',)
+                    and (l.product_uom_qty or 0.0) > 0.01
+                    and new_qty < (l.product_uom_qty or 0.0) - 0.01)
+                if suspects:
+                    _logger.warning(
+                        "[TC_LINEZERO] Reducción/vaciado de %s línea(s) de "
+                        "viaje con lote (%s) a qty=%s. Stack del autor:",
+                        len(suspects),
+                        ', '.join((suspects.mapped('lot_id.name') or [])[:8]),
+                        new_qty,
+                        stack_info=True,
+                    )
+            except Exception:
+                pass
+
         if self.env.context.get('skip_reservation_logic'):
             return super(StockTransitLine, self).write(vals)
 
