@@ -907,8 +907,15 @@ class SomAnalytics(models.AbstractModel):
 
         # Crecen vs caen: venta del periodo vs el periodo ANTERIOR de la
         # misma duración, por cliente (solo quienes movieron dinero).
-        _span = (dt[1] - dt[0])
-        _prev_from, _prev_to = dt[0] - _span, dt[0]
+        # OJO: los límites de _bounds viajan como STRING — parsear antes
+        # de restar (str - str truena y tumba todo el dominio comercial).
+        def _as_dt(x):
+            if isinstance(x, str):
+                return fields.Datetime.from_string(x[:19])
+            return x
+        _d0, _d1 = _as_dt(dt[0]), _as_dt(dt[1])
+        _span = _d1 - _d0
+        _prev_from, _prev_to = _d0 - _span, _d0
         growth_rows = self._sq("""
             SELECT COALESCE(rp.name, ''),
                    SUM(CASE WHEN so.create_date >= %(cf)s
