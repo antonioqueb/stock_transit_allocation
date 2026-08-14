@@ -807,6 +807,143 @@ class SomAnalytics(models.AbstractModel):
         _AGING_ORDER = ['0-7 días', '8-14 días', '15-30 días', '> 30 días']
         pack['quotes_aging'].sort(key=lambda r: _AGING_ORDER.index(r['bucket']))
 
+        # ── ANALÍTICA DE CLIENTES (página Clientes del dashboard) ──
+        # Todo por CLIENTE: concentración, altas nuevos/recurrentes,
+        # recencia y crecimiento vs el periodo anterior equivalente.
+        pack['customers_full'] = self._agg(
+            rows, lambda r: r['partner_id'], lambda r: r['partner_name'],
+            order='venta', limit=40)
+
+        _act = {r['partner_id'] for r in rows}
+        pack['kpis']['clientes_activos'] = len(_act)
+        pack['kpis']['ticket_promedio'] = round(
+            pack['kpis']['venta_mxn'] / pack['kpis']['ordenes'], 2
+        ) if pack['kpis']['ordenes'] else 0.0
+        _top5 = sum(c['venta'] for c in pack['customers_full'][:5])
+        pack['kpis']['conc_top5_pct'] = round(
+            _top5 / pack['kpis']['venta_mxn'] * 100, 1
+        ) if pack['kpis']['venta_mxn'] else 0.0
+
+        # Nuevos vs recurrentes por mes (12 meses fijos, conteo de clientes
+        # que COMPRARON en el mes; nuevo = su primera orden histórica cae
+        # en ese mes).
+        pack['customers_monthly'] = [
+            {'month': a, 'nuevos': int(b or 0), 'recurrentes': int(c or 0)}
+            for (a, b, c) in self._sq("""
+                WITH firsts AS (
+                    SELECT partner_id, MIN(create_date) AS fdt
+                    FROM sale_order WHERE state = 'sale' GROUP BY 1
+                ), mo AS (
+                    SELECT so.partner_id,
+                           to_char(so.create_date, 'YYYY-MM') AS m
+                    FROM sale_order so
+                    WHERE so.state = 'sale'
+                      AND so.create_date >= date_trunc(
+                          'month', CURRENT_DATE) - INTERVAL '11 months'
+                    GROUP BY 1, 2
+                )
+                SELECT mo.m,
+                       COUNT(*) FILTER (
+                           WHERE to_char(f.fdt, 'YYYY-MM') = mo.m),
+                       COUNT(*) FILTER (
+                           WHERE to_char(f.fdt, 'YYYY-MM') <> mo.m)
+                FROM mo JOIN firsts f ON f.partner_id = mo.partner_id
+                GROUP BY mo.m ORDER BY mo.m
+            """, default=[])
+        ]
+        pack['kpis']['clientes_nuevos'] = int(self._sq("""
+            WITH firsts AS (
+                SELECT partner_id, MIN(create_date) AS fdt
+                FROM sale_order WHERE state = 'sale' GROUP BY 1
+            )
+            SELECT COUNT(*) FROM firsts
+            WHERE fdt >= %s AND fdt <= %s
+        """, dt, default=[(0,)])[0][0] or 0)
+
+        # Recencia: días desde la ÚLTIMA compra de cada cliente con
+        # historial, con su venta de los últimos 12 meses (para dimensionar
+        # qué tanto dinero está en cada franja de silencio).
+        pack['customers_recency'] = [
+            {'bucket': a, 'count': int(b or 0),
+             'venta_12m': round(c or 0.0, 2)}
+            for (a, b, c) in self._sq("""
+                WITH last AS (
+                    SELECT so.partner_id,
+                           CURRENT_DATE - MAX(so.create_date)::date AS dd,
+                           SUM(CASE WHEN so.create_date >=
+                                   CURRENT_DATE - INTERVAL '12 months'
+                               THEN (CASE WHEN rc.name = 'USD'
+                                     THEN so.amount_total
+                                          * COALESCE(NULLIF(
+                                              so.x_delivery_exchange_rate, 0),
+                                              %(rate)s)
+                                     ELSE so.amount_total END)
+                               ELSE 0 END) AS v12
+                    FROM sale_order so
+                    LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+                    LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+                    WHERE so.state = 'sale'
+                    GROUP BY 1
+                )
+                SELECT CASE
+                        WHEN dd <= 30 THEN '0-30 días'
+                        WHEN dd <= 60 THEN '31-60 días'
+                        WHEN dd <= 90 THEN '61-90 días'
+                        WHEN dd <= 180 THEN '91-180 días'
+                        ELSE '> 180 días' END,
+                       COUNT(*), COALESCE(SUM(v12), 0)
+                FROM last GROUP BY 1
+            """, {'rate': rate}, default=[])
+        ]
+        _rec_order = ['0-30 días', '31-60 días', '61-90 días',
+                      '91-180 días', '> 180 días']
+        pack['customers_recency'].sort(
+            key=lambda r: _rec_order.index(r['bucket'])
+            if r['bucket'] in _rec_order else 99)
+        pack['kpis']['clientes_en_riesgo'] = sum(
+            r['count'] for r in pack['customers_recency']
+            if r['bucket'] in ('91-180 días', '> 180 días')
+            and r['venta_12m'] > 0)
+
+        # Crecen vs caen: venta del periodo vs el periodo ANTERIOR de la
+        # misma duración, por cliente (solo quienes movieron dinero).
+        _span = (dt[1] - dt[0])
+        _prev_from, _prev_to = dt[0] - _span, dt[0]
+        growth_rows = self._sq("""
+            SELECT COALESCE(rp.name, ''),
+                   SUM(CASE WHEN so.create_date >= %(cf)s
+                             AND so.create_date <= %(ct)s
+                       THEN amt ELSE 0 END) AS cur,
+                   SUM(CASE WHEN so.create_date >= %(pf)s
+                             AND so.create_date < %(pt)s
+                       THEN amt ELSE 0 END) AS prev
+            FROM (
+                SELECT so.id, so.partner_id, so.create_date,
+                       CASE WHEN rc.name = 'USD'
+                            THEN so.amount_total * COALESCE(NULLIF(
+                                so.x_delivery_exchange_rate, 0), %(rate)s)
+                            ELSE so.amount_total END AS amt
+                FROM sale_order so
+                LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+                LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+                WHERE so.state = 'sale'
+                  AND so.create_date >= %(pf)s AND so.create_date <= %(ct)s
+            ) so
+            JOIN res_partner rp ON rp.id = so.partner_id
+            GROUP BY 1
+            HAVING SUM(amt) <> 0
+        """, {'cf': dt[0], 'ct': dt[1], 'pf': _prev_from,
+               'pt': _prev_to, 'rate': rate}, default=[])
+        _growth = [
+            {'name': a, 'cur': round(b or 0.0, 2),
+             'prev': round(c or 0.0, 2),
+             'delta': round((b or 0.0) - (c or 0.0), 2)}
+            for (a, b, c) in growth_rows
+        ]
+        _growth.sort(key=lambda g: -g['delta'])
+        pack['customers_growth'] = (
+            _growth[:8] + [g for g in _growth[-8:] if g['delta'] < 0])
+
         # ── Órdenes con MATERIAL ASIGNADO sin pago aplicado ──
         # Riesgo vivo: la orden ya tiene placas/quants amarrados (carrito o
         # selector) pero el pago no está aplicado al 100%. Incluye las que
