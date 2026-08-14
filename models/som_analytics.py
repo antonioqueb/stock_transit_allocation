@@ -807,6 +807,80 @@ class SomAnalytics(models.AbstractModel):
         _AGING_ORDER = ['0-7 días', '8-14 días', '15-30 días', '> 30 días']
         pack['quotes_aging'].sort(key=lambda r: _AGING_ORDER.index(r['bucket']))
 
+        # ── Órdenes con MATERIAL ASIGNADO sin pago aplicado ──
+        # Riesgo vivo: la orden ya tiene placas/quants amarrados (carrito o
+        # selector) pero el pago no está aplicado al 100%. Incluye las que
+        # tienen EVIDENCIA (comprobante subido o recibo de efectivo) sin
+        # aplicar del todo — el tiempo corre desde la fecha de la orden.
+        pack['unpaid_assigned'] = []
+        SOf = self.env['sale.order']._fields
+        if 'delivery_paid_amount' in SOf:
+            proof_sql = "false"
+            if 'sale.payment.proof' in self.env:
+                proof_sql = ("EXISTS(SELECT 1 FROM sale_payment_proof pp "
+                             "WHERE pp.sale_order_id = so.id)")
+            cash_sql = "false"
+            if 'cash.receipt' in self.env:
+                crf = self.env['cash.receipt']._fields.get('sale_order_ids')
+                if crf is not None and getattr(crf, 'relation', None):
+                    # columna que apunta a la ORDEN (la otra apunta al recibo)
+                    col_so = (crf.column1 if 'order' in crf.column1
+                              else crf.column2)
+                    cash_sql = (
+                        "EXISTS(SELECT 1 FROM {rel} cr WHERE cr.{col} = so.id)"
+                    ).format(rel=crf.relation, col=col_so)
+            assigned_sql = (
+                "(EXISTS(SELECT 1 FROM sale_order_line_stock_quant_rel rq "
+                "JOIN sale_order_line rql ON rql.id = rq.sale_order_line_id "
+                "WHERE rql.order_id = so.id)"
+            )
+            lrel = self.env['sale.order.line']._fields.get('lot_ids')
+            if lrel is not None and getattr(lrel, 'relation', None):
+                assigned_sql += (
+                    " OR EXISTS(SELECT 1 FROM {rel} rl "
+                    "JOIN sale_order_line rll ON rll.id = rl.{c1} "
+                    "WHERE rll.order_id = so.id)"
+                ).format(rel=lrel.relation, c1=lrel.column1)
+            assigned_sql += ")"
+
+            rows_ua = self._sq("""
+                SELECT so.name, COALESCE(rp.name, ''), COALESCE(sp.name, ''),
+                       so.amount_total,
+                       COALESCE(so.delivery_paid_amount, 0),
+                       CURRENT_DATE - so.create_date::date,
+                       {proof} AS has_proof,
+                       {cash} AS has_cash
+                FROM sale_order so
+                LEFT JOIN res_partner rp ON rp.id = so.partner_id
+                LEFT JOIN res_users ru ON ru.id = so.user_id
+                LEFT JOIN res_partner sp ON sp.id = ru.partner_id
+                WHERE so.state = 'sale'
+                  AND so.amount_total > 0
+                  AND COALESCE(so.delivery_paid_amount, 0)
+                      < so.amount_total - 0.01
+                  AND {assigned}
+                ORDER BY (CURRENT_DATE - so.create_date::date) DESC,
+                         so.amount_total DESC
+                LIMIT 20
+            """.format(proof=proof_sql, cash=cash_sql,
+                       assigned=assigned_sql), default=[])
+            for (nm, prt, sel, amt, paid, days, hp, hc) in rows_ua:
+                paid = float(paid or 0.0)
+                amt = float(amt or 0.0)
+                if paid > 0:
+                    status = 'Aplicado parcial'
+                elif hp or hc:
+                    status = ('Efectivo sin aplicar' if hc and not hp
+                              else 'Comprobante sin aplicar')
+                else:
+                    status = 'Sin pago'
+                pack['unpaid_assigned'].append({
+                    'name': nm, 'partner': prt, 'seller': sel,
+                    'amount': round(amt, 2), 'paid': round(paid, 2),
+                    'paid_pct': round(paid / amt * 100, 1) if amt else 0.0,
+                    'days': int(days or 0), 'status': status,
+                })
+
         # Cotizaciones estancadas: mayores montos abiertos con su antigüedad.
         pack['stalled_quotes'] = [
             {'name': a, 'partner': b, 'seller': c,
