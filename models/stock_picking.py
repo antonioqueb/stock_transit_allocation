@@ -830,6 +830,27 @@ class StockPicking(models.Model):
             voyage = physical_voyage_by_pick.get(pick.id)
             if voyage and pick.state == 'done':
                 voyage.sudo()._tc_after_partial_reception(pick)
+                # REGLA DE NEGOCIO: si el inventario NO se publicó (el
+                # cálculo de precios all-in vive en publicar), la
+                # RECEPCIÓN validada es el segundo y último disparador.
+                if not voyage.transit_inventory_published:
+                    templates = pick.move_ids.mapped(
+                        'product_id.product_tmpl_id')
+                    if templates and hasattr(
+                            templates, '_compute_costo_all_in'):
+                        try:
+                            templates._compute_costo_all_in()
+                            if hasattr(templates,
+                                       '_calculate_escalera_precios'):
+                                templates._calculate_escalera_precios()
+                            voyage.sudo().message_post(body=(
+                                '💲 Precios de venta all-in recalculados '
+                                'al RECIBIR (el inventario no se publicó; '
+                                '%s producto(s)).') % len(templates))
+                        except Exception:
+                            _logger.exception(
+                                '[TC_RECEPTION] Falló el recálculo de '
+                                'precios all-in al recibir %s.', pick.name)
 
         for pick in self:
             is_transit_loc = False

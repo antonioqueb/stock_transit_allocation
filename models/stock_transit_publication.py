@@ -400,6 +400,23 @@ class StockTransitVoyagePublication(models.Model):
             committed_qty = sum(committed_lines.mapped("product_uom_qty"))
             available_qty = sum(available_lines.mapped("product_uom_qty"))
 
+            # REGLA DE NEGOCIO: el precio de venta ALL-IN se calcula AL
+            # PUBLICAR el inventario (costo all-in + escalera de
+            # utilidades). Guards por si el módulo de precios no está.
+            templates = lines.mapped('product_id.product_tmpl_id')
+            if templates and hasattr(templates, '_compute_costo_all_in'):
+                try:
+                    templates._compute_costo_all_in()
+                    if hasattr(templates, '_calculate_escalera_precios'):
+                        templates._calculate_escalera_precios()
+                    voyage.message_post(body=(
+                        '💲 Precios de venta all-in recalculados al '
+                        'publicar (%s producto(s)).') % len(templates))
+                except Exception:
+                    _logger.exception(
+                        '[TC_PUBLISH] Falló el recálculo de precios all-in '
+                        'al publicar el viaje %s.', voyage.name)
+
             voyage.write({
                 "transit_inventory_published": True,
                 "transit_inventory_published_at": fields.Datetime.now(),
