@@ -1,0 +1,112 @@
+// Barra de flujo de recepción 0-7: pasos con número, conectores que se
+// pintan al completarse y pulso en el paso actual. Branding azul de la
+// casa sobre fondo blanco.
+.o_rcpflow {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    padding: 12px 18px 10px;
+    background: #fff;
+    border-bottom: 1px solid #e5e9f2;
+    overflow-x: auto;
+
+    .o_rcpflow_step {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        min-width: 74px;
+        flex: 0 0 auto;
+
+        .o_rcpflow_dot {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 800;
+            font-variant-numeric: tabular-nums;
+            background: #f1f5f9;
+            color: #94a3b8;
+            border: 2px solid #e2e8f0;
+            transition: all .25s ease;
+        }
+
+        .o_rcpflow_label {
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .02em;
+            color: #94a3b8;
+            text-align: center;
+            line-height: 1.25;
+            max-width: 86px;
+
+            .o_rcpflow_num { display: none; }
+        }
+
+        &.done {
+            .o_rcpflow_dot {
+                background: #0b57d0;
+                border-color: #0b57d0;
+                color: #fff;
+            }
+            .o_rcpflow_label { color: #0b57d0; }
+        }
+
+        &.current {
+            .o_rcpflow_dot {
+                background: #fff;
+                border-color: #0b57d0;
+                color: #0b57d0;
+                box-shadow: 0 0 0 0 rgba(11, 87, 208, .35);
+                animation: o-rcpflow-pulse 1.8s ease-out infinite;
+            }
+            .o_rcpflow_label { color: #0f172a; }
+        }
+    }
+
+    .o_rcpflow_link {
+        flex: 1 1 26px;
+        min-width: 14px;
+        height: 2px;
+        margin-top: 13px;
+        background: #e2e8f0;
+        transition: background .25s ease;
+
+        &.done { background: #0b57d0; }
+    }
+
+    .o_rcpflow_done_badge {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        align-self: center;
+        margin-left: 14px;
+        padding: 4px 12px;
+        border-radius: 999px;
+        background: #dcfce7;
+        color: #15803d;
+        font-size: 10.5px;
+        font-weight: 800;
+        letter-spacing: .03em;
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+
+    &.o_rcpflow_complete {
+        .o_rcpflow_step.done .o_rcpflow_dot {
+            background: #16a34a;
+            border-color: #16a34a;
+        }
+        .o_rcpflow_step.done .o_rcpflow_label { color: #15803d; }
+        .o_rcpflow_link.done { background: #16a34a; }
+    }
+}
+
+@keyframes o-rcpflow-pulse {
+    0% { box-shadow: 0 0 0 0 rgba(11, 87, 208, .35); }
+    70% { box-shadow: 0 0 0 9px rgba(11, 87, 208, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(11, 87, 208, 0); }
+}

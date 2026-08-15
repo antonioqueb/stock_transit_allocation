@@ -49,10 +49,20 @@
                         invisible="not tc_reception_voyage_id or state in ('done', 'cancel')"
                         confirm="CERRAR LA DEMANDA del embarque: el material que aún no llega quedará CANCELADO y el embarque se dará por terminado. Esta es la ÚNICA forma de matar el pendiente — ¿confirmas?"/>
                 <button name="action_print_reception_labels"
-                        string="🏷️ Imprimir Etiquetas"
+                        string="7️⃣ 🏷️ Imprimir Etiquetas"
                         type="object"
                         class="btn-secondary"
                         invisible="not tc_is_physical_reception"/>
+            </xpath>
+
+            <!-- Barra de estatus del flujo 0-7: espejo de la botonera
+                 numerada, entre el header y la hoja. -->
+            <xpath expr="//sheet" position="before">
+                <div invisible="picking_type_code != 'incoming'">
+                    <field name="worksheet_printed" invisible="1"/>
+                    <field name="tc_label_print_count" invisible="1"/>
+                    <widget name="reception_flow_bar"/>
+                </div>
             </xpath>
 
             <div name="button_box" position="inside">

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.96.8.0',
+    'version': '19.0.96.9.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -117,6 +117,11 @@
 
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
+
+            # Barra de estatus del flujo de recepción 0-7
+            'stock_transit_allocation/static/src/components/reception_flow_bar/reception_flow_bar.js',
+            'stock_transit_allocation/static/src/components/reception_flow_bar/reception_flow_bar.xml',
+            'stock_transit_allocation/static/src/components/reception_flow_bar/reception_flow_bar.scss',
 
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.js',
             'stock_transit_allocation/static/src/components/transit_voyage_lines/transit_line_propagate.xml',
