@@ -38,4 +38,8 @@ export class ReceptionFlowBar extends Component {
     }
 }
 
-registry.category("view_widgets").add("reception_flow_bar", ReceptionFlowBar);
+// Odoo 19: el registry view_widgets espera { component }, no la clase
+// pelona (el wrapper Widget hace widget.component en su template).
+registry.category("view_widgets").add("reception_flow_bar", {
+    component: ReceptionFlowBar,
+});
