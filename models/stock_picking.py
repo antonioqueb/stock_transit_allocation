@@ -1411,7 +1411,16 @@ class StockPicking(models.Model):
                 move_line.with_context(ctx).unlink()
 
             if sale_line and 'lot_ids' in sale_line._fields and lot in sale_line.lot_ids:
-                sale_line.with_context(ctx).write({
+                sale_line.with_context(
+                    ctx,
+                    som_lot_log_reason=(
+                        'Liberación automática al recibir %s: la placa estaba '
+                        'autoasignada aquí y el tránsito la tenía reservada '
+                        'para %s' % (
+                            self.name or 'la recepción',
+                            current_order.name if current_order else 'otro pedido')
+                    ),
+                ).write({
                     'lot_ids': [(3, lot.id)],
                 })
 

@@ -2952,7 +2952,9 @@ class SaleOrderLine(models.Model):
             if 'x_lot_breakdown_json' in line._fields and line.x_lot_breakdown_json:
                 clear_vals['x_lot_breakdown_json'] = False
             if clear_vals:
-                line.write(clear_vals)
+                line.with_context(som_lot_log_reason=(
+                    'Se borró la línea de la orden de venta'
+                )).write(clear_vals)
             if 'move_ids' in line._fields:
                 pending = line.move_ids.filtered(
                     lambda m: m.state not in ('done', 'cancel')
