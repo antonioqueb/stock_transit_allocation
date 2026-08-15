@@ -49,16 +49,17 @@
                         invisible="not tc_reception_voyage_id or state in ('done', 'cancel')"
                         confirm="CERRAR LA DEMANDA del embarque: el material que aún no llega quedará CANCELADO y el embarque se dará por terminado. Esta es la ÚNICA forma de matar el pendiente — ¿confirmas?"/>
                 <button name="action_print_reception_labels"
-                        string="7️⃣ 🏷️ Imprimir Etiquetas"
+                        string="❼ 🏷️ Imprimir Etiquetas"
                         type="object"
                         class="btn-secondary"
                         invisible="not tc_is_physical_reception"/>
             </xpath>
 
             <!-- Barra de estatus del flujo 0-7: espejo de la botonera
-                 numerada, entre el header y la hoja. -->
+                 numerada, entre el header y la hoja. También en las
+                 recepciones físicas de Torre de Control (tipo interno). -->
             <xpath expr="//sheet" position="before">
-                <div invisible="picking_type_code != 'incoming'">
+                <div invisible="picking_type_code != 'incoming' and not tc_is_physical_reception">
                     <field name="worksheet_printed" invisible="1"/>
                     <field name="tc_label_print_count" invisible="1"/>
                     <widget name="reception_flow_bar"/>
@@ -148,6 +149,29 @@
             <!-- Procesar Worksheet original. -->
             <xpath expr="//header/button[@name='action_import_worksheet']" position="attributes">
                 <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or not ws_spreadsheet_id or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+
+            <!-- ⓿ Comenzar y ❻ Validar también en recepciones físicas
+                 internas de Torre de Control (los nativos sin número se
+                 ocultan ahí igual que en incoming).
+                 Orden en el arch combinado: action_assign [1]=nativo,
+                 [2]=⓿ Comenzar; button_validate [1]=❻ Validar (insertado
+                 tras action_assign), [2]=nativo oe_highlight, y el nativo
+                 o_btn_validate se distingue por hasclass. -->
+            <xpath expr="(//header/button[@name='action_assign'])[1]" position="attributes">
+                <attribute name="invisible">not show_check_availability or picking_type_code == 'incoming' or tc_is_physical_reception</attribute>
+            </xpath>
+            <xpath expr="(//header/button[@name='action_assign'])[2]" position="attributes">
+                <attribute name="invisible">not show_check_availability or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+            <xpath expr="(//header/button[@name='button_validate'])[1]" position="attributes">
+                <attribute name="invisible">state in ('draft', 'done', 'cancel') or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
+            </xpath>
+            <xpath expr="(//header/button[@name='button_validate'])[2]" position="attributes">
+                <attribute name="invisible">state in ('draft', 'confirmed', 'done', 'cancel') or picking_type_code == 'incoming' or tc_is_physical_reception</attribute>
+            </xpath>
+            <xpath expr="//header/button[@name='button_validate'][hasclass('o_btn_validate')]" position="attributes">
+                <attribute name="invisible">state in ('waiting', 'assigned', 'done', 'cancel') or picking_type_code == 'incoming' or tc_is_physical_reception</attribute>
             </xpath>
 
         </field>
