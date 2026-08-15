@@ -49,7 +49,7 @@
                         invisible="not tc_reception_voyage_id or state in ('done', 'cancel')"
                         confirm="CERRAR LA DEMANDA del embarque: el material que aún no llega quedará CANCELADO y el embarque se dará por terminado. Esta es la ÚNICA forma de matar el pendiente — ¿confirmas?"/>
                 <button name="action_print_reception_labels"
-                        string="❼ 🏷️ Imprimir Etiquetas"
+                        string="7. 🏷️ Imprimir Etiquetas"
                         type="object"
                         class="btn-secondary"
                         invisible="not tc_is_physical_reception"/>
@@ -151,11 +151,11 @@
                 <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or not ws_spreadsheet_id or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
             </xpath>
 
-            <!-- ⓿ Comenzar y ❻ Validar también en recepciones físicas
+            <!-- 0. Comenzar y 6. Validar también en recepciones físicas
                  internas de Torre de Control (los nativos sin número se
                  ocultan ahí igual que en incoming).
                  Orden en el arch combinado: action_assign [1]=nativo,
-                 [2]=⓿ Comenzar; button_validate [1]=❻ Validar (insertado
+                 [2]=0. Comenzar; button_validate [1]=6. Validar (insertado
                  tras action_assign), [2]=nativo oe_highlight, y el nativo
                  o_btn_validate se distingue por hasclass. -->
             <xpath expr="(//header/button[@name='action_assign'])[1]" position="attributes">
