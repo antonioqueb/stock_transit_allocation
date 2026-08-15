@@ -9,7 +9,6 @@
 
         Aquí solo agregamos:
         - Campo técnico tc_is_physical_reception
-        - Botón Sincronizar con Embarque
         - Smart button de tránsito
         - Pedidos consolidados
 
@@ -41,13 +40,6 @@
                         confirm="Esta recepción se desvinculará del embarque del portal y las placas del PL se reasignarán a una recepción NUEVA. ¿Continuar?"
                         invisible="state not in ('done', 'cancel') or not supplier_shipment_id"
                         groups="stock.group_stock_user"/>
-
-                <button name="action_sync_from_voyage"
-                        string="📲 Sincronizar con Embarque"
-                        type="object"
-                        class="btn-primary"
-                        groups="stock.group_stock_user"
-                        invisible="not tc_is_physical_reception or state in ('done', 'cancel')"/>
 
                 <button name="action_tc_close_demand"
                         type="object"
