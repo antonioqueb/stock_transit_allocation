@@ -43,13 +43,13 @@
 
                 <button name="action_tc_close_demand"
                         type="object"
-                        string="✂ Cerrar demanda"
+                        string="Cerrar demanda"
                         class="btn-warning"
                         groups="stock.group_stock_user"
                         invisible="not tc_reception_voyage_id or state in ('done', 'cancel')"
                         confirm="CERRAR LA DEMANDA del embarque: el material que aún no llega quedará CANCELADO y el embarque se dará por terminado. Esta es la ÚNICA forma de matar el pendiente — ¿confirmas?"/>
                 <button name="action_print_reception_labels"
-                        string="7. 🏷️ Imprimir Etiquetas"
+                        string="7. Imprimir Etiquetas"
                         type="object"
                         class="btn-secondary"
                         invisible="not tc_is_physical_reception"/>

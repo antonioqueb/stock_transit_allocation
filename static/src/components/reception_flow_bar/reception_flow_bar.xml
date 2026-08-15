@@ -6,14 +6,10 @@
                 <div t-if="!s_first" t-attf-class="o_rcpflow_link {{ s.state === 'done' ? 'done' : '' }}"/>
                 <div t-attf-class="o_rcpflow_step {{ s.state }}"
                      t-att-title="s.n + ' · ' + s.label">
-                    <div class="o_rcpflow_dot">
-                        <t t-if="s.state === 'done'">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
-                        </t>
-                        <t t-else="">
-                            <t t-esc="s.n"/>
-                        </t>
-                    </div>
+                    <!-- El dot SIEMPRE muestra el número del paso: el estado
+                         (hecho / actual / pendiente) se comunica con color,
+                         nunca sustituyendo el número por un ícono. -->
+                    <div class="o_rcpflow_dot"><t t-esc="s.n"/></div>
                     <div class="o_rcpflow_label">
                         <span class="o_rcpflow_num"><t t-esc="s.n"/></span>
                         <t t-esc="s.label"/>
