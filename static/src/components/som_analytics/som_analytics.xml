@@ -576,6 +576,65 @@
                                     </div>
                                 </div>
 
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Autorizaciones de precio — tiempo de respuesta</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head4"><span>Autorizador</span><b>Resueltas</b><b>Mediana</b><b>Peor caso</b></div>
+                                        <div t-foreach="data.autorizadores" t-as="a" t-key="a_index" class="row row4">
+                                            <span t-esc="a.usuario"/>
+                                            <b t-esc="num(a.resueltas,0)"/>
+                                            <b t-attf-class="pill #{a.min_mediana &lt;= 30 ? 'good' : a.min_mediana &lt;= 120 ? 'mid' : 'bad'}"
+                                               t-esc="num(a.min_mediana) + ' min'"/>
+                                            <b t-esc="num(a.min_peor) + ' min'"/>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Cotización y cierre por vendedor</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head6"><span>Vendedor</span><b>Creadas</b><b>Cerradas</b><b>% cierre</b><b>Abiertas</b><b>Edad</b></div>
+                                        <div t-foreach="data.cotizaciones" t-as="c" t-key="c_index" class="row row6">
+                                            <span t-esc="c.usuario"/>
+                                            <b t-esc="num(c.creadas,0)"/>
+                                            <b t-esc="num(c.confirmadas,0)"/>
+                                            <b t-attf-class="pill #{c.pct_cierre &gt;= 50 ? 'good' : c.pct_cierre &gt;= 25 ? 'mid' : 'bad'}"
+                                               t-esc="num(c.pct_cierre,0) + '%'"/>
+                                            <b t-esc="num(c.abiertas,0)"/>
+                                            <b t-esc="num(c.edad_abiertas,0) + ' d'"/>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot green"/> Apartados: conversión y material vencido</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head6"><span>Vendedor</span><b>Creados</b><b>Convertidos</b><b>% conv.</b><b>Vencidos</b><b>Días</b></div>
+                                        <div t-foreach="data.apartados" t-as="ap" t-key="ap_index" class="row row6">
+                                            <span t-esc="ap.usuario"/>
+                                            <b t-esc="num(ap.creados,0)"/>
+                                            <b t-esc="num(ap.convertidos,0)"/>
+                                            <b t-attf-class="pill #{ap.pct_conversion &gt;= 50 ? 'good' : ap.pct_conversion &gt;= 25 ? 'mid' : 'bad'}"
+                                               t-esc="num(ap.pct_conversion,0) + '%'"/>
+                                            <b t-attf-class="pill #{ap.vencidos ? 'bad' : 'good'}" t-esc="num(ap.vencidos,0)"/>
+                                            <b t-esc="num(ap.dias_bloqueo,0) + ' d'"/>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot violet"/> Movimiento de placas por persona</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head4"><span>Persona</span><b>Asignó</b><b>Desasignó</b><b>Automáticas</b></div>
+                                        <div t-foreach="data.placas" t-as="pl" t-key="pl_index" class="row row4">
+                                            <span t-esc="pl.usuario"/>
+                                            <b t-esc="num(pl.asignadas,0)"/>
+                                            <b t-esc="num(pl.desasignadas,0)"/>
+                                            <b t-esc="num(pl.automaticas,0)"/>
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <div class="som_bi__panel">
                                     <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Cómo leer estos números</span></div>
                                     <div style="padding: 12px 16px; font-size: 12px; line-height: 1.75; color: #475569;">

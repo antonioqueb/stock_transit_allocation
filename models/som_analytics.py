@@ -2811,14 +2811,15 @@ class SomAnalytics(models.AbstractModel):
         date_from, date_to = self._dates(f)
         params = (date_from, date_to)
 
-        empty = {
+        vacio_actividad = {
             'kpis': {
                 'usuarios': 0, 'horas_activas': 0.0, 'horas_inactivas': 0.0,
                 'pct_activo': 0.0, 'espera_prom_ms': 0.0, 'espera_max_ms': 0.0,
                 'sesiones': 0, 'horas_por_usuario': 0.0,
             },
-            'usuarios': [], 'pantallas': [], 'horario': [],
-            'captura': [], 'sin_datos': True,
+            'usuarios': [], 'pantallas': [], 'horario': [], 'captura': [],
+            'documentos': [], 'dispositivos': [], 'curva': [],
+            'concurrencia': [], 'sin_datos': True,
         }
 
         totals = self._sq("""
@@ -2834,7 +2835,12 @@ class SomAnalytics(models.AbstractModel):
 
         users_count = totals[0] or 0
         if not users_count:
-            return empty
+            # La medición de tiempo puede estar recién desplegada, pero el
+            # rastro operativo (bloque C) existe desde siempre: la pestaña
+            # NO se queda vacía por eso.
+            salida = dict(vacio_actividad)
+            salida.update(self._som_user_business_pack(f))
+            return salida
 
         active_s = float(totals[1] or 0)
         idle_s = float(totals[2] or 0)
@@ -2981,7 +2987,81 @@ class SomAnalytics(models.AbstractModel):
             LIMIT 15
         """, params)]
 
-        return {
+        # ── A14 · Minutos activos por TIPO de documento ───────────────
+        etiquetas_modelo = {
+            'sale.order': 'Orden de venta', 'stock.lot.hold.order': 'Apartado',
+            'stock.picking': 'Recepción / entrega', 'purchase.order': 'Compra',
+            'product.template': 'Producto', 'res.partner': 'Cliente',
+            'stock.lot': 'Placa', 'account.move': 'Factura',
+        }
+        documentos = [{
+            'modelo': etiquetas_modelo.get(r[0], r[0] or ''),
+            'documentos': int(r[1] or 0),
+            'minutos_mediana': round(float(r[2] or 0) / 60.0, 1),
+            'minutos_total': round(float(r[3] or 0) / 60.0, 1),
+            'personas': int(r[4] or 0),
+        } for r in self._sq("""
+            SELECT modelo, COUNT(*),
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY segundos),
+                   SUM(segundos), COUNT(DISTINCT user_id)
+            FROM (
+                SELECT model_name AS modelo, user_id, res_id,
+                       SUM(active_seconds) AS segundos
+                FROM som_user_activity
+                WHERE day >= %s AND day <= %s
+                  AND model_name IS NOT NULL AND res_id > 0
+                GROUP BY 1, 2, 3
+                HAVING SUM(active_seconds) >= 30
+            ) d GROUP BY modelo ORDER BY 4 DESC LIMIT 12
+        """, params)]
+
+        # ── A15 · Escritorio contra móvil ─────────────────────────────
+        dispositivos = [{
+            'dispositivo': (r[0] or 'desconocido').capitalize(),
+            'sesiones': int(r[1] or 0), 'personas': int(r[2] or 0),
+            'horas': round(float(r[3] or 0) / 3600.0, 1),
+        } for r in self._sq("""
+            SELECT s.device, COUNT(*), COUNT(DISTINCT s.user_id),
+                   COALESCE(SUM(s.active_seconds), 0)
+            FROM som_user_session s
+            WHERE s.started_at >= %s::date
+              AND s.started_at < (%s::date + INTERVAL '1 day')
+            GROUP BY 1 ORDER BY 4 DESC
+        """, params)]
+
+        # ── A16 · Curva mes a mes: ¿mejora el equipo? ─────────────────
+        curva = [{
+            'mes': str(r[0] or '')[:7],
+            'horas_activas': round(float(r[1] or 0) / 3600.0, 1),
+            'pct_activo': round(float(r[1] or 0) * 100.0 /
+                                (float(r[1] or 0) + float(r[2] or 0)), 1)
+                          if (float(r[1] or 0) + float(r[2] or 0)) else 0.0,
+            'personas': int(r[3] or 0),
+            'espera_ms': round(float(r[4] or 0) / float(r[5]), 0) if r[5] else 0.0,
+        } for r in self._sq("""
+            SELECT TO_CHAR(day, 'YYYY-MM'), SUM(active_seconds),
+                   SUM(idle_seconds), COUNT(DISTINCT user_id),
+                   SUM(rpc_ms_total), NULLIF(SUM(rpc_count), 0)
+            FROM som_user_activity
+            WHERE day >= %s AND day <= %s
+            GROUP BY 1 ORDER BY 1
+        """, params)]
+
+        # ── A17 · Cuánta gente trabaja a la vez, por hora ─────────────
+        concurrencia = [{
+            'hora': int(r[0] or 0),
+            'pico': int(r[1] or 0),
+            'promedio': round(float(r[2] or 0), 1),
+        } for r in self._sq("""
+            SELECT hora, MAX(personas), AVG(personas) FROM (
+                SELECT hour AS hora, day, COUNT(DISTINCT user_id) AS personas
+                FROM som_user_activity
+                WHERE day >= %s AND day <= %s AND active_seconds > 0
+                GROUP BY hour, day
+            ) d GROUP BY hora ORDER BY hora
+        """, params)]
+
+        salida = {
             'kpis': {
                 'usuarios': users_count,
                 'horas_activas': round(active_s / 3600.0, 1),
@@ -2997,7 +3077,381 @@ class SomAnalytics(models.AbstractModel):
             'pantallas': pantallas,
             'horario': horario,
             'captura': captura,
+            'documentos': documentos,
+            'dispositivos': dispositivos,
+            'curva': curva,
+            'concurrencia': concurrencia,
             'sin_datos': False,
+        }
+        salida.update(self._som_user_business_pack(f))
+        return salida
+
+
+    # ── Bloque C del inventario de medición: el rastro que dejan los
+    #    desarrollos propios. A diferencia del bloque A (actividad), esto
+    #    tiene HISTORIA desde siempre: no depende del medidor.
+    #
+    #    Cada consulta va por su propio _sq (savepoint): si un módulo no
+    #    está instalado o una columna cambió, esa tarjeta sale vacía y el
+    #    resto del tablero sigue vivo.
+    def _som_user_business_pack(self, f):
+        dt_from, dt_to = self._bounds(f)
+        rng = (dt_from, dt_to)
+        NOMBRE = "COALESCE(p.name, u.login)"
+        JOIN = ("JOIN res_users u ON u.id = %s "
+                "LEFT JOIN res_partner p ON p.id = u.partner_id")
+
+        def rows(sql, params=None):
+            return self._sq(sql, params or rng, default=[])
+
+        # ── C1-C4 · Autorizadores de precio: tiempo de respuesta ──────
+        autorizadores = [{
+            'usuario': r[0] or '', 'resueltas': int(r[1] or 0),
+            'aprobadas': int(r[2] or 0), 'rechazadas': int(r[3] or 0),
+            'min_mediana': round(float(r[4] or 0), 1),
+            'min_promedio': round(float(r[5] or 0), 1),
+            'min_peor': round(float(r[6] or 0), 1),
+            'pct_aprobacion': round(float(r[2] or 0) * 100.0 / float(r[1]), 1) if r[1] else 0.0,
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   COUNT(*) FILTER (WHERE pa.state = 'approved'),
+                   COUNT(*) FILTER (WHERE pa.state = 'rejected'),
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (
+                       ORDER BY EXTRACT(EPOCH FROM (pa.authorization_date - pa.create_date))/60.0),
+                   AVG(EXTRACT(EPOCH FROM (pa.authorization_date - pa.create_date))/60.0),
+                   MAX(EXTRACT(EPOCH FROM (pa.authorization_date - pa.create_date))/60.0)
+            FROM price_authorization pa {j}
+            WHERE pa.authorization_date IS NOT NULL
+              AND pa.create_date >= %s AND pa.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'pa.authorizer_id'))]
+
+        # ── C1/C5 · Quién PIDE autorización y con qué resultado ───────
+        solicitantes = [{
+            'usuario': r[0] or '', 'solicitadas': int(r[1] or 0),
+            'aprobadas': int(r[2] or 0), 'rechazadas': int(r[3] or 0),
+            'pendientes': int(r[4] or 0),
+            'min_espera': round(float(r[5] or 0), 1),
+            'pct_rechazo': round(float(r[3] or 0) * 100.0 / float(r[1]), 1) if r[1] else 0.0,
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   COUNT(*) FILTER (WHERE pa.state = 'approved'),
+                   COUNT(*) FILTER (WHERE pa.state = 'rejected'),
+                   COUNT(*) FILTER (WHERE pa.state = 'pending'),
+                   AVG(EXTRACT(EPOCH FROM (pa.authorization_date - pa.create_date))/60.0)
+            FROM price_authorization pa {j}
+            WHERE pa.create_date >= %s AND pa.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'pa.seller_id'))]
+
+        # ── C3 · La cola viva: quién espera y desde hace cuánto ───────
+        auth_pendientes = [{
+            'folio': r[0] or '', 'usuario': r[1] or '',
+            'horas': round(float(r[2] or 0), 1),
+        } for r in self._sq("""
+            SELECT pa.name, {n},
+                   EXTRACT(EPOCH FROM (NOW() - pa.create_date))/3600.0
+            FROM price_authorization pa {j}
+            WHERE pa.state = 'pending'
+            ORDER BY 3 DESC LIMIT 15
+        """.format(n=NOMBRE, j=JOIN % 'pa.seller_id'), (), default=[])]
+
+        # ── C10-C12 · Cotización, cierre y deuda de datos por vendedor ─
+        cotizaciones = [{
+            'usuario': r[0] or '', 'creadas': int(r[1] or 0),
+            'confirmadas': int(r[2] or 0), 'abiertas': int(r[3] or 0),
+            'canceladas': int(r[4] or 0),
+            'edad_abiertas': round(float(r[5] or 0), 1),
+            'sin_proyecto': int(r[6] or 0), 'sin_referencia': int(r[7] or 0),
+            'venta': round(float(r[8] or 0), 2),
+            'pct_cierre': round(float(r[2] or 0) * 100.0 / float(r[1]), 1) if r[1] else 0.0,
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   COUNT(*) FILTER (WHERE so.state = 'sale'),
+                   COUNT(*) FILTER (WHERE so.state IN ('draft', 'sent')),
+                   COUNT(*) FILTER (WHERE so.state = 'cancel'),
+                   AVG(EXTRACT(EPOCH FROM (NOW() - so.date_order))/86400.0)
+                       FILTER (WHERE so.state IN ('draft', 'sent')),
+                   COUNT(*) FILTER (WHERE so.x_project_id IS NULL),
+                   COUNT(*) FILTER (WHERE so.client_order_ref IS NULL
+                                       OR so.client_order_ref = ''),
+                   COALESCE(SUM(so.amount_total) FILTER (WHERE so.state = 'sale'), 0)
+            FROM sale_order so {j}
+            WHERE so.date_order >= %s AND so.date_order <= %s
+              AND COALESCE(so.x_is_quote_backup, false) = false
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 25
+        """.format(n=NOMBRE, j=JOIN % 'so.user_id'))]
+
+        # ── C17-C22 · Apartados: bloquear material tiene costo ────────
+        apartados = [{
+            'usuario': r[0] or '', 'creados': int(r[1] or 0),
+            'convertidos': int(r[2] or 0), 'cancelados': int(r[3] or 0),
+            'vencidos': int(r[4] or 0), 'vivos': int(r[5] or 0),
+            'dias_bloqueo': round(float(r[6] or 0), 1),
+            'pct_conversion': round(float(r[2] or 0) * 100.0 / float(r[1]), 1) if r[1] else 0.0,
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   COUNT(*) FILTER (WHERE h.sale_order_id IS NOT NULL),
+                   COUNT(*) FILTER (WHERE h.state = 'cancel'),
+                   COUNT(*) FILTER (WHERE h.state = 'confirmed'
+                                      AND h.sale_order_id IS NULL
+                                      AND h.fecha_expiracion < NOW()),
+                   COUNT(*) FILTER (WHERE h.state = 'confirmed'
+                                      AND h.fecha_expiracion >= NOW()),
+                   AVG(EXTRACT(EPOCH FROM (h.fecha_expiracion - h.fecha_orden))/86400.0)
+            FROM stock_lot_hold_order h {j}
+            WHERE h.fecha_orden >= %s AND h.fecha_orden <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 25
+        """.format(n=NOMBRE, j=JOIN % 'h.user_id'))]
+
+        # ── C23-C26 · Placas: quién mueve material entre pedidos ──────
+        placas = [{
+            'usuario': r[0] or '', 'asignadas': int(r[1] or 0),
+            'desasignadas': int(r[2] or 0), 'lotes': int(r[3] or 0),
+            'automaticas': int(r[4] or 0),
+            'manuales': int(r[2] or 0) - int(r[4] or 0),
+        } for r in rows("""
+            SELECT {n},
+                   COUNT(*) FILTER (WHERE l.action = 'assign'),
+                   COUNT(*) FILTER (WHERE l.action = 'unassign'),
+                   COUNT(DISTINCT l.lot_id),
+                   COUNT(*) FILTER (WHERE l.action = 'unassign'
+                                      AND (l.reason ILIKE '%%autom%%'
+                                        OR l.reason ILIKE '%%limpieza%%'
+                                        OR l.reason ILIKE '%%liberaci%%'
+                                        OR l.reason ILIKE '%%sincronizaci%%'))
+            FROM stock_lot_assignment_log l {j}
+            WHERE l.date >= %s AND l.date <= %s
+            GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 25
+        """.format(n=NOMBRE, j=JOIN % 'l.user_id'))]
+
+        # ── C27 · Cambios de placa en pedidos ya hechos ───────────────
+        swaps = [{
+            'usuario': r[0] or '', 'cambios': int(r[1] or 0),
+            'pedidos': int(r[2] or 0),
+        } for r in rows("""
+            SELECT {n}, COUNT(*), COUNT(DISTINCT sw.sale_order_id)
+            FROM sale_stone_swap_history sw {j}
+            WHERE sw.create_date >= %s AND sw.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'sw.user_id'))]
+
+        # ── C38-C41 · Almacén: quién cierra el trabajo físico ─────────
+        almacen = [{
+            'usuario': r[0] or '', 'recepciones': int(r[1] or 0),
+            'entregas': int(r[2] or 0), 'internos': int(r[3] or 0),
+            'etiquetas': int(r[4] or 0), 'total': int(r[5] or 0),
+        } for r in rows("""
+            SELECT {n},
+                   COUNT(*) FILTER (WHERE t.code = 'incoming'),
+                   COUNT(*) FILTER (WHERE t.code = 'outgoing'),
+                   COUNT(*) FILTER (WHERE t.code = 'internal'),
+                   COALESCE(SUM(sp.tc_label_print_count), 0),
+                   COUNT(*)
+            FROM stock_picking sp
+            JOIN stock_picking_type t ON t.id = sp.picking_type_id
+            {j}
+            WHERE sp.state = 'done'
+              AND sp.date_done >= %s AND sp.date_done <= %s
+            GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 25
+        """.format(n=NOMBRE, j=JOIN % 'sp.write_uid'))]
+
+        # ── C39 · Dónde se atora una recepción: horas entre creación y
+        #    validación, por persona que la cerró.
+        recepciones = [{
+            'usuario': r[0] or '', 'recepciones': int(r[1] or 0),
+            'horas_mediana': round(float(r[2] or 0), 1),
+            'horas_peor': round(float(r[3] or 0), 1),
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (
+                       ORDER BY EXTRACT(EPOCH FROM (sp.date_done - sp.create_date))/3600.0),
+                   MAX(EXTRACT(EPOCH FROM (sp.date_done - sp.create_date))/3600.0)
+            FROM stock_picking sp
+            JOIN stock_picking_type t ON t.id = sp.picking_type_id
+            {j}
+            WHERE sp.state = 'done' AND t.code = 'incoming'
+              AND sp.date_done >= %s AND sp.date_done <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'sp.write_uid'))]
+
+        # ── C43-C48 · Calidad de ficha y herramientas de corrección ───
+        #    Una consulta por fuente: si un módulo no está, solo falta esa
+        #    columna, no la tarjeta entera.
+        fuentes_ficha = [
+            ('Fotos de lote', """
+                SELECT {n}, COUNT(*) FROM stock_lot_image i {j}
+                WHERE i.create_date >= %s AND i.create_date <= %s
+                GROUP BY 1""", 'i.create_uid'),
+            ('Fotos de bloque', """
+                SELECT {n}, COUNT(*) FROM supplier_shipment_block_image b {j}
+                WHERE b.create_date >= %s AND b.create_date <= %s
+                GROUP BY 1""", 'b.create_uid'),
+            ('Bajas de material', """
+                SELECT {n}, COUNT(*) FROM stock_lot_writeoff w {j}
+                WHERE w.create_date >= %s AND w.create_date <= %s
+                GROUP BY 1""", 'w.user_id'),
+            ('Reclasificaciones', """
+                SELECT {n}, COUNT(*) FROM stock_lot_reclassification rc {j}
+                WHERE rc.create_date >= %s AND rc.create_date <= %s
+                GROUP BY 1""", 'rc.user_id'),
+        ]
+        ficha_map = {}
+        ficha_tipos = []
+        for etiqueta, sql, campo in fuentes_ficha:
+            datos = rows(sql.format(n=NOMBRE, j=JOIN % campo))
+            if not datos:
+                continue
+            ficha_tipos.append(etiqueta)
+            for nombre, cuenta in datos:
+                fila = ficha_map.setdefault(nombre or '', {'usuario': nombre or ''})
+                fila[etiqueta] = int(cuenta or 0)
+        ficha = sorted(ficha_map.values(),
+                       key=lambda d: -sum(v for k, v in d.items() if k != 'usuario'))[:25]
+
+        # ── C52-C54 · Taller ─────────────────────────────────────────
+        taller = [{
+            'usuario': r[0] or '', 'ordenes': int(r[1] or 0),
+        } for r in rows("""
+            SELECT {n}, COUNT(*) FROM workshop_order w {j}
+            WHERE w.create_date >= %s AND w.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'w.responsible_id'))]
+
+        taller_tickets = [{
+            'usuario': r[0] or '', 'tickets': int(r[1] or 0),
+            'consumidos': int(r[2] or 0),
+            'horas_mediana': round(float(r[3] or 0), 1),
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   COUNT(*) FILTER (WHERE tk.consumed_date IS NOT NULL),
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (
+                       ORDER BY EXTRACT(EPOCH FROM (tk.consumed_date - tk.date_ticket))/3600.0)
+            FROM workshop_ticket tk {j}
+            WHERE tk.date_ticket >= %s AND tk.date_ticket <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'tk.responsible_id'))]
+
+        # ── C56-C58 · Caja: doble control ────────────────────────────
+        caja = [{
+            'usuario': r[0] or '', 'movimientos': int(r[1] or 0),
+            'monto': round(float(r[2] or 0), 2),
+            'con_diferencia': int(r[3] or 0),
+        } for r in rows("""
+            SELECT {n}, COUNT(*), COALESCE(SUM(ce.amount), 0),
+                   COUNT(*) FILTER (WHERE ce.has_internal_diff)
+            FROM cash_entry ce {j}
+            WHERE ce.date >= %s AND ce.date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'ce.user_id'))]
+
+        # ── C15/C16 · Catálogo compartido y su conversión ────────────
+        catalogo = [{
+            'usuario': r[0] or '', 'ligas': int(r[1] or 0),
+            'compraron': int(r[2] or 0),
+            'pct_conversion': round(float(r[2] or 0) * 100.0 / float(r[1]), 1) if r[1] else 0.0,
+        } for r in rows("""
+            SELECT {n}, COUNT(*),
+                   COUNT(*) FILTER (WHERE EXISTS (
+                       SELECT 1 FROM sale_order so
+                       WHERE so.partner_id = gs.partner_id
+                         AND so.state = 'sale'
+                         AND so.date_order >= gs.create_date
+                         AND so.date_order <= gs.create_date + INTERVAL '30 days'))
+            FROM gallery_share gs {j}
+            WHERE gs.create_date >= %s AND gs.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'gs.user_id'))]
+
+        # ── C28-C36 · Entregas: cierre en el cliente ─────────────────
+        #    Kilómetros y velocidad viven en el reporte del módulo de
+        #    entregas (cálculo GPS punto a punto); aquí va lo que se
+        #    responde con SQL plano y no se duplica.
+        entregas = [{
+            'usuario': r[0] or '', 'rutas': int(r[1] or 0),
+            'puntos': int(r[2] or 0),
+            'inicios': int(r[3] or 0), 'llegadas': int(r[4] or 0),
+            'firmas': int(r[5] or 0),
+        } for r in rows("""
+            SELECT {n}, COUNT(DISTINCT rp.document_id), COUNT(*),
+                   COUNT(*) FILTER (WHERE rp.event_type = 'inicio'),
+                   COUNT(*) FILTER (WHERE rp.event_type = 'llegada'),
+                   COUNT(*) FILTER (WHERE rp.event_type = 'firma')
+            FROM sale_delivery_route_point rp {j}
+            WHERE rp.timestamp >= %s AND rp.timestamp <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 20
+        """.format(n=NOMBRE, j=JOIN % 'rp.user_id'))]
+
+        # ── B1/B2 · Conexiones (lo único nativo de Odoo) ─────────────
+        logins = [{
+            'usuario': r[0] or '', 'entradas': int(r[1] or 0),
+            'ultimo': r[2].strftime('%Y-%m-%d %H:%M') if r[2] else '',
+            'dias': int(r[3] or 0),
+        } for r in rows("""
+            SELECT {n}, COUNT(*), MAX(l.create_date),
+                   COUNT(DISTINCT DATE(l.create_date))
+            FROM res_users_log l {j}
+            WHERE l.create_date >= %s AND l.create_date <= %s
+            GROUP BY 1 ORDER BY 2 DESC LIMIT 25
+        """.format(n=NOMBRE, j=JOIN % 'l.create_uid'))]
+
+        # ── B4 · La mina desaprovechada: qué CREA cada quien ─────────
+        fuentes_creacion = [
+            ('Cotizaciones', 'sale_order', 'so'),
+            ('Apartados', 'stock_lot_hold_order', 'ho'),
+            ('Clientes', 'res_partner', 'rp'),
+            ('Productos', 'product_template', 'pt'),
+            ('Placas', 'stock_lot', 'sl'),
+        ]
+        creacion_map = {}
+        creacion_tipos = []
+        for etiqueta, tabla, alias in fuentes_creacion:
+            datos = rows("""
+                SELECT {n}, COUNT(*) FROM {t} {a} {j}
+                WHERE {a}.create_date >= %s AND {a}.create_date <= %s
+                GROUP BY 1
+            """.format(n=NOMBRE, t=tabla, a=alias,
+                       j=JOIN % ('%s.create_uid' % alias)))
+            if not datos:
+                continue
+            creacion_tipos.append(etiqueta)
+            for nombre, cuenta in datos:
+                fila = creacion_map.setdefault(nombre or '', {'usuario': nombre or ''})
+                fila[etiqueta] = int(cuenta or 0)
+        creacion = sorted(creacion_map.values(),
+                          key=lambda d: -sum(v for k, v in d.items() if k != 'usuario'))[:25]
+
+        pendientes_horas = max([p['horas'] for p in auth_pendientes] or [0])
+        return {
+            'autorizadores': autorizadores,
+            'solicitantes': solicitantes,
+            'auth_pendientes': auth_pendientes,
+            'cotizaciones': cotizaciones,
+            'apartados': apartados,
+            'placas': placas,
+            'swaps': swaps,
+            'almacen': almacen,
+            'recepciones_tiempo': recepciones,
+            'ficha': ficha,
+            'ficha_tipos': ficha_tipos,
+            'taller': taller,
+            'taller_tickets': taller_tickets,
+            'caja': caja,
+            'catalogo': catalogo,
+            'entregas': entregas,
+            'logins': logins,
+            'creacion': creacion,
+            'creacion_tipos': creacion_tipos,
+            'kpis_trabajo': {
+                'auth_pendientes': len(auth_pendientes),
+                'auth_espera_max_h': round(pendientes_horas, 1),
+                'auth_min_mediana': round(
+                    sum(a['min_mediana'] for a in autorizadores) / len(autorizadores), 1)
+                    if autorizadores else 0.0,
+                'cotiz_abiertas': sum(c['abiertas'] for c in cotizaciones),
+                'apartados_vencidos': sum(a['vencidos'] for a in apartados),
+                'desasignaciones': sum(p['desasignadas'] for p in placas),
+            },
         }
 
     def _dom_financiero(self, f):
