@@ -15,9 +15,15 @@
         <field name="domain">[('origin', '=like', '%(Recepción Física)')]</field>
     </record>
 
+    <!-- Gateado por el grupo RECEPCIONES, no por stock.group_stock_user:
+         todo vendedor trae "usuario de inventario" para ver existencias, y
+         con el grupo genérico la app de Recepciones les aparecía a todos.
+         group_transit_receptions ya implica stock.group_stock_user, así que
+         quien recibe no pierde nada de inventario. -->
     <menuitem id="menu_receptions_root" name="Recepciones"
               web_icon="stock_transit_allocation,static/description/receptions_icon.png"
-              sequence="33" groups="stock.group_stock_user"/>
+              sequence="33"
+              groups="stock_transit_allocation.group_transit_receptions"/>
     <menuitem id="menu_receptions_dashboard" name="Tablero"
               parent="menu_receptions_root"
               action="action_receptions_dashboard" sequence="1"/>

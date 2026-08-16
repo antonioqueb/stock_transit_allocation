@@ -3,9 +3,11 @@
 
 La UI es una client action OWL (receptions_dashboard.js). Aquí solo se
 agrega y estructura el pipeline operativo del almacén: En puerto, Listos
-para recibir y Recepcionados. Todo con sudo(): el tablero es para el
-personal de almacén, que NO necesita el grupo de Torre de Control (ver
-regla grupo-tránsito-solo-UI).
+para recibir y Recepcionados. Los datos se leen con sudo() porque el
+personal de almacén NO necesita el grupo de Torre de Control (ver regla
+grupo-tránsito-solo-UI) — pero sudo NO es "abierto a todos": la entrada
+exige el grupo Recepciones, si no cualquier usuario interno se traía el
+pipeline completo por RPC aunque no viera el menú.
 
 Reglas del tablero:
 - "En camino" no se muestra: al almacén solo le importa lo operable.
@@ -20,6 +22,7 @@ from datetime import timedelta
 from markupsafe import Markup
 
 from odoo import _, api, fields, models
+from odoo.exceptions import AccessError
 
 from odoo.addons.stock_transit_allocation.models.som_date_format import (
     som_format_date,
@@ -41,8 +44,24 @@ _DONE_WINDOW_DAYS = 7
 class StockTransitVoyageReceptionsDash(models.Model):
     _inherit = 'stock.transit.voyage'
 
+    _RECEPTIONS_GROUP = 'stock_transit_allocation.group_transit_receptions'
+
+    @api.model
+    def _rcp_check_access(self):
+        """Candado de TODO lo que cuelga del tablero de Recepciones.
+
+        El menú por sí solo no protege nada: estos métodos son llamables
+        por RPC desde cualquier sesión interna, y adentro corren con
+        sudo() — sin esta puerta, quien no ve el menú igual podía leer el
+        pipeline, crear backorders o marcar etiquetado."""
+        if not self.env.user.has_group(self._RECEPTIONS_GROUP):
+            raise AccessError(_(
+                'El tablero de Recepciones es del personal de almacén. '
+                'Pide el permiso Torre de Control = Recepciones.'))
+
     @api.model
     def get_receptions_dashboard_data(self):
+        self._rcp_check_access()
         Voyage = self.env['stock.transit.voyage'].sudo()
         today = fields.Date.context_today(self)
 
@@ -338,6 +357,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
         fue destruida). Calcula el pendiente por producto contra las líneas
         del viaje y lo materializa como backorder de la última validada.
         Con sudo(): lo dispara el almacén desde el tablero."""
+        self._rcp_check_access()
         v = self.sudo().browse(voyage_id)
         if not v.exists():
             return False
@@ -413,6 +433,7 @@ class StockTransitVoyageReceptionsDash(models.Model):
         Sin picking_id (legado / embarque de una sola recepción):
         alterna el viaje completo. Todo con sudo(): el almacén no tiene
         el grupo de Torre de Control."""
+        self._rcp_check_access()
         rec = self.sudo().browse(voyage_id)
         if not rec.exists():
             return False
