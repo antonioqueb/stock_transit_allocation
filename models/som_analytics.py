@@ -2831,6 +2831,119 @@ class SomAnalytics(models.AbstractModel):
         return {'por_cobrar': round(ar or 0.0, 2),
                 'por_pagar': round(ap or 0.0, 2)}
 
+    def _secure_ar_pack(self, f):
+        """COBRANZA SEGURA: lo que deben los pedidos que YA ABONARON.
+
+        Una orden confirmada no es dinero hasta que el cliente pone algo:
+        un anticipo, aunque sea mínimo, es la señal de que el pedido va en
+        serio. Por eso el saldo se parte en dos mundos que JAMÁS se suman
+        en el mismo número:
+
+          · SEGURO  = saldo de pedidos con pago recibido (pagado > 0).
+          · EN RIESGO = saldo de pedidos confirmados sin un solo peso.
+
+        Ojo con las dos diferencias contra 'Me deben':
+          1) Es por PEDIDO, no por factura — cuenta también lo que aún no
+             se factura (Me deben solo ve facturas posteadas).
+          2) Es foto VIVA de todo el backlog, sin corte de fechas (igual
+             que Me deben, que tampoco lo lleva).
+
+        'Pagado' = dinero realmente recibido en las facturas posteadas de
+        la orden, anticipos incluidos (sale_order.delivery_paid_amount).
+        El efectivo capturado pero NO aplicado contablemente no cuenta —
+        para eso está el indicador 'Efectivo sin aplicar'.
+        """
+        vacio = {
+            'cobranza_segura_mxn': 0.0, 'cobranza_segura_pedidos': 0,
+            'cobranza_anticipo_mxn': 0.0, 'cobranza_riesgo_mxn': 0.0,
+            'cobranza_riesgo_pedidos': 0, 'cobranza_segura_pct': 0.0,
+            'cobranza_cobertura_pct': 0.0, 'cobranza_disponible': False,
+        }
+        if 'delivery_paid_amount' not in self.env['sale.order']._fields:
+            return dict(vacio, pedidos=[])
+
+        rate = self._current_usd_rate()
+        # Saldo y anticipo en MXN: USD al TC congelado de la orden, con el
+        # TC del día como respaldo (mismo criterio que el resto del pack).
+        base = """
+            FROM sale_order so
+            LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+            LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+            WHERE so.state = 'sale' AND so.amount_total > 0
+              AND so.amount_total
+                  - COALESCE(so.delivery_paid_amount, 0) > 0.01 {src}
+        """.format(src=self._src_where(f))
+        # OJO: nada de interpolación con '%' aquí — el fragmento lleva
+        # %(rate)s adentro y el operador se lo comería. Concatenación.
+        def _mxn(expr):
+            return ("CASE WHEN rc.name = 'USD' THEN (" + expr + ") * "
+                    "COALESCE(NULLIF(so.x_delivery_exchange_rate, 0),"
+                    " %(rate)s) ELSE (" + expr + ") END")
+
+        _pagado = _mxn('COALESCE(so.delivery_paid_amount, 0)')
+        _saldo = _mxn(
+            'so.amount_total - COALESCE(so.delivery_paid_amount, 0)')
+
+        row = self._sq("""
+            SELECT COUNT(*) FILTER (WHERE t.pagado > 0.01),
+                   COALESCE(SUM(t.saldo) FILTER (WHERE t.pagado > 0.01), 0),
+                   COALESCE(SUM(t.pagado) FILTER (WHERE t.pagado > 0.01), 0),
+                   COUNT(*) FILTER (WHERE t.pagado <= 0.01),
+                   COALESCE(SUM(t.saldo) FILTER (WHERE t.pagado <= 0.01), 0)
+            FROM (
+                SELECT ({pagado}) AS pagado, ({saldo}) AS saldo
+                {base}
+            ) t
+        """.format(pagado=_pagado, saldo=_saldo, base=base),
+            {'rate': rate}, default=[(0, 0, 0, 0, 0)])[0]
+
+        n_con, saldo_con = int(row[0] or 0), float(row[1] or 0.0)
+        anticipo = float(row[2] or 0.0)
+        n_sin, saldo_sin = int(row[3] or 0), float(row[4] or 0.0)
+        n_tot = n_con + n_sin
+
+        pedidos = [
+            {'name': a, 'partner': b, 'seller': c,
+             'total': round((d or 0.0) + (e or 0.0), 2),
+             'anticipo': round(d or 0.0, 2), 'saldo': round(e or 0.0, 2),
+             'pct_pagado': round(
+                 (d or 0.0) / ((d or 0.0) + (e or 0.0)) * 100, 1
+             ) if ((d or 0.0) + (e or 0.0)) else 0.0,
+             'days': int(g or 0)}
+            for (a, b, c, d, e, g) in self._sq("""
+                SELECT so.name, COALESCE(rp.name, ''), COALESCE(sp.name, ''),
+                       ({pagado}) AS anticipo, ({saldo}) AS saldo,
+                       CURRENT_DATE - so.date_order::date
+                {base}
+                  AND COALESCE(so.delivery_paid_amount, 0) > 0.01
+                ORDER BY saldo DESC LIMIT 15
+            """.format(pagado=_pagado, saldo=_saldo, base=base.replace(
+                'FROM sale_order so',
+                'FROM sale_order so'
+                ' LEFT JOIN res_partner rp ON rp.id = so.partner_id'
+                ' LEFT JOIN res_users ru ON ru.id = so.user_id'
+                ' LEFT JOIN res_partner sp ON sp.id = ru.partner_id', 1)),
+                {'rate': rate}, default=[])
+        ]
+
+        return {
+            'cobranza_segura_mxn': round(saldo_con, 2),
+            'cobranza_segura_pedidos': n_con,
+            'cobranza_anticipo_mxn': round(anticipo, 2),
+            'cobranza_riesgo_mxn': round(saldo_sin, 2),
+            'cobranza_riesgo_pedidos': n_sin,
+            # % de PEDIDOS con saldo que ya abonaron algo (el "de 100
+            # órdenes, cuántas van en serio")
+            'cobranza_segura_pct': round(
+                n_con / n_tot * 100, 1) if n_tot else 0.0,
+            # % del valor de esos pedidos que el anticipo ya cubre
+            'cobranza_cobertura_pct': round(
+                anticipo / (anticipo + saldo_con) * 100, 1
+            ) if (anticipo + saldo_con) else 0.0,
+            'cobranza_disponible': True,
+            'pedidos': pedidos,
+        }
+
     # ── USUARIOS (medición de actividad) ───────────────────────────────
     # Se alimenta de som.user.activity / som.user.session, que llena el
     # servicio som_activity_tracker del webclient. Todo sale de ahí: Odoo
@@ -3490,6 +3603,7 @@ class SomAnalytics(models.AbstractModel):
 
     def _dom_financiero(self, f):
         tot = self._finance_totals(f)
+        seg = self._secure_ar_pack(f)       # cobranza segura (con anticipo)
         _srcm = self._src_where_invoice(f)  # Odoo/SPS/Mixto vía órdenes
 
         def buckets_and_top_safe(move_type, sign):
@@ -3680,8 +3794,9 @@ class SomAnalytics(models.AbstractModel):
         fact_mes = by_month[-1]['facturado'] if by_month else 0.0
         fact_prev = by_month[-2]['facturado'] if len(by_month) > 1 else 0.0
 
+        _seg_kpis = {k: v for k, v in seg.items() if k != 'pedidos'}
         return {
-            'kpis': {
+            'kpis': dict(_seg_kpis, **{
                 'por_cobrar': tot['por_cobrar'],
                 'por_pagar': tot['por_pagar'],
                 'neto': round(tot['por_cobrar'] - tot['por_pagar'], 2),
@@ -3710,7 +3825,8 @@ class SomAnalytics(models.AbstractModel):
                     FROM sale_payment_proof pp
                     WHERE pp.state = 'pending' {src}
                 """.format(src=_src_proof), default=[(0,)])[0]),
-            },
+            }),
+            'pedidos_con_anticipo': seg.get('pedidos', []),
             'pago_post_entrega': [
                 {'name': a, 'dias': round(float(b or 0), 1), 'entregas': c}
                 for (a, b, c) in self._sq("""
