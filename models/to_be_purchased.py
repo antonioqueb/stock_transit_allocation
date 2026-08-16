@@ -17,7 +17,10 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         if not order or not order.amount_total:
             return 0.0
 
-        invoices = order.invoice_ids.filtered(
+        # sudo(): plomería del hub — el % de cobro se pinta también para
+        # vendedores sin ACL de account.move (y sin regla "solo sus
+        # documentos" que dejaría el porcentaje incompleto en silencio).
+        invoices = order.sudo().invoice_ids.filtered(
             lambda inv: inv.state == 'posted'
             and inv.move_type in ('out_invoice', 'out_refund')
         )

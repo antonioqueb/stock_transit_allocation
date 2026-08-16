@@ -24,12 +24,15 @@
     <!-- Estas aparecen como apps principales en el menú raíz       -->
     <!-- ========================================================= -->
 
+    <!-- To Be Allocated es funcionalidad de la fuerza de ventas: visible
+         para todo vendedor aunque no tenga permisos de compras/tránsito
+         (la plomería interna del hub ya corre con sudo). -->
     <menuitem id="menu_app_to_be_allocated_root"
               name="To Be Allocated"
               action="action_to_be_allocated_client"
               web_icon="stock_transit_allocation,static/description/tobeallocated.png"
               sequence="2"
-              groups="purchase.group_purchase_user"/>
+              groups="sales_team.group_sale_salesman,purchase.group_purchase_user"/>
 
     <menuitem id="menu_app_to_be_purchased_root"
               name="To Be Purchased"
@@ -50,13 +53,14 @@
     <!-- Se conservan además de las apps independientes             -->
     <!-- ========================================================= -->
 
-    <!-- Menú dentro de Ventas -->
+    <!-- Menú dentro de Ventas: mismo criterio que la app raíz, lo ve
+         toda la fuerza de ventas. -->
     <menuitem id="menu_sale_to_be_allocated"
               name="To Be Allocated"
               parent="sale.sale_order_menu"
               action="action_to_be_allocated_client"
               sequence="0"
-              groups="purchase.group_purchase_user"/>
+              groups="sales_team.group_sale_salesman,purchase.group_purchase_user"/>
 
     <!-- Menú dentro de Compras -->
     <menuitem id="menu_purchase_to_be_purchased"
