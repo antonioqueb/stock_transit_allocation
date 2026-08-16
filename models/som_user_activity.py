@@ -18,6 +18,8 @@ modelos, alimentados por el servicio `som_activity_tracker` del webclient.
 REGLA DE CONFIANZA: el navegador puede mentir. Todo lo que llega se recorta
 contra la duración real del intervalo y contra topes duros antes de guardar.
 """
+from datetime import datetime, timezone
+
 from odoo import models, fields, api
 
 import logging
@@ -128,13 +130,26 @@ class SomUserActivity(models.Model):
         session = self._som_touch_session(payload, now)
 
         vals_list = []
+        skipped = 0
         for event in events[:200]:
-            vals = self._som_prepare_event(event, user, session, now)
+            # Cada evento se aísla: uno malformado NO puede tirar el lote
+            # completo (así se perdía todo en silencio).
+            try:
+                vals = self._som_prepare_event(event, user, session, now)
+            except Exception:  # noqa: BLE001
+                _logger.exception('[SOM ACTIVITY] Evento descartado: %r', event)
+                vals = None
             if vals:
                 vals_list.append(vals)
+            else:
+                skipped += 1
 
         if not vals_list:
-            return {'stored': 0}
+            _logger.warning(
+                '[SOM ACTIVITY] Lote de %s sin eventos utilizables '
+                '(%s descartados). Muestra: %r',
+                user.login, skipped, events[0] if events else None)
+            return {'stored': 0, 'skipped': skipped}
 
         self.sudo().create(vals_list)
 
@@ -147,7 +162,7 @@ class SomUserActivity(models.Model):
                     v['idle_seconds'] for v in vals_list),
             })
 
-        return {'stored': len(vals_list)}
+        return {'stored': len(vals_list), 'skipped': skipped}
 
     @api.model
     def _som_touch_session(self, payload, now):
@@ -167,12 +182,44 @@ class SomUserActivity(models.Model):
         })
 
     @api.model
+    def _som_parse_client_dt(self, value):
+        """ISO-8601 del navegador → datetime naive en UTC (como guarda Odoo).
+
+        `fields.Datetime.to_datetime` NO sirve aquí: espera
+        "2026-08-15 18:30:00" y lo que manda `toISOString()` es
+        "2026-08-15T18:30:00.000Z" — con la T, los milisegundos y la Z
+        truena con ValueError. Ese fue el motivo de que la medición no
+        guardara NADA en su primera versión: cada lote moría entero.
+        """
+        if not value:
+            return None
+        if isinstance(value, datetime):
+            return value.replace(tzinfo=None) if value.tzinfo is None else \
+                value.astimezone(timezone.utc).replace(tzinfo=None)
+        text = str(value).strip()
+        if not text:
+            return None
+        # fromisoformat de Python <3.11 no traga la 'Z'.
+        if text.endswith('Z'):
+            text = text[:-1] + '+00:00'
+        try:
+            parsed = datetime.fromisoformat(text)
+        except ValueError:
+            try:
+                return fields.Datetime.to_datetime(text)
+            except (ValueError, TypeError):
+                return None
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed.replace(microsecond=0)
+
+    @api.model
     def _som_prepare_event(self, event, user, session, now):
         if not isinstance(event, dict):
             return None
 
-        start = fields.Datetime.to_datetime(event.get('start'))
-        end = fields.Datetime.to_datetime(event.get('end'))
+        start = self._som_parse_client_dt(event.get('start'))
+        end = self._som_parse_client_dt(event.get('end'))
         if not start or not end or end <= start:
             return None
 
