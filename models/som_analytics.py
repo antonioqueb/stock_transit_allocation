@@ -140,20 +140,45 @@ class SomAnalytics(models.AbstractModel):
             return " AND COALESCE(%s, '') = ''" % col
         return ''
 
+    def _src_wrap(self, f, exists_sql):
+        """Convierte un EXISTS(...) que identifica al LEGADO SPS en el
+        fragmento del filtro global, como PARTICIÓN: 'sps' = lo que cumple
+        el EXISTS; 'odoo' = todo lo demás (incluidos los documentos que no
+        cuelgan de ninguna orden: nacieron en Odoo); mixto/None = sin
+        filtro. Así odoo + sps == mixto SIEMPRE — si un lado exigiera una
+        liga positiva, los documentos sueltos se perderían de los dos."""
+        src = (f or {}).get('source')
+        if src == 'sps':
+            return ' AND ' + exists_sql
+        if src == 'odoo':
+            return ' AND NOT ' + exists_sql
+        return ''
+
+    # Una factura es del LEGADO si cuelga de una orden con folio SPS, ya
+    # sea por la relación real de líneas o por el origen en texto (las
+    # migradas suelen traer solo el nombre de la orden en invoice_origin).
+    _SPS_INVOICE_EXISTS = """(EXISTS(
+            SELECT 1 FROM account_move_line aml
+            JOIN sale_order_line_invoice_rel rel
+                 ON rel.invoice_line_id = aml.id
+            JOIN sale_order_line sol2 ON sol2.id = rel.order_line_id
+            JOIN sale_order so2 ON so2.id = sol2.order_id
+            WHERE aml.move_id = m.id
+              AND COALESCE(so2.client_order_ref, '') != '')
+        OR EXISTS(
+            SELECT 1 FROM sale_order so3
+            WHERE so3.name = m.invoice_origin
+              AND COALESCE(so3.client_order_ref, '') != ''))"""
+
     def _src_where_invoice(self, f):
         """El mismo filtro de origen para FACTURAS de cliente (alias m):
-        la factura hereda el origen de su(s) órdenes vía las líneas.
-        Solo restringe out_invoice/out_refund — proveedores pasan libres."""
-        cond = self._src_where(f, alias='so2')
+        la factura hereda el origen de su(s) órdenes. Solo restringe
+        out_invoice/out_refund — proveedores pasan libres."""
+        cond = self._src_wrap(f, self._SPS_INVOICE_EXISTS)
         if not cond:
             return ''
         return (" AND (m.move_type NOT IN ('out_invoice', 'out_refund')"
-                " OR EXISTS(SELECT 1 FROM account_move_line aml"
-                " JOIN sale_order_line_invoice_rel rel"
-                "   ON rel.invoice_line_id = aml.id"
-                " JOIN sale_order_line sol2 ON sol2.id = rel.order_line_id"
-                " JOIN sale_order so2 ON so2.id = sol2.order_id"
-                " WHERE aml.move_id = m.id" + cond + "))")
+                " OR " + cond[len(' AND '):] + ")")
 
     def _sale_rows(self, f, extra_where='', extra_params=None):
         date_from, date_to = self._dates(f)
@@ -431,7 +456,7 @@ class SomAnalytics(models.AbstractModel):
         rows = self._sale_rows(f)
         pack = self._sales_pack(rows)
         inv = self._inventory_pack(f)
-        fin = self._finance_totals()
+        fin = self._finance_totals(f)
         tr = self._transit_pack(f)
         pack['kpis'].update({
             'inv_disponible_m2': inv['kpis']['disponible_m2'],
@@ -488,25 +513,26 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_order so
             JOIN res_partner rp ON rp.id = so.x_architect_id
             WHERE so.state='sale' AND so.x_architect_id IS NOT NULL
-              AND so.date_order >= %s AND so.date_order <= %s
+              AND so.date_order >= %s AND so.date_order <= %s {src}
             GROUP BY 1 ORDER BY 3 DESC LIMIT 8
-        """, dt)
+        """.format(src=_src), dt)
         pack['architects'] = [
             {'name': a, 'ordenes': b, 'monto': round(c or 0, 2)}
             for (a, b, c) in arch]
         row = self._sq("""
             SELECT COUNT(*) FILTER (WHERE x_architect_id IS NOT NULL), COUNT(*)
             FROM sale_order WHERE state='sale'
-              AND date_order >= %s AND date_order <= %s
-        """, dt, default=[(0, 0)])[0]
+              AND date_order >= %s AND date_order <= %s {src}
+        """.format(src=_srcb), dt, default=[(0, 0)])[0]
         pack['kpis']['pct_via_arquitecto'] = round(
             row[0] / row[1] * 100, 1) if row[1] else 0.0
 
         # 1.6 Órdenes bloqueadas por control de precios (vivas)
         row = self._sq("""
             SELECT COUNT(*), COALESCE(SUM(amount_total),0) FROM sale_order
-            WHERE COALESCE(x_has_low_prices,false) AND state != 'cancel'
-        """, default=[(0, 0)])[0]
+            WHERE COALESCE(x_has_low_prices,false)
+              AND state != 'cancel' {src}
+        """.format(src=_srcb), default=[(0, 0)])[0]
         pack['kpis']['bloqueadas_precio'] = row[0]
         pack['kpis']['bloqueadas_monto'] = round(row[1] or 0, 2)
 
@@ -515,9 +541,9 @@ class SomAnalytics(models.AbstractModel):
             SELECT COALESCE(x_iva_exempt_state,'none'), COUNT(*)
             FROM sale_order
             WHERE date_order >= %s AND date_order <= %s
-              AND COALESCE(x_iva_exempt_state,'none') != 'none'
+              AND COALESCE(x_iva_exempt_state,'none') != 'none' {src}
             GROUP BY 1
-        """, dt))
+        """.format(src=_srcb), dt))
         pack['kpis']['iva_solicitadas'] = sum(iva.values())
         pack['kpis']['iva_aprobadas'] = iva.get('approved', 0)
 
@@ -528,8 +554,8 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE so.state='sale' AND rc.name='USD'
-              AND COALESCE(so.x_delivery_exchange_rate,0) = 0
-        """, default=[(0, 0)])[0]
+              AND COALESCE(so.x_delivery_exchange_rate,0) = 0 {src}
+        """.format(src=_src), default=[(0, 0)])[0]
         pack['kpis']['exposicion_usd'] = round(row[0] or 0, 2)
         pack['kpis']['exposicion_mxn'] = round(
             (row[0] or 0) * self._current_usd_rate(), 2)
@@ -623,8 +649,8 @@ class SomAnalytics(models.AbstractModel):
             WHERE so.state = 'sale' AND rc.name = 'USD'
               AND COALESCE(so.x_confirm_exchange_rate, 0) > 0
               AND COALESCE(so.x_delivery_exchange_rate, 0) > 0
-              AND so.date_order >= %s AND so.date_order <= %s
-        """, dt, default=[(0, 0)])[0]
+              AND so.date_order >= %s AND so.date_order <= %s {src}
+        """.format(src=_src), dt, default=[(0, 0)])[0]
         pack['kpis']['fx_realizado_mxn'] = round(row[0] or 0.0, 2)
         pack['kpis']['fx_ordenes'] = row[1]
 
@@ -661,8 +687,8 @@ class SomAnalytics(models.AbstractModel):
             WHERE sol.display_type IS NULL
               AND sol.product_uom_id IN %s
               AND COALESCE(so.x_is_quote_backup, false) = false
-              AND so.date_order >= %s AND so.date_order <= %s
-        """, (tuple(self._area_uom_ids()), dt[0], dt[1]),
+              AND so.date_order >= %s AND so.date_order <= %s {src}
+        """.format(src=_src), (tuple(self._area_uom_ids()), dt[0], dt[1]),
             default=[(0, 0)])[0]
         pack['kpis']['m2_cotizados'] = round(row[0] or 0.0, 1)
         pack['kpis']['m2_confirmados'] = round(row[1] or 0.0, 1)
@@ -671,8 +697,9 @@ class SomAnalytics(models.AbstractModel):
         row = self._sq("""
             SELECT AVG(EXTRACT(EPOCH FROM (NOW() - write_date)) / 86400.0)
             FROM sale_order
-            WHERE COALESCE(x_has_low_prices, false) AND state != 'cancel'
-        """, default=[(None,)])[0]
+            WHERE COALESCE(x_has_low_prices, false)
+              AND state != 'cancel' {src}
+        """.format(src=_srcb), default=[(None,)])[0]
         pack['kpis']['bloqueo_edad_dias'] = round(row[0] or 0.0, 1)
 
         # Rendimiento del CATÁLOGO compartido (galería pública):
@@ -687,10 +714,10 @@ class SomAnalytics(models.AbstractModel):
                          AND so.state = 'sale'
                          AND so.date_order >= gs.create_date
                          AND so.date_order
-                             <= gs.create_date + INTERVAL '30 days'))
+                             <= gs.create_date + INTERVAL '30 days' {src}))
             FROM gallery_share gs
             WHERE gs.create_date >= %s AND gs.create_date <= %s
-        """, (dt[0], dt[1]), default=[(0, 0, 0)])[0]
+        """.format(src=_src), (dt[0], dt[1]), default=[(0, 0, 0)])[0]
         res_row = self._sq("""
             SELECT COUNT(*),
                    COUNT(*) FILTER (WHERE state = 'done')
@@ -720,13 +747,14 @@ class SomAnalytics(models.AbstractModel):
                              AND so.state = 'sale'
                              AND so.date_order >= gs.create_date
                              AND so.date_order
-                                 <= gs.create_date + INTERVAL '30 days'))
+                                 <= gs.create_date
+                                    + INTERVAL '30 days' {src}))
                 FROM gallery_share gs
                 LEFT JOIN res_users u ON u.id = gs.user_id
                 LEFT JOIN res_partner p ON p.id = u.partner_id
                 WHERE gs.create_date >= %s AND gs.create_date <= %s
                 GROUP BY 1 ORDER BY 2 DESC LIMIT 10
-            """, (dt[0], dt[1]), default=[])]
+            """.format(src=_src), (dt[0], dt[1]), default=[])]
 
         # ── F2.1: series para el storytelling de conversión y autorizaciones ──
         dtf, dtt = self._bounds(f)
@@ -1213,9 +1241,11 @@ class SomAnalytics(models.AbstractModel):
                 LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
                 LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
                 WHERE so.state = 'sale'
-                  AND so.date_order >= %(f)s AND so.date_order <= %(t)s
+                  AND so.date_order >= %(f)s
+                  AND so.date_order <= %(t)s {src}
                 GROUP BY 1
-            """, {'rate': _rate, 'f': dtf, 't': dtt}, default=[])
+            """.format(src=_src), {'rate': _rate, 'f': dtf, 't': dtt},
+                default=[])
         ]
 
         # Chord clientes ↔ categorías y jerarquía categoría → productos:
@@ -2705,8 +2735,9 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_delivery_document d
             JOIN sale_order so ON so.id = d.sale_order_id
             WHERE d.document_type = 'remission' AND d.signed_at IS NOT NULL
-              AND d.signed_at >= %s AND d.signed_at <= %s
-        """, (dt_from, dt_to), default=[(None, 0)])[0]
+              AND d.signed_at >= %s AND d.signed_at <= %s {src}
+        """.format(src=self._src_where(f)),
+            (dt_from, dt_to), default=[(None, 0)])[0]
 
         # 7.5 Devoluciones por motivo. Cubre DOS caminos: documentos de
         # devolución del módulo de entregas Y devoluciones hechas directo
@@ -2773,8 +2804,8 @@ class SomAnalytics(models.AbstractModel):
                     JOIN sale_order so ON so.id = d.sale_order_id
                     WHERE d.document_type = 'remission'
                       AND d.signed_at IS NOT NULL
-                      AND d.signed_at >= %s AND d.signed_at <= %s
-                """, (dt_from, dt_to),
+                      AND d.signed_at >= %s AND d.signed_at <= %s {src}
+                """.format(src=self._src_where(f)), (dt_from, dt_to),
                     default=[(None,)])[0]),
             },
             'by_status': by_status,
@@ -2783,16 +2814,19 @@ class SomAnalytics(models.AbstractModel):
         }
 
     # ── FINANCIERO ─────────────────────────────────────────────────────
-    def _finance_totals(self):
+    def _finance_totals(self, f=None):
+        """Me deben / Debo. RESPETA el filtro global Odoo/SPS/Mixto: el
+        por cobrar se recorta al origen elegido (por pagar es de
+        proveedores y no tiene origen comercial, pasa completo)."""
         self.env.cr.execute("""
             SELECT
-              COALESCE(SUM(amount_residual_signed) FILTER (
-                WHERE move_type = 'out_invoice'), 0),
-              COALESCE(-SUM(amount_residual_signed) FILTER (
-                WHERE move_type = 'in_invoice'), 0)
-            FROM account_move
-            WHERE state = 'posted' AND amount_residual != 0
-        """)
+              COALESCE(SUM(m.amount_residual_signed) FILTER (
+                WHERE m.move_type = 'out_invoice'), 0),
+              COALESCE(-SUM(m.amount_residual_signed) FILTER (
+                WHERE m.move_type = 'in_invoice'), 0)
+            FROM account_move m
+            WHERE m.state = 'posted' AND m.amount_residual != 0 {src}
+        """.format(src=self._src_where_invoice(f or {})))
         ar, ap = self.env.cr.fetchone()
         return {'por_cobrar': round(ar or 0.0, 2),
                 'por_pagar': round(ap or 0.0, 2)}
@@ -3455,7 +3489,7 @@ class SomAnalytics(models.AbstractModel):
         }
 
     def _dom_financiero(self, f):
-        tot = self._finance_totals()
+        tot = self._finance_totals(f)
         _srcm = self._src_where_invoice(f)  # Odoo/SPS/Mixto vía órdenes
 
         def buckets_and_top_safe(move_type, sign):
@@ -3550,12 +3584,25 @@ class SomAnalytics(models.AbstractModel):
         # 9.1 Efectivo: recibos entregados al cliente vs con pago aplicado
         date_from, date_to = self._dates(f)
         dt_from, dt_to = self._bounds(f)
+        # El recibo de efectivo cuelga de sus pedidos (m2m): es del legado
+        # si alguno de ellos trae folio SPS. Los recibos sueltos cuentan
+        # como Odoo — misma partición que el resto del tablero.
+        _src_proof = self._src_wrap(f, """EXISTS(
+            SELECT 1 FROM sale_order so
+            WHERE so.id = pp.sale_order_id
+              AND COALESCE(so.client_order_ref, '') != '')""")
+        _src_cash = self._src_wrap(f, """EXISTS(
+            SELECT 1 FROM cash_receipt_sale_order_rel crr
+            JOIN sale_order so ON so.id = crr.order_id
+            WHERE crr.receipt_id = cr.id
+              AND COALESCE(so.client_order_ref, '') != '')""")
         cash = self._sq("""
-            SELECT state, COUNT(*), COALESCE(SUM(amount_mxn), 0)
-            FROM cash_receipt
-            WHERE date >= %s AND date <= %s AND state != 'cancelled'
+            SELECT cr.state, COUNT(*), COALESCE(SUM(cr.amount_mxn), 0)
+            FROM cash_receipt cr
+            WHERE cr.date >= %s AND cr.date <= %s
+              AND cr.state != 'cancelled' {src}
             GROUP BY 1
-        """, (dt_from, dt_to))
+        """.format(src=_src_cash), (dt_from, dt_to))
         cash_map = {a: (b, c) for (a, b, c) in cash}
         sin_aplicar = cash_map.get('delivered', (0, 0.0))
         aplicado = cash_map.get('paid', (0, 0.0))
@@ -3618,18 +3665,18 @@ class SomAnalytics(models.AbstractModel):
 
         # DSO (días de calle de la cartera) y % vencida
         fact_12m = self._sq("""
-            SELECT COALESCE(SUM(amount_total_signed), 0)
-            FROM account_move
-            WHERE state = 'posted' AND move_type = 'out_invoice'
-              AND date >= (CURRENT_DATE - INTERVAL '12 months')
-        """, default=[(0,)])[0][0] or 0.0
+            SELECT COALESCE(SUM(m.amount_total_signed), 0)
+            FROM account_move m
+            WHERE m.state = 'posted' AND m.move_type = 'out_invoice'
+              AND m.date >= (CURRENT_DATE - INTERVAL '12 months') {src}
+        """.format(src=_srcm), default=[(0,)])[0][0] or 0.0
         ar_vencido = self._sq("""
-            SELECT COALESCE(SUM(amount_residual_signed), 0)
-            FROM account_move
-            WHERE state = 'posted' AND move_type = 'out_invoice'
-              AND amount_residual != 0
-              AND COALESCE(invoice_date_due, date) < CURRENT_DATE
-        """, default=[(0,)])[0][0] or 0.0
+            SELECT COALESCE(SUM(m.amount_residual_signed), 0)
+            FROM account_move m
+            WHERE m.state = 'posted' AND m.move_type = 'out_invoice'
+              AND m.amount_residual != 0
+              AND COALESCE(m.invoice_date_due, m.date) < CURRENT_DATE {src}
+        """.format(src=_srcm), default=[(0,)])[0][0] or 0.0
         fact_mes = by_month[-1]['facturado'] if by_month else 0.0
         fact_prev = by_month[-2]['facturado'] if len(by_month) > 1 else 0.0
 
@@ -3654,14 +3701,15 @@ class SomAnalytics(models.AbstractModel):
                 'recibos_sin_aplicar': sin_aplicar[0],
                 'efectivo_aplicado': round(aplicado[1], 2),
                 'comprobantes_pendientes': (lambda r: r[0])(self._sq("""
-                    SELECT COUNT(*) FROM sale_payment_proof
-                    WHERE state = 'pending'
-                """, default=[(0,)])[0]),
+                    SELECT COUNT(*) FROM sale_payment_proof pp
+                    WHERE pp.state = 'pending' {src}
+                """.format(src=_src_proof), default=[(0,)])[0]),
                 'comprobantes_monto': (lambda r: round(r[0] or 0, 2))(
                     self._sq("""
-                    SELECT COALESCE(SUM(amount),0) FROM sale_payment_proof
-                    WHERE state = 'pending'
-                """, default=[(0,)])[0]),
+                    SELECT COALESCE(SUM(pp.amount),0)
+                    FROM sale_payment_proof pp
+                    WHERE pp.state = 'pending' {src}
+                """.format(src=_src_proof), default=[(0,)])[0]),
             },
             'pago_post_entrega': [
                 {'name': a, 'dias': round(float(b or 0), 1), 'entregas': c}
@@ -3685,11 +3733,11 @@ class SomAnalytics(models.AbstractModel):
                 ) pr ON pr.paid_at IS NOT NULL
                 WHERE d.document_type = 'remission'
                   AND d.signed_at IS NOT NULL
-                  AND pr.paid_at > d.signed_at
+                  AND pr.paid_at > d.signed_at {src}
                 GROUP BY p.name
                 ORDER BY dias DESC LIMIT 10
-            """, default=[])],
-            'cash_month': self._cash_flow_months(),
+            """.format(src=self._src_where(f)), default=[])],
+            'cash_month': self._cash_flow_months(f),
             'ar_buckets': ar_buckets,
             'ap_buckets': ap_buckets,
             'ar_top': ar_top,
@@ -3700,15 +3748,22 @@ class SomAnalytics(models.AbstractModel):
             'due_flow': due_flow,
         }
 
-    def _cash_flow_months(self):
+    def _cash_flow_months(self, f=None):
         """9.3 Caja manual: entradas (cash.entry) vs salidas
-        (cash.disbursement) por mes, en MXN."""
+        (cash.disbursement) por mes, en MXN. Las entradas respetan el
+        filtro de origen por sus pedidos ligados (las salidas cuelgan de
+        órdenes de COMPRA: no tienen origen comercial)."""
+        _src = self._src_wrap(f or {}, """EXISTS(
+            SELECT 1 FROM cash_entry_sale_order_rel cer
+            JOIN sale_order so ON so.id = cer.order_id
+            WHERE cer.entry_id = ce.id
+              AND COALESCE(so.client_order_ref, '') != '')""")
         ent = dict(self._sq("""
-            SELECT to_char(date,'YYYY-MM'), SUM(COALESCE(amount,0))
-            FROM cash_entry WHERE state='done'
-              AND date >= (CURRENT_DATE - INTERVAL '12 months')
+            SELECT to_char(ce.date,'YYYY-MM'), SUM(COALESCE(ce.amount,0))
+            FROM cash_entry ce WHERE ce.state='done'
+              AND ce.date >= (CURRENT_DATE - INTERVAL '12 months') {src}
             GROUP BY 1
-        """))
+        """.format(src=_src)))
         sal = dict(self._sq("""
             SELECT to_char(date,'YYYY-MM'), SUM(COALESCE(amount_mxn,0))
             FROM cash_disbursement WHERE state NOT IN ('cancelled','cancel')
@@ -3740,9 +3795,9 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE so.state = 'sale'
               AND so.date_order >= date_trunc(
-                  'month', CURRENT_DATE - INTERVAL '11 months')
+                  'month', CURRENT_DATE - INTERVAL '11 months') {src}
             GROUP BY 1 ORDER BY 1
-        """, (rate,), default=[])
+        """.format(src=self._src_where(f)), (rate,), default=[])
 
         ys = [float(v or 0) for (_m, v) in hist]
         n = len(ys)
@@ -3789,8 +3844,8 @@ class SomAnalytics(models.AbstractModel):
             FROM account_move m
             WHERE m.state = 'posted'
               AND m.move_type IN ('out_invoice', 'in_invoice')
-              AND m.amount_residual != 0
-        """, default=[(0, 0)])[0]
+              AND m.amount_residual != 0 {src}
+        """.format(src=self._src_where_invoice(f)), default=[(0, 0)])[0]
         entra90, sale90 = float(flujo[0] or 0), float(flujo[1] or 0)
 
         # Cobertura por material: a este ritmo de venta, ¿para cuántos
@@ -3861,7 +3916,8 @@ class SomAnalytics(models.AbstractModel):
         if entity in ('partner_ar', 'partner_ap'):
             return self._scrub_profit(self._drill_partner_fin(
                 int(value),
-                'out_invoice' if entity == 'partner_ar' else 'in_invoice'))
+                'out_invoice' if entity == 'partner_ar' else 'in_invoice',
+                f))
         # Coerción SEGURA: el dict evalúa TODAS sus entradas al construirse,
         # así que un drill de nivel con valor 'custom' tronaba en el
         # int(value) de las entradas numéricas antes de elegir la entidad.
@@ -3936,11 +3992,12 @@ class SomAnalytics(models.AbstractModel):
         if entity == 'customer':
             try:
                 self.env.cr.execute("""
-                    SELECT COALESCE(SUM(amount_residual_signed),0)
-                    FROM account_move
-                    WHERE state='posted' AND move_type='out_invoice'
-                      AND amount_residual != 0 AND partner_id = %s
-                """, (int(value),))
+                    SELECT COALESCE(SUM(m.amount_residual_signed),0)
+                    FROM account_move m
+                    WHERE m.state='posted' AND m.move_type='out_invoice'
+                      AND m.amount_residual != 0
+                      AND m.partner_id = %s {src}
+                """.format(src=self._src_where_invoice(f)), (int(value),))
                 out['por_cobrar'] = round(
                     self.env.cr.fetchone()[0] or 0.0, 2)
             except Exception:
@@ -4066,10 +4123,13 @@ class SomAnalytics(models.AbstractModel):
                  for k, v in cats.items()), key=lambda x: -x['m2'])[:12],
         }
 
-    def _drill_partner_fin(self, partner_id, move_type):
+    def _drill_partner_fin(self, partner_id, move_type, f=None):
         """Cartera viva de un cliente/proveedor: factura por factura, con
-        edad, divisa original y MXN al TC del día de registro."""
+        edad, divisa original y MXN al TC del día de registro. Hereda el
+        filtro global de origen: el drill suma lo mismo que el panel del
+        que salió."""
         sign = '' if move_type == 'out_invoice' else '-'
+        _srcm = self._src_where_invoice(f or {})
         self.env.cr.execute("""
             SELECT m.name, m.invoice_date::text,
                    COALESCE(m.invoice_date_due, m.date)::text,
@@ -4082,9 +4142,9 @@ class SomAnalytics(models.AbstractModel):
             FROM account_move m
             LEFT JOIN res_currency rc ON rc.id = m.currency_id
             WHERE m.state = 'posted' AND m.move_type = %s
-              AND m.amount_residual != 0 AND m.partner_id = %s
+              AND m.amount_residual != 0 AND m.partner_id = %s {src}
             ORDER BY COALESCE(m.invoice_date_due, m.date)
-        """.format(s=sign), (move_type, partner_id))
+        """.format(s=sign, src=_srcm), (move_type, partner_id))
         invs = [{'name': a, 'date': b, 'due': c, 'atraso': int(d or 0),
                  'residual_mxn': round(e or 0, 2),
                  'residual_divisa': round(f_ or 0, 2), 'currency': g,
@@ -4105,8 +4165,10 @@ class SomAnalytics(models.AbstractModel):
               AND m.partner_id = %s
               AND m.payment_state IN ('paid', 'in_payment')
               AND m.invoice_date >= (CURRENT_DATE - INTERVAL '12 months')
+              {src}
         """.format(col='apr.debit_move_id'
-                   if move_type == 'out_invoice' else 'apr.credit_move_id'),
+                   if move_type == 'out_invoice' else 'apr.credit_move_id',
+                   src=_srcm),
             (move_type, partner_id), default=[(None,)])[0][0]
         return {
             'fin_side': 'ar' if move_type == 'out_invoice' else 'ap',
@@ -4126,10 +4188,19 @@ class SomAnalytics(models.AbstractModel):
     # ==================================================================
 
     @api.model
-    def get_exec_summary(self):
+    def get_exec_summary(self, filters=None):
         """Ticker ejecutivo: los números vitales del negocio en una sola
-        llamada ligera. Se refresca solo en el dashboard."""
+        llamada ligera. Se refresca solo en el dashboard.
+
+        Del filtro global solo toma el ORIGEN (Odoo/SPS/Mixto): las fechas
+        son fijas por definición (hoy y el mes en curso), pero el origen sí
+        manda — si el usuario está viendo Odoo, el ticker no puede sumar
+        ventas ni cartera del legado."""
         self._check_access()
+        f = filters or {}
+        _src = self._src_where(f)             # alias so.
+        _srcb = self._src_where(f, alias='')  # sin alias
+        _srcm = self._src_where_invoice(f)    # facturas (alias m)
         cid = self._cid()
         today = fields.Date.to_string(fields.Date.context_today(self))
         month = today[:7]
@@ -4146,8 +4217,8 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_order so
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
-            WHERE so.state='sale' AND so.date_order::date = %(today)s
-        """, {'rate': rate, 'today': today})
+            WHERE so.state='sale' AND so.date_order::date = %(today)s {src}
+        """.format(src=_src), {'rate': rate, 'today': today})
         venta_mes = one("""
             SELECT COALESCE(SUM(CASE WHEN rc.name='USD'
                 THEN so.amount_total * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
@@ -4155,8 +4226,9 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_order so
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
-            WHERE so.state='sale' AND to_char(so.date_order,'YYYY-MM') = %(m)s
-        """, {'rate': rate, 'm': month})
+            WHERE so.state='sale'
+              AND to_char(so.date_order,'YYYY-MM') = %(m)s {src}
+        """.format(src=_src), {'rate': rate, 'm': month})
         row = self._sq("""
             SELECT COALESCE(SUM(sol.product_uom_qty) FILTER (
                        WHERE sol.product_uom_id IN %(uoms)s), 0),
@@ -4173,9 +4245,9 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE sol.display_type IS NULL
-              AND to_char(so.date_order,'YYYY-MM') = %(m)s
-        """, {'uoms': tuple(self._area_uom_ids()), 'rate': rate,
-              'cid': cid, 'm': month}, default=[(0, 0)])[0]
+              AND to_char(so.date_order,'YYYY-MM') = %(m)s {src}
+        """.format(src=_src), {'uoms': tuple(self._area_uom_ids()),
+              'rate': rate, 'cid': cid, 'm': month}, default=[(0, 0)])[0]
         m2_mes, utilidad_mes = row[0] or 0.0, row[1] or 0.0
 
         prev_month = ('%04d-%02d' % ((int(month[:4]) - 1, 12)
@@ -4188,10 +4260,11 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_order so
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
-            WHERE so.state='sale' AND to_char(so.date_order,'YYYY-MM') = %(m)s
-        """, {'rate': rate, 'm': prev_month})
+            WHERE so.state='sale'
+              AND to_char(so.date_order,'YYYY-MM') = %(m)s {src}
+        """.format(src=_src), {'rate': rate, 'm': prev_month})
 
-        fin = self._finance_totals()
+        fin = self._finance_totals(f)
         banks = self.get_bank_balances()
 
         agua = self._sq("""
@@ -4241,16 +4314,17 @@ class SomAnalytics(models.AbstractModel):
         # aparte: no garantizan cierre en el mes.
         fact = self._sq("""
             SELECT
-                COALESCE(SUM(am.amount_total_signed)
-                         FILTER (WHERE am.state = 'posted'), 0),
-                COALESCE(SUM(am.amount_total_signed)
-                         FILTER (WHERE am.state = 'draft'), 0),
-                COUNT(*) FILTER (WHERE am.state = 'draft')
-            FROM account_move am
-            WHERE am.move_type IN ('out_invoice', 'out_refund')
-              AND to_char(COALESCE(am.invoice_date, am.date,
-                                   am.create_date::date), 'YYYY-MM') = %(m)s
-        """, {'m': month}, default=[(0, 0, 0)])[0]
+                COALESCE(SUM(m.amount_total_signed)
+                         FILTER (WHERE m.state = 'posted'), 0),
+                COALESCE(SUM(m.amount_total_signed)
+                         FILTER (WHERE m.state = 'draft'), 0),
+                COUNT(*) FILTER (WHERE m.state = 'draft')
+            FROM account_move m
+            WHERE m.move_type IN ('out_invoice', 'out_refund')
+              AND to_char(COALESCE(m.invoice_date, m.date,
+                                   m.create_date::date), 'YYYY-MM') = %(m)s
+              {src}
+        """.format(src=_srcm), {'m': month}, default=[(0, 0, 0)])[0]
         fact_real_mes = float(fact[0] or 0.0)
         fact_previa_mes = float(fact[1] or 0.0)
         fact_previa_count = int(fact[2] or 0)
@@ -4271,26 +4345,27 @@ class SomAnalytics(models.AbstractModel):
                 LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
                 WHERE sol.display_type IS NULL
                   AND sol.standard_pack_id IS NOT NULL
-                  AND to_char(so.date_order,'YYYY-MM') = %(m)s
-            """, {'rate': rate, 'm': month}, default=[(0, 0)])[0]
+                  AND to_char(so.date_order,'YYYY-MM') = %(m)s {src}
+            """.format(src=_src), {'rate': rate, 'm': month},
+                default=[(0, 0)])[0]
             cajas_mes = float(row[0] or 0.0)
             venta_cajas_mes = float(row[1] or 0.0)
 
         # ── Vitales comerciales del MES (dominio Ventas del dashboard).
-        # FUENTE: Odoo puro (sale_order/commission_move) — el legado SPS
-        # tiene su propio filtro DENTRO de SOM Analytics y aquí no se
-        # mezcla. Van como strings ya formateados: la barra vital del
-        # dashboard los muestra tal cual.
+        # Respetan el ORIGEN elegido en la barra de filtros, igual que el
+        # resto del ticker. Van como strings ya formateados: la barra
+        # vital del dashboard los muestra tal cual.
         ordenes_mes = int(one("""
             SELECT COUNT(*) FROM sale_order
-            WHERE state='sale' AND to_char(date_order,'YYYY-MM') = %(m)s
-        """, {'m': month}))
+            WHERE state='sale'
+              AND to_char(date_order,'YYYY-MM') = %(m)s {src}
+        """.format(src=_srcb), {'m': month}))
         stm = dict(self._sq("""
             SELECT state, COUNT(*) FROM sale_order
             WHERE to_char(date_order,'YYYY-MM') = %(m)s
-              AND COALESCE(x_is_quote_backup, false) = false
+              AND COALESCE(x_is_quote_backup, false) = false {src}
             GROUP BY state
-        """, {'m': month}, default=[]))
+        """.format(src=_srcb), {'m': month}, default=[]))
         _quotes = stm.get('draft', 0) + stm.get('sent', 0) + stm.get('sale', 0)
         conv_pct = round(
             stm.get('sale', 0) / _quotes * 100, 1) if _quotes else 0.0
@@ -4301,8 +4376,8 @@ class SomAnalytics(models.AbstractModel):
                             FILTER (WHERE state='sale'), 0),
                    COALESCE(SUM(x_discount_rejected_amount), 0)
             FROM sale_order
-            WHERE to_char(date_order,'YYYY-MM') = %(m)s
-        """, {'m': month}, default=[(0, 0)])[0]
+            WHERE to_char(date_order,'YYYY-MM') = %(m)s {src}
+        """.format(src=_srcb), {'m': month}, default=[(0, 0)])[0]
         desc_mes, desc_evitado = float(row[0] or 0), float(row[1] or 0)
 
         com_mes = float(self._sq("""
@@ -4326,12 +4401,13 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE sol.display_type IS NULL
-              AND to_char(so.date_order,'YYYY-MM') = %(m)s
+              AND to_char(so.date_order,'YYYY-MM') = %(m)s {src}
               AND CASE WHEN rc.name='USD'
                        THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
                        ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
                   END > 0
-        """, {'cid': cid, 'm': month}, default=[(0, 0)])[0]
+        """.format(src=_src), {'cid': cid, 'm': month},
+            default=[(0, 0)])[0]
         real_pct = round(
             (rowr[0] or 0) / rowr[1] * 100, 1) if rowr[1] else 0.0
 

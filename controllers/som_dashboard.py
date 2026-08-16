@@ -21,7 +21,7 @@ GROUPS = ('inventory_shopping_cart.group_dashboard_viewer',
 _RPC_WHITELIST = {
     'dashboard': ('get_dashboard', 2),
     'drill': ('get_drill', 4),
-    'exec': ('get_exec_summary', 0),
+    'exec': ('get_exec_summary', 1),
     'banks': ('get_bank_balances', 0),
     'order_lines': ('get_order_lines', 1),
     'time_to_sell': ('get_time_to_sell', 1),
