@@ -414,6 +414,7 @@ class SomAnalytics(models.AbstractModel):
             'taller': self._dom_taller,
             'entregas': self._dom_entregas,
             'control': self._dom_control,
+            'usuarios': self._dom_usuarios,
             'financiero': self._dom_financiero,
             'pronosticos': self._dom_pronosticos,
         }.get(domain, self._dom_resumen)
@@ -2795,6 +2796,209 @@ class SomAnalytics(models.AbstractModel):
         ar, ap = self.env.cr.fetchone()
         return {'por_cobrar': round(ar or 0.0, 2),
                 'por_pagar': round(ap or 0.0, 2)}
+
+    # ── USUARIOS (medición de actividad) ───────────────────────────────
+    # Se alimenta de som.user.activity / som.user.session, que llena el
+    # servicio som_activity_tracker del webclient. Todo sale de ahí: Odoo
+    # de fábrica solo guarda la hora de LOGIN (res.users.log) y un estado
+    # de presencia que se pisa a sí mismo (bus.presence).
+    #
+    # Convenciones que hacen honestos los números:
+    #  · ACTIVO = pestaña visible + teclado/mouse en los últimos 90 s.
+    #  · INACTIVO = visible pero sin tocar. Nunca se suma como trabajo.
+    #  · Segundo plano = no se mide.
+    def _dom_usuarios(self, f):
+        date_from, date_to = self._dates(f)
+        params = (date_from, date_to)
+
+        empty = {
+            'kpis': {
+                'usuarios': 0, 'horas_activas': 0.0, 'horas_inactivas': 0.0,
+                'pct_activo': 0.0, 'espera_prom_ms': 0.0, 'espera_max_ms': 0.0,
+                'sesiones': 0, 'horas_por_usuario': 0.0,
+            },
+            'usuarios': [], 'pantallas': [], 'horario': [],
+            'captura': [], 'sin_datos': True,
+        }
+
+        totals = self._sq("""
+            SELECT COUNT(DISTINCT user_id),
+                   COALESCE(SUM(active_seconds), 0),
+                   COALESCE(SUM(idle_seconds), 0),
+                   COALESCE(SUM(rpc_ms_total), 0),
+                   COALESCE(SUM(rpc_count), 0),
+                   COALESCE(MAX(rpc_ms_max), 0)
+            FROM som_user_activity
+            WHERE day >= %s AND day <= %s
+        """, params, default=[(0, 0, 0, 0, 0, 0)])[0]
+
+        users_count = totals[0] or 0
+        if not users_count:
+            return empty
+
+        active_s = float(totals[1] or 0)
+        idle_s = float(totals[2] or 0)
+        rpc_ms = float(totals[3] or 0)
+        rpc_n = float(totals[4] or 0)
+        total_s = active_s + idle_s
+
+        sessions = self._sq("""
+            SELECT COUNT(*) FROM som_user_session
+            WHERE started_at >= %s::date
+              AND started_at < (%s::date + INTERVAL '1 day')
+        """, params, default=[(0,)])[0][0] or 0
+
+        # Por usuario: jornada, foco, horario y espera del sistema.
+        rows = self._sq("""
+            SELECT a.user_id,
+                   COALESCE(p.name, u.login)                AS usuario,
+                   COUNT(DISTINCT a.day)                    AS dias,
+                   SUM(a.active_seconds)                    AS activo,
+                   SUM(a.idle_seconds)                      AS inactivo,
+                   SUM(a.rpc_count)                         AS llamadas,
+                   SUM(a.rpc_ms_total)                      AS espera_ms,
+                   MAX(a.rpc_ms_max)                        AS espera_max,
+                   MIN(a.hour)                              AS hora_min,
+                   MAX(a.hour)                              AS hora_max,
+                   AVG(a.hour)                              AS hora_media
+            FROM som_user_activity a
+            JOIN res_users u ON u.id = a.user_id
+            LEFT JOIN res_partner p ON p.id = u.partner_id
+            WHERE a.day >= %s AND a.day <= %s
+            GROUP BY a.user_id, p.name, u.login
+            ORDER BY SUM(a.active_seconds) DESC
+        """, params)
+
+        # Primera y última señal del día, promediadas: la hora real a la que
+        # cada quien arranca y cierra.
+        edges = {r[0]: r for r in self._sq("""
+            SELECT user_id,
+                   AVG(EXTRACT(HOUR FROM primera) + EXTRACT(MINUTE FROM primera)/60.0),
+                   AVG(EXTRACT(HOUR FROM ultima) + EXTRACT(MINUTE FROM ultima)/60.0)
+            FROM (
+                SELECT user_id, day,
+                       MIN(start_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey') AS primera,
+                       MAX(end_at   AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey') AS ultima
+                FROM som_user_activity
+                WHERE day >= %s AND day <= %s
+                GROUP BY user_id, day
+            ) d GROUP BY user_id
+        """, params)}
+
+        # Pantalla donde más tiempo activo pasa cada quien.
+        top_screen = {}
+        for uid, screen, label, secs in self._sq("""
+            SELECT DISTINCT ON (user_id)
+                   user_id, screen_key, COALESCE(NULLIF(screen_label, ''), screen_key),
+                   SUM(active_seconds) AS s
+            FROM som_user_activity
+            WHERE day >= %s AND day <= %s
+            GROUP BY user_id, screen_key, screen_label
+            ORDER BY user_id, s DESC
+        """, params):
+            top_screen.setdefault(uid, (label or screen, secs or 0))
+
+        usuarios = []
+        for r in rows:
+            uid = r[0]
+            act = float(r[3] or 0)
+            idl = float(r[4] or 0)
+            tot_u = act + idl
+            dias = r[2] or 0
+            llamadas = float(r[5] or 0)
+            edge = edges.get(uid)
+            screen = top_screen.get(uid, ('—', 0))
+            usuarios.append({
+                'user_id': uid,
+                'usuario': r[1] or '',
+                'dias': dias,
+                'horas_activas': round(act / 3600.0, 2),
+                'horas_inactivas': round(idl / 3600.0, 2),
+                'horas_dia': round((tot_u / 3600.0) / dias, 2) if dias else 0.0,
+                'pct_activo': round(act * 100.0 / tot_u, 1) if tot_u else 0.0,
+                'entrada': round(edge[1], 2) if edge and edge[1] is not None else None,
+                'salida': round(edge[2], 2) if edge and edge[2] is not None else None,
+                'espera_prom_ms': round(float(r[6] or 0) / llamadas, 0) if llamadas else 0.0,
+                'espera_max_ms': round(float(r[7] or 0), 0),
+                'llamadas': int(llamadas),
+                'top_pantalla': screen[0],
+                'top_pantalla_horas': round(float(screen[1] or 0) / 3600.0, 2),
+            })
+
+        pantallas = [{
+            'pantalla': (lbl or key),
+            'key': key,
+            'horas_activas': round(float(act or 0) / 3600.0, 2),
+            'horas_inactivas': round(float(idl or 0) / 3600.0, 2),
+            'usuarios': int(nusers or 0),
+        } for key, lbl, act, idl, nusers in self._sq("""
+            SELECT screen_key,
+                   MIN(NULLIF(screen_label, '')),
+                   SUM(active_seconds), SUM(idle_seconds),
+                   COUNT(DISTINCT user_id)
+            FROM som_user_activity
+            WHERE day >= %s AND day <= %s
+            GROUP BY screen_key
+            ORDER BY SUM(active_seconds) DESC
+            LIMIT 15
+        """, params)]
+
+        horario = [{
+            'hora': int(h or 0),
+            'horas_activas': round(float(act or 0) / 3600.0, 2),
+            'usuarios': int(n or 0),
+        } for h, act, n in self._sq("""
+            SELECT hour, SUM(active_seconds), COUNT(DISTINCT user_id)
+            FROM som_user_activity
+            WHERE day >= %s AND day <= %s
+            GROUP BY hour ORDER BY hour
+        """, params)]
+
+        # TIEMPO DE CAPTURA de una orden de venta: minutos ACTIVOS que el
+        # usuario pasó con ese documento abierto. No es reloj de pared —
+        # es tiempo real dedicado, que es lo comparable entre personas.
+        captura = [{
+            'usuario': nombre or '',
+            'documentos': int(docs or 0),
+            'minutos_mediana': round(float(med or 0) / 60.0, 1),
+            'minutos_prom': round(float(prom or 0) / 60.0, 1),
+        } for nombre, docs, med, prom in self._sq("""
+            SELECT COALESCE(p.name, u.login), COUNT(*),
+                   PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY d.segundos),
+                   AVG(d.segundos)
+            FROM (
+                SELECT user_id, res_id, SUM(active_seconds) AS segundos
+                FROM som_user_activity
+                WHERE day >= %s AND day <= %s
+                  AND model_name = 'sale.order' AND res_id > 0
+                GROUP BY user_id, res_id
+                HAVING SUM(active_seconds) >= 60
+            ) d
+            JOIN res_users u ON u.id = d.user_id
+            LEFT JOIN res_partner p ON p.id = u.partner_id
+            GROUP BY p.name, u.login
+            ORDER BY COUNT(*) DESC
+            LIMIT 15
+        """, params)]
+
+        return {
+            'kpis': {
+                'usuarios': users_count,
+                'horas_activas': round(active_s / 3600.0, 1),
+                'horas_inactivas': round(idle_s / 3600.0, 1),
+                'pct_activo': round(active_s * 100.0 / total_s, 1) if total_s else 0.0,
+                'espera_prom_ms': round(rpc_ms / rpc_n, 0) if rpc_n else 0.0,
+                'espera_max_ms': round(float(totals[5] or 0), 0),
+                'sesiones': sessions,
+                'horas_por_usuario': round(
+                    (active_s / 3600.0) / users_count, 1) if users_count else 0.0,
+            },
+            'usuarios': usuarios,
+            'pantallas': pantallas,
+            'horario': horario,
+            'captura': captura,
+            'sin_datos': False,
+        }
 
     def _dom_financiero(self, f):
         tot = self._finance_totals()

@@ -34,6 +34,7 @@ const TABS = [
     { key: "entregas", label: "Entregas" },
     { key: "financiero", label: "Financiero" },
     { key: "control", label: "Control" },
+    { key: "usuarios", label: "Usuarios" },
 ];
 
 // Números CRUDOS en formato anglosajón (1,234,567.89): sin abreviar
@@ -405,6 +406,7 @@ export class SomAnalytics extends Component {
         else if (t === "entregas") this.renderEntregas(d);
         else if (t === "financiero") this.renderFinanciero(d);
         else if (t === "control") this.renderControl(d);
+        else if (t === "usuarios") this.renderUsuarios(d);
     }
 
     _monthlyCombo(key, id, rows, clickable = true) {
@@ -671,6 +673,46 @@ export class SomAnalytics extends Component {
                 borderRadius: 6, borderSkipped: false, maxBarThickness: 20,
             }],
             { horizontal: true });
+    }
+
+    // Medición de usuarios. Dos lecturas: DÓNDE se va el tiempo (pantallas)
+    // y A QUÉ HORA se trabaja (jornada real, no la teórica).
+    renderUsuarios(d) {
+        if (d.sin_datos) return;
+        const pa = d.pantallas || [];
+        this.barChart("us_p", "som_us_pantallas",
+            pa.map((r) => r.pantalla),
+            [
+                {
+                    label: "Horas activas", data: pa.map((r) => r.horas_activas),
+                    somMoney: false, backgroundColor: "rgba(11,87,208,.82)",
+                    borderRadius: 6, borderSkipped: false, maxBarThickness: 20,
+                },
+                {
+                    label: "Horas sin tocar", data: pa.map((r) => r.horas_inactivas),
+                    somMoney: false, backgroundColor: "rgba(148,163,184,.65)",
+                    borderRadius: 6, borderSkipped: false, maxBarThickness: 20,
+                },
+            ],
+            { horizontal: true, stacked: true });
+
+        const ho = d.horario || [];
+        this.barChart("us_h", "som_us_horario",
+            ho.map((r) => `${String(r.hora).padStart(2, "0")}:00`),
+            [{
+                label: "Horas activas", data: ho.map((r) => r.horas_activas),
+                somMoney: false, backgroundColor: "rgba(56,189,248,.85)",
+                borderRadius: 6, borderSkipped: false,
+            }]);
+    }
+
+    // 14.25 -> "14:15". Las horas de entrada/salida se calculan como
+    // promedio decimal en SQL; aquí se vuelven legibles.
+    fmtHour(value) {
+        if (value === null || value === undefined) return "—";
+        const h = Math.floor(value);
+        const m = Math.round((value - h) * 60);
+        return `${String(h).padStart(2, "0")}:${String(m === 60 ? 0 : m).padStart(2, "0")}`;
     }
 
     renderEntregas(d) {

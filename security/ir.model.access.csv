@@ -44,3 +44,7 @@ access_supplier_shipment_container_reception,supplier.shipment.container recepti
 access_supplier_shipment_invoice_reception,supplier.shipment.invoice reception,model_supplier_shipment_invoice,stock_transit_allocation.group_transit_receptions,1,0,0,0
 access_supplier_shipment_block_image_reception,supplier.shipment.block.image reception,model_supplier_shipment_block_image,stock_transit_allocation.group_transit_receptions,1,0,0,0
 access_tc_partial_reception_confirm,tc.partial.reception.confirm,model_tc_partial_reception_confirm,base.group_user,1,1,1,1
+access_som_user_activity_viewer,som.user.activity.viewer,model_som_user_activity,inventory_shopping_cart.group_dashboard_viewer,1,0,0,0
+access_som_user_activity_admin,som.user.activity.admin,model_som_user_activity,base.group_system,1,1,1,1
+access_som_user_session_viewer,som.user.session.viewer,model_som_user_session,inventory_shopping_cart.group_dashboard_viewer,1,0,0,0
+access_som_user_session_admin,som.user.session.admin,model_som_user_session,base.group_system,1,1,1,1

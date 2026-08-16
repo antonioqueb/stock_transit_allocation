@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.96.14.0',
+    'version': '19.0.97.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -130,6 +130,10 @@
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.xml',
 
             'stock_transit_allocation/static/src/components/hub_lazy_loaders.js',
+
+            # Medición de actividad de usuarios (tiempo de pantalla,
+            # foco y espera del sistema). Ligero y sin dependencias.
+            'stock_transit_allocation/static/src/services/som_activity_tracker.js',
         ],
         # Hubs pesados (~470 KB): se descargan/compilan SOLO al abrir su
         # acción por primera vez (LazyComponent), no en cada arranque.

@@ -501,6 +501,93 @@
                             </div>
                         </div>
                     </t>
+                    <!-- ════════ USUARIOS (medición de actividad) ════════ -->
+                    <t t-if="state.tab === 'usuarios'">
+                        <t t-if="data.sin_datos">
+                            <div class="som_bi__panel wide">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Todavía no hay mediciones</span></div>
+                                <div style="padding: 18px 22px; line-height: 1.7; color: #475569;">
+                                    <p>
+                                        La medición arranca cuando los usuarios abren Odoo
+                                        después de esta actualización: <b>no es retroactiva</b>.
+                                        Odoo de fábrica solo guarda la hora de login, así que
+                                        no hay historia previa que rescatar.
+                                    </p>
+                                    <p style="margin-top: 10px;">
+                                        Se cuenta como <b>activo</b> el tiempo con la pantalla
+                                        visible y con teclado o mouse en los últimos 90&#160;s.
+                                        El tiempo con Odoo en segundo plano no se cuenta.
+                                    </p>
+                                </div>
+                            </div>
+                        </t>
+
+                        <t t-else="">
+                            <div class="som_bi__stats">
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Horas de trabajo</t><t t-set="val" t-value="num(data.kpis.horas_activas) + ' h'"/><t t-set="sub" t-value="num(data.kpis.horas_por_usuario) + ' h por persona'"/></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Foco</t><t t-set="val" t-value="num(data.kpis.pct_activo) + '%'"/><t t-set="sub" t-value="num(data.kpis.horas_inactivas) + ' h en pantalla sin tocar'"/></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Personas medidas</t><t t-set="val" t-value="num(data.kpis.usuarios,0)"/><t t-set="sub" t-value="num(data.kpis.sesiones,0) + ' sesiones'"/></t>
+                                <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Espera del sistema</t><t t-set="val" t-value="num(data.kpis.espera_prom_ms,0) + ' ms'"/><t t-set="sub" t-value="'pico ' + num(data.kpis.espera_max_ms,0) + ' ms'"/></t>
+                            </div>
+
+                            <div class="som_bi__grid">
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot blue"/> Dónde se va el tiempo</span></div>
+                                    <div class="som_bi__canvas tall"><canvas id="som_us_pantallas"/></div>
+                                </div>
+
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot green"/> Jornada real por persona</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head6">
+                                            <span>Persona</span><b>Entra</b><b>Sale</b><b>h/día</b><b>Foco</b><b>Espera</b>
+                                        </div>
+                                        <div t-foreach="data.usuarios" t-as="u" t-key="u.user_id" class="row row6">
+                                            <span>
+                                                <t t-esc="u.usuario"/>
+                                                <small class="d-block text-muted">
+                                                    <t t-esc="u.top_pantalla"/> · <t t-esc="num(u.dias,0)"/> días
+                                                </small>
+                                            </span>
+                                            <b t-esc="fmtHour(u.entrada)"/>
+                                            <b t-esc="fmtHour(u.salida)"/>
+                                            <b t-esc="num(u.horas_dia)"/>
+                                            <b t-attf-class="pill #{u.pct_activo >= 70 ? 'good' : u.pct_activo >= 45 ? 'mid' : 'bad'}"
+                                               t-esc="num(u.pct_activo,0) + '%'"/>
+                                            <b t-esc="num(u.espera_prom_ms,0) + ' ms'"/>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="som_bi__panel wide">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot sky"/> Horario: cuándo se trabaja de verdad</span></div>
+                                    <div class="som_bi__canvas"><canvas id="som_us_horario"/></div>
+                                </div>
+
+                                <div class="som_bi__panel">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot violet"/> Minutos dedicados a capturar una orden</span></div>
+                                    <div class="som_bi__minitable">
+                                        <div class="row head"><span>Persona</span><b>Docs</b><b>Mediana</b></div>
+                                        <div t-foreach="data.captura" t-as="c" t-key="c_index" class="row">
+                                            <span t-esc="c.usuario"/>
+                                            <b t-esc="num(c.documentos,0)"/>
+                                            <b t-esc="num(c.minutos_mediana) + ' min'"/>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="som_bi__panel">
+                                    <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Cómo leer estos números</span></div>
+                                    <div style="padding: 12px 16px; font-size: 12px; line-height: 1.75; color: #475569;">
+                                        <p><b>Foco</b> = tiempo con teclado o mouse sobre el tiempo con la pantalla abierta. Un foco bajo puede ser lectura o atención al cliente: es una pregunta, no una falta.</p>
+                                        <p style="margin-top: 8px;"><b>Espera</b> = lo que el sistema tarda en responderle a esa persona (red + servidor). Si sube solo para alguien, el problema es su equipo o su enlace, no ella.</p>
+                                        <p style="margin-top: 8px;"><b>Minutos por orden</b> son minutos ACTIVOS dedicados al documento, no reloj de pared.</p>
+                                        <p style="margin-top: 8px;">El tiempo con Odoo en segundo plano no se cuenta como jornada.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </t>
+                    </t>
                 </div>
             </t>
 
