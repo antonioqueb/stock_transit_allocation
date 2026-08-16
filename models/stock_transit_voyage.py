@@ -2364,6 +2364,11 @@ class StockTransitVoyage(models.Model):
                 if not existing_line.partner_id and partner_to_assign:
                     update_vals['partner_id'] = partner_to_assign.id
                     update_vals['order_id'] = order_to_assign.id if order_to_assign else False
+                    update_vals['sale_line_id'] = (
+                        allocation_to_use.sale_line_id.id
+                        if order_to_assign and allocation_to_use
+                        and allocation_to_use.sale_line_id else False
+                    )
                     update_vals['allocation_status'] = 'reserved'
 
                 if update_vals:
@@ -2379,6 +2384,13 @@ class StockTransitVoyage(models.Model):
                 'product_uom_qty': qty_done,
                 'partner_id': partner_to_assign.id if partner_to_assign else False,
                 'order_id': order_to_assign.id if order_to_assign else False,
+                # La allocation de compra YA conoce la línea de venta exacta:
+                # estamparla evita re-adivinar con el reparto por capacidad.
+                'sale_line_id': (
+                    allocation_to_use.sale_line_id.id
+                    if order_to_assign and allocation_to_use
+                    and allocation_to_use.sale_line_id else False
+                ),
                 'allocation_status': 'reserved' if partner_to_assign else 'available',
                 'container_number': lot_container,
                 'allocation_id': allocation_to_use.id if allocation_to_use else False,
@@ -3778,6 +3790,7 @@ class StockTransitVoyage(models.Model):
                 ).write({
                     'partner_id': False,
                     'order_id': False,
+                    'sale_line_id': False,
                     'allocation_id': False,
                     'allocation_status': 'available',
                     'notes': 'Liberado por cancelación del viaje %s' % voyage.name,

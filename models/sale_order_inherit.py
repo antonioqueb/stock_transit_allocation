@@ -141,6 +141,7 @@ class SaleOrder(models.Model):
                 ).write({
                     'partner_id': False,
                     'order_id': False,
+                    'sale_line_id': False,
                     'allocation_id': False,
                     'allocation_status': 'available',
                     'notes': 'Liberado por cancelación de %s' % order.name,
@@ -622,6 +623,12 @@ class SaleOrderLine(models.Model):
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ])
 
+        # Lo estampado a OTRA línea de la orden no cuenta aquí (evita que
+        # dos líneas hermanas del mismo producto se acrediten el mismo lote).
+        if 'sale_line_id' in TransitLine._fields:
+            transit_lines = transit_lines.filtered(
+                lambda tl: not tl.sale_line_id or tl.sale_line_id.id == self.id)
+
         return sum(tl._tc_operational_qty() for tl in transit_lines)
 
     def _tc_get_lot_fallback_qty(self, lot):
@@ -1069,6 +1076,12 @@ class SaleOrderLine(models.Model):
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ])
 
+        # El techo es POR LÍNEA: el tránsito estampado a una línea hermana
+        # no debe inflar el techo de esta (doble conteo del cap).
+        if 'sale_line_id' in TransitLine._fields:
+            transit_lines = transit_lines.filtered(
+                lambda tl: not tl.sale_line_id or tl.sale_line_id.id == self.id)
+
         return sum(transit_lines.mapped('product_uom_qty'))
 
     def _tc_validate_assignment_stock_cap(self):
@@ -1382,6 +1395,13 @@ class SaleOrderLine(models.Model):
                 ('allocation_status', '=', 'reserved'),
                 ('voyage_id.custom_status', 'not in', ('delivered', 'cancel')),
             ])
+            # Solo se libera lo atribuido a ESTA línea (o legado sin línea);
+            # quitar un lote de una línea no debe soltar la reserva de una
+            # hermana que comparte orden.
+            if 'sale_line_id' in TransitLine._fields:
+                transit_lines = transit_lines.filtered(
+                    lambda tl: not tl.sale_line_id
+                    or tl.sale_line_id.id == line.id)
             if not transit_lines:
                 continue
             allocations = transit_lines.mapped('allocation_id')
@@ -1398,6 +1418,7 @@ class SaleOrderLine(models.Model):
             ).write({
                 'partner_id': False,
                 'order_id': False,
+                'sale_line_id': False,
                 'allocation_id': False,
                 'allocation_status': 'available',
                 'notes': 'Liberado: lote removido de %s' % line.order_id.name,
@@ -2756,10 +2777,20 @@ class SaleOrderLine(models.Model):
                 ('state', 'not in', ['cancelled', 'done']),
             ], order='id desc', limit=1)
 
-            transit_line = self.env['stock.transit.line'].sudo().search([
-                ('order_id', '=', line.order_id.id),
-                ('product_id', '=', line.product_id.id),
+            # Primero lo estampado a ESTA línea; el fallback por (orden,
+            # producto) queda para registros legados sin sale_line_id (con
+            # líneas hermanas del mismo producto mostraba a ambas el viaje
+            # del último registro, aunque fueran embarques distintos).
+            TransitLine = self.env['stock.transit.line'].sudo()
+            transit_line = TransitLine.search([
+                ('sale_line_id', '=', line.id),
             ], order='id desc', limit=1)
+            if not transit_line:
+                transit_line = TransitLine.search([
+                    ('order_id', '=', line.order_id.id),
+                    ('product_id', '=', line.product_id.id),
+                    ('sale_line_id', '=', False),
+                ], order='id desc', limit=1)
 
             if transit_line and transit_line.voyage_id:
                 line.transit_status = transit_line.voyage_id.custom_status

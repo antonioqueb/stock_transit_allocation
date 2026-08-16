@@ -1495,25 +1495,43 @@ class StockPicking(models.Model):
             by_order_product.setdefault(key, self.env['stock.transit.line'].sudo())
             by_order_product[key] |= line
 
-        # REPARTO POR LÍNEA DE VENTA: con varias líneas del mismo producto
-        # en la orden, los lotes recibidos se distribuyen por capacidad
-        # pendiente — antes todo el grupo caía en la primera línea
-        # pendiente y las demás quedaban sin material.
+        # ATRIBUCIÓN POR LÍNEA DE VENTA: la línea estampada en la asignación
+        # (sale_line_id, elegida por el usuario o por la allocation de compra)
+        # MANDA. El reparto por capacidad pendiente queda solo para registros
+        # legados sin línea — antes se re-adivinaba en cada parcialidad y el
+        # mismo lote podía caer en líneas distintas entre recepciones.
         for (order_id, product_id), group in by_order_product.items():
             order = self.env['sale.order'].browse(order_id)
             product = self.env['product.product'].browse(product_id)
+
+            def _add_assignment(sale_line_id, subset):
+                key = (order_id, product_id, sale_line_id)
+                assignments_by_key.setdefault(
+                    key, self.env['stock.transit.line'].sudo())
+                assignments_by_key[key] |= subset
+
+            stamped = group.filtered(
+                lambda l: l.sale_line_id and l.sale_line_id.order_id.id == order_id)
+            for sale_line in stamped.mapped('sale_line_id'):
+                _add_assignment(
+                    sale_line.id,
+                    stamped.filtered(lambda l: l.sale_line_id.id == sale_line.id))
+
+            rest = group - stamped
+            if not rest:
+                continue
+
             pairs = []
             if order.exists() and product.exists() \
                     and hasattr(order, '_tc_distribute_transit_to_lines'):
-                pairs = order._tc_distribute_transit_to_lines(product, group)
+                pairs = order._tc_distribute_transit_to_lines(product, rest)
             if pairs:
                 for sale_line, subset in pairs:
                     if not subset:
                         continue
-                    assignments_by_key[
-                        (order_id, product_id, sale_line.id)] = subset
+                    _add_assignment(sale_line[:1].id, subset)
             else:
-                assignments_by_key[(order_id, product_id, 0)] = group
+                _add_assignment(0, rest)
 
         if not assignments_by_key:
             _logger.info(

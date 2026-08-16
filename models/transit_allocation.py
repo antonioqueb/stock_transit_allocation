@@ -255,9 +255,31 @@ class TransitAllocationLogic(models.AbstractModel):
             owned = bool(lot and owners_by_lot.get((key, lot.id)))
             qty = 0.0 if owned else self._tal_transit_line_qty(tl)
             if qty > 0:
-                entries_by_key[key].append([lot.id if lot else 0, qty])
+                entries_by_key[key].append([
+                    lot.id if lot else 0,
+                    qty,
+                    tl.sale_line_id.id if tl.sale_line_id else 0,
+                ])
 
         result = {}
+
+        # PASE 0 — línea ESTAMPADA: la reserva con sale_line_id pertenece a
+        # esa línea y a ninguna otra; se acredita directo y no entra al FIFO.
+        for line in sale_lines:
+            key = (line.order_id.id, line.product_id.id)
+            entries = entries_by_key.get(key)
+            if not entries:
+                continue
+            pending = ((metrics_by_line.get(line.id, {}) or {}).get(
+                'pending_qty', 0.0) or 0.0) - result.get(line.id, 0.0)
+            for entry in entries:
+                if pending <= 0:
+                    break
+                if entry[2] == line.id and entry[1] > 0:
+                    take = min(entry[1], pending)
+                    result[line.id] = result.get(line.id, 0.0) + take
+                    entry[1] -= take
+                    pending -= take
 
         # PASE 1 — crédito DIRIGIDO: si el lote reservado ya vive en
         # lot_ids de una línea concreta, su reserva descuenta el pendiente
@@ -277,6 +299,9 @@ class TransitAllocationLogic(models.AbstractModel):
             for entry in entries:
                 if pending <= 0:
                     break
+                # Lo estampado a una línea ya se acreditó en el PASE 0.
+                if entry[2]:
+                    continue
                 if entry[0] and entry[0] in line_lots and entry[1] > 0:
                     take = min(entry[1], pending)
                     result[line.id] = result.get(line.id, 0.0) + take
@@ -297,6 +322,9 @@ class TransitAllocationLogic(models.AbstractModel):
                 if pending <= 0:
                     break
                 if entry[1] <= 0:
+                    continue
+                # Lo estampado a una línea no entra al FIFO.
+                if entry[2]:
                     continue
                 # Lo dirigido a OTRA línea no se roba.
                 if entry[0] and entry[0] not in line_lots:
@@ -616,25 +644,19 @@ class TransitAllocationLogic(models.AbstractModel):
         assigned_qty_before = sale_line._tc_get_assigned_lot_qty() if hasattr(sale_line, '_tc_get_assigned_lot_qty') else sale_line.tc_qty_assigned_lots
         projected_assigned_qty = float_round(assigned_qty_before + selected_qty, precision_rounding=rounding)
 
-        # EXCEDENTE CONTRA TODO EL GRUPO: con varias líneas del mismo
-        # producto la selección se REPARTE, así que el exceso solo existe
-        # si supera la capacidad conjunta (solicitado − asignado de TODAS
-        # las líneas). Medirlo contra la línea clickeada disparaba
-        # decisiones de excedente falsas y editaba cantidades sin deberse.
+        # EXCEDENTE CONTRA LA LÍNEA ELEGIDA: la asignación es por línea
+        # (sale_line_id se persiste y el sync respeta la elección), así que
+        # el exceso se mide contra la demanda de ESA línea. Medirlo contra
+        # el grupo de líneas hermanas mandaba las placas en silencio a otra
+        # línea cuando el lote no cabía en la clickeada, y el vendedor veía
+        # el pendiente intacto ("asigné 12 y me siguen faltando 5").
         def _line_assigned(l):
             return l._tc_get_assigned_lot_qty() \
                 if hasattr(l, '_tc_get_assigned_lot_qty') \
                 else (l.tc_qty_assigned_lots or 0.0)
 
-        sibling_lines = sale_line.order_id.order_line.filtered(
-            lambda l: not l.display_type
-            and l.product_id == sale_line.product_id)
-        requested_total = sum((l.product_uom_qty or 0.0) for l in sibling_lines)
-        assigned_total_before = sum(_line_assigned(l) for l in sibling_lines)
-        projected_total = float_round(
-            assigned_total_before + selected_qty, precision_rounding=rounding)
-        over_assigned_qty = max(projected_total - requested_total, 0.0) \
-            if requested_total > 0 else projected_total
+        over_assigned_qty = max(projected_assigned_qty - requested_qty_before, 0.0) \
+            if requested_qty_before > 0 else projected_assigned_qty
         has_over_assignment = float_compare(over_assigned_qty, 0.0, precision_rounding=rounding) > 0
 
         if has_over_assignment and over_assignment_action not in ('free', 'bill'):
@@ -660,6 +682,9 @@ class TransitAllocationLogic(models.AbstractModel):
             tc_over_assignment_reason=over_assignment_reason or False,
         ).write({
             'order_id': sale_line.order_id.id,
+            # La línea que el usuario eligió MANDA: se persiste y el sync
+            # aplica los lotes a esa línea, no al reparto por capacidad.
+            'sale_line_id': sale_line.id,
         })
 
         over_admin_result = {
@@ -673,18 +698,16 @@ class TransitAllocationLogic(models.AbstractModel):
         }
 
         if has_over_assignment:
-            # La decisión viajó por contexto y el sync ya la aplicó línea por
-            # línea (cantidad exacta a lo asignado, descuento en 'free' y
-            # auditoría). Este bloque queda como RESPALDO por si alguna línea
-            # siguiera sobreasignada (el distribuidor deja el excedente en la
-            # última con capacidad) y, si no hay nada que corregir, solo
-            # refleja en el resultado lo que el sync aplicó.
+            # La decisión viajó por contexto y el sync ya la aplicó sobre la
+            # línea elegida (cantidad exacta a lo asignado, descuento en
+            # 'free' y auditoría). Este bloque queda como RESPALDO por si la
+            # línea siguiera sobreasignada y, si no hay nada que corregir,
+            # solo refleja en el resultado lo que el sync aplicó.
             over_line = self.env['sale.order.line']
-            for l in sibling_lines:
-                if float_compare(_line_assigned(l), l.product_uom_qty or 0.0,
-                                 precision_rounding=rounding) > 0:
-                    over_line = l
-                    break
+            if float_compare(_line_assigned(sale_line),
+                             sale_line.product_uom_qty or 0.0,
+                             precision_rounding=rounding) > 0:
+                over_line = sale_line
             if over_line and hasattr(over_line, '_tc_apply_over_assignment_admin_action'):
                 line_assigned = _line_assigned(over_line)
                 over_admin_result = over_line._tc_apply_over_assignment_admin_action(
@@ -901,17 +924,48 @@ class StockTransitLineTransitAllocationSync(models.Model):
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ]).mapped('lot_id').ids)
 
-        # REPARTO POR LÍNEA: con varias líneas del mismo producto en la
-        # orden, cada lote reservado se atribuye por capacidad pendiente.
-        # Antes TODO el tránsito reservado se fusionaba en la primera línea
-        # pendiente y las demás quedaban en cero.
-        if hasattr(order, '_tc_distribute_transit_to_lines'):
-            pairs = order._tc_distribute_transit_to_lines(
-                product, reserved_transit_lines)
-        else:
-            single = self._tc_get_sale_line_for_assignment(
-                order=order, product=product)
-            pairs = [(single, reserved_transit_lines)] if single else []
+        # ATRIBUCIÓN POR LÍNEA: la línea estampada en sale_line_id MANDA
+        # (la eligió el usuario al asignar y es estable entre eventos). El
+        # reparto por capacidad pendiente queda solo como FALLBACK para
+        # registros legados sin línea, y el resultado se estampa para que
+        # la atribución no vuelva a cambiar en el siguiente sync/recepción.
+        product_lines = order.order_line.filtered(
+            lambda l: not l.display_type and l.product_id.id == product.id
+        ).sorted('id')
+        if not product_lines:
+            return False
+
+        subset_by_line = {l.id: TransitLine.browse() for l in product_lines}
+        stamped = reserved_transit_lines.filtered(
+            lambda tl: tl.sale_line_id and tl.sale_line_id.id in subset_by_line)
+        for tl in stamped:
+            subset_by_line[tl.sale_line_id.id] |= tl
+
+        unstamped = reserved_transit_lines - stamped
+        if unstamped:
+            if hasattr(order, '_tc_distribute_transit_to_lines'):
+                for dist_line, dist_subset in order._tc_distribute_transit_to_lines(
+                        product, unstamped):
+                    target = dist_line[:1]
+                    if target and target.id in subset_by_line:
+                        subset_by_line[target.id] |= dist_subset
+            else:
+                single = self._tc_get_sale_line_for_assignment(
+                    order=order, product=product)
+                if single and single.id in subset_by_line:
+                    subset_by_line[single.id] |= unstamped
+
+            # Estampar el resultado del fallback: la próxima pasada ya no
+            # re-adivina (skip_reservation_logic evita re-entrar al hook).
+            for line in product_lines:
+                to_stamp = subset_by_line[line.id].filtered(
+                    lambda tl: not tl.sale_line_id)
+                if to_stamp:
+                    to_stamp.with_context(skip_reservation_logic=True).write({
+                        'sale_line_id': line.id,
+                    })
+
+        pairs = [(line, subset_by_line[line.id]) for line in product_lines]
 
         done = False
         for sale_line, subset in pairs:

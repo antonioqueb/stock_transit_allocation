@@ -145,6 +145,9 @@ class StockTransitVoyageAllocationGuard(models.Model):
                 'product_uom_qty': qty_to_allocate,
                 'partner_id': alloc.partner_id.id,
                 'order_id': alloc.sale_order_id.id,
+                # La allocation ya trae la línea exacta: se persiste para que
+                # sync/recepción no re-adivinen entre líneas hermanas.
+                'sale_line_id': alloc.sale_line_id.id if alloc.sale_line_id else False,
                 'allocation_id': alloc.id,
                 'allocation_status': 'reserved',
                 'container_number': 'PENDIENTE',

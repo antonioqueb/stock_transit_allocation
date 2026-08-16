@@ -2,7 +2,7 @@
 from markupsafe import Markup
 
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare, float_round
 
 import logging
@@ -94,6 +94,30 @@ class StockTransitLine(models.Model):
         string='Sales Order',
         domain="[('id', 'in', eligible_order_ids)]",
     )
+    # Línea EXACTA del pedido a la que pertenece esta asignación. Con varias
+    # líneas del mismo producto en la orden, adivinar la línea en cada evento
+    # (sync, recepción, liberación) producía atribuciones inestables; la línea
+    # se decide UNA vez al asignar y se persiste aquí. Vacío = registro legado:
+    # los consumidores caen al reparto por capacidad como antes.
+    sale_line_id = fields.Many2one(
+        'sale.order.line',
+        string='Línea de Venta',
+        index=True,
+    )
+
+    @api.constrains('sale_line_id', 'order_id', 'product_id')
+    def _check_sale_line_consistency(self):
+        for line in self:
+            if not line.sale_line_id:
+                continue
+            if line.order_id and line.sale_line_id.order_id != line.order_id:
+                raise ValidationError(_(
+                    'La línea de venta atribuida (%s) no pertenece al pedido %s.'
+                ) % (line.sale_line_id.display_name, line.order_id.name))
+            if line.product_id and line.sale_line_id.product_id != line.product_id:
+                raise ValidationError(_(
+                    'La línea de venta atribuida no es del producto %s.'
+                ) % (line.product_id.display_name))
 
     allocation_id = fields.Many2one(
         'purchase.order.line.allocation',
@@ -373,10 +397,14 @@ class StockTransitLine(models.Model):
         if not order or not purchase or not self.product_id:
             return Allocation
 
-        sale_line = self._tc_get_sale_line_for_assignment(
-            order=order,
-            product=self.product_id,
-        )
+        # La línea estampada en la asignación manda; la heurística de
+        # "primera línea pendiente" queda solo para registros sin línea.
+        sale_line = self.sale_line_id
+        if not sale_line or sale_line.order_id != order:
+            sale_line = self._tc_get_sale_line_for_assignment(
+                order=order,
+                product=self.product_id,
+            )
 
         if not sale_line:
             return Allocation
@@ -554,7 +582,9 @@ class StockTransitLine(models.Model):
             return super(StockTransitLine, self).write(vals)
 
         vals = dict(vals or {})
-        assignment_changed = 'partner_id' in vals or 'order_id' in vals
+        assignment_changed = (
+            'partner_id' in vals or 'order_id' in vals or 'sale_line_id' in vals
+        )
 
         old_assignments = {}
 
@@ -564,6 +594,11 @@ class StockTransitLine(models.Model):
 
             if 'order_id' in vals and 'allocation_id' not in vals:
                 vals['allocation_id'] = False
+
+            # Cambiar (o quitar) la orden invalida la atribución de línea
+            # salvo que el llamador mande la nueva explícitamente.
+            if 'order_id' in vals and 'sale_line_id' not in vals:
+                vals['sale_line_id'] = False
 
             if vals.get('order_id') and 'partner_id' not in vals:
                 order = self.env['sale.order'].browse(vals['order_id'])
@@ -575,6 +610,7 @@ class StockTransitLine(models.Model):
                     'partner_id': line.partner_id.id if line.partner_id else False,
                     'order_id': line.order_id.id if line.order_id else False,
                     'product_id': line.product_id.id if line.product_id else False,
+                    'sale_line_id': line.sale_line_id.id if line.sale_line_id else False,
                 }
 
                 new_partner = line.partner_id
@@ -613,6 +649,8 @@ class StockTransitLine(models.Model):
                 changed = (
                     old_partner_id != (new_partner.id if new_partner else False)
                     or old_order_id != (new_order.id if new_order else False)
+                    or old.get('sale_line_id') != (
+                        line.sale_line_id.id if line.sale_line_id else False)
                 )
 
                 if not changed:
@@ -814,8 +852,13 @@ class StockTransitLine(models.Model):
 
             # Parcialidad real desde el desglose de la venta (fuente de verdad).
             for r in reserved:
-                sale_line = r._tc_get_sale_line_for_assignment(
-                    order=r.order_id, product=r.product_id)
+                # La parcialidad real vive en el breakdown de la línea DUEÑA:
+                # con línea estampada se lee esa; la heurística queda para
+                # registros legados sin sale_line_id.
+                sale_line = r.sale_line_id
+                if not sale_line or sale_line.order_id != r.order_id:
+                    sale_line = r._tc_get_sale_line_for_assignment(
+                        order=r.order_id, product=r.product_id)
                 if not sale_line or not hasattr(sale_line, '_tc_read_lot_breakdown'):
                     continue
                 bd = sale_line._tc_read_lot_breakdown() or {}
@@ -1339,6 +1382,7 @@ class StockTransitLine(models.Model):
             'allocation_status': 'available',
             'partner_id': False,
             'order_id': False,
+            'sale_line_id': False,
         })
 
         self.with_context(skip_reservation_logic=True).write({

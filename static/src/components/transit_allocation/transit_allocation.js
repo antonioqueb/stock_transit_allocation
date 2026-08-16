@@ -1249,12 +1249,17 @@ export class TransitAllocation extends Component {
                     return false;
                 }
 
+                // Números de la LÍNEA elegida (la asignación es por línea):
+                // reportar lo seleccionado contra el pendiente de la línea
+                // mezclaba escalas y parecía que "no pasó nada".
                 const selectedLabel = this._fmtPlain(result?.selected_qty || selectedQty);
+                const assignedLabel = this._fmtPlain(result?.assigned_qty_after || 0);
                 const pendingLabel = this._fmtPlain(result?.pending_qty_after || 0);
                 const uom = result?.uom_name ? ` ${result.uom_name}` : ` ${config.unitLabel || ""}`;
 
                 this.notification.add(
-                    `Asignación en tránsito guardada. Asignado: ${selectedLabel}${uom}. Pendiente: ${pendingLabel}${uom}.`,
+                    `Asignación en tránsito guardada. Seleccionado: ${selectedLabel}${uom}. ` +
+                        `Asignado en la línea: ${assignedLabel}${uom}. Pendiente de la línea: ${pendingLabel}${uom}.`,
                     { type: "success", sticky: false }
                 );
 
