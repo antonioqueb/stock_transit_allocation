@@ -1335,6 +1335,16 @@ class SomAnalytics(models.AbstractModel):
             'p90': round(float(prow[2]), 1) if prow[2] is not None else None,
         }
 
+        # ── VENTA RESPALDADA CON ANTICIPO ─────────────────────────────
+        # El mismo criterio que manda en Finanzas, pero acotado a lo
+        # VENDIDO en el periodo: una orden sin un peso de anticipo no es
+        # venta segura todavía. Los números NO cuadran con los de
+        # Finanzas a propósito — allá es la cartera viva completa.
+        _seg = self._secure_ar_pack(f, period=True)
+        pack['kpis'].update(
+            {k: v for k, v in _seg.items() if k != 'pedidos'})
+        pack['pedidos_con_anticipo'] = _seg.get('pedidos', [])
+
         return pack
 
     # ── INVENTARIO ─────────────────────────────────────────────────────
@@ -2831,38 +2841,55 @@ class SomAnalytics(models.AbstractModel):
         return {'por_cobrar': round(ar or 0.0, 2),
                 'por_pagar': round(ap or 0.0, 2)}
 
-    def _secure_ar_pack(self, f):
-        """COBRANZA SEGURA: lo que deben los pedidos que YA ABONARON.
+    def _secure_ar_pack(self, f, period=False):
+        """PEDIDOS CON ANTICIPO: la venta que el cliente ya respaldó.
 
         Una orden confirmada no es dinero hasta que el cliente pone algo:
         un anticipo, aunque sea mínimo, es la señal de que el pedido va en
-        serio. Por eso el saldo se parte en dos mundos que JAMÁS se suman
-        en el mismo número:
-
-          · SEGURO  = saldo de pedidos con pago recibido (pagado > 0).
-          · EN RIESGO = saldo de pedidos confirmados sin un solo peso.
-
-        Ojo con las dos diferencias contra 'Me deben':
-          1) Es por PEDIDO, no por factura — cuenta también lo que aún no
-             se factura (Me deben solo ve facturas posteadas).
-          2) Es foto VIVA de todo el backlog, sin corte de fechas (igual
-             que Me deben, que tampoco lo lleva).
+        serio. Por eso todo se parte en dos mundos que JAMÁS se suman en
+        el mismo número: CON pago recibido vs SIN un solo peso.
 
         'Pagado' = dinero realmente recibido en las facturas posteadas de
         la orden, anticipos incluidos (sale_order.delivery_paid_amount).
         El efectivo capturado pero NO aplicado contablemente no cuenta —
         para eso está el indicador 'Efectivo sin aplicar'.
+
+        DOS MODOS, y la diferencia importa (los números NO coinciden):
+
+        · period=False (FINANZAS) — cartera viva: TODO pedido confirmado
+          que aún debe algo, sin corte de fechas. Es la foto de cobranza,
+          hermana de 'Me deben' (que sí es por factura posteada, no por
+          pedido, y por eso tampoco cuadra con este).
+
+        · period=True (VENTAS) — solo los pedidos confirmados DENTRO del
+          periodo filtrado, y sin excluir los ya pagados al 100%: la
+          pregunta aquí es "de lo que vendí, cuánto viene respaldado",
+          y dejar fuera a los que pagaron completo desinflaría el
+          porcentaje justo con los mejores clientes.
         """
         vacio = {
             'cobranza_segura_mxn': 0.0, 'cobranza_segura_pedidos': 0,
             'cobranza_anticipo_mxn': 0.0, 'cobranza_riesgo_mxn': 0.0,
             'cobranza_riesgo_pedidos': 0, 'cobranza_segura_pct': 0.0,
             'cobranza_cobertura_pct': 0.0, 'cobranza_disponible': False,
+            'venta_respaldada_mxn': 0.0, 'venta_sin_anticipo_mxn': 0.0,
+            'venta_respaldada_pct': 0.0,
         }
         if 'delivery_paid_amount' not in self.env['sale.order']._fields:
             return dict(vacio, pedidos=[])
 
         rate = self._current_usd_rate()
+        params = {'rate': rate}
+        if period:
+            # Universo: lo VENDIDO en el periodo (pagados al 100% incluidos)
+            dt_from, dt_to = self._bounds(f)
+            cond = ("AND so.date_order >= %(sd_from)s"
+                    " AND so.date_order <= %(sd_to)s")
+            params.update({'sd_from': dt_from, 'sd_to': dt_to})
+        else:
+            # Universo: cartera viva — todo pedido que aún deba algo
+            cond = ("AND so.amount_total"
+                    " - COALESCE(so.delivery_paid_amount, 0) > 0.01")
         # Saldo y anticipo en MXN: USD al TC congelado de la orden, con el
         # TC del día como respaldo (mismo criterio que el resto del pack).
         base = """
@@ -2870,9 +2897,8 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE so.state = 'sale' AND so.amount_total > 0
-              AND so.amount_total
-                  - COALESCE(so.delivery_paid_amount, 0) > 0.01 {src}
-        """.format(src=self._src_where(f))
+              {cond} {src}
+        """.format(cond=cond, src=self._src_where(f))
         # OJO: nada de interpolación con '%' aquí — el fragmento lleva
         # %(rate)s adentro y el operador se lo comería. Concatenación.
         def _mxn(expr):
@@ -2883,24 +2909,30 @@ class SomAnalytics(models.AbstractModel):
         _pagado = _mxn('COALESCE(so.delivery_paid_amount, 0)')
         _saldo = _mxn(
             'so.amount_total - COALESCE(so.delivery_paid_amount, 0)')
+        _total = _mxn('so.amount_total')
 
         row = self._sq("""
             SELECT COUNT(*) FILTER (WHERE t.pagado > 0.01),
                    COALESCE(SUM(t.saldo) FILTER (WHERE t.pagado > 0.01), 0),
                    COALESCE(SUM(t.pagado) FILTER (WHERE t.pagado > 0.01), 0),
+                   COALESCE(SUM(t.total) FILTER (WHERE t.pagado > 0.01), 0),
                    COUNT(*) FILTER (WHERE t.pagado <= 0.01),
-                   COALESCE(SUM(t.saldo) FILTER (WHERE t.pagado <= 0.01), 0)
+                   COALESCE(SUM(t.saldo) FILTER (WHERE t.pagado <= 0.01), 0),
+                   COALESCE(SUM(t.total) FILTER (WHERE t.pagado <= 0.01), 0)
             FROM (
-                SELECT ({pagado}) AS pagado, ({saldo}) AS saldo
+                SELECT ({pagado}) AS pagado, ({saldo}) AS saldo,
+                       ({total}) AS total
                 {base}
             ) t
-        """.format(pagado=_pagado, saldo=_saldo, base=base),
-            {'rate': rate}, default=[(0, 0, 0, 0, 0)])[0]
+        """.format(pagado=_pagado, saldo=_saldo, total=_total, base=base),
+            params, default=[(0, 0, 0, 0, 0, 0, 0)])[0]
 
         n_con, saldo_con = int(row[0] or 0), float(row[1] or 0.0)
-        anticipo = float(row[2] or 0.0)
-        n_sin, saldo_sin = int(row[3] or 0), float(row[4] or 0.0)
+        anticipo, venta_con = float(row[2] or 0.0), float(row[3] or 0.0)
+        n_sin, saldo_sin = int(row[4] or 0), float(row[5] or 0.0)
+        venta_sin = float(row[6] or 0.0)
         n_tot = n_con + n_sin
+        venta_tot = venta_con + venta_sin
 
         pedidos = [
             {'name': a, 'partner': b, 'seller': c,
@@ -2923,7 +2955,7 @@ class SomAnalytics(models.AbstractModel):
                 ' LEFT JOIN res_partner rp ON rp.id = so.partner_id'
                 ' LEFT JOIN res_users ru ON ru.id = so.user_id'
                 ' LEFT JOIN res_partner sp ON sp.id = ru.partner_id', 1)),
-                {'rate': rate}, default=[])
+                params, default=[])
         ]
 
         return {
@@ -2932,14 +2964,18 @@ class SomAnalytics(models.AbstractModel):
             'cobranza_anticipo_mxn': round(anticipo, 2),
             'cobranza_riesgo_mxn': round(saldo_sin, 2),
             'cobranza_riesgo_pedidos': n_sin,
-            # % de PEDIDOS con saldo que ya abonaron algo (el "de 100
-            # órdenes, cuántas van en serio")
+            # % de PEDIDOS que ya abonaron algo (el "de 100 órdenes,
+            # cuántas van en serio")
             'cobranza_segura_pct': round(
                 n_con / n_tot * 100, 1) if n_tot else 0.0,
             # % del valor de esos pedidos que el anticipo ya cubre
             'cobranza_cobertura_pct': round(
-                anticipo / (anticipo + saldo_con) * 100, 1
-            ) if (anticipo + saldo_con) else 0.0,
+                anticipo / venta_con * 100, 1) if venta_con else 0.0,
+            # Lado VENTAS: cuánto de lo vendido viene respaldado con pago
+            'venta_respaldada_mxn': round(venta_con, 2),
+            'venta_sin_anticipo_mxn': round(venta_sin, 2),
+            'venta_respaldada_pct': round(
+                venta_con / venta_tot * 100, 1) if venta_tot else 0.0,
             'cobranza_disponible': True,
             'pedidos': pedidos,
         }
