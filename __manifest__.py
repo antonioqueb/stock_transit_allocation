@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.103.0.0',
+    'version': '19.0.104.0.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -47,6 +47,9 @@
     'website': 'https://alphaqueb.com',
     'depends': [
         'stock',
+        # mail explícito: se le agrega el mixin mail.thread a res.users
+        # (bitácora de permisos) y los mixins son sensibles al orden.
+        'mail',
         'sale_management',
         'purchase',
         'web',
@@ -98,6 +101,7 @@
         'views/som_analytics_views.xml',
         'views/som_restock_views.xml',
         'views/som_dashboard_templates.xml',
+        'views/res_users_permission_log_views.xml',
     ],
     'assets': {
         # Bundle principal: SOLO lo que necesitan las vistas estándar

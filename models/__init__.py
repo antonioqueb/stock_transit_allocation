@@ -32,3 +32,4 @@ from . import som_analytics
 from . import som_user_activity
 from . import som_restock
 from . import stock_lot_inherit
+from . import som_user_permission_log

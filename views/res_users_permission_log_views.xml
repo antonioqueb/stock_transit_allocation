@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Chatter en el formulario de usuario: es donde queda escrito quién
+         dio o quitó cada permiso. Sin esto la bitácora existe pero no hay
+         dónde leerla.
+
+         El xpath va contra //sheet y no contra un campo o una posición:
+         el formulario de usuario cambia entre builds y un anclaje fino
+         tumba el registro (regla xpath-builds-enterprise). -->
+    <record id="view_users_form_som_permission_chatter" model="ir.ui.view">
+        <field name="name">res.users.form.som.permission.chatter</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="after">
+                <chatter/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
