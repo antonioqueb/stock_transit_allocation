@@ -276,10 +276,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         def sort_key(item):
             prefix, count = item
-            try:
-                numeric_prefix = int(prefix)
-            except Exception:
-                numeric_prefix = 999999999
+            # Igual que en _tc_sort_lots_for_sequence: la serie "S" no es
+            # casteable con int() directo; se extrae la parte numérica para
+            # que el desempate por prefijo menor funcione también en S49/S53.
+            digits = re.search(r"\d+", prefix or "")
+            numeric_prefix = int(digits.group()) if digits else 999999999
             # más frecuente primero; en empate, prefijo menor primero
             return (-count, numeric_prefix, prefix)
 
@@ -943,13 +944,19 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
     def _tc_sort_lots_for_sequence(self, lots):
         def sort_key(lot):
             prefix, seq = self._tc_parse_lot_name(lot.name)
-            try:
-                prefix_num = int(prefix) if prefix else 999999999
-            except Exception:
-                prefix_num = 999999999
+            # La serie "S" (S49, S53…) no es casteable con int() directo: si
+            # todos los prefijos caen al mismo fallback, el orden queda solo
+            # por secuencia y el renumerado intercala las series del mismo
+            # contenedor (S49-01, S53-01, S49-02, S53-02…) → lotes pares/nones
+            # por producto. Se extrae la parte numérica para mantener cada
+            # serie contigua, y el prefijo textual desempata series distintas
+            # con el mismo número.
+            digits = re.search(r"\d+", prefix or "")
+            prefix_num = int(digits.group()) if digits else 999999999
 
             return (
                 prefix_num,
+                prefix or "",
                 seq or 999999,
                 lot.id,
             )
