@@ -180,6 +180,37 @@ class StockPickingPhysicalPackingList(models.Model):
 
         return super().action_open_packing_list_spreadsheet()
 
+    def action_regenerate_physical_pl_spreadsheet(self):
+        """Descarta la plantilla del PL físico y crea una nueva con los datos
+        VIGENTES del viaje (Ref. Interna = nombre actual del lote).
+
+        Necesario tras un renumerado de lotes: la plantilla se crea una sola
+        vez y conserva Ref. Internas viejas; con los nombres reacomodados, el
+        emparejamiento por nombre se cruza y el import bloquea placas
+        reservadas que sí vienen en el embarque."""
+        self.ensure_one()
+
+        if not self._tc_is_physical_reception():
+            raise UserError(_("Solo aplica a recepciones físicas."))
+
+        if self.state in ("done", "cancel"):
+            raise UserError(_("La recepción física ya está cerrada o cancelada."))
+
+        old_sheet = self.spreadsheet_id
+        if old_sheet:
+            old_sheet.sudo().unlink()
+            self.spreadsheet_id = False
+
+        self._tc_create_physical_packing_list_spreadsheet()
+
+        self.message_post(body=_(
+            "♻️ PL físico regenerado con los nombres y datos vigentes del "
+            "viaje. La plantilla anterior se descartó (sus cambios no "
+            "procesados se perdieron)."
+        ))
+
+        return self._action_launch_spreadsheet(self.spreadsheet_id)
+
     def _tc_create_physical_packing_list_spreadsheet(self):
         self.ensure_one()
 

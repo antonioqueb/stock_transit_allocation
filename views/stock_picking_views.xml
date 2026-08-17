@@ -134,6 +134,17 @@
                 <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
             </xpath>
 
+            <!-- Regenerar PL físico: reconstruye la plantilla con las Ref.
+                 Internas VIGENTES del viaje (imprescindible tras un
+                 renumerado de lotes; la plantilla vieja cruza el pairing). -->
+            <xpath expr="(//header/button[@name='action_import_packing_list'])[2]" position="after">
+                <button name="action_regenerate_physical_pl_spreadsheet"
+                        string="Regenerar PL físico"
+                        type="object"
+                        confirm="Se descartará la plantilla actual del PL físico y se creará una nueva con los nombres y datos vigentes del viaje. Los cambios no procesados de la plantilla anterior se pierden. ¿Continuar?"
+                        invisible="state in ('done', 'cancel', 'draft') or worksheet_imported or not tc_is_physical_reception or not spreadsheet_id"/>
+            </xpath>
+
             <!-- Imprimir Worksheet original. El Worksheet SIGUE imprimible
                  después de validar la recepción (estado done): es el
                  documento de trabajo del almacén y se reimprime a demanda. -->
