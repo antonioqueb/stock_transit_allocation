@@ -48,6 +48,23 @@ class StockPicking(models.Model):
             for move in moves:
                 by_product.setdefault(move.product_id.id, []).append(move)
 
+            # Tope por producto = lo ORDENADO en la OC de la recepción.
+            # Los vaivenes de cantidad en la línea de compra (captura del
+            # portal que corrige varias veces) dejan moves-delta huérfanos
+            # de purchase_stock: sumarlos a ciegas inflaba la demanda por
+            # encima del pedido (C38: 361.56 + delta 201.35 = 562.91).
+            po = getattr(picking, 'purchase_id', False) \
+                or getattr(picking, 'supplier_cargo_po_id', False)
+            ordered_by_product = {}
+            if po:
+                for po_line in po.order_line:
+                    if po_line.display_type or not po_line.product_id:
+                        continue
+                    pid = po_line.product_id.id
+                    ordered_by_product[pid] = (
+                        ordered_by_product.get(pid, 0.0)
+                        + (po_line.product_qty or 0.0))
+
             for product_id, product_moves in by_product.items():
                 if len(product_moves) <= 1:
                     continue
@@ -56,6 +73,8 @@ class StockPicking(models.Model):
                 keeper = product_moves[0]
                 extras = product_moves[1:]
                 total_qty = sum(m.product_uom_qty for m in product_moves)
+                if product_id in ordered_by_product:
+                    total_qty = min(total_qty, ordered_by_product[product_id])
 
                 for extra in extras:
                     try:
