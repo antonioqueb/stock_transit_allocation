@@ -163,6 +163,40 @@ class StockPickingPhysicalPackingList(models.Model):
     #  PL FÍSICO PREFILL
     # -------------------------------------------------------------------------
 
+    def _tc_product_unit_type(self, product):
+        """Unidad operativa del producto para el PL físico (Placa/Formato/
+        Pieza). Si la ficha del producto no la declara, manda el x_tipo de
+        los LOTES del embarque (mayoría): con la ficha sin configurar todo
+        caía al default 'Placa' y un formato nacía sin columna Cantidad en
+        el PL (y el import exigía alto×largo y saltaba sus filas)."""
+        unit = str(product.product_tmpl_id.x_unidad_del_producto or "").strip()
+        if unit:
+            return unit
+
+        lots = self.env["stock.lot"]
+        voyage = self._tc_get_physical_reception_voyage()
+        if voyage:
+            lots = voyage.line_ids.filtered(
+                lambda line: line.product_id == product and line.lot_id
+            ).mapped("lot_id")
+        if not lots:
+            lots = self.move_line_ids.filtered(
+                lambda ml: ml.product_id == product and ml.lot_id
+            ).mapped("lot_id")
+
+        counts = {}
+        for lot in lots:
+            tipo = str(getattr(lot, "x_tipo", "") or "").strip().lower()
+            if tipo:
+                counts[tipo] = counts.get(tipo, 0) + 1
+        if counts:
+            best = max(counts, key=lambda k: counts[k])
+            if best in ("formato", "format"):
+                return "Formato"
+            if best in ("pieza", "piece"):
+                return "Pieza"
+        return "Placa"
+
     def action_open_packing_list_spreadsheet(self):
         """
         En recepción física:
@@ -361,7 +395,7 @@ class StockPickingPhysicalPackingList(models.Model):
             cells["A1"] = self._make_cell("PRODUCTO:")
             cells["B1"] = self._make_cell(f"{product.name} ({product.default_code or ''})")
 
-            unit_type = product.product_tmpl_id.x_unidad_del_producto or "Placa"
+            unit_type = self._tc_product_unit_type(product)
 
             if unit_type == "Placa":
                 headers = ["Grosor (cm)", "Alto (m)", "Largo (m)"] + common_headers_suffix

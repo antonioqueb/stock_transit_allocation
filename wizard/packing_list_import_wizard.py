@@ -405,7 +405,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         if not self._tc_is_physical_reception_import():
             return super()._extract_rows_from_index(idx, product)
 
-        unit_type = product.product_tmpl_id.x_unidad_del_producto or "Placa"
+        # Mismo criterio que el GENERADOR del PL físico (ficha del producto
+        # con fallback al x_tipo de los lotes): si difieren, el lector usa
+        # un layout distinto al de la hoja y las filas se invalidan en masa.
+        unit_type = self.picking_id._tc_product_unit_type(product)
         is_placa = str(unit_type).lower() == "placa"
 
         if is_placa:
