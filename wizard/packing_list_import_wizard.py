@@ -1144,6 +1144,26 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
     #  APLICACIÓN DEL PL FÍSICO
     # -------------------------------------------------------------------------
 
+    def _tc_chain_received_qty_by_lot(self, voyage):
+        """Cantidad ya recibida por lote en las recepciones HECHAS de la
+        cadena del viaje (parciales encadenadas por backorder).
+
+        El PL físico completo puede reimportarse sobre un backorder que solo
+        espera el remanente: sin este mapa, cada fila del archivo sumaba a la
+        demanda y re-creaba el quant de tránsito de material ya recibido
+        (la recepción parcial terminaba esperando el TOTAL del embarque)."""
+        received = {}
+        if not hasattr(voyage, "_tc_reception_totals"):
+            return received
+        totals = voyage._tc_reception_totals()
+        for done_picking in totals.get("done", self.env["stock.picking"]):
+            for ml in done_picking.move_line_ids:
+                if not ml.lot_id:
+                    continue
+                received[ml.lot_id.id] = (
+                    received.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0))
+        return received
+
     def _tc_apply_physical_reception_pl(self, rows):
         picking = self.picking_id
         ctx = self._tc_reception_guard_context()
@@ -1182,14 +1202,34 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         product_totals = {}
         new_lots = 0
         reused_lots = 0
+        already_received = 0
 
         # Emparejamiento global fila↔lote ANTES de crear nada (exacto →
         # difuso → posicional). Tolera correcciones de datos en el PL físico
         # sin duplicar lotes ni soltar holds.
         pairing = self._tc_pair_rows_with_lots(voyage, valid_rows)
 
+        received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
+
         for row_index, (row, qty) in enumerate(valid_rows):
             product = row["product"]
+
+            # RECEPCIÓN PARCIAL: una fila emparejada con un lote YA RECIBIDO
+            # por completo en una recepción hecha de la cadena no participa:
+            # ni demanda, ni quant de tránsito, ni move line. Solo se marca
+            # como usada (el guard de omitidas no debe reclamarla) y se
+            # limpia cualquier quant residual en tránsito que un reimport
+            # anterior haya re-creado para ese lote.
+            paired_lot = pairing.get(row_index)
+            if paired_lot:
+                received_qty = received_by_lot.get(paired_lot.id, 0.0)
+                if received_qty and self._tc_float_compare(
+                        product, received_qty, qty) >= 0:
+                    used_lot_ids.add(paired_lot.id)
+                    already_received += 1
+                    self._tc_set_source_quant_qty(
+                        product, paired_lot, source_location, 0.0)
+                    continue
 
             lot, was_new = self._tc_get_or_create_lot(
                 voyage,
@@ -1337,12 +1377,14 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         picking.message_post(body=_(
             "📋 PL físico conciliado desde Torre de Control. "
             "Líneas reconstruidas: %(created)s. Lotes nuevos: %(new_lots)s. "
-            "Lotes reutilizados: %(reused_lots)s. Filas omitidas: %(skipped)s."
+            "Lotes reutilizados: %(reused_lots)s. Filas omitidas: %(skipped)s. "
+            "Ya recibidas en parciales anteriores (sin cambios): %(already_received)s."
         ) % {
             "created": created,
             "new_lots": new_lots,
             "reused_lots": reused_lots,
             "skipped": skipped,
+            "already_received": already_received,
         })
 
         return {
@@ -1350,4 +1392,5 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             "new_lots": new_lots,
             "reused_lots": reused_lots,
             "skipped": skipped,
+            "already_received": already_received,
         }
