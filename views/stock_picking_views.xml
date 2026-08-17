@@ -207,4 +207,18 @@
         <field name="code">action = records.action_tc_renumber_lots_by_product()</field>
     </record>
 
+    <!-- Rescatar devolución en tránsito (engrane): para devoluciones de
+         cliente validadas con destino SOM/TRANSIT por el retorno nativo
+         (previo al candado). Prepara el traslado interno Tránsito → almacén
+         con los lotes varados; el usuario lo valida. -->
+    <record id="action_som_rescue_return_from_transit" model="ir.actions.server">
+        <field name="name">Rescatar devolución en tránsito</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">action</field>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_som_rescue_return_from_transit()</field>
+    </record>
+
 </odoo>

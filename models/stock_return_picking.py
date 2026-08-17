@@ -14,7 +14,10 @@ wizard de sale_delivery_wizard por igual.
 """
 import logging
 
-from odoo import api, models
+from markupsafe import Markup
+
+from odoo import api, models, _
+from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
@@ -81,3 +84,134 @@ class StockReturnPicking(models.TransientModel):
                         '[SOM RETURN] Devolución %s re-enrutada de tránsito '
                         'a %s (origen %s).',
                         ret.name, src.complete_name, origin.name)
+
+
+class StockPickingReturnRescue(models.Model):
+    _inherit = 'stock.picking'
+
+    def action_som_rescue_return_from_transit(self):
+        """Rescata el material de una devolución de cliente que se validó
+        con destino SOM/TRANSIT (retorno nativo previo al candado): crea un
+        traslado interno Tránsito → almacén con los lotes que siguen
+        varados ahí, listo para que el usuario lo valide. Después de
+        validarlo, el material vuelve a ser entregable."""
+        self.ensure_one()
+        pk = self.sudo()
+
+        is_return = bool(
+            ('return_id' in pk._fields and pk.return_id)
+            or (pk.origin or '').lower().startswith(
+                ('devolución de', 'devolucion de', 'return of'))
+        )
+        if not is_return:
+            raise UserError(_('Esta operación no es una devolución.'))
+        if pk.state != 'done':
+            raise UserError(_(
+                'La devolución aún no está validada: corrige su ubicación '
+                'de destino directamente en lugar de rescatar.'))
+
+        dest = pk.location_dest_id
+        if not dest or not dest._som_is_transit():
+            raise UserError(_(
+                'Esta devolución no dejó material en tránsito; '
+                'no hay nada que rescatar.'))
+
+        origin_pick = (
+            pk.return_id
+            if ('return_id' in pk._fields and pk.return_id)
+            else self.env['stock.picking'].sudo()
+        )
+        target_loc = origin_pick.location_id if origin_pick else False
+        if not target_loc or target_loc._som_is_transit():
+            wh = (
+                (origin_pick.picking_type_id.warehouse_id if origin_pick else False)
+                or pk.picking_type_id.warehouse_id
+            )
+            target_loc = wh.lot_stock_id if wh else False
+        if not target_loc:
+            raise UserError(_(
+                'No se pudo determinar la ubicación de almacén destino '
+                'del rescate.'))
+
+        lots = pk.move_line_ids.mapped('lot_id')
+        if not lots:
+            raise UserError(_('La devolución no tiene lotes registrados.'))
+
+        quants = self.env['stock.quant'].sudo().search([
+            ('lot_id', 'in', lots.ids),
+            ('location_id', 'child_of', dest.id),
+            ('quantity', '>', 0),
+        ])
+        if not quants:
+            raise UserError(_(
+                'Ya no hay existencias de esos lotes en tránsito '
+                '(probablemente ya fueron rescatados).'))
+
+        int_type = (
+            origin_pick.picking_type_id.warehouse_id.int_type_id
+            if origin_pick and origin_pick.picking_type_id.warehouse_id
+            else False
+        )
+        if not int_type:
+            int_type = self.env['stock.picking.type'].sudo().search([
+                ('code', '=', 'internal'),
+                ('company_id', '=', pk.company_id.id),
+            ], limit=1)
+        if not int_type:
+            raise UserError(_('No hay tipo de operación interna disponible.'))
+
+        MoveLine = self.env['stock.move.line'].sudo()
+        qty_key = 'quantity' if 'quantity' in MoveLine._fields else 'qty_done'
+
+        rescue = self.env['stock.picking'].sudo().create({
+            'picking_type_id': int_type.id,
+            'location_id': dest.id,
+            'location_dest_id': target_loc.id,
+            'origin': _('Rescate devolución %s') % pk.name,
+            'company_id': pk.company_id.id,
+        })
+
+        by_product = {}
+        for quant in quants:
+            by_product.setdefault(quant.product_id, []).append(quant)
+
+        for product, product_quants in by_product.items():
+            move = self.env['stock.move'].sudo().create({
+                'product_id': product.id,
+                'product_uom': product.uom_id.id,
+                'product_uom_qty': sum(q.quantity for q in product_quants),
+                'picking_id': rescue.id,
+                'location_id': dest.id,
+                'location_dest_id': target_loc.id,
+                'company_id': pk.company_id.id,
+            })
+            for quant in product_quants:
+                MoveLine.create({
+                    'move_id': move.id,
+                    'picking_id': rescue.id,
+                    'company_id': pk.company_id.id,
+                    'product_id': product.id,
+                    'product_uom_id': product.uom_id.id,
+                    'lot_id': quant.lot_id.id,
+                    'location_id': quant.location_id.id,
+                    'location_dest_id': target_loc.id,
+                    qty_key: quant.quantity,
+                })
+
+        body = Markup(
+            '🛟 <b>Rescate de devolución en tránsito</b>: se preparó el '
+            'traslado interno %s con %s lote(s) hacia %s. Valídalo para '
+            'que el material vuelva a ser entregable.'
+        ) % (rescue.name, len(quants), target_loc.complete_name)
+        pk.message_post(body=body)
+        rescue.message_post(body=Markup(
+            '🛟 Creado por rescate de la devolución %s (material varado '
+            'en tránsito por retorno nativo).') % pk.name)
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': rescue.id,
+            'views': [[False, 'form']],
+            'target': 'current',
+        }
