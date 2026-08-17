@@ -1,6 +1,9 @@
 # -*- coding: utf-8 -*-
 import json
 import logging
+import re
+
+from markupsafe import Markup
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -210,6 +213,116 @@ class StockPickingPhysicalPackingList(models.Model):
         ))
 
         return self._action_launch_spreadsheet(self.spreadsheet_id)
+
+    def action_tc_renumber_lots_by_product(self):
+        """Renumera los lotes del embarque: por contenedor, en bloques
+        CORRIDOS por producto (01..N el primero, N+1..M el siguiente).
+
+        Corrige embarques cuyo renumerado corrió antes del fix del orden
+        (series intercaladas: pares/nones con 2 productos, de 3 en 3 con
+        tres). Es seguro para reservas/holds/parcialidades: todo referencia
+        al lote por ID, no por nombre. Descarta el Worksheet en edición
+        (si no está procesado) para que renazca con los nombres nuevos."""
+        self.ensure_one()
+
+        if not self._tc_is_physical_reception():
+            raise UserError(_("Solo aplica a recepciones físicas."))
+
+        voyage = self._tc_get_physical_reception_voyage()
+        if not voyage:
+            raise UserError(_("No se encontró el viaje vinculado a esta recepción física."))
+
+        def parse(name):
+            match = re.match(r"^(.+)-(\d+)$", name or "")
+            if not match:
+                return None, 999999
+            return match.group(1), int(match.group(2))
+
+        groups = {}
+        for line in voyage.line_ids:
+            if not line.lot_id:
+                continue
+            container = (line.container_number or "SN").strip() or "SN"
+            groups.setdefault(container, self.env["stock.lot"])
+            groups[container] |= line.lot_id
+
+        summary = []
+        for container, lots in groups.items():
+            counts = {}
+            for lot in lots:
+                prefix, _seq = parse(lot.name)
+                if prefix:
+                    counts[prefix] = counts.get(prefix, 0) + 1
+            if not counts:
+                continue
+            target = max(counts, key=lambda p: counts[p])
+
+            # Productos en su orden físico (primera secuencia en que
+            # aparecen); dentro de cada producto se respeta el orden actual.
+            first_seq = {}
+            for lot in lots:
+                seq = parse(lot.name)[1]
+                pid = lot.product_id.id
+                first_seq[pid] = min(first_seq.get(pid, seq), seq)
+            ordered = lots.sorted(key=lambda l: (
+                first_seq[l.product_id.id],
+                l.product_id.id,
+                parse(l.name)[1],
+                l.id,
+            ))
+
+            desired = {
+                lot.id: "%s-%02d" % (target, idx)
+                for idx, lot in enumerate(ordered, 1)
+            }
+            if all(lot.name == desired[lot.id] for lot in ordered):
+                continue
+
+            # Dos pasos para no chocar con la unicidad de nombres.
+            for lot in ordered:
+                lot.sudo().write({"name": "TMP-RNP-%s" % lot.id})
+            for lot in ordered:
+                lot.sudo().write({"name": desired[lot.id]})
+
+            summary.append("%s: %s lotes → serie %s" % (
+                container, len(ordered), target))
+
+        if not summary:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Renumerado de lotes"),
+                    "message": _("Los lotes ya estaban corridos por producto; no se cambió nada."),
+                    "type": "info",
+                },
+            }
+
+        # El Worksheet en edición quedó con nombres viejos: se descarta para
+        # que renazca con los nombres nuevos (solo si aún no se procesó).
+        if (self.state not in ("done", "cancel")
+                and "ws_spreadsheet_id" in self._fields
+                and self.ws_spreadsheet_id and not self.worksheet_imported):
+            self.ws_spreadsheet_id.sudo().unlink()
+            self.write({"ws_spreadsheet_id": False})
+
+        body = Markup(
+            "🔢 <b>Lotes renumerados por producto</b> (bloques corridos por "
+            "contenedor): %s. El Worksheet en edición se descartó para "
+            "regenerarse con los nombres nuevos."
+        ) % "; ".join(summary)
+        self.message_post(body=body)
+        voyage.message_post(body=body)
+
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Renumerado de lotes"),
+                "message": "; ".join(summary),
+                "type": "success",
+            },
+        }
 
     def _tc_create_physical_packing_list_spreadsheet(self):
         self.ensure_one()
