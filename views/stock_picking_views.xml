@@ -134,16 +134,6 @@
                 <attribute name="invisible">state in ('done', 'cancel', 'draft') or not packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>
             </xpath>
 
-            <!-- Regenerar PL físico: reconstruye la plantilla con las Ref.
-                 Internas VIGENTES del viaje (imprescindible tras un
-                 renumerado de lotes; la plantilla vieja cruza el pairing). -->
-            <xpath expr="(//header/button[@name='action_import_packing_list'])[2]" position="after">
-                <button name="action_regenerate_physical_pl_spreadsheet"
-                        string="Regenerar PL físico"
-                        type="object"
-                        confirm="Se descartará la plantilla actual del PL físico y se creará una nueva con los nombres y datos vigentes del viaje. Los cambios no procesados de la plantilla anterior se pierden. ¿Continuar?"
-                        invisible="state in ('done', 'cancel', 'draft') or worksheet_imported or not tc_is_physical_reception or not spreadsheet_id"/>
-            </xpath>
 
             <!-- Imprimir Worksheet original. El Worksheet SIGUE imprimible
                  después de validar la recepción (estado done): es el
@@ -186,6 +176,21 @@
             </xpath>
 
         </field>
+    </record>
+
+    <!-- Regenerar PL físico: en el MENÚ DE ACCIONES (engrane) del formulario,
+         no como botón de header. Reconstruye la plantilla con las Ref.
+         Internas VIGENTES del viaje (imprescindible tras un renumerado de
+         lotes; la plantilla vieja cruza el pairing). El método valida que
+         sea recepción física abierta. -->
+    <record id="action_regenerate_physical_pl_spreadsheet" model="ir.actions.server">
+        <field name="name">Regenerar PL físico</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">action</field>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_regenerate_physical_pl_spreadsheet()</field>
     </record>
 
 </odoo>
