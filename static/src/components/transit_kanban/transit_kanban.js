@@ -151,6 +151,8 @@ export class TransitKanbanView extends Component {
             loading:      true,
             boardMode:    "maritime",  // maritime | national (menú interno)
             searchText:   "",
+            searchOpen:   false,  // dropdown de sugerencias visible
+            searchIndex:  0,      // sugerencia resaltada (teclado)
             pendingOnly:  false,  // filtro "Pendiente de publicar"
             columns:      {},   // { stageKey: [records] }
             totals:          {},   // { stageKey: { count, m2 } }
@@ -214,21 +216,7 @@ export class TransitKanbanView extends Component {
             if (this.state.pendingOnly && !r.tc_publication_pending) continue;
 
             // Filtro búsqueda
-            if (q) {
-                const haystack = [
-                    r.name,
-                    this._str(r.purchase_id),
-                    this._str(r.tc_supplier_id),
-                    r.partner_ref || "",
-                    r.cargo_invoices || "",
-                    r.portal_invoices || "",
-                    r.vessel_name || "",
-                    r.container_number || "",
-                    r.bl_number || "",
-                    r.shipping_line || "",
-                ].join(" ").toLowerCase();
-                if (!haystack.includes(q)) continue;
-            }
+            if (q && !this._voyageHaystack(r).includes(q)) continue;
 
             // Etiquetado terminado: la tarjeta vive en su propia columna
             // (colapsada por default) en lugar de Entrega en Sitio.
@@ -331,12 +319,107 @@ export class TransitKanbanView extends Component {
 
     onSearch(ev) {
         this.state.searchText = ev.target.value;
+        this.state.searchOpen = !!ev.target.value.trim();
+        this.state.searchIndex = 0;
         this._buildColumns(this.state.records);
     }
 
     clearSearch() {
         this.state.searchText = "";
+        this.state.searchOpen = false;
+        this.state.searchIndex = 0;
         this._buildColumns(this.state.records);
+    }
+
+    // ── Sugerencias al escribir (typeahead) ──────────────────────────────────
+    // Busca sobre TODOS los viajes (marítimo + nacional) y abre el viaje
+    // directo con clic o Enter, sin tener que localizar la tarjeta.
+
+    _voyageHaystack(r) {
+        return [
+            r.name,
+            this._str(r.purchase_id),
+            this._str(r.tc_supplier_id),
+            r.partner_ref || "",
+            r.cargo_invoices || "",
+            r.portal_invoices || "",
+            r.vessel_name || "",
+            r.container_number || "",
+            r.containers || "",
+            r.bl_number || "",
+            r.shipping_line || "",
+        ].join(" ").toLowerCase();
+    }
+
+    get searchSuggestions() {
+        const q = this.state.searchText.trim().toLowerCase();
+        if (!q) return [];
+        const scored = [];
+        for (const r of this.state.records) {
+            const hay = this._voyageHaystack(r);
+            if (!hay.includes(q)) continue;
+            // Prioridad: folio/contenedor que EMPIEZA con lo tecleado
+            // arriba; coincidencias sueltas después.
+            const strong =
+                String(r.name || "").toLowerCase().startsWith(q) ||
+                String(r.container_number || r.containers || "")
+                    .toLowerCase().split(/[\s,;\/]+/)
+                    .some((c) => c.startsWith(q));
+            scored.push({ r, rank: strong ? 0 : 1 });
+        }
+        scored.sort((a, b) => (a.rank - b.rank) || (b.r.id - a.r.id));
+        return scored.slice(0, 8).map((s) => s.r);
+    }
+
+    suggestionStage(r) {
+        const map = r.is_national ? NATIONAL_STAGE_MAP : STAGE_MAP;
+        const stage = (r.custom_status === "delivered"
+            && r.labeling_status === "labeled")
+            ? map.labeled_done
+            : map[r.custom_status];
+        return stage || { label: "", color: "#64748b" };
+    }
+
+    onSearchFocus() {
+        this.state.searchOpen = !!this.state.searchText.trim();
+    }
+
+    onSearchBlur() {
+        // Cierre diferido: el pointerdown de la sugerencia corre primero.
+        setTimeout(() => {
+            this.state.searchOpen = false;
+        }, 150);
+    }
+
+    onSearchKeydown(ev) {
+        const opts = this.searchSuggestions;
+        if (ev.key === "Escape") {
+            this.state.searchOpen = false;
+            return;
+        }
+        if (!opts.length) return;
+        if (ev.key === "ArrowDown") {
+            ev.preventDefault();
+            this.state.searchOpen = true;
+            this.state.searchIndex = (this.state.searchIndex + 1) % opts.length;
+        } else if (ev.key === "ArrowUp") {
+            ev.preventDefault();
+            this.state.searchIndex =
+                (this.state.searchIndex - 1 + opts.length) % opts.length;
+        } else if (ev.key === "Enter") {
+            ev.preventDefault();
+            const pick = opts[this.state.searchIndex] || opts[0];
+            this.pickSuggestion(pick, ev);
+        }
+    }
+
+    pickSuggestion(r, ev) {
+        if (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+        this.state.searchOpen = false;
+        this.openVoyage(r.id);
     }
 
     toggleCollapse(key) {

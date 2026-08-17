@@ -32,10 +32,32 @@
                    type="text"
                    placeholder="Buscar viaje, OC, BL, buque, contenedor..."
                    t-att-value="state.searchText"
-                   t-on-input="onSearch"/>
+                   t-on-input="onSearch"
+                   t-on-focus="onSearchFocus"
+                   t-on-blur="onSearchBlur"
+                   t-on-keydown="onSearchKeydown"/>
             <button class="tk-search-clear" t-if="state.searchText" t-on-click="clearSearch">
                 <i class="fa fa-times"/>
             </button>
+
+            <!-- Sugerencias al escribir: clic o Enter abre el viaje directo -->
+            <div class="tk-search-drop" t-if="state.searchOpen and searchSuggestions.length">
+                <div t-foreach="searchSuggestions" t-as="s" t-key="s.id"
+                     t-attf-class="tk-search-opt #{s_index === state.searchIndex ? 'tk-search-opt--on' : ''}"
+                     t-on-pointerdown="(ev) => this.pickSuggestion(s, ev)">
+                    <div class="tk-search-opt__main">
+                        <b t-esc="s.name"/>
+                        <span class="tk-search-opt__stage"
+                              t-attf-style="color: #{suggestionStage(s).color};"
+                              t-esc="suggestionStage(s).label"/>
+                    </div>
+                    <div class="tk-search-opt__sub">
+                        <t t-if="_str(s.tc_supplier_id)"><t t-esc="_str(s.tc_supplier_id)"/></t>
+                        <t t-if="s.container_number or s.containers"> · <t t-esc="s.container_number or s.containers"/></t>
+                        <t t-if="_str(s.purchase_id)"> · <t t-esc="_str(s.purchase_id)"/></t>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <div class="tk-toolbar__right">

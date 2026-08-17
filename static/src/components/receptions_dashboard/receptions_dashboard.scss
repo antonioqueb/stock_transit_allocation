@@ -24,11 +24,69 @@ $rcp-mut: #64748b;
         justify-content: space-between;
         gap: 16px;
         margin-bottom: 12px;
+        flex-wrap: wrap;
+
+        @media (max-width: 750px) {
+            .o_rcp_search {
+                order: 3;
+                flex: 1 1 100%;
+                max-width: none;
+            }
+        }
     }
     .o_rcp_title {
         font-size: 19px;
         font-weight: 800;
         color: $rcp-ink;
+    }
+
+    // ── Buscador por contenedor / embarque ──────────────────
+    .o_rcp_search {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        flex: 1 1 auto;
+        max-width: 420px;
+        background: #fff;
+        border: 1px solid #d3dcea;
+        border-radius: 8px;
+        padding: 5px 10px;
+        color: $rcp-mut;
+
+        svg { width: 15px; height: 15px; }
+
+        input {
+            border: none;
+            outline: none;
+            flex: 1 1 auto;
+            min-width: 0;
+            font-size: 12.5px;
+            font-weight: 600;
+            color: $rcp-ink;
+            background: transparent;
+
+            &::placeholder {
+                color: $rcp-mut;
+                font-weight: 500;
+            }
+        }
+
+        .x {
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            color: $rcp-mut;
+            font-size: 12px;
+            line-height: 1;
+            padding: 2px 3px;
+
+            &:hover { color: $rcp-ink; }
+        }
+
+        &:focus-within {
+            border-color: $rcp-blue;
+            box-shadow: 0 0 0 2px rgba(11, 87, 208, 0.12);
+        }
     }
     .o_rcp_loading {
         padding: 40px;

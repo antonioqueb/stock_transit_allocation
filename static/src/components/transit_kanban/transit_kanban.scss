@@ -225,6 +225,64 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     &:hover { color: $tk-ink; background: #f1f5f9; }
 }
 
+// Dropdown de sugerencias (typeahead): clic o Enter abre el viaje directo.
+.tk-search-drop {
+    position:      absolute;
+    top:           calc(100% + 6px);
+    left:          0;
+    right:         0;
+    z-index:       60;
+    background:    #fff;
+    border:        1px solid $tk-border;
+    border-radius: 10px;
+    box-shadow:    0 12px 28px rgba(15, 23, 42, .16);
+    overflow:      hidden;
+    max-height:    340px;
+    overflow-y:    auto;
+}
+
+.tk-search-opt {
+    padding: 8px 12px;
+    cursor:  pointer;
+    border-bottom: 1px solid #f1f5f9;
+    &:last-child { border-bottom: none; }
+
+    &:hover,
+    &--on { background: rgba(21, 95, 148, .07); }
+
+    &__main {
+        display:         flex;
+        align-items:     center;
+        justify-content: space-between;
+        gap:             10px;
+
+        b {
+            font-size: 12px;
+            color:     $tk-ink;
+            white-space:   nowrap;
+            overflow:      hidden;
+            text-overflow: ellipsis;
+        }
+    }
+
+    &__stage {
+        font-size:      10px;
+        font-weight:    700;
+        text-transform: uppercase;
+        letter-spacing: .3px;
+        flex:           0 0 auto;
+    }
+
+    &__sub {
+        font-size:     11px;
+        color:         $tk-text-muted;
+        margin-top:    2px;
+        white-space:   nowrap;
+        overflow:      hidden;
+        text-overflow: ellipsis;
+    }
+}
+
 // ─── Botones toolbar ──────────────────────────────────────────────────────────
 .tk-btn-refresh {
     width:           36px;

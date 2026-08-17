@@ -15,7 +15,7 @@ export class ReceptionsDashboard extends Component {
         this.orm = useService("orm");
         this.action = useService("action");
         this.notification = useService("notification");
-        this.state = useState({ loading: true, data: null, detail: null, expanded: {} });
+        this.state = useState({ loading: true, data: null, detail: null, expanded: {}, search: "" });
         this.timer = null;
         this.lastPayload = null;
         onMounted(async () => {
@@ -48,6 +48,41 @@ export class ReceptionsDashboard extends Component {
         this.lastPayload = payload;
         this.state.data = data;
         this.state.loading = false;
+    }
+
+    // ── Búsqueda por contenedor / embarque ──────────────────────
+    // Filtro client-side sobre el payload ya cargado: contenedor,
+    // folio del embarque, folio de recepción, OC y proveedor.
+    onSearchInput(ev) {
+        this.state.search = ev.target.value;
+    }
+
+    clearSearch() {
+        this.state.search = "";
+    }
+
+    _matchesSearch(rec) {
+        const q = (this.state.search || "").trim().toUpperCase();
+        if (!q) {
+            return true;
+        }
+        const hay = [
+            rec.containers, rec.name, rec.folio, rec.embarque,
+            rec.reception_name, rec.po, rec.supplier,
+        ].filter(Boolean).join(" ").toUpperCase();
+        return q.split(/\s+/).every((tok) => hay.includes(tok));
+    }
+
+    get filteredPort() {
+        return ((this.state.data && this.state.data.port) || []).filter((r) => this._matchesSearch(r));
+    }
+
+    get filteredReady() {
+        return ((this.state.data && this.state.data.ready) || []).filter((r) => this._matchesSearch(r));
+    }
+
+    get filteredDone() {
+        return ((this.state.data && this.state.data.done) || []).filter((r) => this._matchesSearch(r));
     }
 
     // ── Cards colapsables ───────────────────────────────────────

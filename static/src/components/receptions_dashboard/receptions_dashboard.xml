@@ -57,6 +57,12 @@
             <path d="M6 9l6 6 6-6"/>
         </svg>
     </t>
+    <t t-name="stock_transit_allocation.icon_search">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="10.5" cy="10.5" r="6.5"/>
+            <path d="M15.5 15.5L21 21"/>
+        </svg>
+    </t>
 
     <!-- ═══ Tarjeta de viaje: compacta, click para desplegar ═══ -->
     <t t-name="stock_transit_allocation.ReceptionCard">
@@ -175,6 +181,15 @@
         <div class="o_receptions_dash">
             <div class="o_rcp_topbar">
                 <div class="o_rcp_title">Recepciones</div>
+                <div class="o_rcp_search">
+                    <t t-call="stock_transit_allocation.icon_search"/>
+                    <input type="text"
+                           placeholder="Buscar contenedor o embarque…"
+                           t-att-value="state.search"
+                           t-on-input="onSearchInput"/>
+                    <button t-if="state.search" class="x" title="Limpiar búsqueda"
+                            t-on-click="clearSearch">✕</button>
+                </div>
                 <button class="o_rcp_btn ghost" t-on-click="openReceptionsList">
                     Ver todas las recepciones <t t-call="stock_transit_allocation.icon_open"/>
                 </button>
@@ -188,33 +203,39 @@
                         <div class="o_rcp_col_head blue">
                             <t t-call="stock_transit_allocation.icon_anchor"/>
                             <span>En puerto</span>
-                            <b t-esc="state.data.port.length"/>
+                            <b t-esc="filteredPort.length"/>
                         </div>
-                        <t t-foreach="state.data.port" t-as="card" t-key="card.id">
+                        <t t-foreach="filteredPort" t-as="card" t-key="card.id">
                             <t t-call="stock_transit_allocation.ReceptionCard"/>
                         </t>
-                        <div t-if="!state.data.port.length" class="o_rcp_empty">Sin contenedores en puerto</div>
+                        <div t-if="!filteredPort.length" class="o_rcp_empty">
+                            <t t-if="state.search">Sin coincidencias</t>
+                            <t t-else="">Sin contenedores en puerto</t>
+                        </div>
                     </div>
                     <div class="o_rcp_col">
                         <div class="o_rcp_col_head strong">
                             <t t-call="stock_transit_allocation.icon_boxcheck"/>
                             <span>Listos para recibir</span>
-                            <b t-esc="state.data.ready.length"/>
+                            <b t-esc="filteredReady.length"/>
                         </div>
-                        <t t-foreach="state.data.ready" t-as="card" t-key="card.id">
+                        <t t-foreach="filteredReady" t-as="card" t-key="card.id">
                             <t t-call="stock_transit_allocation.ReceptionCard"/>
                         </t>
-                        <div t-if="!state.data.ready.length" class="o_rcp_empty">Nada pendiente de recibir</div>
+                        <div t-if="!filteredReady.length" class="o_rcp_empty">
+                            <t t-if="state.search">Sin coincidencias</t>
+                            <t t-else="">Nada pendiente de recibir</t>
+                        </div>
                     </div>
                     <div class="o_rcp_col">
                         <div class="o_rcp_col_head green">
                             <t t-call="stock_transit_allocation.icon_warehouse"/>
                             <span>Recepcionados</span>
-                            <b t-esc="state.data.done.length"/>
+                            <b t-esc="filteredDone.length"/>
                         </div>
-                        <div t-if="state.data.done.length" class="o_rcp_done_list">
+                        <div t-if="filteredDone.length" class="o_rcp_done_list">
                             <div class="o_rcp_done_row rich"
-                                 t-foreach="state.data.done" t-as="row" t-key="row.id"
+                                 t-foreach="filteredDone" t-as="row" t-key="row.id"
                                  t-on-click="() => this.openReception(row.reception_id)">
                                 <div class="o_rcp_done_main">
                                     <span class="s" t-esc="row.supplier or row.folio"/>
@@ -249,7 +270,10 @@
                                 </div>
                             </div>
                         </div>
-                        <div t-if="!state.data.done.length" class="o_rcp_empty">Sin recepciones en 7 días</div>
+                        <div t-if="!filteredDone.length" class="o_rcp_empty">
+                            <t t-if="state.search">Sin coincidencias</t>
+                            <t t-else="">Sin recepciones en 7 días</t>
+                        </div>
                     </div>
                 </div>
             </t>
