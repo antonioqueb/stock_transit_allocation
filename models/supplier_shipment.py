@@ -219,6 +219,14 @@ class SupplierShipment(models.Model):
                 if sync_vals:
                     record._sync_dates_to_others(sync_vals)
 
+        # LA OC MANDA también AL CREAR: el candado vivía solo en write(),
+        # así que un embarque nacido desde el portal con POL/POD propios se
+        # quedaba con ellos aunque la OC ya tuviera su ruta (y de ahí se
+        # propagaba de regreso pisando la OC).
+        if not self.env.context.get('som_carrier_sync'):
+            for record, vals in zip(records, vals_list):
+                record._som_enforce_po_precedence(vals)
+
         return records
 
     def write(self, vals):
@@ -289,6 +297,18 @@ class SupplierShipment(models.Model):
             elif current != po_val:
                 revert[ship_field] = po_val
         if revert:
+            # Los Char espejo (texto visible en portal/reportes) se alinean
+            # con el m2o revertido; si no, quedaban con el nombre del puerto
+            # que eligió el proveedor aunque el catálogo ya apunte a la OC.
+            name_sync = {
+                'pol_id': 'port_origin',
+                'pod_id': 'port_destination',
+                'naviera_id': 'shipping_line',
+            }
+            for ship_field, char_field in name_sync.items():
+                if ship_field in revert and char_field in self._fields:
+                    partner = self.env['res.partner'].browse(revert[ship_field])
+                    revert[char_field] = partner.name or ''
             _logger.info(
                 "[SHIPMENT] La OC %s manda: revirtiendo %s en el embarque "
                 "%s a los valores de la orden.",
