@@ -112,7 +112,17 @@ class PurchaseOrder(models.Model):
             allocations = self.env['purchase.order.line.allocation'].sudo().search([
                 ('purchase_order_id', '=', po.id)
             ])
-            if allocations:
+
+            # EL EMBARQUE NACE SIEMPRE que la OC tenga producto almacenable.
+            # Antes solo nacía con allocations: una OC sin apartados llegaba
+            # a la recepción sin viaje — el material se validaba a tránsito
+            # pero la Torre no tenía embarque que mostrar ni recepción
+            # física que generar (caso C51).
+            has_storable = any(
+                line.product_id and line.product_id.type != 'service'
+                for line in po.order_line if not line.display_type
+            )
+            if has_storable:
                 existing_voyage = self.env['stock.transit.voyage'].sudo().search([
                     ('purchase_id', '=', po.id),
                     ('custom_status', '!=', 'cancel'),
@@ -125,8 +135,15 @@ class PurchaseOrder(models.Model):
                         'vessel_name': 'Por Definir',
                         'bl_number': po.partner_ref or po.name,
                     })
-                    voyage.action_load_from_purchase()
+                    try:
+                        voyage.action_load_from_purchase()
+                    except Exception:
+                        _logger.exception(
+                            '[TC] No se pudieron cargar las líneas del viaje '
+                            'de %s al confirmar; el viaje queda creado.',
+                            po.name)
 
+            if allocations:
                 # Solo activar allocations NUEVAS (draft/False). Escribir
                 # 'pending' sin filtrar RESUCITABA las canceladas (incluso las
                 # que el guard acababa de cancelar en la línea anterior) y las
