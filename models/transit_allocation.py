@@ -499,6 +499,31 @@ class TransitAllocationLogic(models.AbstractModel):
         if getattr(sale_line, 'tc_assignment_closed', False):
             raise UserError(_('La línea tiene la asignación cerrada. Reábrala antes de asignar inventario en tránsito.'))
 
+        # COBRANZA SEGURA: sin al menos UN pago aplicado al pedido no se
+        # asigna material en tránsito. Fuente: delivery_paid_amount (pago
+        # real contra la orden, anticipos incluidos — la misma foto que usa
+        # Cobranza Segura); fallback a facturas pagadas si el campo no
+        # existe en esta base. Bypass de plomería vía contexto.
+        if not self.env.context.get('skip_tal_payment_check'):
+            order = sale_line.order_id.sudo()
+            if 'delivery_paid_amount' in order._fields:
+                paid = order.delivery_paid_amount or 0.0
+            else:
+                invoices = order.invoice_ids.filtered(
+                    lambda inv: inv.state == 'posted'
+                    and inv.move_type in ('out_invoice', 'out_refund')
+                )
+                total = sum(invoices.mapped('amount_total'))
+                residual = sum(invoices.mapped('amount_residual'))
+                paid = max(total - residual, 0.0)
+            if paid <= 0.0:
+                raise UserError(_(
+                    'El pedido %(order)s no tiene ningún pago aplicado.\n\n'
+                    'No se puede asignar material en tránsito hasta que el '
+                    'pedido registre al menos un anticipo/pago. Registra el '
+                    'cobro y vuelve a intentar.'
+                ) % {'order': sale_line.order_id.name})
+
         pending_qty = sale_line._tc_get_pending_allocation_qty() if hasattr(sale_line, '_tc_get_pending_allocation_qty') else sale_line.tc_qty_pending_allocation
         if not self._hub_float_gt_zero(pending_qty):
             raise UserError(_('La línea ya no tiene cantidad pendiente por cubrir.'))
