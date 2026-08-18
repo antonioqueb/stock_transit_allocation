@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 import re
+import time
 from collections import Counter
 
 from odoo import models, _
@@ -32,6 +33,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             "skip_auto_assign": True,
             "skip_auto_reserve": True,
             "tracking_disable": True,
+            # El import controla los lotes él mismo (pairing + used_lot_ids):
+            # el candado anti-duplicados hacía UNA búsqueda de move lines por
+            # cada línea creada/escrita — cientos de queries por PL.
+            "skip_duplicate_lot_validation": True,
         })
         return ctx
 
@@ -582,15 +587,26 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 used.add(lot.id)
 
         # ── Pasada 1: firma exacta ──────────────────────────────────────────
+        # Índice firma→lotes en UNA pasada, en lugar del doble loop
+        # filas×lotes (604 placas × 377 filas ≈ 230k comparaciones con 6
+        # lecturas de campos cada una). Además se salta lo ya emparejado
+        # por Ref. Interna: antes podía re-emparejar la fila con un segundo
+        # lote de firma idéntica y dejar el primero consumido en vano.
+        sig_index = {}
+        for lot in candidates:
+            if lot.id in used:
+                continue
+            sig_index.setdefault(self._tc_lot_signature(lot), []).append(lot)
+
         for i, (row, _qty) in enumerate(valid_rows):
-            target_sig = self._tc_row_signature(row)
-            for lot in candidates:
-                if lot.id in used or lot.product_id.id != row["product"].id:
+            if i in pairing:
+                continue
+            for lot in sig_index.get(self._tc_row_signature(row), []):
+                if lot.id in used:
                     continue
-                if self._tc_lot_signature(lot) == target_sig:
-                    pairing[i] = lot
-                    used.add(lot.id)
-                    break
+                pairing[i] = lot
+                used.add(lot.id)
+                break
 
         # ── Pasada 2: difusa por puntaje ────────────────────────────────────
         fuzzy_pairs = []
@@ -1168,6 +1184,14 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         return received
 
     def _tc_apply_physical_reception_pl(self, rows):
+        # Cronómetro por fase: el PL físico llegó a 8.5 min / 629k queries
+        # en producción; estos logs dicen exactamente dónde se va el tiempo.
+        _t0 = time.monotonic()
+        _marks = []
+
+        def _mark(label):
+            _marks.append((label, time.monotonic()))
+
         picking = self.picking_id
         ctx = self._tc_reception_guard_context()
         voyage = self._tc_get_physical_voyage()
@@ -1211,6 +1235,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         # difuso → posicional). Tolera correcciones de datos en el PL físico
         # sin duplicar lotes ni soltar holds.
         pairing = self._tc_pair_rows_with_lots(voyage, valid_rows)
+        _mark('pairing')
 
         received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
 
@@ -1264,6 +1289,8 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "lot": lot,
                 "qty": qty,
             })
+
+        _mark('filas (lotes+quants+líneas viaje)')
 
         # Marcar como omitidas las líneas anteriores que ya no vienen en el PL físico.
         omitted_lines = voyage.line_ids.filtered(
@@ -1342,6 +1369,8 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 skip_procurement=True,
             ).unlink()
 
+        _mark('omitidas')
+
         move_map = self._tc_prepare_moves(product_totals)
 
         created = 0
@@ -1356,8 +1385,21 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             self._tc_create_move_line(move, item["lot"], item["qty"])
             created += 1
 
+        _mark('moves+move lines')
+
         # Normalizar nombres después de reconstruir líneas.
         self._tc_renumber_physical_reception_lots_by_container(voyage)
+        _mark('renumerado')
+
+        prev = _t0
+        breakdown = []
+        for label, stamp in _marks:
+            breakdown.append('%s=%.1fs' % (label, stamp - prev))
+            prev = stamp
+        _logger.info(
+            '[TC_PHYSICAL_PL][PERF] %s | %s filas | total %.1fs | %s',
+            picking.name, len(valid_rows),
+            time.monotonic() - _t0, ' · '.join(breakdown))
 
         if picking.ws_spreadsheet_id:
             picking.ws_spreadsheet_id.sudo().unlink()
