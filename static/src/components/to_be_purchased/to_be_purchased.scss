@@ -141,6 +141,16 @@ $o-tbp-pill: 999px;
     max-width: 100%;
 }
 
+// Variante de EXCLUSIÓN: más angosta y con ícono en rojo suave para
+// distinguirla de la búsqueda normal a simple vista.
+.o_tbp_search--exclude {
+    width: 320px;
+
+    .o_tbp_search_icon {
+        color: #e5484d;
+    }
+}
+
 .o_tbp_search_icon {
     position: absolute;
     left: 13px;

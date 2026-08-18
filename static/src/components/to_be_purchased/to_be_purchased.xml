@@ -19,6 +19,22 @@
                     </button>
                 </div>
 
+                <!-- Filtro de EXCLUSIÓN por línea: oculta líneas cuyo pedido /
+                     ref. de cliente / cliente coincida (términos por coma). -->
+                <div class="o_tbp_search o_tbp_search--exclude">
+                    <i class="fa fa-ban o_tbp_search_icon"/>
+                    <input type="text"
+                           class="o_tbp_search_input"
+                           placeholder="Excluir pedido, ref, cliente… (coma = varios)"
+                           t-att-value="state.excludeQuery"
+                           t-on-input="onExcludeInput"/>
+                    <button class="o_tbp_search_clear"
+                            t-if="state.excludeQuery"
+                            t-on-click="clearExclude">
+                        <i class="fa fa-times"/>
+                    </button>
+                </div>
+
                 <button t-attf-class="o_tbp_filter_btn #{state.showOnlyPending ? 'active' : ''}"
                         t-on-click="togglePendingFilter">
                     <i t-attf-class="fa #{state.showOnlyPending ? 'fa-filter' : 'fa-list'} me-1"/>

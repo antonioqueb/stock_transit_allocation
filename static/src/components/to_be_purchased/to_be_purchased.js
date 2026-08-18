@@ -22,6 +22,7 @@ export class ToBePurchased extends Component {
 
             // Filtros
             searchQuery: "",
+            excludeQuery: "",
             showOnlyPending: true,
             groupBy: "product", // product | sale_order | vendor | salesperson | customer | unit_type
 
@@ -127,6 +128,33 @@ export class ToBePurchased extends Component {
 
                 return haystack.includes(query);
             });
+        }
+
+        // Filtro de EXCLUSIÓN por LÍNEA del pedido: quita las líneas cuya
+        // referencia (SO, ref. de cliente o cliente) coincida con alguno de
+        // los términos (separados por coma). Un producto sin líneas
+        // restantes desaparece; si pierde líneas, sus totales se recalculan.
+        const exclude = (this.state.excludeQuery || "").toLowerCase().trim();
+        if (exclude) {
+            const terms = exclude.split(",").map((t) => t.trim()).filter(Boolean);
+            result = result.map((product) => {
+                const allLines = product.so_lines || [];
+                const keptLines = allLines.filter((line) => {
+                    const ref = [
+                        line.so_name || "",
+                        line.client_ref || "",
+                        line.customer || "",
+                    ].join(" ").toLowerCase();
+                    return !terms.some((term) => ref.includes(term));
+                });
+                if (keptLines.length === 0) {
+                    return null;
+                }
+                if (keptLines.length === allLines.length) {
+                    return product;
+                }
+                return this._productWithLines(product, keptLines);
+            }).filter((product) => product !== null);
         }
 
         if (this.state.showOnlyPending) {
@@ -456,8 +484,40 @@ export class ToBePurchased extends Component {
         return this._sortOperationalGroups(Object.values(map));
     }
 
+    // Recalcula los totales del producto con un subconjunto de líneas
+    // (misma aritmética que el filtro Solo pendientes).
+    _productWithLines(product, filteredLines) {
+        const qtySo = filteredLines.reduce(
+            (sum, line) => sum + Number(line.qty_pending || 0), 0);
+        const qtySoM2 = filteredLines.reduce(
+            (sum, line) => sum + Number(line.qty_pending_m2 || 0), 0);
+        const qtySoPieces = filteredLines.reduce(
+            (sum, line) => sum + Number(line.qty_pending_pieces || 0), 0);
+        const qtyToBuy = qtySo;
+        return {
+            ...product,
+            so_lines: filteredLines,
+            qty_so: qtySo,
+            qty_so_m2: qtySoM2,
+            qty_so_pieces: qtySoPieces,
+            qty_to_buy: qtyToBuy,
+            qty_to_buy_m2: product.unit_kind === "pieces" ? 0 : qtyToBuy,
+            qty_to_buy_pieces: product.unit_kind === "pieces" ? qtyToBuy : 0,
+        };
+    }
+
     onSearchInput(ev) {
         this.state.searchQuery = ev.target.value;
+        this.applyFilters();
+    }
+
+    onExcludeInput(ev) {
+        this.state.excludeQuery = ev.target.value;
+        this.applyFilters();
+    }
+
+    clearExclude() {
+        this.state.excludeQuery = "";
         this.applyFilters();
     }
 
