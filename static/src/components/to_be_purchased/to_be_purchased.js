@@ -23,6 +23,9 @@ export class ToBePurchased extends Component {
             // Filtros
             searchQuery: "",
             excludeQuery: "",
+            // Por DEFAULT se ocultan las líneas que YA tienen referencia de
+            // cliente; el toggle "Todas" las vuelve a mostrar.
+            hideWithRef: true,
             showOnlyPending: true,
             groupBy: "product", // product | sale_order | vendor | salesperson | customer | unit_type
 
@@ -128,6 +131,23 @@ export class ToBePurchased extends Component {
 
                 return haystack.includes(query);
             });
+        }
+
+        // DEFAULT: fuera las líneas que YA tienen referencia de cliente.
+        // Al apagar el toggle se muestra todo.
+        if (this.state.hideWithRef) {
+            result = result.map((product) => {
+                const allLines = product.so_lines || [];
+                const keptLines = allLines.filter(
+                    (line) => !(line.client_ref || "").trim());
+                if (keptLines.length === 0) {
+                    return null;
+                }
+                if (keptLines.length === allLines.length) {
+                    return product;
+                }
+                return this._productWithLines(product, keptLines);
+            }).filter((product) => product !== null);
         }
 
         // Filtro de EXCLUSIÓN por LÍNEA del pedido: quita las líneas cuya
@@ -523,6 +543,11 @@ export class ToBePurchased extends Component {
 
     togglePendingFilter() {
         this.state.showOnlyPending = !this.state.showOnlyPending;
+        this.applyFilters();
+    }
+
+    toggleHideWithRef() {
+        this.state.hideWithRef = !this.state.hideWithRef;
         this.applyFilters();
     }
 

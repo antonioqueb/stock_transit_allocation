@@ -35,6 +35,16 @@
                     </button>
                 </div>
 
+                <!-- Toggle DEFAULT: oculta las líneas con referencia de
+                     cliente; al apagarlo se muestra todo. -->
+                <button t-attf-class="o_tbp_filter_btn #{state.hideWithRef ? 'active' : ''}"
+                        t-on-click="toggleHideWithRef"
+                        t-att-title="state.hideWithRef ? 'Ocultando líneas con referencia de cliente — clic para mostrar todo' : 'Mostrando todo — clic para ocultar líneas con referencia'">
+                    <i t-attf-class="fa #{state.hideWithRef ? 'fa-eye-slash' : 'fa-eye'} me-1"/>
+                    <t t-if="state.hideWithRef">Sin referencia</t>
+                    <t t-else="">Todas</t>
+                </button>
+
                 <button t-attf-class="o_tbp_filter_btn #{state.showOnlyPending ? 'active' : ''}"
                         t-on-click="togglePendingFilter">
                     <i t-attf-class="fa #{state.showOnlyPending ? 'fa-filter' : 'fa-list'} me-1"/>
