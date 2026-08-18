@@ -215,3 +215,132 @@ class StockPickingReturnRescue(models.Model):
             'views': [[False, 'form']],
             'target': 'current',
         }
+
+    def action_som_return_all_transit(self):
+        """Devolución TOTAL al proveedor de una recepción validada a
+        tránsito: arma el retorno con TODOS los lotes de la recepción que
+        sigan con existencia en tránsito — sin selectores. Los selectores
+        del wizard nativo aquí no sirven: stock_whole_lot_removal re-asigna
+        lotes completos con su propia estrategia y pisa la elección manual;
+        este flujo escribe las move lines exactas y desactiva esa
+        reservación automática. El usuario revisa y valida."""
+        self.ensure_one()
+        pk = self.sudo()
+
+        if pk.picking_type_code != 'incoming':
+            raise UserError(_('Solo aplica a recepciones.'))
+        if pk.state != 'done':
+            raise UserError(_('La recepción aún no está validada; cancélala '
+                              'o ajústala directamente.'))
+
+        source = pk.location_dest_id
+        if not source or not source._som_is_transit():
+            raise UserError(_(
+                'Esta recepción no dejó el material en tránsito; usa el '
+                'flujo de devolución normal.'))
+
+        # Recibido por lote en ESTA recepción.
+        received = {}
+        for ml in pk.move_line_ids:
+            if not ml.lot_id:
+                continue
+            received[ml.lot_id.id] = (
+                received.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0))
+        if not received:
+            raise UserError(_('La recepción no tiene lotes registrados.'))
+
+        quants = self.env['stock.quant'].sudo().search([
+            ('lot_id', 'in', list(received.keys())),
+            ('location_id', 'child_of', source.id),
+            ('quantity', '>', 0),
+        ])
+        if not quants:
+            raise UserError(_(
+                'Ya no queda existencia en tránsito de los lotes de esta '
+                'recepción (quizá ya se devolvieron o se recibieron).'))
+
+        supplier_loc = (
+            pk.partner_id.property_stock_supplier if pk.partner_id else False
+        ) or self.env.ref('stock.stock_location_suppliers',
+                          raise_if_not_found=False)
+        if not supplier_loc:
+            raise UserError(_('No se encontró la ubicación de proveedores.'))
+
+        ret_type = pk.picking_type_id.return_picking_type_id \
+            or pk.picking_type_id
+        MoveLine = self.env['stock.move.line'].sudo()
+        qty_key = 'quantity' if 'quantity' in MoveLine._fields else 'qty_done'
+
+        ret_vals = {
+            'picking_type_id': ret_type.id,
+            'partner_id': pk.partner_id.id if pk.partner_id else False,
+            'location_id': source.id,
+            'location_dest_id': supplier_loc.id,
+            'origin': _('Devolución de %s') % pk.name,
+            'company_id': pk.company_id.id,
+        }
+        if 'return_id' in pk._fields:
+            ret_vals['return_id'] = pk.id
+        ctx = {'skip_whole_lot_no_assign': True, 'skip_date_sync': True}
+        ret = self.env['stock.picking'].sudo().with_context(**ctx).create(ret_vals)
+
+        by_product = {}
+        for quant in quants:
+            by_product.setdefault(quant.product_id, []).append(quant)
+
+        total_lots = 0
+        for product, product_quants in by_product.items():
+            move_qty = 0.0
+            line_plan = []
+            for quant in product_quants:
+                # Se devuelve lo que sigue en tránsito, capado a lo recibido.
+                take = min(quant.quantity,
+                           received.get(quant.lot_id.id, quant.quantity))
+                if take <= 0:
+                    continue
+                line_plan.append((quant, take))
+                move_qty += take
+            if not line_plan:
+                continue
+            move = self.env['stock.move'].sudo().with_context(**ctx).create({
+                'product_id': product.id,
+                'product_uom': product.uom_id.id,
+                'product_uom_qty': move_qty,
+                'picking_id': ret.id,
+                'location_id': source.id,
+                'location_dest_id': supplier_loc.id,
+                'company_id': pk.company_id.id,
+            })
+            for quant, take in line_plan:
+                ml_vals = {
+                    'move_id': move.id,
+                    'picking_id': ret.id,
+                    'company_id': pk.company_id.id,
+                    'product_id': product.id,
+                    'product_uom_id': product.uom_id.id,
+                    'lot_id': quant.lot_id.id,
+                    'location_id': quant.location_id.id,
+                    'location_dest_id': supplier_loc.id,
+                    qty_key: take,
+                }
+                if 'picked' in MoveLine._fields:
+                    ml_vals['picked'] = True
+                MoveLine.with_context(**ctx).create(ml_vals)
+                total_lots += 1
+
+        body = Markup(
+            '↩️ <b>Devolución total del tránsito</b>: se preparó %s con '
+            '%s lote(s) de regreso al proveedor. Revísala y valídala.'
+        ) % (ret.name, total_lots)
+        pk.message_post(body=body)
+        ret.message_post(body=Markup(
+            '↩️ Devolución TOTAL generada desde la recepción %s '
+            '(todos los lotes que seguían en tránsito).') % pk.name)
+
+        return {
+            'type': 'ir.actions.act_window',
+            'res_model': 'stock.picking',
+            'res_id': ret.id,
+            'views': [[False, 'form']],
+            'target': 'current',
+        }

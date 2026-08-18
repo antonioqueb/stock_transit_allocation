@@ -221,4 +221,18 @@
         <field name="code">action = records.action_som_rescue_return_from_transit()</field>
     </record>
 
+    <!-- Devolver TODO al proveedor (engrane): recepción validada a tránsito →
+         retorno con TODOS los lotes que sigan en tránsito, con move lines
+         exactas (sin selectores; stock_whole_lot_removal pisaba la elección
+         manual del wizard nativo). -->
+    <record id="action_som_return_all_transit" model="ir.actions.server">
+        <field name="name">Devolver todo al proveedor (tránsito)</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">action</field>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_som_return_all_transit()</field>
+    </record>
+
 </odoo>
