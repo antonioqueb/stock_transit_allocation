@@ -1049,6 +1049,10 @@ class StockTransitLineTransitAllocationSync(models.Model):
             skip_hold_validation=True,
             skip_picking_clean=True,
             skip_transit_sale_sync=True,
+            # Plomería de Torre: la exclusividad de placas es un candado de
+            # CAPTURA humana; aquí solo se fusiona lo ya reservado y un
+            # residuo sucio en el pedido no debe tumbar la asignación.
+            skip_stone_dup_plate_check=True,
             # La asignación desde tránsito es PARCIAL por diseño: cubre lo que
             # viene en camino y el resto queda pendiente/compra. El tope de stock
             # (solicitado > disponible) no aplica aquí; bloquearía asignar
