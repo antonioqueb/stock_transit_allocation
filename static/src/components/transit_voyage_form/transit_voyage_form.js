@@ -145,7 +145,7 @@ class TransitVoyageLinesWidget extends Component {
                 const lots = await this.orm.searchRead(
                     "stock.lot",
                     [["id", "in", lotIds]],
-                    ["id", "x_bloque", "x_atado"],
+                    ["id", "x_bloque", "x_atado", "x_numero_placa"],
                 );
                 lots.forEach(l => { lotData[l.id] = l; });
             }
@@ -163,6 +163,7 @@ class TransitVoyageLinesWidget extends Component {
                 const lot = line.lot_id && lotData[line.lot_id[0]];
                 line.x_bloque = lot?.x_bloque || "";
                 line.x_atado  = lot?.x_atado  || "";
+                line.x_numero_placa = lot?.x_numero_placa || "";
                 line.trace    = (line.lot_id && traceMap[line.lot_id[0]]) || null;
             });
 
@@ -315,6 +316,7 @@ class TransitVoyageLinesWidget extends Component {
         if (q) {
             const hay = [
                 l.lot_id ? l.lot_id[1] : "",
+                l.x_numero_placa || "",
                 l.container_number || "",
                 l.x_bloque || "",
                 l.partner_id ? l.partner_id[1] : "",

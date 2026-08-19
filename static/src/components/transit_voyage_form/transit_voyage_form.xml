@@ -126,6 +126,7 @@
                                     <tr>
                                         <th class="tvl-th tvl-th--chk"></th>
                                         <th class="tvl-th">Lote / placa</th>
+                                        <th class="tvl-th tvl-th--center" title="Número de placa del proveedor (packing list)">No. Placa</th>
                                         <th class="tvl-th">Contenedor</th>
                                         <th class="tvl-th tvl-th--center">Bloque</th>
                                         <t t-if="hasDims">
@@ -154,7 +155,7 @@
                                     <t t-if="line_index === 0 or currentBlock !== prevBlock">
                                         <t t-set="blockInfo" t-value="group.blocks.find(b => b.name === currentBlock)"/>
                                         <tr class="tvl-block-header-row">
-                                            <td colspan="4" class="tvl-block-header-label">
+                                            <td colspan="5" class="tvl-block-header-label">
                                                 <i class="fa fa-th-large"/> Bloque: <strong t-esc="currentBlock"/>
                                                 <span class="tvl-block-header-count">
                                                     <t t-esc="blockInfo ? blockInfo.count : 0"/> lotes
@@ -183,6 +184,12 @@
                                             <t t-else="">
                                                 <span class="tvl-pending-chip">⏳ Sin lote</span>
                                             </t>
+                                        </td>
+
+                                        <!-- No. Placa (del proveedor / packing list) -->
+                                        <td class="tvl-td tvl-td--center">
+                                            <span t-if="line.x_numero_placa" class="tvl-dim-val" t-esc="line.x_numero_placa"/>
+                                            <span t-else="" class="tvl-muted">—</span>
                                         </td>
 
                                         <!-- Contenedor -->
