@@ -372,6 +372,13 @@ class TransitAllocationLogic(models.AbstractModel):
             return []
 
         sale_lines = sale_lines.filtered(lambda line: line.product_id.id in product_ids_with_transit)
+
+        # COBRANZA SEGURA: los pedidos SIN pago aplicado ni siquiera se
+        # listan como destino de asignación (el candado del assign ya los
+        # rechazaba con error; ahora tampoco aparecen en el hub).
+        sale_lines = sale_lines.filtered(
+            lambda line: self._tal_order_has_payment(line.order_id))
+
         payment_map = self._hub_get_payment_percent_map(sale_lines)
         allocation_info_by_line = self._hub_get_active_allocation_info_map(sale_lines.ids)
 
@@ -483,6 +490,22 @@ class TransitAllocationLogic(models.AbstractModel):
             return product.uom_id.rounding
         return 0.0001
 
+    def _tal_order_has_payment(self, order):
+        """COBRANZA SEGURA: ¿el pedido tiene al menos UN pago aplicado?
+        Misma fuente en el candado del assign y en el listado del hub:
+        delivery_paid_amount (pago real contra la orden, anticipos
+        incluidos) con fallback a facturas timbradas con pago."""
+        order = order.sudo()
+        if 'delivery_paid_amount' in order._fields:
+            return (order.delivery_paid_amount or 0.0) > 0.0
+        invoices = order.invoice_ids.filtered(
+            lambda inv: inv.state == 'posted'
+            and inv.move_type in ('out_invoice', 'out_refund')
+        )
+        total = sum(invoices.mapped('amount_total'))
+        residual = sum(invoices.mapped('amount_residual'))
+        return max(total - residual, 0.0) > 0.0
+
     def _tal_validate_sale_line_for_assignment(self, sale_line):
         if not sale_line or not sale_line.exists():
             raise UserError(_('No se encontró la línea de venta objetivo.'))
@@ -500,29 +523,15 @@ class TransitAllocationLogic(models.AbstractModel):
             raise UserError(_('La línea tiene la asignación cerrada. Reábrala antes de asignar inventario en tránsito.'))
 
         # COBRANZA SEGURA: sin al menos UN pago aplicado al pedido no se
-        # asigna material en tránsito. Fuente: delivery_paid_amount (pago
-        # real contra la orden, anticipos incluidos — la misma foto que usa
-        # Cobranza Segura); fallback a facturas pagadas si el campo no
-        # existe en esta base. Bypass de plomería vía contexto.
-        if not self.env.context.get('skip_tal_payment_check'):
-            order = sale_line.order_id.sudo()
-            if 'delivery_paid_amount' in order._fields:
-                paid = order.delivery_paid_amount or 0.0
-            else:
-                invoices = order.invoice_ids.filtered(
-                    lambda inv: inv.state == 'posted'
-                    and inv.move_type in ('out_invoice', 'out_refund')
-                )
-                total = sum(invoices.mapped('amount_total'))
-                residual = sum(invoices.mapped('amount_residual'))
-                paid = max(total - residual, 0.0)
-            if paid <= 0.0:
-                raise UserError(_(
-                    'El pedido %(order)s no tiene ningún pago aplicado.\n\n'
-                    'No se puede asignar material en tránsito hasta que el '
-                    'pedido registre al menos un anticipo/pago. Registra el '
-                    'cobro y vuelve a intentar.'
-                ) % {'order': sale_line.order_id.name})
+        # asigna material en tránsito. Bypass de plomería vía contexto.
+        if not self.env.context.get('skip_tal_payment_check') \
+                and not self._tal_order_has_payment(sale_line.order_id):
+            raise UserError(_(
+                'El pedido %(order)s no tiene ningún pago aplicado.\n\n'
+                'No se puede asignar material en tránsito hasta que el '
+                'pedido registre al menos un anticipo/pago. Registra el '
+                'cobro y vuelve a intentar.'
+            ) % {'order': sale_line.order_id.name})
 
         pending_qty = sale_line._tc_get_pending_allocation_qty() if hasattr(sale_line, '_tc_get_pending_allocation_qty') else sale_line.tc_qty_pending_allocation
         if not self._hub_float_gt_zero(pending_qty):
