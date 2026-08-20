@@ -491,11 +491,19 @@ class TransitAllocationLogic(models.AbstractModel):
         return 0.0001
 
     def _tal_order_has_payment(self, order):
-        """COBRANZA SEGURA: ¿el pedido tiene al menos UN pago aplicado?
+        """COBRANZA SEGURA: ¿el pedido pasa el candado de cobro?
         Misma fuente en el candado del assign y en el listado del hub:
         delivery_paid_amount (pago real contra la orden, anticipos
-        incluidos) con fallback a facturas timbradas con pago."""
+        incluidos) con fallback a facturas timbradas con pago.
+
+        EXENCIÓN — pedidos LEGADO: un pedido con Referencia de cliente
+        (client_order_ref) es migrado de SPS o pactado fuera del flujo de
+        cobranza nueva; su pago vive en el sistema anterior. Esos pedidos
+        sí se listan y sí reciben asignación aunque aquí no registren
+        pago (mismo discriminador legado que usa Analytics)."""
         order = order.sudo()
+        if (order.client_order_ref or '').strip():
+            return True
         if 'delivery_paid_amount' in order._fields:
             return (order.delivery_paid_amount or 0.0) > 0.0
         invoices = order.invoice_ids.filtered(
