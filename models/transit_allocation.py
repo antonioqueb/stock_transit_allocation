@@ -373,7 +373,11 @@ class TransitAllocationLogic(models.AbstractModel):
         transit_lines_by_product = self._tal_get_available_transit_lines_by_product(product_ids)
         product_ids_with_transit = set(transit_lines_by_product.keys())
 
-        if not product_ids_with_transit:
+        # La demanda de TALLER se muestra AUNQUE el producto base aún no
+        # tenga material en tránsito (disponible 0): compras necesita verla
+        # para saber qué embarcar/asignar. La demanda comercial normal sigue
+        # exigiendo tránsito disponible.
+        if not product_ids_with_transit and not workshop_rows_by_base:
             return []
 
         sale_lines = sale_lines.filtered(lambda line: line.product_id.id in product_ids_with_transit)
@@ -391,12 +395,14 @@ class TransitAllocationLogic(models.AbstractModel):
         for line in sale_lines:
             lines_by_product[line.product_id.id] |= line
 
-        products = self.env['product.product'].browse(list(product_ids_with_transit)).exists()
+        products = self.env['product.product'].browse(
+            list(product_ids_with_transit | set(workshop_rows_by_base.keys()))
+        ).exists()
         result = []
 
         for product in products:
             transit_lines = transit_lines_by_product.get(product.id, self.env['stock.transit.line'])
-            if not transit_lines:
+            if not transit_lines and product.id not in workshop_rows_by_base:
                 continue
 
             transit_rows = [self._tal_make_transit_line_row(line) for line in transit_lines]
