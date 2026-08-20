@@ -508,23 +508,27 @@
                                 </div>
                             </div>
 
-                            <!-- ═══ CONTROL DE PAGOS APLICADOS ═══
-                                 Comprobantes subidos a la orden vs dinero
-                                 realmente aplicado (facturas posteadas con
-                                 pago). Respeta el filtro Odoo/SPS/Mixto. -->
-                            <div class="som_bi__panel wide" t-if="data.pagos">
-                                <div class="som_bi__panel_head">
-                                    <span class="t"><i class="dot red"/> Control de pagos aplicados (comprobante vs aplicado)</span>
-                                </div>
-                                <div class="som_bi__stats">
-                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes registrados</t><t t-set="val" t-value="money(data.pagos.kpis.comprobantes_monto)"/></t>
-                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Aplicado contra comprobante</t><t t-set="val" t-value="money(data.pagos.kpis.aplicado_monto)"/></t>
-                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Falta por aplicar</t><t t-set="val" t-value="money(data.pagos.kpis.faltante_monto)"/><t t-set="sub" t-value="num(data.pagos.kpis.ordenes_con_brecha,0) + ' órdenes con brecha'"/></t>
-                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes pendientes</t><t t-set="val" t-value="num(data.pagos.kpis.pendientes_count,0)"/><t t-set="sub">sin factura/pago aplicado</t></t>
-                                </div>
-                                <div class="som_bi__minitable" t-if="data.pagos.rows.length">
+                        </div>
+                    </t>
+
+                    <!-- ════════ APLICACIÓN DE PAGOS (comprobante vs aplicado) ════════ -->
+                    <t t-if="state.tab === 'pagos'">
+                        <div class="som_bi__stats">
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes registrados</t><t t-set="val" t-value="money(data.kpis.comprobantes_monto)"/><t t-set="sub" t-value="num(data.kpis.ordenes_total,0) + ' órdenes con comprobante'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Aplicado contra comprobante</t><t t-set="val" t-value="money(data.kpis.aplicado_monto)"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Falta por aplicar</t><t t-set="val" t-value="money(data.kpis.faltante_monto)"/><t t-set="sub" t-value="num(data.kpis.ordenes_con_brecha,0) + ' órdenes con brecha'"/></t>
+                            <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes pendientes</t><t t-set="val" t-value="num(data.kpis.pendientes_count,0)"/><t t-set="sub">sin factura/pago aplicado</t></t>
+                        </div>
+                        <div class="som_bi__grid">
+                            <div class="som_bi__panel wide">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot red"/> Mayores brechas (comprobante − aplicado)</span></div>
+                                <div class="som_bi__canvas tall"><canvas id="som_pg_brecha"/></div>
+                            </div>
+                            <div class="som_bi__panel wide">
+                                <div class="som_bi__panel_head"><span class="t"><i class="dot amber"/> Detalle por orden</span></div>
+                                <div class="som_bi__minitable" t-if="data.rows.length">
                                     <div class="row head"><span>Orden · Cliente</span><b>Comprobantes</b><b>Aplicado</b><b>Falta</b><b>Pend.</b><b>Más viejo</b></div>
-                                    <div t-foreach="data.pagos.rows" t-as="pg" t-key="pg.so_id" class="row">
+                                    <div t-foreach="data.rows" t-as="pg" t-key="pg.so_id" class="row">
                                         <span><b t-esc="pg.so_name"/> · <t t-esc="pg.customer"/> <small t-esc="'(' + pg.currency + ')'"/></span>
                                         <b t-esc="money(pg.comprobantes)"/>
                                         <b t-esc="money(pg.aplicado)"/>
@@ -533,7 +537,7 @@
                                         <b t-esc="pg.pendientes ? num(pg.age) + ' d' : '—'"/>
                                     </div>
                                 </div>
-                                <div class="som_bi__minitable" t-if="!data.pagos.rows.length">
+                                <div class="som_bi__minitable" t-if="!data.rows.length">
                                     <div class="row"><span>Sin brechas: todos los comprobantes registrados están aplicados. ✓</span><b/><b/></div>
                                 </div>
                             </div>

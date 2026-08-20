@@ -439,6 +439,7 @@ class SomAnalytics(models.AbstractModel):
             'taller': self._dom_taller,
             'entregas': self._dom_entregas,
             'control': self._dom_control,
+            'pagos': self._dom_pagos,
             'usuarios': self._dom_usuarios,
             'financiero': self._dom_financiero,
             'pronosticos': self._dom_pronosticos,
@@ -2169,6 +2170,78 @@ class SomAnalytics(models.AbstractModel):
         }
 
     # ── CONTROL (dominio 10: bandeja cero y calidad de datos) ──────────
+    # ── APLICACIÓN DE PAGOS ────────────────────────────────────────────
+    def _dom_pagos(self, f):
+        """Control de pagos aplicados: comprobantes de pago subidos a la
+        orden (sale.payment.proof) vs dinero realmente aplicado
+        (delivery_paid_amount = pagos sobre facturas posteadas). Cada
+        comprobante debería terminar en factura + pago aplicado; aquí se
+        ve la brecha. Respeta la partición global Odoo/SPS/Mixto."""
+        rows = []
+        kpis = {
+            'comprobantes_monto': 0.0,
+            'aplicado_monto': 0.0,
+            'faltante_monto': 0.0,
+            'pendientes_count': 0,
+            'ordenes_con_brecha': 0,
+            'ordenes_total': 0,
+        }
+        try:
+            src = self._src_where(f, 'so')
+            raw = self._sq("""
+                SELECT so.id, so.name, rp.name AS customer,
+                       COALESCE(cur.name, 'MXN') AS currency,
+                       SUM(pp.amount) FILTER (WHERE pp.state != 'rejected')
+                           AS comprobantes,
+                       COUNT(*) FILTER (WHERE pp.state = 'pending')
+                           AS pendientes,
+                       MAX(EXTRACT(EPOCH FROM (NOW() - pp.upload_date))
+                           / 86400.0) FILTER (WHERE pp.state = 'pending')
+                           AS age,
+                       COALESCE(so.delivery_paid_amount, 0.0) AS aplicado
+                FROM sale_payment_proof pp
+                JOIN sale_order so ON so.id = pp.sale_order_id
+                LEFT JOIN res_partner rp ON rp.id = so.partner_id
+                LEFT JOIN res_currency cur ON cur.id = so.currency_id
+                WHERE so.state != 'cancel'
+            """ + src + """
+                GROUP BY so.id, so.name, rp.name, cur.name,
+                         so.delivery_paid_amount
+            """, default=[])
+            tol = 0.01
+            for (so_id, so_name, customer, currency, comprobantes,
+                 pendientes, age, aplicado) in raw:
+                comprobantes = float(comprobantes or 0.0)
+                aplicado = float(aplicado or 0.0)
+                diff = comprobantes - aplicado
+                kpis['ordenes_total'] += 1
+                kpis['comprobantes_monto'] += comprobantes
+                kpis['aplicado_monto'] += min(aplicado, comprobantes)
+                kpis['pendientes_count'] += int(pendientes or 0)
+                if diff > tol:
+                    kpis['faltante_monto'] += diff
+                    kpis['ordenes_con_brecha'] += 1
+                if diff > tol or (pendientes or 0) > 0:
+                    rows.append({
+                        'so_id': so_id,
+                        'so_name': so_name,
+                        'customer': customer or '',
+                        'currency': currency or 'MXN',
+                        'comprobantes': round(comprobantes, 2),
+                        'aplicado': round(aplicado, 2),
+                        'diff': round(max(diff, 0.0), 2),
+                        'pendientes': int(pendientes or 0),
+                        'age': round(float(age or 0.0), 1),
+                    })
+            rows.sort(key=lambda r: (-r['diff'], -r['pendientes']))
+            rows = rows[:60]
+            for k in ('comprobantes_monto', 'aplicado_monto', 'faltante_monto'):
+                kpis[k] = round(kpis[k], 2)
+        except Exception:
+            _logger.warning('[SOM ANALYTICS] aplicación de pagos',
+                            exc_info=True)
+        return {'kpis': kpis, 'rows': rows}
+
     def _dom_control(self, f):
         pend = []
 
@@ -2425,77 +2498,7 @@ class SomAnalytics(models.AbstractModel):
         fx_usd = self._current_usd_rate()
         fx_eur_usd = self._eur_usd_rate()
 
-        # ------------------------------------------------------------------
-        # CONTROL DE PAGOS APLICADOS: comprobantes de pago subidos a la
-        # orden (sale.payment.proof) vs dinero realmente aplicado
-        # (delivery_paid_amount = pagos sobre facturas posteadas). Cada
-        # comprobante debería terminar en factura + pago aplicado; aquí se
-        # ve la brecha. Respeta el filtro global Odoo/SPS/Mixto.
-        # ------------------------------------------------------------------
-        pagos_rows = []
-        pagos_kpis = {
-            'comprobantes_monto': 0.0,
-            'aplicado_monto': 0.0,
-            'faltante_monto': 0.0,
-            'pendientes_count': 0,
-            'ordenes_con_brecha': 0,
-        }
-        try:
-            src = self._src_where(f, 'so')
-            raw = self._sq("""
-                SELECT so.id, so.name, rp.name AS customer,
-                       COALESCE(cur.name, 'MXN') AS currency,
-                       SUM(pp.amount) FILTER (WHERE pp.state != 'rejected')
-                           AS comprobantes,
-                       COUNT(*) FILTER (WHERE pp.state = 'pending')
-                           AS pendientes,
-                       MAX(EXTRACT(EPOCH FROM (NOW() - pp.upload_date))
-                           / 86400.0) FILTER (WHERE pp.state = 'pending')
-                           AS age,
-                       COALESCE(so.delivery_paid_amount, 0.0) AS aplicado
-                FROM sale_payment_proof pp
-                JOIN sale_order so ON so.id = pp.sale_order_id
-                LEFT JOIN res_partner rp ON rp.id = so.partner_id
-                LEFT JOIN res_currency cur ON cur.id = so.currency_id
-                WHERE so.state != 'cancel'
-            """ + src + """
-                GROUP BY so.id, so.name, rp.name, cur.name,
-                         so.delivery_paid_amount
-            """, default=[])
-            tol = 0.01
-            for (so_id, so_name, customer, currency, comprobantes,
-                 pendientes, age, aplicado) in raw:
-                comprobantes = float(comprobantes or 0.0)
-                aplicado = float(aplicado or 0.0)
-                diff = comprobantes - aplicado
-                pagos_kpis['comprobantes_monto'] += comprobantes
-                pagos_kpis['aplicado_monto'] += min(aplicado, comprobantes)
-                pagos_kpis['pendientes_count'] += int(pendientes or 0)
-                if diff > tol:
-                    pagos_kpis['faltante_monto'] += diff
-                    pagos_kpis['ordenes_con_brecha'] += 1
-                if diff > tol or (pendientes or 0) > 0:
-                    pagos_rows.append({
-                        'so_id': so_id,
-                        'so_name': so_name,
-                        'customer': customer or '',
-                        'currency': currency or 'MXN',
-                        'comprobantes': round(comprobantes, 2),
-                        'aplicado': round(aplicado, 2),
-                        'diff': round(max(diff, 0.0), 2),
-                        'pendientes': int(pendientes or 0),
-                        'age': round(float(age or 0.0), 1),
-                    })
-            pagos_rows.sort(key=lambda r: -r['diff'])
-            pagos_rows = pagos_rows[:40]
-            for k in ('comprobantes_monto', 'aplicado_monto', 'faltante_monto'):
-                pagos_kpis[k] = round(pagos_kpis[k], 2)
-        except Exception:
-            _logger.warning('[SOM ANALYTICS] control de pagos aplicados',
-                            exc_info=True)
-
         return {
-            'pagos': {'kpis': pagos_kpis, 'rows': pagos_rows},
             'kpis': {
                 'pendientes_total': sum(p['count'] for p in pend),
                 'productos_ajuste_precio': len(price_adjust),

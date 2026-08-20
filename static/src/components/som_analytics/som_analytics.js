@@ -33,6 +33,7 @@ const TABS = [
     { key: "taller", label: "Taller" },
     { key: "entregas", label: "Entregas" },
     { key: "financiero", label: "Financiero" },
+    { key: "pagos", label: "Aplicación de pagos" },
     { key: "control", label: "Control" },
     { key: "usuarios", label: "Usuarios" },
 ];
@@ -416,6 +417,7 @@ export class SomAnalytics extends Component {
         else if (t === "entregas") this.renderEntregas(d);
         else if (t === "financiero") this.renderFinanciero(d);
         else if (t === "control") this.renderControl(d);
+        else if (t === "pagos") this.renderPagos(d);
         else if (t === "usuarios") this.renderUsuarios(d);
     }
 
@@ -668,6 +670,22 @@ export class SomAnalytics extends Component {
                 backgroundColor: "rgba(16,185,129,.8)",
                 borderRadius: 6, borderSkipped: false,
             }]);
+    }
+
+    // Aplicación de pagos: brecha comprobante vs aplicado por orden.
+    renderPagos(d) {
+        const rows = (d.rows || []).filter((r) => r.diff > 0.01).slice(0, 12);
+        if (!rows.length) return;
+        this.barChart("pg_b", "som_pg_brecha",
+            rows.map((r) => `${r.so_name} · ${r.customer}`.slice(0, 38)),
+            [{
+                label: "Falta por aplicar", data: rows.map((r) => r.diff),
+                somMoney: true,
+                backgroundColor: rows.map((r) =>
+                    r.age > 7 ? "rgba(239,68,68,.8)" : "rgba(245,158,11,.8)"),
+                borderRadius: 6, borderSkipped: false, maxBarThickness: 20,
+            }],
+            { horizontal: true });
     }
 
     renderControl(d) {
