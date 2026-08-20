@@ -10,6 +10,7 @@ la transacción principal sigue siendo atómica) y el banner de la recepción
 lo muestra con polling.
 """
 import logging
+import time
 import traceback
 
 from odoo import api, fields, models, _
@@ -107,62 +108,108 @@ class TcPhysicalPlJob(models.Model):
         self.env.cr.commit()
 
         picking = self.picking_id
-        try:
-            Wizard = (
-                self.env["packing.list.import.wizard"]
-                .with_user(self.user_id)
-                .with_company(picking.company_id)
-                .with_context(
-                    tc_pl_progress_job_id=self.id,
-                    tc_pl_force_inline=True,  # el job nunca se re-encola
-                    allowed_company_ids=picking.company_id.ids,
+
+        # La transacción del PL dura minutos: si un usuario o un cron toca
+        # una de sus filas a la mitad, PostgreSQL aborta con "could not
+        # serialize access due to concurrent update". Es transitorio y se
+        # REINTENTA (igual que hace Odoo con las peticiones HTTP), no se
+        # marca como error del PL.
+        MAX_TRIES = 4
+        for attempt in range(1, MAX_TRIES + 1):
+            try:
+                Wizard = (
+                    self.env["packing.list.import.wizard"]
+                    .with_user(self.user_id)
+                    .with_company(picking.company_id)
+                    .with_context(
+                        tc_pl_progress_job_id=self.id,
+                        tc_pl_force_inline=True,  # el job nunca se re-encola
+                        allowed_company_ids=picking.company_id.ids,
+                    )
                 )
-            )
-            wizard = Wizard.create({
-                "picking_id": picking.id,
-                "excel_file": self.excel_file or False,
-                "excel_filename": self.excel_filename or False,
-            })
+                wizard = Wizard.create({
+                    "picking_id": picking.id,
+                    "excel_file": self.excel_file or False,
+                    "excel_filename": self.excel_filename or False,
+                })
 
-            rows = []
-            if wizard.excel_file:
-                rows = wizard._get_data_from_excel_file()
-            elif wizard.spreadsheet_id:
-                rows = wizard._get_data_from_spreadsheet()
+                rows = []
+                if wizard.excel_file:
+                    rows = wizard._get_data_from_excel_file()
+                elif wizard.spreadsheet_id:
+                    rows = wizard._get_data_from_spreadsheet()
 
-            if not rows:
-                raise ValueError(_(
-                    "No se encontraron filas válidas en el PL para procesar."
-                ))
+                if not rows:
+                    raise ValueError(_(
+                        "No se encontraron filas válidas en el PL para procesar."
+                    ))
 
-            stats = wizard._tc_apply_physical_reception_pl(rows)
+                stats = wizard._tc_apply_physical_reception_pl(rows)
 
-            self.write({
-                "state": "done",
-                "progress_done": self.progress_total or len(rows),
-                "progress_label": _("Terminado"),
-                "result_message": _(
-                    "Líneas físicas: %(created)s. Lotes nuevos: %(new_lots)s. "
-                    "Lotes reutilizados: %(reused_lots)s. Filas omitidas: "
-                    "%(skipped)s. Ya recibidas antes: %(already_received)s."
-                ) % stats,
-            })
-            self.env.cr.commit()
-        except Exception as e:
-            # Rollback COMPLETO del procesamiento: el PL queda como estaba.
-            msg = getattr(e, "args", None) and e.args[0] or str(e)
-            self.env.cr.rollback()
-            self.env.clear()
-            _logger.error(
-                "[TC_PL_JOB] Job %s (%s) falló: %s\n%s",
-                self.id, picking.name, msg, traceback.format_exc(),
-            )
-            self.write({
-                "state": "error",
-                "progress_label": _("Error"),
-                "error_message": str(msg),
-            })
-            self.env.cr.commit()
+                self.write({
+                    "state": "done",
+                    "progress_done": self.progress_total or len(rows),
+                    "progress_label": _("Terminado"),
+                    "result_message": _(
+                        "Líneas físicas: %(created)s. Lotes nuevos: %(new_lots)s. "
+                        "Lotes reutilizados: %(reused_lots)s. Filas omitidas: "
+                        "%(skipped)s. Ya recibidas antes: %(already_received)s."
+                    ) % stats,
+                })
+                self.env.cr.commit()
+                return
+            except Exception as e:
+                # Rollback COMPLETO del procesamiento: el PL queda como estaba.
+                msg = getattr(e, "args", None) and e.args[0] or str(e)
+                self.env.cr.rollback()
+                self.env.clear()
+
+                if self._is_retryable_error(e) and attempt < MAX_TRIES:
+                    _logger.warning(
+                        "[TC_PL_JOB] Job %s (%s): colisión de concurrencia "
+                        "(intento %s/%s), reintentando: %s",
+                        self.id, picking.name, attempt, MAX_TRIES, msg,
+                    )
+                    self.report_progress(
+                        self.id, 0, self.progress_total or 0,
+                        _("Colisión con otra operación: reintentando "
+                          "(intento %s de %s)…") % (attempt + 1, MAX_TRIES),
+                    )
+                    # Backoff corto: dejar terminar a quien nos pisó.
+                    time.sleep(2 * attempt)
+                    continue
+
+                _logger.error(
+                    "[TC_PL_JOB] Job %s (%s) falló: %s\n%s",
+                    self.id, picking.name, msg, traceback.format_exc(),
+                )
+                self.write({
+                    "state": "error",
+                    "progress_label": _("Error"),
+                    "error_message": str(msg),
+                })
+                self.env.cr.commit()
+                return
+
+    @api.model
+    def _is_retryable_error(self, error):
+        """Errores transitorios de concurrencia que ameritan reintento."""
+        try:
+            from psycopg2 import errors as pg_errors
+            if isinstance(error, (
+                pg_errors.SerializationFailure,
+                pg_errors.DeadlockDetected,
+                pg_errors.LockNotAvailable,
+            )):
+                return True
+        except ImportError:
+            pass
+        text = str(error) or ""
+        return (
+            "could not serialize access" in text
+            or "deadlock detected" in text
+            or "concurrent update" in text
+        )
 
     # ------------------------------------------------------------------
     #  REPORTE DE AVANCE (cursor separado)
