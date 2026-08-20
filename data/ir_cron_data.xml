@@ -49,5 +49,20 @@
             <field name="priority">50</field>
         </record>
 
+        <!-- Procesamiento de PLs físicos grandes en segundo plano. Se
+             dispara al instante con _trigger() al encolar un job; la corrida
+             horaria es solo red de seguridad para jobs que queden en cola
+             (p. ej. reinicio del servidor a media ejecución). -->
+        <record id="ir_cron_tc_physical_pl_jobs" model="ir.cron">
+            <field name="name">Torre de Control: Procesar PLs en segundo plano</field>
+            <field name="model_id" ref="model_tc_physical_pl_job"/>
+            <field name="state">code</field>
+            <field name="code">model._cron_process_jobs()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">hours</field>
+            <field name="active">True</field>
+            <field name="priority">5</field>
+        </record>
+
     </data>
 </odoo>

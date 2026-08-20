@@ -63,6 +63,44 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "Revise que el PL tenga producto reconocible y filas con alto/ancho o cantidad mayor a cero."
             ))
 
+        # PL GRANDE → SEGUNDO PLANO. Procesarlo en la petición HTTP muere por
+        # el límite de tiempo del worker/proxy: el navegador se queda en
+        # "procesando" eterno sin error. El job corre por cron y el banner de
+        # la recepción muestra el avance en vivo.
+        from odoo.addons.stock_transit_allocation.models.tc_physical_pl_job import (
+            TC_PL_INLINE_MAX_ROWS,
+        )
+        if (
+            len(rows) > TC_PL_INLINE_MAX_ROWS
+            and not self.env.context.get("tc_pl_force_inline")
+        ):
+            job = self.env["tc.physical.pl.job"].enqueue(
+                self.picking_id,
+                len(rows),
+                excel_file=self.excel_file or None,
+                excel_filename=self.excel_filename or None,
+            )
+            _logger.info(
+                "[TC_PHYSICAL_PL] %s filas > %s: encolado job %s para %s",
+                len(rows), TC_PL_INLINE_MAX_ROWS, job.id, self.picking_id.name,
+            )
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("PL grande: procesando en segundo plano"),
+                    "message": _(
+                        "El PL tiene %(rows)s filas y se está procesando en "
+                        "segundo plano. Sigue el avance en la barra de "
+                        "progreso de la recepción; al terminar se avisa ahí "
+                        "mismo."
+                    ) % {"rows": len(rows)},
+                    "type": "info",
+                    "sticky": True,
+                    "next": {"type": "ir.actions.client", "tag": "soft_reload"},
+                },
+            }
+
         stats = self._tc_apply_physical_reception_pl(rows)
 
         return {
@@ -1192,6 +1230,15 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         def _mark(label):
             _marks.append((label, time.monotonic()))
 
+        # Avance en vivo cuando esto corre dentro de un job en segundo plano
+        # (cursor separado: no toca la transacción). Inline es no-op.
+        _job_id = self.env.context.get("tc_pl_progress_job_id")
+        Job = self.env["tc.physical.pl.job"]
+
+        def _report(done, total, label):
+            if _job_id:
+                Job.report_progress(_job_id, done, total, label)
+
         picking = self.picking_id
         ctx = self._tc_reception_guard_context()
         voyage = self._tc_get_physical_voyage()
@@ -1234,12 +1281,23 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         # Emparejamiento global fila↔lote ANTES de crear nada (exacto →
         # difuso → posicional). Tolera correcciones de datos en el PL físico
         # sin duplicar lotes ni soltar holds.
+        # Presupuesto de avance: fila a fila (fase pesada) + move lines.
+        _total_units = len(valid_rows) * 2 + 10
+        _report(0, _total_units, _("Emparejando placas del PL con el viaje…"))
+
         pairing = self._tc_pair_rows_with_lots(voyage, valid_rows)
         _mark('pairing')
+        _report(5, _total_units, _("Conciliando placas, lotes y existencias…"))
 
         received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
 
         for row_index, (row, qty) in enumerate(valid_rows):
+            if row_index and row_index % 20 == 0:
+                _report(
+                    5 + row_index, _total_units,
+                    _("Conciliando placas (%(done)s de %(total)s filas)…")
+                    % {"done": row_index, "total": len(valid_rows)},
+                )
             product = row["product"]
 
             # RECEPCIÓN PARCIAL: una fila emparejada con un lote YA RECIBIDO
@@ -1291,6 +1349,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             })
 
         _mark('filas (lotes+quants+líneas viaje)')
+        _report(
+            5 + len(valid_rows), _total_units,
+            _("Liberando placas omitidas del PL…"),
+        )
 
         # Marcar como omitidas las líneas anteriores que ya no vienen en el PL físico.
         omitted_lines = voyage.line_ids.filtered(
@@ -1375,7 +1437,13 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         created = 0
 
-        for item in prepared_lines:
+        for item_index, item in enumerate(prepared_lines):
+            if item_index and item_index % 40 == 0:
+                _report(
+                    5 + len(valid_rows) + item_index, _total_units,
+                    _("Reconstruyendo líneas de recepción (%(done)s de %(total)s)…")
+                    % {"done": item_index, "total": len(prepared_lines)},
+                )
             product = item["product"]
             move = move_map.get(product.id)
 
@@ -1386,6 +1454,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             created += 1
 
         _mark('moves+move lines')
+        _report(
+            _total_units - 5, _total_units,
+            _("Renumerando folios por contenedor…"),
+        )
 
         # Normalizar nombres después de reconstruir líneas.
         self._tc_renumber_physical_reception_lots_by_container(voyage)

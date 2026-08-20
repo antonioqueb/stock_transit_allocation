@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="stock_transit_allocation.TcPlJobBanner">
+        <div t-if="state.job" class="tc-plj">
+
+            <!-- En cola / Procesando -->
+            <div t-if="state.job.state === 'pending' or state.job.state === 'running'"
+                 class="tc-plj-card tc-plj-card--live">
+                <div class="tc-plj-head">
+                    <span class="tc-plj-spinner"/>
+                    <span class="tc-plj-title">
+                        <t t-if="state.job.state === 'pending'">PL en cola para procesarse</t>
+                        <t t-else="">Procesando Packing List en segundo plano</t>
+                    </span>
+                    <span class="tc-plj-pct"><t t-esc="pct"/>%</span>
+                </div>
+                <div class="tc-plj-track">
+                    <div class="tc-plj-fill" t-attf-style="width: {{ pct }}%">
+                        <div class="tc-plj-shimmer"/>
+                    </div>
+                </div>
+                <div class="tc-plj-label" t-esc="state.job.progress_label or ''"/>
+                <div class="tc-plj-note">
+                    Puedes salir de esta pantalla: el proceso sigue solo y aquí
+                    se ve el avance al volver.
+                </div>
+            </div>
+
+            <!-- Error -->
+            <div t-elif="state.job.state === 'error'" class="tc-plj-card tc-plj-card--error">
+                <div class="tc-plj-head">
+                    <span class="tc-plj-title">✕ El procesamiento del PL falló</span>
+                </div>
+                <div class="tc-plj-error" t-esc="state.job.error_message or 'Error desconocido.'"/>
+                <div class="tc-plj-note">
+                    No se aplicó ningún cambio (el proceso es todo-o-nada).
+                    Corrige el PL y vuelve a darle Procesar PL.
+                </div>
+            </div>
+
+            <!-- Terminado -->
+            <div t-elif="state.job.state === 'done'" class="tc-plj-card tc-plj-card--done">
+                <span class="tc-plj-title">✓ PL procesado en segundo plano.</span>
+                <span class="tc-plj-result" t-esc="state.job.result_message or ''"/>
+            </div>
+
+        </div>
+    </t>
+
+</templates>

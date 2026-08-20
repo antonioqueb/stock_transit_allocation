@@ -48,3 +48,6 @@ access_som_user_activity_viewer,som.user.activity.viewer,model_som_user_activity
 access_som_user_activity_admin,som.user.activity.admin,model_som_user_activity,base.group_system,1,1,1,1
 access_som_user_session_viewer,som.user.session.viewer,model_som_user_session,inventory_shopping_cart.group_dashboard_viewer,1,0,0,0
 access_som_user_session_admin,som.user.session.admin,model_som_user_session,base.group_system,1,1,1,1
+access_tc_physical_pl_job_user,tc.physical.pl.job user,model_tc_physical_pl_job,base.group_user,1,0,0,0
+access_tc_physical_pl_job_stock,tc.physical.pl.job stock,model_tc_physical_pl_job,stock.group_stock_user,1,1,1,0
+access_tc_physical_pl_job_manager,tc.physical.pl.job manager,model_tc_physical_pl_job,stock.group_stock_manager,1,1,1,1

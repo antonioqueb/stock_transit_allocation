@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.104.22.0',
+    'version': '19.0.104.23.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -126,6 +126,12 @@
 
             'stock_transit_allocation/static/src/js/transit_progress_widget.js',
             'stock_transit_allocation/static/src/xml/transit_progress_widget.xml',
+
+            # Banner de avance del PL físico en segundo plano (form de la
+            # recepción: widget tc_pl_job_banner con polling).
+            'stock_transit_allocation/static/src/components/pl_job_banner/pl_job_banner.js',
+            'stock_transit_allocation/static/src/components/pl_job_banner/pl_job_banner.xml',
+            'stock_transit_allocation/static/src/components/pl_job_banner/pl_job_banner.scss',
 
             # Barra de estatus del flujo de recepción 0-7
             'stock_transit_allocation/static/src/components/reception_flow_bar/reception_flow_bar.js',

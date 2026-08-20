@@ -114,6 +114,15 @@
                 <field name="tc_is_physical_reception" invisible="1"/>
             </xpath>
 
+            <!-- Banner de avance del PL procesándose en segundo plano
+                 (jobs de PLs grandes). Polling en vivo vía widget. -->
+            <xpath expr="//notebook" position="before">
+                <field name="tc_pl_job_id"
+                       widget="tc_pl_job_banner"
+                       nolabel="1"
+                       invisible="not tc_pl_job_id"/>
+            </xpath>
+
             <!-- Abrir PL: primer botón action_open_packing_list_spreadsheet del módulo principal. -->
             <xpath expr="(//header/button[@name='action_open_packing_list_spreadsheet'])[1]" position="attributes">
                 <attribute name="invisible">state in ('done', 'cancel', 'draft') or packing_list_imported or worksheet_imported or (picking_type_code != 'incoming' and not tc_is_physical_reception)</attribute>

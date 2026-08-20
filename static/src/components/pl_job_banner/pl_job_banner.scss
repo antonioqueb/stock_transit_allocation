@@ -1,0 +1,127 @@
+// Banner de avance del PL físico en segundo plano — branding SOM.
+
+.tc-plj {
+    margin: 8px 0 12px;
+}
+
+.tc-plj-card {
+    border-radius: 14px;
+    padding: 14px 18px;
+    border: 1px solid rgba(92, 185, 242, 0.4);
+    background: linear-gradient(160deg, #ffffff, #f8fcff);
+    box-shadow: 0 4px 18px rgba(21, 95, 148, 0.10);
+
+    &--error {
+        border-color: rgba(220, 38, 38, 0.45);
+        background: linear-gradient(160deg, #ffffff, #fef2f2);
+    }
+
+    &--done {
+        border-color: rgba(4, 217, 79, 0.45);
+        background: linear-gradient(160deg, #ffffff, #f0fdf4);
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        padding: 10px 16px;
+    }
+}
+
+.tc-plj-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.tc-plj-spinner {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 3px solid rgba(92, 185, 242, 0.3);
+    border-top-color: #4BA4F2;
+    animation: tcPljSpin 0.9s linear infinite;
+}
+
+@keyframes tcPljSpin {
+    to { transform: rotate(360deg); }
+}
+
+.tc-plj-title {
+    flex: 1 1 auto;
+    font-size: 13px;
+    font-weight: 800;
+    color: #0f172a;
+
+    .tc-plj-card--error & { color: #991b1b; }
+    .tc-plj-card--done & { color: #047a31; flex: 0 0 auto; }
+}
+
+.tc-plj-pct {
+    font-size: 12px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #155f94;
+    background: rgba(92, 185, 242, 0.14);
+    border: 1px solid rgba(92, 185, 242, 0.35);
+    border-radius: 999px;
+    padding: 2px 10px;
+}
+
+.tc-plj-track {
+    height: 10px;
+    border-radius: 999px;
+    background: rgba(92, 185, 242, 0.16);
+    overflow: hidden;
+}
+
+.tc-plj-fill {
+    position: relative;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #5CB9F2, #4BA4F2 60%, #155f94);
+    transition: width 0.4s ease;
+    overflow: hidden;
+}
+
+.tc-plj-shimmer {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 30%, rgba(255, 255, 255, 0.55) 50%, transparent 70%);
+    animation: tcPljShimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes tcPljShimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+}
+
+.tc-plj-label {
+    margin-top: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #284256;
+}
+
+.tc-plj-note {
+    margin-top: 5px;
+    font-size: 11px;
+    color: #60798c;
+}
+
+.tc-plj-error {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #991b1b;
+    background: #ffffff;
+    border: 1px solid rgba(220, 38, 38, 0.3);
+    border-radius: 10px;
+    padding: 8px 12px;
+    white-space: pre-wrap;
+}
+
+.tc-plj-result {
+    font-size: 12px;
+    color: #284256;
+}
