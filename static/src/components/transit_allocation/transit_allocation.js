@@ -237,6 +237,12 @@ export class TransitAllocation extends Component {
         let rows = [...this.state.data];
         const query = (this.state.searchQuery || "").trim().toLowerCase();
 
+        // PARTICIÓN TALLER: la demanda de material de origen para procesos
+        // de taller SOLO se ve bajo el filtro "Taller" (y ahí se ve solo
+        // eso) — así el tablero comercial no se ensucia.
+        const workshopMode = this.state.groupBy === "workshop";
+        rows = rows.filter((line) => workshopMode ? !!line.is_workshop : !line.is_workshop);
+
         if (query) {
             rows = rows.filter((line) => {
                 const haystack = [
@@ -269,7 +275,26 @@ export class TransitAllocation extends Component {
             this.state.filteredData = this._groupByUnitType(rows);
         } else if (this.state.groupBy === "purchase") {
             this.state.filteredData = this._groupByPurchase(rows);
+        } else if (this.state.groupBy === "workshop") {
+            this.state.filteredData = this._groupByWorkshop(rows);
         }
+    }
+
+    _groupByWorkshop(rows) {
+        const map = {};
+        for (const line of rows) {
+            const key = line.so_id || 0;
+            if (!map[key]) {
+                map[key] = this._makeGroup({
+                    id: key,
+                    key: `workshop_so_${key}`,
+                    label: `${line.so_name || "Sin SO"} · TALLER`,
+                    sublabel: line.customer || "Sin cliente",
+                });
+            }
+            this._addLineToGroup(map[key], line);
+        }
+        return this._sortGroups(Object.values(map));
     }
 
     _makeGroup({ id, key, label, sublabel }) {
@@ -621,7 +646,11 @@ export class TransitAllocation extends Component {
                 line,
                 transitLines,
                 productId: line.product_id,
-                productName: line.product_name || "",
+                productName: (line.product_name || "") + (
+                    line.is_workshop
+                        ? ` · TALLER ${line.workshop_process || ""} → ${line.product_final_name || ""}`
+                        : ""
+                ),
                 soName: line.so_name || "",
                 customer: line.customer || "",
                 qtyRequested: line.qty_ordered || line.qty_requested || 0,
@@ -1204,7 +1233,9 @@ export class TransitAllocation extends Component {
             const requestedQty = Number(config.qtyRequested || 0);
             const overQty = requestedQty > 0 ? projectedAssigned - requestedQty : 0;
 
-            if (overQty > 0.0001 && !overAction) {
+            // TALLER: sin decisión de excedente — el corte consume más
+            // material base que lo vendido y eso es normal.
+            if (!config.line.is_workshop && overQty > 0.0001 && !overAction) {
                 const decision = await this.requestOverAssignmentDecision(overQty, config.unitLabel || "");
                 if (!decision) return false;
                 return doConfirm(decision.action, decision.reason);
@@ -1232,18 +1263,32 @@ export class TransitAllocation extends Component {
 
             try {
                 progress.step(1);
-                const result = await this.orm.call(
-                    "transit.allocation.manager.logic",
-                    "assign_transit_lines",
-                    [
-                        selectedIds,
-                        config.line.id,
-                        "Asignación operativa desde Transit Allocation.",
-                        overAction,
-                        overReason,
-                        partialByLine,
-                    ]
-                );
+                // Demanda de TALLER: método propio — reserva el material de
+                // origen y crea las selecciones de taller en la venta, sin
+                // STONE SYNC ni ratchet contra el producto vendido.
+                const result = config.line.is_workshop
+                    ? await this.orm.call(
+                        "transit.allocation.manager.logic",
+                        "assign_transit_lines_workshop",
+                        [
+                            selectedIds,
+                            config.line.id,
+                            "Asignación a taller desde Transit Allocation.",
+                            partialByLine,
+                        ]
+                    )
+                    : await this.orm.call(
+                        "transit.allocation.manager.logic",
+                        "assign_transit_lines",
+                        [
+                            selectedIds,
+                            config.line.id,
+                            "Asignación operativa desde Transit Allocation.",
+                            overAction,
+                            overReason,
+                            partialByLine,
+                        ]
+                    );
 
                 if (result && result.need_over_assignment_decision) {
                     progress.destroy();

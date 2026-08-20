@@ -116,6 +116,14 @@
                         <i class="fa fa-shopping-cart me-1"/>
                         Compra
                     </button>
+
+                    <button type="button"
+                            title="Demanda de material de origen para procesos de taller"
+                            t-att-class="state.groupBy === 'workshop' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
+                            t-on-click="() => this.setGroupBy('workshop')">
+                        <i class="fa fa-wrench me-1"/>
+                        Taller
+                    </button>
                 </div>
             </div>
 

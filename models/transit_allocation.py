@@ -364,7 +364,12 @@ class TransitAllocationLogic(models.AbstractModel):
             lambda line: self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('pending_qty'))
         )
 
-        product_ids = set(sale_lines.mapped('product_id').ids)
+        # DEMANDA DE TALLER: líneas con proceso de taller esperando MATERIAL
+        # DE ORIGEN (producto base). Se agrupan bajo el producto BASE (que es
+        # el que viaja en tránsito), no bajo el producto vendido.
+        workshop_rows_by_base = self._tal_get_workshop_demand_rows_by_base()
+
+        product_ids = set(sale_lines.mapped('product_id').ids) | set(workshop_rows_by_base.keys())
         transit_lines_by_product = self._tal_get_available_transit_lines_by_product(product_ids)
         product_ids_with_transit = set(transit_lines_by_product.keys())
 
@@ -416,6 +421,12 @@ class TransitAllocationLogic(models.AbstractModel):
                         allocation_info_by_line[sale_line.id],
                     )
                 )
+
+            # Filas de TALLER de este producto base: demanda de material de
+            # origen para procesos de taller (filtro "Taller" en el hub).
+            for wrow in workshop_rows_by_base.get(product.id, []):
+                demanded_qty += wrow.get('qty_pending', 0.0)
+                so_details.append(wrow)
 
             if not so_details:
                 continue
@@ -513,6 +524,249 @@ class TransitAllocationLogic(models.AbstractModel):
         total = sum(invoices.mapped('amount_total'))
         residual = sum(invoices.mapped('amount_residual'))
         return max(total - residual, 0.0) > 0.0
+
+    # ---------------------------------------------------------------------
+    # TALLER: demanda de material de origen y asignación desde tránsito
+    # ---------------------------------------------------------------------
+
+    def _tal_workshop_selection_model(self):
+        """Modelo de selecciones de taller si el módulo está instalado."""
+        if 'sale.stone.workshop.input.selection' in self.env:
+            return self.env['sale.stone.workshop.input.selection'].sudo()
+        return None
+
+    def _tal_workshop_selected_qty(self, sale_line):
+        Selection = self._tal_workshop_selection_model()
+        if Selection is None:
+            return 0.0
+        selections = Selection.search([
+            ('sale_line_id', '=', sale_line.id),
+            ('state', '!=', 'cancelled'),
+        ])
+        return sum(selections.mapped('qty_in'))
+
+    def _tal_get_workshop_demand_rows_by_base(self):
+        """Filas de demanda de TALLER agrupadas por producto BASE.
+
+        Una línea de venta con taller configurado (proceso + producto
+        origen) y selección incompleta demanda material del producto BASE.
+        Ese material puede venir de tránsito: aquí se expone al hub bajo el
+        filtro "Taller" para que COMPRAS le asigne embarque. El pendiente es
+        informativo (en corte se consume más base que lo vendido): no hay
+        ratchet ni decisión de excedente en este flujo.
+        """
+        SaleLine = self.env['sale.order.line']
+        if 'stone_workshop_required' not in SaleLine._fields:
+            return {}
+        if self._tal_workshop_selection_model() is None:
+            return {}
+
+        domain = [
+            ('state', 'in', ['sale', 'done']),
+            ('display_type', '=', False),
+            ('product_id', '!=', False),
+            ('product_uom_qty', '>', 0),
+            ('stone_workshop_required', '=', True),
+            ('stone_workshop_base_product_id', '!=', False),
+            ('stone_workshop_process_id', '!=', False),
+        ]
+        lines = SaleLine.search(domain, order='order_id desc, id desc')
+        if not lines:
+            return {}
+
+        payment_map = self._hub_get_payment_percent_map(lines)
+        result = defaultdict(list)
+
+        for line in lines:
+            if not self._tal_order_has_payment(line.order_id):
+                continue
+
+            base = line.stone_workshop_base_product_id
+            requested = line.product_uom_qty or 0.0
+            selected = self._tal_workshop_selected_qty(line)
+            pending = max(requested - selected, 0.0)
+
+            rounding = self._tal_get_qty_rounding(base)
+            if float_compare(pending, 0.0, precision_rounding=rounding) <= 0:
+                continue
+
+            metrics = {
+                'requested_qty': requested,
+                'assigned_qty': selected,
+                'pending_qty': pending,
+                'raw_pending_qty': pending,
+            }
+            row = self._tal_make_sale_line_row(
+                line, metrics,
+                payment_map.get(line.order_id.id, 0.0),
+                {},
+            )
+            process_name = line.stone_workshop_process_id.display_name or ''
+            row.update({
+                'is_workshop': True,
+                'product_id': base.id,
+                'product_name': base.display_name,
+                'workshop_process': process_name,
+                'product_final_id': line.product_id.id,
+                'product_final_name': line.product_id.display_name,
+                'unit_kind': self._get_product_unit_kind(base),
+                'unit_label': self._get_product_unit_label(base),
+                'description': 'TALLER · %s → %s' % (
+                    process_name, line.product_id.display_name or ''),
+            })
+            for key, value in (
+                ('qty_pending', pending),
+                ('qty_transit_pending', pending),
+                ('qty_raw_pending', pending),
+                ('qty_requested', requested),
+                ('qty_ordered', requested),
+                ('qty_assigned', selected),
+            ):
+                row[key] = value
+                row.update(self._split_qty_fields(base, key, value))
+
+            result[base.id].append(row)
+
+        return result
+
+    @api.model
+    def assign_transit_lines_workshop(
+        self,
+        transit_line_ids,
+        sale_line_id,
+        reason=False,
+        partial_qty_by_line=False,
+    ):
+        """Asigna material en tránsito a la DEMANDA DE TALLER de una línea.
+
+        A diferencia del flujo comercial, NO escribe order_id/sale_line_id
+        en la línea de tránsito (eso dispararía STONE SYNC/ratchet contra el
+        producto vendido, que es otro): marca la línea como reservada para
+        taller y crea las selecciones de material base en la venta — las
+        mismas que crea el selector de placas de la pestaña Taller.
+        """
+        sale_line = self.env['sale.order.line'].browse(int(sale_line_id)).exists()
+        if not sale_line:
+            raise UserError(_('No se encontró la línea de venta objetivo.'))
+        if 'stone_workshop_required' not in sale_line._fields \
+                or not sale_line.stone_workshop_required:
+            raise UserError(_('La línea no tiene taller configurado.'))
+        base = sale_line.stone_workshop_base_product_id
+        if not base or not sale_line.stone_workshop_process_id:
+            raise UserError(_(
+                'Configura el producto origen y el proceso de taller en la '
+                'venta antes de asignar material en tránsito.'))
+        if sale_line.state not in ('sale', 'done'):
+            raise UserError(_('Solo puede asignar material a pedidos confirmados.'))
+
+        Selection = self._tal_workshop_selection_model()
+        if Selection is None:
+            raise UserError(_('El módulo de taller no está instalado.'))
+
+        if not self.env.context.get('skip_tal_payment_check') \
+                and not self._tal_order_has_payment(sale_line.order_id):
+            raise UserError(_(
+                'El pedido %(order)s no tiene ningún pago aplicado.\n\n'
+                'No se puede asignar material en tránsito hasta que el '
+                'pedido registre al menos un anticipo/pago.'
+            ) % {'order': sale_line.order_id.name})
+
+        transit_lines = self.env['stock.transit.line'].sudo().browse(
+            transit_line_ids or []).exists()
+        transit_lines._tc_apply_partial_assignment_splits(partial_qty_by_line)
+
+        invalid = []
+        selected_qty = 0.0
+        for tl in transit_lines:
+            if tl.product_id.id != base.id:
+                invalid.append(_('%s: no es el producto origen del taller')
+                               % (tl.lot_id.display_name or tl.id))
+                continue
+            if tl.voyage_id.custom_status in ('delivered', 'cancel'):
+                invalid.append(_('%s: embarque cerrado o cancelado')
+                               % (tl.lot_id.display_name or tl.id))
+                continue
+            if tl.allocation_status != 'available' or tl.order_id:
+                invalid.append(_('%s: ya no está disponible')
+                               % (tl.lot_id.display_name or tl.id))
+                continue
+            if not self._tal_resolve_valid_transit_quant(tl):
+                invalid.append(_('%s: sin quant positivo en tránsito')
+                               % (tl.lot_id.display_name or tl.id))
+                continue
+            selected_qty += self._tal_transit_line_qty(tl)
+
+        if invalid:
+            raise UserError(_('No se puede completar la asignación a taller:\n\n%s')
+                            % '\n'.join(invalid[:80]))
+
+        rounding = self._tal_get_qty_rounding(base)
+        if float_compare(selected_qty, 0.0, precision_rounding=rounding) <= 0:
+            raise UserError(_('La selección no tiene cantidad positiva.'))
+
+        def _safe_float(value):
+            try:
+                return float(str(value).replace(',', '.'))
+            except (TypeError, ValueError):
+                return 0.0
+
+        created = Selection.browse()
+        for tl in transit_lines:
+            lot = tl.lot_id
+            qty = self._tal_transit_line_qty(tl)
+            tipo = str(getattr(lot, 'x_tipo', '') or 'placa').lower()
+            created |= Selection.create({
+                'sale_order_id': sale_line.order_id.id,
+                'sale_line_id': sale_line.id,
+                'product_final_id': sale_line.product_id.id,
+                'base_product_id': base.id,
+                'lot_id': lot.id,
+                'quant_id': tl.quant_id.id if tl.quant_id else False,
+                'material_type': 'format' if tipo in ('formato', 'pieza') else 'slab',
+                'qty_in': qty,
+                'area_sqm': qty,
+                'height_cm': getattr(lot, 'x_alto', 0.0) or 0.0,
+                'width_cm': getattr(lot, 'x_ancho', 0.0) or 0.0,
+                'thickness_cm': _safe_float(getattr(lot, 'x_grosor', 0.0)),
+                'pieces': 1,
+                'block_name': getattr(lot, 'x_bloque', '') or '',
+                'reserved_origin': '%s / TALLER %s (tránsito %s)' % (
+                    sale_line.order_id.name or '',
+                    sale_line.stone_workshop_process_id.display_name or '',
+                    tl.voyage_id.name or '',
+                ),
+                'state': 'selected',
+            })
+
+            vals = {'allocation_status': 'reserved'}
+            if 'workshop_sale_line_id' in tl._fields:
+                vals['workshop_sale_line_id'] = sale_line.id
+            tl.with_context(skip_reservation_logic=True).write(vals)
+
+        selected_after = self._tal_workshop_selected_qty(sale_line)
+        requested = sale_line.product_uom_qty or 0.0
+
+        sale_line.order_id.sudo().message_post(body=_(
+            '🛠️ Material en tránsito asignado a TALLER desde Transit '
+            'Allocation: %(count)s lote(s) del producto origen %(base)s '
+            '(%(qty).2f) para el proceso %(process)s de %(final)s. '
+            'Motivo: %(reason)s'
+        ) % {
+            'count': len(transit_lines),
+            'base': base.display_name,
+            'qty': selected_qty,
+            'process': sale_line.stone_workshop_process_id.display_name or '',
+            'final': sale_line.product_id.display_name or '',
+            'reason': reason or _('Asignación operativa a taller.'),
+        })
+
+        return {
+            'success': True,
+            'selected_qty': selected_qty,
+            'assigned_qty_after': selected_after,
+            'pending_qty_after': max(requested - selected_after, 0.0),
+            'uom_name': base.uom_id.name or '',
+        }
 
     def _tal_validate_sale_line_for_assignment(self, sale_line):
         if not sale_line or not sale_line.exists():
