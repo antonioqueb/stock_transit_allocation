@@ -1,0 +1,326 @@
+// ============================================================================
+// SOM Progress — overlay de progreso con branding SOM
+// Paleta: azules $o-tal-blue #5CB9F2 / #4BA4F2 / deep #155f94, verde #04D94F,
+// ámbar #F2B705, tinta #0f172a (misma familia que To Be Allocated / Transit).
+// ============================================================================
+
+.som-progress-root {
+    position: fixed;
+    inset: 0;
+    z-index: 100500; // encima de los popups stone (99999-100001)
+    transition: opacity 0.4s ease;
+
+    &.som-progress-fade {
+        opacity: 0;
+        pointer-events: none;
+    }
+}
+
+.som-progress-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.42);
+    backdrop-filter: blur(7px) saturate(1.15);
+    animation: somProgressOverlayIn 0.25s ease;
+}
+
+@keyframes somProgressOverlayIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+
+.som-progress-card {
+    width: min(440px, calc(100vw - 32px));
+    border-radius: 22px;
+    padding: 22px 24px 18px;
+    background:
+        linear-gradient(160deg, rgba(255, 255, 255, 0.97), rgba(248, 252, 255, 0.93));
+    border: 1px solid rgba(92, 185, 242, 0.35);
+    box-shadow:
+        0 24px 70px rgba(15, 95, 148, 0.30),
+        0 2px 10px rgba(15, 23, 42, 0.10),
+        inset 0 1px 0 rgba(255, 255, 255, 0.9);
+    animation: somProgressCardIn 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+
+    &.is-success {
+        border-color: rgba(4, 217, 79, 0.5);
+        box-shadow: 0 24px 70px rgba(4, 122, 49, 0.28), 0 2px 10px rgba(15, 23, 42, 0.10);
+    }
+
+    &.is-failure {
+        border-color: rgba(220, 38, 38, 0.45);
+        animation: somProgressShake 0.4s ease;
+    }
+}
+
+@keyframes somProgressCardIn {
+    from { opacity: 0; transform: translateY(14px) scale(0.97); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes somProgressShake {
+    0%, 100% { transform: translateX(0); }
+    25%      { transform: translateX(-7px); }
+    75%      { transform: translateX(7px); }
+}
+
+// ── Cabecera ────────────────────────────────────────────────────────────────
+
+.som-progress-head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.som-progress-logo {
+    flex: 0 0 auto;
+    width: 42px;
+    height: 42px;
+    border-radius: 13px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    background: linear-gradient(135deg, #5CB9F2, #4BA4F2 55%, #155f94);
+    box-shadow: 0 6px 16px rgba(75, 164, 242, 0.45);
+
+    svg {
+        width: 22px;
+        height: 22px;
+        animation: somProgressSpin 1.6s linear infinite;
+    }
+
+    .is-success & svg,
+    .is-failure & svg {
+        animation: none;
+    }
+
+    .is-success & {
+        background: linear-gradient(135deg, #04D94F, #047a31);
+        box-shadow: 0 6px 16px rgba(4, 217, 79, 0.4);
+    }
+
+    .is-failure & {
+        background: linear-gradient(135deg, #ef4444, #991b1b);
+        box-shadow: 0 6px 16px rgba(220, 38, 38, 0.35);
+    }
+}
+
+@keyframes somProgressSpin {
+    to { transform: rotate(360deg); }
+}
+
+.som-progress-titles {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.som-progress-title {
+    font-size: 15px;
+    font-weight: 800;
+    color: #0f172a;
+    letter-spacing: -0.01em;
+}
+
+.som-progress-subtitle {
+    font-size: 12px;
+    color: #60798c;
+    margin-top: 1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+
+    &:empty { display: none; }
+}
+
+.som-progress-elapsed {
+    flex: 0 0 auto;
+    font-size: 11px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    color: #155f94;
+    background: rgba(92, 185, 242, 0.14);
+    border: 1px solid rgba(92, 185, 242, 0.35);
+    border-radius: 999px;
+    padding: 3px 10px;
+}
+
+// ── Barra ───────────────────────────────────────────────────────────────────
+
+.som-progress-track {
+    height: 12px;
+    border-radius: 999px;
+    background: rgba(92, 185, 242, 0.16);
+    border: 1px solid rgba(92, 185, 242, 0.25);
+    overflow: hidden;
+}
+
+.som-progress-fill {
+    position: relative;
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #5CB9F2, #4BA4F2 60%, #155f94);
+    transition: width 0.25s ease;
+    overflow: hidden;
+
+    .is-success & {
+        background: linear-gradient(90deg, #04D94F, #047a31);
+    }
+
+    .is-failure & {
+        background: linear-gradient(90deg, #ef4444, #991b1b);
+    }
+}
+
+.som-progress-shimmer {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+        105deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.55) 50%,
+        transparent 70%
+    );
+    animation: somProgressShimmer 1.4s ease-in-out infinite;
+
+    .is-success &,
+    .is-failure & {
+        animation: none;
+        opacity: 0;
+    }
+}
+
+@keyframes somProgressShimmer {
+    from { transform: translateX(-100%); }
+    to   { transform: translateX(100%); }
+}
+
+.som-progress-pct {
+    text-align: right;
+    font-size: 11px;
+    font-weight: 800;
+    font-variant-numeric: tabular-nums;
+    color: #155f94;
+    margin: 5px 2px 12px 0;
+
+    .is-success & { color: #047a31; }
+    .is-failure & { color: #991b1b; }
+}
+
+// ── Pasos ───────────────────────────────────────────────────────────────────
+
+.som-progress-steps {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.som-progress-step {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12.5px;
+    color: #94a3b8;
+    transition: color 0.2s ease;
+
+    &.is-active {
+        color: #0f172a;
+        font-weight: 700;
+    }
+
+    &.is-done {
+        color: #047a31;
+    }
+
+    &.is-error {
+        color: #991b1b;
+        font-weight: 700;
+    }
+}
+
+.som-progress-step-dot {
+    flex: 0 0 auto;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px solid #cbd5e1;
+    background: #ffffff;
+    transition: all 0.2s ease;
+
+    .som-progress-step-check {
+        width: 11px;
+        height: 11px;
+        color: #ffffff;
+        opacity: 0;
+        transform: scale(0.4);
+        transition: all 0.2s ease;
+    }
+
+    .is-active & {
+        border-color: #4BA4F2;
+        box-shadow: 0 0 0 4px rgba(92, 185, 242, 0.25);
+        animation: somProgressPulse 1.2s ease-in-out infinite;
+    }
+
+    .is-done & {
+        border-color: #04D94F;
+        background: linear-gradient(135deg, #04D94F, #047a31);
+
+        .som-progress-step-check {
+            opacity: 1;
+            transform: scale(1);
+        }
+    }
+
+    .is-error & {
+        border-color: #dc2626;
+        background: #fef2f2;
+    }
+}
+
+@keyframes somProgressPulse {
+    0%, 100% { box-shadow: 0 0 0 4px rgba(92, 185, 242, 0.25); }
+    50%      { box-shadow: 0 0 0 7px rgba(92, 185, 242, 0.12); }
+}
+
+// ── Hint (tardanza / error) ─────────────────────────────────────────────────
+
+.som-progress-hint {
+    margin-top: 12px;
+    font-size: 11.5px;
+    line-height: 1.45;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+
+    &:empty { display: none; }
+
+    &.is-warn {
+        color: #8f6500;
+        background: rgba(242, 183, 5, 0.15);
+        border: 1px solid rgba(242, 183, 5, 0.4);
+        padding: 8px 12px;
+    }
+
+    &.is-error {
+        color: #991b1b;
+        background: #fef2f2;
+        border: 1px solid rgba(220, 38, 38, 0.35);
+        padding: 8px 12px;
+    }
+
+    &:not(.is-warn):not(.is-error) {
+        color: #047a31;
+        font-weight: 700;
+        padding: 4px 2px 0;
+    }
+}

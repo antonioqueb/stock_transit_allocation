@@ -4,6 +4,7 @@ import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
+import { somProgress } from "@stock_transit_allocation/utils/som_progress";
 
 export class TransitAllocation extends Component {
     setup() {
@@ -1219,7 +1220,18 @@ export class TransitAllocation extends Component {
 
             state.saving = true;
 
+            const progress = somProgress({
+                title: "Guardando asignación en tránsito",
+                subtitle: `${config.soName || ""} — ${config.productName || ""}`,
+                steps: [
+                    "Validando selección",
+                    "Asignando material del embarque",
+                    "Actualizando el tablero",
+                ],
+            });
+
             try {
+                progress.step(1);
                 const result = await this.orm.call(
                     "transit.allocation.manager.logic",
                     "assign_transit_lines",
@@ -1234,6 +1246,11 @@ export class TransitAllocation extends Component {
                 );
 
                 if (result && result.need_over_assignment_decision) {
+                    progress.destroy();
+                    // Liberar el candado ANTES de reintentar: el doConfirm
+                    // recursivo checa state.saving y con true retornaba en
+                    // silencio — el usuario daba "Continuar" y no pasaba nada.
+                    state.saving = false;
                     const decision = await this.requestOverAssignmentDecision(
                         result.over_assigned_qty || 0,
                         config.unitLabel || ""
@@ -1243,6 +1260,7 @@ export class TransitAllocation extends Component {
                 }
 
                 if (result && result.success === false) {
+                    progress.fail(result.message || "No se pudo aplicar la asignación.");
                     this.notification.add(result.message || "No se pudo aplicar la asignación.", {
                         type: "danger",
                     });
@@ -1264,10 +1282,13 @@ export class TransitAllocation extends Component {
                 );
 
                 this.destroyTransitPopup();
+                progress.step(2);
                 await this.loadData();
+                progress.done("Asignación guardada");
                 return true;
             } catch (error) {
                 console.error("[TransitAllocation] Error guardando asignación:", error);
+                progress.fail("Error guardando asignación: " + (error.message || error));
                 this.notification.add(
                     "Error guardando asignación en tránsito: " + (error.message || error),
                     { type: "danger" }

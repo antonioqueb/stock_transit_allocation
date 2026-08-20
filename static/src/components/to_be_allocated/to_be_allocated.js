@@ -3,6 +3,7 @@ import { registry } from "@web/core/registry";
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
+import { somProgress } from "@stock_transit_allocation/utils/som_progress";
 
 export class ToBeAllocated extends Component {
     setup() {
@@ -1812,7 +1813,24 @@ export class ToBeAllocated extends Component {
 
             state.saving = true;
 
+            const progress = somProgress({
+                title: "Guardando asignación de placas",
+                subtitle: `${config.soName || config.line?.so_name || ""} — ${config.productName || config.line?.product_name || ""}`,
+                steps: sendPendingToPurchase
+                    ? [
+                        "Validando selección",
+                        "Asignando placas y enviando restante a compra",
+                        "Actualizando el tablero",
+                    ]
+                    : [
+                        "Validando selección",
+                        "Asignando placas al pedido",
+                        "Actualizando el tablero",
+                    ],
+            });
+
             try {
+                progress.step(1);
                 const result = await this.orm.call(
                     "sale.order.line",
                     "action_tc_apply_allocation_from_hub",
@@ -1874,10 +1892,13 @@ export class ToBeAllocated extends Component {
 
                 state.dirty = false;
                 this.destroyAllocationPopup();
+                progress.step(2);
                 await this.loadData();
+                progress.done("Asignación guardada");
                 return true;
             } catch (error) {
                 console.error("[ToBeAllocated] Error guardando asignación:", error);
+                progress.fail("Error guardando asignación: " + (error.message || error));
                 this.notification.add(
                     "Error guardando asignación: " + (error.message || error),
                     { type: "danger" }
@@ -1972,6 +1993,12 @@ export class ToBeAllocated extends Component {
 
         this.state.sending[line.id] = true;
 
+        const progress = somProgress({
+            title: "Enviando a To Be Purchased",
+            subtitle: `${line.so_name || ""} — ${line.product_name || ""}`,
+            steps: ["Moviendo la línea a compra", "Actualizando el tablero"],
+        });
+
         try {
             const result = await this.orm.call(
                 "sale.allocation.manager.logic",
@@ -1980,6 +2007,7 @@ export class ToBeAllocated extends Component {
             );
 
             if (result && result.error) {
+                progress.fail(result.error);
                 this.notification.add(result.error, { type: "danger" });
                 return;
             }
@@ -1989,9 +2017,12 @@ export class ToBeAllocated extends Component {
                 sticky: false,
             });
 
+            progress.step(1);
             await this.loadData();
+            progress.done("Línea enviada a compra");
         } catch (error) {
             console.error("[ToBeAllocated] Error enviando a compra:", error);
+            progress.fail("Error al mandar pedido: " + (error.message || error));
             this.notification.add(
                 "Error al mandar pedido: " + (error.message || error),
                 { type: "danger" }
@@ -2018,6 +2049,12 @@ export class ToBeAllocated extends Component {
 
         this.state.closing[line.id] = true;
 
+        const progress = somProgress({
+            title: "Cerrando pendiente",
+            subtitle: `${line.so_name || ""} — ${line.product_name || ""}`,
+            steps: ["Cerrando el pendiente de la línea", "Actualizando el tablero"],
+        });
+
         try {
             const result = await this.orm.call(
                 "sale.allocation.manager.logic",
@@ -2030,6 +2067,7 @@ export class ToBeAllocated extends Component {
             );
 
             if (result && result.error) {
+                progress.fail(result.error);
                 this.notification.add(result.error, { type: "danger" });
                 return;
             }
@@ -2039,9 +2077,12 @@ export class ToBeAllocated extends Component {
                 sticky: false,
             });
 
+            progress.step(1);
             await this.loadData();
+            progress.done("Pendiente cerrado");
         } catch (error) {
             console.error("[ToBeAllocated] Error cerrando pendiente:", error);
+            progress.fail("Error al cerrar pendiente: " + (error.message || error));
             this.notification.add(
                 "Error al cerrar pendiente: " + (error.message || error),
                 { type: "danger" }

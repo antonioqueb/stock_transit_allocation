@@ -3,6 +3,7 @@ import { registry } from "@web/core/registry";
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
+import { somProgress } from "@stock_transit_allocation/utils/som_progress";
 
 export class ToBePurchased extends Component {
     setup() {
@@ -750,6 +751,12 @@ export class ToBePurchased extends Component {
 
         this.state.cancelling[line.id] = true;
 
+        const progress = somProgress({
+            title: "Cancelando pendiente de compra",
+            subtitle: `${line.so_name || ""} — ${line.product_name || ""}`,
+            steps: ["Cancelando el pendiente", "Actualizando el tablero"],
+        });
+
         try {
             const result = await this.orm.call(
                 "purchase.manager.logic",
@@ -762,6 +769,7 @@ export class ToBePurchased extends Component {
             );
 
             if (result && result.error) {
+                progress.fail(result.error);
                 this.notification.add(result.error, { type: "danger" });
                 return;
             }
@@ -777,9 +785,12 @@ export class ToBePurchased extends Component {
                 sticky: false,
             });
 
+            progress.step(1);
             await this.loadData();
+            progress.done("Pendiente cancelado");
         } catch (error) {
             console.error("[ToBePurchased] Error cancelando pendiente:", error);
+            progress.fail("Error al cancelar: " + (error.message || error));
             this.notification.add(
                 "Error al cancelar pendiente: " + (error.message || error),
                 { type: "danger" }
@@ -946,7 +957,20 @@ export class ToBePurchased extends Component {
 
         this.state.creatingPO = true;
 
+        const progress = somProgress({
+            title: this.state.selectedPO
+                ? "Agregando líneas a la Orden de Compra"
+                : "Generando Orden de Compra",
+            subtitle: `${this.state.selectedLines.length} línea(s) seleccionada(s)`,
+            steps: [
+                "Validando líneas seleccionadas",
+                this.state.selectedPO ? "Agregando a la OC existente" : "Creando la Orden de Compra",
+                "Abriendo la Orden de Compra",
+            ],
+        });
+
         try {
+            progress.step(1);
             const resultAction = await this.orm.call(
                 "purchase.manager.logic",
                 "create_purchase_orders",
@@ -958,6 +982,7 @@ export class ToBePurchased extends Component {
             );
 
             if (resultAction.error) {
+                progress.fail(resultAction.error);
                 this.notification.add(resultAction.error, { type: "danger" });
                 return;
             }
@@ -968,9 +993,12 @@ export class ToBePurchased extends Component {
 
             this.state.selectedLines = [];
             this.closeModal();
+            progress.step(2);
+            progress.done("Orden de Compra lista");
             this.action.doAction(resultAction);
         } catch (error) {
             console.error("[ToBePurchased] Error generando OC:", error);
+            progress.fail("Error generando la OC: " + (error.message || error));
             this.notification.add("Error: " + (error.message || error), {
                 type: "danger",
             });
