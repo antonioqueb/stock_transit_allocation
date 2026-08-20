@@ -1203,3 +1203,19 @@ $brand-grad:  linear-gradient(90deg, $brand-start, $brand-end);
 
     &[open] .vf-map-hint { display: none; }
 }
+
+// Chip de compromiso de TALLER (línea reservada al material de origen de
+// un proceso de taller desde Transit Allocation).
+.tvl-workshop-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    font-weight: 800;
+    font-size: 11px;
+    color: #6d28d9;
+    background: rgba(139, 92, 246, 0.12);
+    border: 1px solid rgba(139, 92, 246, 0.35);
+    border-radius: 999px;
+    padding: 2px 10px;
+    white-space: nowrap;
+}

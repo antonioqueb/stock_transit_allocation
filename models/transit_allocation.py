@@ -749,6 +749,20 @@ class TransitAllocationLogic(models.AbstractModel):
                 vals['workshop_sale_line_id'] = sale_line.id
             tl.with_context(skip_reservation_logic=True).write(vals)
 
+            # Si el inventario del viaje YA estaba publicado como
+            # disponible, el quant se recomprométe al instante: sin esto el
+            # material seguía apareciendo libre en el inventario visual y
+            # cualquiera podía tomarlo.
+            quant = tl.quant_id
+            if quant and quant.exists() \
+                    and 'transit_inventory_state' in quant._fields \
+                    and getattr(quant, 'transit_inventory_published', False):
+                quant.sudo().write({
+                    'transit_inventory_state': 'committed',
+                    'transit_line_id': tl.id,
+                    'transit_voyage_id': tl.voyage_id.id,
+                })
+
         selected_after = self._tal_workshop_selected_qty(sale_line)
         requested = sale_line.product_uom_qty or 0.0
 

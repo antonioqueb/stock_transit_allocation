@@ -246,9 +246,12 @@
                                             </t>
                                         </td>
 
-                                        <!-- Cliente editable -->
+                                        <!-- Cliente editable (o compromiso de TALLER, solo lectura) -->
                                         <td class="tvl-td tvl-td--partner">
-                                            <t t-if="isEditing(line.id, 'partner_id')">
+                                            <t t-if="line.workshop">
+                                                <span class="tvl-partner-name" t-esc="line.workshop.customer"/>
+                                            </t>
+                                            <t t-elif="isEditing(line.id, 'partner_id')">
                                                 <select class="tvl-inline-select"
                                                         t-on-change="(ev) => this.onPartnerChange(line, ev)"
                                                         t-on-blur="() => this.state.editingCell = null">
@@ -287,9 +290,16 @@
                                             </t>
                                         </td>
 
-                                        <!-- Sales Order editable (orden-primero: no exige cliente previo) -->
+                                        <!-- Sales Order editable (o compromiso de TALLER, solo lectura) -->
                                         <td class="tvl-td tvl-td--order">
-                                            <t t-if="isEditing(line.id, 'order_id')">
+                                            <t t-if="line.workshop">
+                                                <span class="tvl-dim-chip tvl-workshop-chip"
+                                                      t-attf-title="Reservado para TALLER: {{ line.workshop.process }} → {{ line.workshop.final_product }}">
+                                                    <i class="fa fa-wrench me-1"/>
+                                                    TALLER · <t t-esc="line.workshop.so_name"/>
+                                                </span>
+                                            </t>
+                                            <t t-elif="isEditing(line.id, 'order_id')">
                                                 <select class="tvl-inline-select"
                                                         t-on-change="(ev) => this.onOrderChange(line, ev)"
                                                         t-on-blur="() => this.state.editingCell = null">

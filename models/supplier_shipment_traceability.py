@@ -381,6 +381,21 @@ class StockLotTraceState(models.Model):
                         sale_orders_by_lot.setdefault(l.id, set()).add(
                             (sl.order_id.id, sl.order_id.name))
 
+        # Lotes en tránsito comprometidos a TALLER (módulo puente): su
+        # pedido se enseña igual que una venta directa.
+        TransitLine = self.env['stock.transit.line'].sudo()
+        if 'workshop_sale_line_id' in TransitLine._fields:
+            for tl in TransitLine.search([
+                ('lot_id', 'in', ids),
+                ('workshop_sale_line_id', '!=', False),
+                ('allocation_status', '=', 'reserved'),
+            ]):
+                order = tl.workshop_sale_line_id.order_id
+                if order:
+                    in_sale.add(tl.lot_id.id)
+                    sale_orders_by_lot.setdefault(tl.lot_id.id, set()).add(
+                        (order.id, order.name))
+
         delivered = set()
         lot_orders = {}
         for ml in self.env['stock.move.line'].sudo().search([

@@ -1510,3 +1510,30 @@ class StockTransitLine(models.Model):
 
             line.qty_proforma = po_qty
             line.qty_original_demand = so_qty
+    # -------------------------------------------------------------------------
+    # TALLER: info de reserva para taller (módulo puente instalado)
+    # -------------------------------------------------------------------------
+
+    @api.model
+    def tc_workshop_info_map(self, line_ids):
+        """{line_id: info} de líneas reservadas a TALLER. Defensivo: si el
+        módulo puente (workshop_sale_line_id) no está instalado, mapa vacío.
+        Lo consume el widget del viaje para pintar el compromiso."""
+        if 'workshop_sale_line_id' not in self._fields:
+            return {}
+        result = {}
+        for line in self.sudo().browse(line_ids or []).exists():
+            sl = line.workshop_sale_line_id
+            if not sl:
+                continue
+            process = ''
+            if 'stone_workshop_process_id' in sl._fields and sl.stone_workshop_process_id:
+                process = sl.stone_workshop_process_id.display_name or ''
+            result[line.id] = {
+                'so_id': sl.order_id.id,
+                'so_name': sl.order_id.name or '',
+                'customer': sl.order_id.partner_id.name or '',
+                'process': process,
+                'final_product': sl.product_id.display_name or '',
+            }
+        return result

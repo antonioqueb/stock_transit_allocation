@@ -159,12 +159,25 @@ class TransitVoyageLinesWidget extends Component {
                 }
             }
 
+            // Reservas para TALLER (módulo puente): pintar a quién y qué
+            // proceso está comprometida la placa aunque no tenga pedido
+            // comercial directo.
+            let workshopMap = {};
+            try {
+                workshopMap = await this.orm.call(
+                    "stock.transit.line", "tc_workshop_info_map",
+                    [lines.map(l => l.id)]) || {};
+            } catch (e) {
+                console.warn("[TransitVoyageLines] workshop map:", e);
+            }
+
             lines.forEach(line => {
                 const lot = line.lot_id && lotData[line.lot_id[0]];
                 line.x_bloque = lot?.x_bloque || "";
                 line.x_atado  = lot?.x_atado  || "";
                 line.x_numero_placa = lot?.x_numero_placa || "";
                 line.trace    = (line.lot_id && traceMap[line.lot_id[0]]) || null;
+                line.workshop = workshopMap[line.id] || null;
             });
 
             this._buildGroups(lines);
