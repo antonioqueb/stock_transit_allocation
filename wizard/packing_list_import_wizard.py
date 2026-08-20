@@ -473,7 +473,19 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         filas_validas = 0
         filas_invalidas = 0
 
-        for r in range(3, 300):
+        # HASTA LA ÚLTIMA FILA REAL. El tope fijo de 300 se corrigió en el
+        # extractor base (2390c22) pero esta copia del PL físico lo conservó:
+        # un viaje de 604 placas procesaba 297 de la hoja grande y el guard
+        # reclamaba las restantes como omitidas (EMBARQUE/2026/0040).
+        last_row = idx.max_row()
+        if last_row >= 300:
+            _logger.info(
+                "[TC_PHYSICAL_PL] Hoja con %s filas de contenido: extracción "
+                "extendida más allá del tope histórico de 300.",
+                last_row + 1,
+            )
+
+        for r in range(3, last_row + 1):
             raw_a = idx.value(0, r)
             raw_b = idx.value(1, r)
             raw_c = idx.value(2, r)
