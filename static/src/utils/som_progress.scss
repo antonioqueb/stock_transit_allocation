@@ -33,7 +33,10 @@
 }
 
 .som-progress-card {
-    width: min(440px, calc(100vw - 32px));
+    // Nada de min(px, calc(vw)): el Sass de Odoo lo toma como su función
+    // min() y aborta el bundle web.assets_web completo con unidades mixtas.
+    width: 440px;
+    max-width: calc(100vw - 32px);
     border-radius: 22px;
     padding: 22px 24px 18px;
     background:
