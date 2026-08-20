@@ -182,6 +182,16 @@ export class SomAnalytics extends Component {
         this.charts = {};
     }
 
+    // Partición global Odoo/SPS/Mixto: el backend (_src_where) la aplica
+    // en TODAS las pestañas; false = mixto (sin filtro).
+    setSource(source) {
+        const f = { ...this.state.filters };
+        if (source) f.source = source;
+        else delete f.source;
+        this.state.filters = f;
+        this.reloadAll();
+    }
+
     // ── Filtros globales (secundarios al drill) ─────────────────────────
     addFilter(key, value, label) {
         this.state.filters = { ...this.state.filters, [key]: value };

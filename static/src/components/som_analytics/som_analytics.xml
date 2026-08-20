@@ -32,6 +32,14 @@
                         <button t-attf-class="som_bi__preset #{state.preset === '30d' ? 'active' : ''}" t-on-click="() => this.setPreset('30d')">30 días</button>
                         <button t-attf-class="som_bi__preset #{state.preset === '90d' ? 'active' : ''}" t-on-click="() => this.setPreset('90d')">Trimestre</button>
                         <button t-attf-class="som_bi__preset #{state.preset === '12m' ? 'active' : ''}" t-on-click="() => this.setPreset('12m')">12 meses</button>
+                        <span class="som_bi__preset_sep"/>
+                        <!-- Partición global Odoo/SPS: odoo = referencia de
+                             cliente vacía; sps = legado con folio; mixto =
+                             todo. El backend la respeta en TODAS las
+                             pestañas (_src_where). -->
+                        <button t-attf-class="som_bi__preset #{!state.filters.source ? 'active' : ''}" t-on-click="() => this.setSource(false)">Mixto</button>
+                        <button t-attf-class="som_bi__preset #{state.filters.source === 'odoo' ? 'active' : ''}" t-on-click="() => this.setSource('odoo')">Odoo</button>
+                        <button t-attf-class="som_bi__preset #{state.filters.source === 'sps' ? 'active' : ''}" t-on-click="() => this.setSource('sps')">SPS</button>
                     </div>
                 </div>
                 <div class="som_bi__tabs">
@@ -497,6 +505,36 @@
                                         <b t-attf-class="pill #{fch.pct >= 95 ? 'good' : fch.pct >= 70 ? 'mid' : 'bad'}" t-esc="num(fch.pct) + '%'"/>
                                         <b/>
                                     </div>
+                                </div>
+                            </div>
+
+                            <!-- ═══ CONTROL DE PAGOS APLICADOS ═══
+                                 Comprobantes subidos a la orden vs dinero
+                                 realmente aplicado (facturas posteadas con
+                                 pago). Respeta el filtro Odoo/SPS/Mixto. -->
+                            <div class="som_bi__panel wide" t-if="data.pagos">
+                                <div class="som_bi__panel_head">
+                                    <span class="t"><i class="dot red"/> Control de pagos aplicados (comprobante vs aplicado)</span>
+                                </div>
+                                <div class="som_bi__stats">
+                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes registrados</t><t t-set="val" t-value="money(data.pagos.kpis.comprobantes_monto)"/></t>
+                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Aplicado contra comprobante</t><t t-set="val" t-value="money(data.pagos.kpis.aplicado_monto)"/></t>
+                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Falta por aplicar</t><t t-set="val" t-value="money(data.pagos.kpis.faltante_monto)"/><t t-set="sub" t-value="num(data.pagos.kpis.ordenes_con_brecha,0) + ' órdenes con brecha'"/></t>
+                                    <t t-call="stock_transit_allocation.SomKpi"><t t-set="lbl">Comprobantes pendientes</t><t t-set="val" t-value="num(data.pagos.kpis.pendientes_count,0)"/><t t-set="sub">sin factura/pago aplicado</t></t>
+                                </div>
+                                <div class="som_bi__minitable" t-if="data.pagos.rows.length">
+                                    <div class="row head"><span>Orden · Cliente</span><b>Comprobantes</b><b>Aplicado</b><b>Falta</b><b>Pend.</b><b>Más viejo</b></div>
+                                    <div t-foreach="data.pagos.rows" t-as="pg" t-key="pg.so_id" class="row">
+                                        <span><b t-esc="pg.so_name"/> · <t t-esc="pg.customer"/> <small t-esc="'(' + pg.currency + ')'"/></span>
+                                        <b t-esc="money(pg.comprobantes)"/>
+                                        <b t-esc="money(pg.aplicado)"/>
+                                        <b t-attf-class="pill #{pg.diff > 0.01 ? 'bad' : 'good'}" t-esc="money(pg.diff)"/>
+                                        <b t-attf-class="pill #{pg.pendientes ? 'mid' : 'good'}" t-esc="num(pg.pendientes,0)"/>
+                                        <b t-esc="pg.pendientes ? num(pg.age) + ' d' : '—'"/>
+                                    </div>
+                                </div>
+                                <div class="som_bi__minitable" t-if="!data.pagos.rows.length">
+                                    <div class="row"><span>Sin brechas: todos los comprobantes registrados están aplicados. ✓</span><b/><b/></div>
                                 </div>
                             </div>
                         </div>
