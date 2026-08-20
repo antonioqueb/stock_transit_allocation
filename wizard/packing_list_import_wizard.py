@@ -1252,23 +1252,49 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         valid_rows = []
         skipped = 0
+        skip_no_product = 0
+        skip_no_qty = 0
 
         for row in rows:
             product = row.get("product")
             if not product:
                 skipped += 1
+                skip_no_product += 1
                 continue
 
             qty = self._tc_effective_qty_from_row(row)
 
             if self._tc_float_is_zero(product, qty) or qty < 0:
                 skipped += 1
+                skip_no_qty += 1
                 continue
 
             valid_rows.append((row, qty))
 
         if not valid_rows:
             raise UserError(_("No hay filas válidas con cantidad física positiva."))
+
+        # ── ALCANCE POR CONTENEDOR (recepciones parciales) ─────────────────
+        # Un contenedor SIN NINGUNA fila válida en este PL no llegó en esta
+        # recepción: sus placas se quedan en tránsito esperando la siguiente
+        # parcial — no se tratan como omitidas ni bloquean el guard. Si el
+        # PL no trae contenedores capturados, se conserva el comportamiento
+        # clásico (todo el viaje en alcance).
+        def _norm_cont(value):
+            return (value or "").strip().upper()
+
+        pl_containers = {
+            _norm_cont(self._tc_row_container_key(row))
+            for row, _q in valid_rows
+        }
+        pl_containers.discard("")
+        pl_containers.discard("PENDIENTE")
+
+        def _line_in_scope(line):
+            if not pl_containers:
+                return True
+            cont = _norm_cont(line.container_number)
+            return (not cont) or (cont in pl_containers)
 
         used_lot_ids = set()
         container_sequences = {}
@@ -1290,6 +1316,91 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         _report(5, _total_units, _("Conciliando placas, lotes y existencias…"))
 
         received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
+
+        # ── GUARD ADELANTADO ───────────────────────────────────────────────
+        # El bloqueo por placas reservadas omitidas se detecta AQUÍ (antes de
+        # tocar nada), no tras minutos de procesamiento. Se simula el mismo
+        # emparejamiento del bucle real: pairing + búsqueda por identidad.
+        sim_used = {lot.id for lot in pairing.values()}
+        for row_index, (row, _q) in enumerate(valid_rows):
+            if pairing.get(row_index):
+                continue
+            candidate = self._tc_find_existing_lot(voyage, row, sim_used)
+            if candidate:
+                sim_used.add(candidate.id)
+
+        predicted_omitted = voyage.line_ids.filtered(
+            lambda l: (
+                l.lot_id
+                and l.lot_id.id not in sim_used
+                and l.product_uom_qty > 0
+                and _line_in_scope(l)
+            )
+        )
+        out_of_scope = voyage.line_ids.filtered(
+            lambda l: (
+                l.lot_id
+                and l.lot_id.id not in sim_used
+                and l.product_uom_qty > 0
+                and not _line_in_scope(l)
+            )
+        )
+        blocked_reserved = predicted_omitted.filtered(lambda l: l.order_id)
+        if blocked_reserved:
+            # Diagnóstico completo: qué trae el PL, qué se descartó y por
+            # qué, y cómo se reparte por contenedor — para que el error se
+            # explique solo.
+            per_cont_voyage = {}
+            for line in voyage.line_ids:
+                if line.lot_id and line.product_uom_qty > 0:
+                    key = _norm_cont(line.container_number) or _("(sin contenedor)")
+                    per_cont_voyage[key] = per_cont_voyage.get(key, 0) + 1
+            per_cont_pl = {}
+            for row, _q in valid_rows:
+                key = _norm_cont(self._tc_row_container_key(row)) or _("(sin contenedor)")
+                per_cont_pl[key] = per_cont_pl.get(key, 0) + 1
+            cont_detail = "\n".join(
+                "  · %s: %s placas en el viaje, %s filas válidas en el PL" % (
+                    cont, per_cont_voyage.get(cont, 0), per_cont_pl.get(cont, 0))
+                for cont in sorted(per_cont_voyage)
+            )
+
+            shown = blocked_reserved[:20]
+            more = len(blocked_reserved) - len(shown)
+            detail = "\n".join(
+                "- %s → %s" % (l.lot_id.display_name, l.order_id.name)
+                for l in shown
+            )
+            if more > 0:
+                detail += _("\n… y %s placas reservadas más.") % more
+
+            raise UserError(_(
+                "El PL físico no incluye estas placas que están RESERVADAS a "
+                "pedidos:\n%(detail)s\n\n"
+                "Números del PL: %(raw)s filas leídas → %(rows)s válidas "
+                "(descartadas: %(no_qty)s sin cantidad/en cero, %(no_prod)s "
+                "sin producto reconocible).\n"
+                "Por contenedor:\n%(cont_detail)s\n\n"
+                "Si un contenedor NO llegó en esta recepción, borra o deja "
+                "sin capturar TODAS sus filas: el sistema lo dejará completo "
+                "en tránsito para la siguiente recepción parcial. Si sí "
+                "llegó, completa la captura de sus placas faltantes o "
+                "desasigna de sus pedidos las que no llegaron."
+            ) % {
+                "detail": detail,
+                "raw": len(rows),
+                "rows": len(valid_rows),
+                "no_qty": skip_no_qty,
+                "no_prod": skip_no_product,
+                "cont_detail": cont_detail,
+            })
+
+        if out_of_scope:
+            _logger.info(
+                "[TC_PHYSICAL_PL] %s placas fuera de alcance (contenedor no "
+                "incluido en este PL) quedan en tránsito para la siguiente "
+                "recepción parcial.", len(out_of_scope),
+            )
 
         for row_index, (row, qty) in enumerate(valid_rows):
             if row_index and row_index % 20 == 0:
@@ -1354,12 +1465,15 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             _("Liberando placas omitidas del PL…"),
         )
 
-        # Marcar como omitidas las líneas anteriores que ya no vienen en el PL físico.
+        # Marcar como omitidas las líneas anteriores que ya no vienen en el PL
+        # físico. Las placas de contenedores NO incluidos en este PL quedan
+        # fuera: siguen en tránsito para la siguiente recepción parcial.
         omitted_lines = voyage.line_ids.filtered(
             lambda line: (
                 line.lot_id
                 and line.lot_id.id not in used_lot_ids
                 and line.product_uom_qty > 0
+                and _line_in_scope(line)
             )
         )
 
@@ -1491,6 +1605,13 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "picking": picking.name or picking.display_name,
             })
 
+        pending_note = ""
+        if out_of_scope:
+            pending_note = _(
+                " Placas de contenedores no incluidos en este PL que siguen "
+                "en tránsito para la siguiente recepción parcial: %s."
+            ) % len(out_of_scope)
+
         picking.message_post(body=_(
             "📋 PL físico conciliado desde Torre de Control. "
             "Líneas reconstruidas: %(created)s. Lotes nuevos: %(new_lots)s. "
@@ -1502,7 +1623,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             "reused_lots": reused_lots,
             "skipped": skipped,
             "already_received": already_received,
-        })
+        } + pending_note)
 
         return {
             "created": created,
