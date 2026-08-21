@@ -17,15 +17,14 @@ export class ToBePurchased extends Component {
         this.state = useState({
             data: [],
             filteredData: [],
+            // Productos tras filtros, PRE-agrupación: fuente de las métricas.
+            filteredProducts: undefined,
             loading: true,
             expanded: {},
             selectedLines: [],
 
             // Filtros
             searchQuery: "",
-            excludeQuery: "",
-            // Por DEFAULT se ocultan las líneas que YA tienen referencia de
-            // cliente; el toggle "Todas" las vuelve a mostrar.
             // Filtro por referencia de cliente: 'all' (mixto, default) |
             // 'with' (solo con referencia) | 'without' (solo sin referencia).
             refFilter: "all",
@@ -157,33 +156,6 @@ export class ToBePurchased extends Component {
             }).filter((product) => product !== null);
         }
 
-        // Filtro de EXCLUSIÓN por LÍNEA del pedido: quita las líneas cuya
-        // referencia (SO, ref. de cliente o cliente) coincida con alguno de
-        // los términos (separados por coma). Un producto sin líneas
-        // restantes desaparece; si pierde líneas, sus totales se recalculan.
-        const exclude = (this.state.excludeQuery || "").toLowerCase().trim();
-        if (exclude) {
-            const terms = exclude.split(",").map((t) => t.trim()).filter(Boolean);
-            result = result.map((product) => {
-                const allLines = product.so_lines || [];
-                const keptLines = allLines.filter((line) => {
-                    const ref = [
-                        line.so_name || "",
-                        line.client_ref || "",
-                        line.customer || "",
-                    ].join(" ").toLowerCase();
-                    return !terms.some((term) => ref.includes(term));
-                });
-                if (keptLines.length === 0) {
-                    return null;
-                }
-                if (keptLines.length === allLines.length) {
-                    return product;
-                }
-                return this._productWithLines(product, keptLines);
-            }).filter((product) => product !== null);
-        }
-
         if (this.state.showOnlyPending) {
             result = result.map((product) => {
                 // El backend ya devuelve qty_pending como pendiente incremental
@@ -244,6 +216,11 @@ export class ToBePurchased extends Component {
                 };
             }).filter((product) => product !== null);
         }
+
+        // Productos filtrados (forma plana, PRE-agrupación): fuente de las
+        // métricas del toolbar — así Líneas/Pendiente reflejan los filtros
+        // activos (búsqueda, referencia, solo pendientes), no el universo.
+        this.state.filteredProducts = result;
 
         if (this.state.groupBy === "product") {
             this.state.filteredData = result;
@@ -535,16 +512,6 @@ export class ToBePurchased extends Component {
 
     onSearchInput(ev) {
         this.state.searchQuery = ev.target.value;
-        this.applyFilters();
-    }
-
-    onExcludeInput(ev) {
-        this.state.excludeQuery = ev.target.value;
-        this.applyFilters();
-    }
-
-    clearExclude() {
-        this.state.excludeQuery = "";
         this.applyFilters();
     }
 
@@ -1213,8 +1180,16 @@ export class ToBePurchased extends Component {
         return this.allocationPercent(assigned, requested);
     }
 
+    // MÉTRICAS DINÁMICAS: siempre sobre los productos FILTRADOS (lo que el
+    // usuario está viendo), no sobre el universo completo.
+    _metricProducts() {
+        return this.state.filteredProducts !== undefined
+            ? this.state.filteredProducts
+            : this.state.data;
+    }
+
     _allLines() {
-        return this.state.data.flatMap((product) => product.so_lines || []);
+        return this._metricProducts().flatMap((product) => product.so_lines || []);
     }
 
     _sumLines(fieldName) {
@@ -1232,7 +1207,8 @@ export class ToBePurchased extends Component {
     }
 
     _sum(fieldName) {
-        return this.state.data.reduce((sum, product) => sum + Number(product[fieldName] || 0), 0);
+        return this._metricProducts().reduce(
+            (sum, product) => sum + Number(product[fieldName] || 0), 0);
     }
 
     get totalLines() {
