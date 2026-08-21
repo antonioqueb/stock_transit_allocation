@@ -3,6 +3,7 @@ import { registry } from "@web/core/registry";
 import { Component, useState, onWillStart } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
+import { somProgress } from "@stock_transit_allocation/utils/som_progress";
 
 /**
  * Open PO — pedidos con material embarcado DIFERENTE a lo solicitado,
@@ -181,6 +182,55 @@ export class ToBeLoading extends Component {
             res_id: poId,
             views: [[false, "form"]],
             target: "current",
+        });
+    }
+
+    // CIERRE MASIVO: acepta la diferencia de TODAS las líneas del grupo
+    // con una sola confirmación.
+    closeDemandGroup(g, ev) {
+        if (ev) {
+            ev.stopPropagation();
+            ev.preventDefault();
+        }
+        const rows = g.rows || [];
+        if (!rows.length) {
+            return;
+        }
+        const ids = rows.map((p) => p.line_id).filter(Boolean);
+
+        this.dialog.add(ConfirmationDialog, {
+            title: "Cerrar todas las demandas del grupo",
+            body:
+                `${g.title}: se cerrarán ${ids.length} línea(s). La cantidad ` +
+                `de cada una se ajustará a lo realmente embarcado y dejarán ` +
+                `de aparecer en este tablero. ¿Confirmas?`,
+            confirmLabel: `Cerrar ${ids.length} línea(s)`,
+            cancelLabel: "Cancelar",
+            confirm: async () => {
+                const progress = somProgress({
+                    title: "Cerrando demandas del grupo",
+                    subtitle: `${g.title} — ${ids.length} línea(s)`,
+                    steps: ["Cerrando demandas", "Actualizando el tablero"],
+                });
+                try {
+                    const res = await this.orm.call(
+                        "to.be.loading.logic", "close_demand_bulk", [ids]);
+                    this.notification.add(
+                        `Demandas cerradas: ${(res && res.closed) || 0} línea(s).`,
+                        { type: "success" });
+                    progress.step(1);
+                    await this.loadData();
+                    progress.done("Grupo cerrado");
+                } catch (e) {
+                    console.error("[OpenPO] close_demand_bulk", e);
+                    progress.fail(
+                        (e.data && e.data.message) || "No se pudo cerrar el grupo.");
+                    this.notification.add(
+                        (e.data && e.data.message) || "No se pudo cerrar el grupo.",
+                        { type: "danger" });
+                }
+            },
+            cancel: () => {},
         });
     }
 

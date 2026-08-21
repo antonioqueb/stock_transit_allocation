@@ -97,6 +97,11 @@
                                 <span class="o_opo_pill_label">Faltante</span>
                                 <span class="o_opo_pill_value"><t t-esc="diffLabel(g.diff)"/></span>
                             </span>
+                            <button class="o_opo_close_all_btn"
+                                    title="Cerrar la demanda de TODAS las líneas de este grupo (cada cantidad se ajusta a lo embarcado)"
+                                    t-on-click.stop="(ev) => this.closeDemandGroup(g, ev)">
+                                <i class="fa fa-scissors me-1"/> Cerrar todos
+                            </button>
                             <button t-if="g.po_id" class="o_opo_open_btn"
                                     t-on-click.stop="() => this.openOrder(g)">
                                 <i class="fa fa-external-link me-1"/> Abrir orden

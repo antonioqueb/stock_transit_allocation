@@ -131,3 +131,24 @@ class ToBeLoadingLogic(models.AbstractModel):
             self.env.user.login, line.id, line.order_id.name,
             req, shipped)
         return True
+
+    @api.model
+    def close_demand_bulk(self, line_ids):
+        """Cierre MASIVO: acepta la diferencia de TODAS las líneas dadas
+        (un grupo completo del tablero) en una sola llamada. Reusa
+        close_demand línea por línea; las ya cerradas o inexistentes se
+        brincan sin tronar el resto."""
+        if not self.env.user.has_group('purchase.group_purchase_user'):
+            raise UserError(_('Requiere permiso de Compras.'))
+        closed = 0
+        for line_id in (line_ids or []):
+            line = self.env['purchase.order.line'].sudo().browse(
+                int(line_id)).exists()
+            if not line or line.x_open_po_closed:
+                continue
+            self.close_demand(line.id)
+            closed += 1
+        _logger.info(
+            '[OPEN PO] %s cerró demanda MASIVA: %s línea(s).',
+            self.env.user.login, closed)
+        return {'closed': closed}
