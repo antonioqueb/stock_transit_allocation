@@ -849,15 +849,41 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
     #  QUANTS / MOVIMIENTOS
     # -------------------------------------------------------------------------
 
+    def _tc_prime_row_caches(self, voyage, source_location):
+        """PERF: cachés del bucle de filas.
+
+        Sin esto, cada fila hacía 2 búsquedas de quants + un filtered()
+        sobre las ~600 líneas del viaje (O(n²) con refetch del ORM tras
+        cada write): un PL de 604 filas tardaba ~1 s por fila. Con los
+        cachés, una fila sin cambios cuesta cero queries."""
+        self._tc_vline_by_lot = {
+            line.lot_id.id: line
+            for line in voyage.line_ids
+            if line.lot_id
+        }
+        Quant = self.env["stock.quant"].sudo()
+        self._tc_quant_cache = {}
+        for q in Quant.search([
+            ("company_id", "=", self.picking_id.company_id.id),
+            ("location_id", "=", source_location.id),
+        ]):
+            key = (q.product_id.id, q.lot_id.id)
+            self._tc_quant_cache[key] = self._tc_quant_cache.get(
+                key, Quant.browse()) | q
+
     def _tc_set_source_quant_qty(self, product, lot, location, target_qty):
         Quant = self.env["stock.quant"].sudo()
+        cache = getattr(self, "_tc_quant_cache", None)
 
-        quants = Quant.search([
-            ("company_id", "=", self.picking_id.company_id.id),
-            ("product_id", "=", product.id),
-            ("lot_id", "=", lot.id),
-            ("location_id", "=", location.id),
-        ])
+        if cache is not None:
+            quants = cache.get((product.id, lot.id), Quant.browse()).exists()
+        else:
+            quants = Quant.search([
+                ("company_id", "=", self.picking_id.company_id.id),
+                ("product_id", "=", product.id),
+                ("lot_id", "=", lot.id),
+                ("location_id", "=", location.id),
+            ])
 
         current_qty = sum(quants.mapped("quantity"))
         diff = (target_qty or 0.0) - current_qty
@@ -869,17 +895,27 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 diff,
                 lot_id=lot,
             )
+            # El update pudo crear/eliminar quants: refrescar y re-cachear.
+            quants = Quant.search([
+                ("company_id", "=", self.picking_id.company_id.id),
+                ("product_id", "=", product.id),
+                ("lot_id", "=", lot.id),
+                ("location_id", "=", location.id),
+            ])
+            if cache is not None:
+                cache[(product.id, lot.id)] = quants
 
-        return Quant.search([
-            ("company_id", "=", self.picking_id.company_id.id),
-            ("product_id", "=", product.id),
-            ("lot_id", "=", lot.id),
-            ("location_id", "=", location.id),
-            ("quantity", ">", 0),
-        ], order="id desc", limit=1)
+        positive = quants.filtered(lambda q: (q.quantity or 0.0) > 0)
+        if not positive:
+            return positive
+        return positive.sorted(key=lambda q: q.id, reverse=True)[:1]
 
     def _tc_sync_voyage_line(self, voyage, row, lot, quant, qty):
-        existing = voyage.line_ids.filtered(lambda line: line.lot_id.id == lot.id)[:1]
+        vcache = getattr(self, "_tc_vline_by_lot", None)
+        if vcache is not None:
+            existing = (vcache.get(lot.id) or self.env["stock.transit.line"]).exists()[:1]
+        else:
+            existing = voyage.line_ids.filtered(lambda line: line.lot_id.id == lot.id)[:1]
 
         vals = {
             "product_id": row["product"].id,
@@ -901,7 +937,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             "allocation_id": False,
         })
 
-        return self.env["stock.transit.line"].create(vals)
+        created = self.env["stock.transit.line"].create(vals)
+        if vcache is not None:
+            vcache[lot.id] = created
+        return created
 
     def _tc_prepare_moves(self, product_totals):
         picking = self.picking_id
@@ -1328,6 +1367,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         _report(5, _total_units, _("Conciliando placas, lotes y existencias…"))
 
         received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
+        self._tc_prime_row_caches(voyage, source_location)
 
         # ── GUARD ADELANTADO ───────────────────────────────────────────────
         # El bloqueo por placas reservadas omitidas se detecta AQUÍ (antes de
