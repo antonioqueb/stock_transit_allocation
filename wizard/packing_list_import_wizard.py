@@ -849,31 +849,36 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
     #  QUANTS / MOVIMIENTOS
     # -------------------------------------------------------------------------
 
-    def _tc_prime_row_caches(self, voyage, source_location):
-        """PERF: cachés del bucle de filas.
+    def _tc_build_row_caches(self, voyage, source_location):
+        """PERF: cachés del bucle de filas (viajan por CONTEXTO — los
+        recordsets de Odoo 19 usan __slots__ y no admiten atributos).
 
         Sin esto, cada fila hacía 2 búsquedas de quants + un filtered()
         sobre las ~600 líneas del viaje (O(n²) con refetch del ORM tras
         cada write): un PL de 604 filas tardaba ~1 s por fila. Con los
         cachés, una fila sin cambios cuesta cero queries."""
-        self._tc_vline_by_lot = {
+        vline_by_lot = {
             line.lot_id.id: line
             for line in voyage.line_ids
             if line.lot_id
         }
         Quant = self.env["stock.quant"].sudo()
-        self._tc_quant_cache = {}
+        quant_cache = {}
         for q in Quant.search([
             ("company_id", "=", self.picking_id.company_id.id),
             ("location_id", "=", source_location.id),
         ]):
             key = (q.product_id.id, q.lot_id.id)
-            self._tc_quant_cache[key] = self._tc_quant_cache.get(
-                key, Quant.browse()) | q
+            quant_cache[key] = quant_cache.get(key, Quant.browse()) | q
+        return {"vline_by_lot": vline_by_lot, "quants": quant_cache}
+
+    def _tc_row_caches(self):
+        return self.env.context.get("tc_pl_row_caches") or None
 
     def _tc_set_source_quant_qty(self, product, lot, location, target_qty):
         Quant = self.env["stock.quant"].sudo()
-        cache = getattr(self, "_tc_quant_cache", None)
+        caches = self._tc_row_caches()
+        cache = caches["quants"] if caches else None
 
         if cache is not None:
             quants = cache.get((product.id, lot.id), Quant.browse()).exists()
@@ -911,7 +916,8 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         return positive.sorted(key=lambda q: q.id, reverse=True)[:1]
 
     def _tc_sync_voyage_line(self, voyage, row, lot, quant, qty):
-        vcache = getattr(self, "_tc_vline_by_lot", None)
+        caches = self._tc_row_caches()
+        vcache = caches["vline_by_lot"] if caches else None
         if vcache is not None:
             existing = (vcache.get(lot.id) or self.env["stock.transit.line"]).exists()[:1]
         else:
@@ -1367,7 +1373,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         _report(5, _total_units, _("Conciliando placas, lotes y existencias…"))
 
         received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
-        self._tc_prime_row_caches(voyage, source_location)
+        # Cachés del bucle por CONTEXTO (re-bind local de self: todas las
+        # llamadas de aquí en adelante los ven).
+        self = self.with_context(
+            tc_pl_row_caches=self._tc_build_row_caches(voyage, source_location))
 
         # ── GUARD ADELANTADO ───────────────────────────────────────────────
         # El bloqueo por placas reservadas omitidas se detecta AQUÍ (antes de
