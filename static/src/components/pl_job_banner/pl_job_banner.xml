@@ -34,8 +34,8 @@
                 </div>
                 <div class="tc-plj-error" t-esc="state.job.error_message or 'Error desconocido.'"/>
                 <div class="tc-plj-note">
-                    No se aplicó ningún cambio (el proceso es todo-o-nada).
-                    Corrige el PL y vuelve a darle Procesar PL.
+                    El avance confirmado se conserva: al corregir y volver a dar
+                    Procesar PL, continúa donde quedó.
                 </div>
             </div>
 

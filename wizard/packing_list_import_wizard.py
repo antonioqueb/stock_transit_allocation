@@ -793,7 +793,21 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             vals.pop("product_id", None)
             vals.pop("company_id", None)
 
-            existing_lot.write(vals)
+            # Solo escribir lo que CAMBIA: en re-arranques (rescate de jobs)
+            # la mayoría de las filas ya está aplicada y el write completo
+            # por fila era la parte cara + generaba churn de caché.
+            changed_vals = {}
+            for _k, _v in vals.items():
+                try:
+                    _cur = existing_lot[_k]
+                    if hasattr(_cur, 'id'):
+                        _cur = _cur.id or False
+                    if _cur != _v and not (not _cur and not _v):
+                        changed_vals[_k] = _v
+                except Exception:
+                    changed_vals[_k] = _v
+            if changed_vals:
+                existing_lot.write(changed_vals)
             used_lot_ids.add(existing_lot.id)
 
             self._tc_seed_sequence_from_existing_lot(
@@ -932,7 +946,17 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         }
 
         if existing:
-            existing.with_context(skip_reservation_logic=True).write(vals)
+            # Skip de no-ops: en re-arranques la línea ya trae exactamente
+            # estos valores y el write por fila era puro churn.
+            changed = {}
+            for _k, _v in vals.items():
+                _cur = existing[_k]
+                if hasattr(_cur, 'id'):
+                    _cur = _cur.id or False
+                if _cur != _v and not (not _cur and not _v):
+                    changed[_k] = _v
+            if changed:
+                existing.with_context(skip_reservation_logic=True).write(changed)
             return existing
 
         vals.update({
@@ -1470,6 +1494,16 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                     _("Conciliando placas (%(done)s de %(total)s filas)…")
                     % {"done": row_index, "total": len(valid_rows)},
                 )
+            # CHECKPOINT (solo en segundo plano): commit cada 100 filas. El
+            # worker del cron puede morir a media corrida (reinicio, límite
+            # de memoria) — sin checkpoints el rescate re-arrancaba desde
+            # cero una y otra vez y el PL jamás terminaba. Los writes son
+            # idempotentes y los no-ops se saltan: un re-arranque atraviesa
+            # lo ya confirmado en segundos. El guard de placas reservadas
+            # corre ANTES de la primera fila, así que nada peligroso queda
+            # a medias.
+            if _job_id and row_index and row_index % 100 == 0:
+                self.env.cr.commit()
             product = row["product"]
 
             # RECEPCIÓN PARCIAL: una fila emparejada con un lote YA RECIBIDO
@@ -1633,6 +1667,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             _total_units - 5, _total_units,
             _("Renumerando folios por contenedor…"),
         )
+        # Checkpoint antes del renumerado: es la fase donde han pegado las
+        # colisiones de concurrencia — si truena, el reintento parte de aquí.
+        if _job_id:
+            self.env.cr.commit()
 
         # Normalizar nombres después de reconstruir líneas.
         self._tc_renumber_physical_reception_lots_by_container(voyage)

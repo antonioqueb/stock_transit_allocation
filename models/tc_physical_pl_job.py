@@ -105,7 +105,7 @@ class TcPhysicalPlJob(models.Model):
     # transacción (reinicio del servidor durante un deploy, SIGKILL): la
     # transacción se revirtió sola pero el estado quedó 'running' para
     # siempre y ni el cron ni el usuario podían retomarlo.
-    ZOMBIE_MINUTES = 10
+    ZOMBIE_MINUTES = 5
 
     @api.model
     def _rescue_zombie_jobs(self):
