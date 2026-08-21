@@ -12,6 +12,7 @@ lo muestra con polling.
 import logging
 import time
 import traceback
+from datetime import timedelta
 
 from odoo import api, fields, models, _
 
@@ -60,11 +61,24 @@ class TcPhysicalPlJob(models.Model):
     def enqueue(self, picking, total_rows, excel_file=None, excel_filename=None):
         """Crea el job y dispara el cron. Un job pending/running por
         recepción: reintentar mientras corre no debe duplicar el trabajo."""
+        # Antes de decidir, rescatar zombis: un 'running' muerto bloqueaba
+        # el re-encolado para siempre.
+        self._rescue_zombie_jobs()
+
         existing = self.search([
             ("picking_id", "=", picking.id),
             ("state", "in", ("pending", "running")),
         ], limit=1)
         if existing:
+            # Re-disparar el cron SIEMPRE que quede un pending: el trigger
+            # original pudo haberse perdido en un reinicio.
+            if existing.state == "pending":
+                cron = self.env.ref(
+                    "stock_transit_allocation.ir_cron_tc_physical_pl_jobs",
+                    raise_if_not_found=False,
+                )
+                if cron:
+                    cron.sudo()._trigger()
             return existing
 
         job = self.create({
@@ -86,8 +100,35 @@ class TcPhysicalPlJob(models.Model):
     #  PROCESAMIENTO (cron)
     # ------------------------------------------------------------------
 
+    # Un job 'running' reporta avance (write_date vía cursor separado) cada
+    # pocos segundos. Sin latido en este lapso = el worker murió a media
+    # transacción (reinicio del servidor durante un deploy, SIGKILL): la
+    # transacción se revirtió sola pero el estado quedó 'running' para
+    # siempre y ni el cron ni el usuario podían retomarlo.
+    ZOMBIE_MINUTES = 10
+
+    @api.model
+    def _rescue_zombie_jobs(self):
+        limit = fields.Datetime.now() - timedelta(minutes=self.ZOMBIE_MINUTES)
+        zombies = self.search([
+            ("state", "=", "running"),
+            ("write_date", "<", limit),
+        ])
+        if zombies:
+            _logger.warning(
+                "[TC_PL_JOB] Rescatando %s job(s) zombi (running sin latido "
+                "desde hace >%s min): %s",
+                len(zombies), self.ZOMBIE_MINUTES, zombies.ids,
+            )
+            zombies.write({
+                "state": "pending",
+                "progress_label": _("Reanudando tras interrupción del servidor…"),
+            })
+        return zombies
+
     @api.model
     def _cron_process_jobs(self):
+        self._rescue_zombie_jobs()
         jobs = self.search([("state", "=", "pending")], order="id")
         for job in jobs:
             job._process_one()
