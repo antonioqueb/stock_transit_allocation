@@ -169,7 +169,7 @@ class StockPickingPhysicalPackingList(models.Model):
         los LOTES del embarque (mayoría): con la ficha sin configurar todo
         caía al default 'Placa' y un formato nacía sin columna Cantidad en
         el PL (y el import exigía alto×largo y saltaba sus filas)."""
-        unit = str(product.product_tmpl_id.x_unidad_del_producto or "").strip()
+        unit = str(product.product_tmpl_id.x_unidad_del_producto or "").strip().capitalize()
         if unit:
             return unit
 

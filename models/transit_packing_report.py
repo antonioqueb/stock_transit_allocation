@@ -275,7 +275,7 @@ class StockTransitVoyagePackingReport(models.Model):
                 lot_type = lot.x_tipo
             elif product.product_tmpl_id and 'x_unidad_del_producto' in product.product_tmpl_id._fields:
                 lot_type = product.product_tmpl_id.x_unidad_del_producto or ''
-            tipo = lot_type or 'Placa'
+            tipo = str(lot_type or 'Placa').strip().capitalize()
 
             alto = self._tc_lot_value_for_packing_report(lot, 'x_alto', 0.0)
             ancho = self._tc_lot_value_for_packing_report(lot, 'x_ancho', 0.0)

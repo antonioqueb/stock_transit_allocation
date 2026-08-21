@@ -151,7 +151,7 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
         ).write(vals)
 
     def _tc_effective_real_qty(self, product, lot, alto_real, ancho_real, fallback_qty):
-        unit_type = product.product_tmpl_id.x_unidad_del_producto or getattr(lot, "x_tipo", "Placa") or "Placa"
+        unit_type = str(product.product_tmpl_id.x_unidad_del_producto or getattr(lot, "x_tipo", "Placa") or "Placa").strip().capitalize()
 
         if str(unit_type).lower() == "placa":
             return round((alto_real or 0.0) * (ancho_real or 0.0), 3)

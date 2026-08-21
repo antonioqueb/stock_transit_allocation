@@ -217,7 +217,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_effective_qty_from_row(self, row):
         product = row["product"]
-        unit_type = row.get("tipo") or product.product_tmpl_id.x_unidad_del_producto or "Placa"
+        unit_type = str(row.get("tipo") or product.product_tmpl_id.x_unidad_del_producto or "Placa").strip().capitalize()
 
         if str(unit_type).lower() == "placa":
             return round((row.get("alto") or 0.0) * (row.get("ancho") or 0.0), 3)
@@ -746,7 +746,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
     def _tc_prepare_lot_vals(self, row, lot_name=False):
         product = row["product"]
-        unit_type = row.get("tipo") or product.product_tmpl_id.x_unidad_del_producto or "Placa"
+        unit_type = str(row.get("tipo") or product.product_tmpl_id.x_unidad_del_producto or "Placa").strip().capitalize()
         lot_model = self.env["stock.lot"]
 
         vals = {
