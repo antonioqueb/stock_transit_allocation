@@ -1115,6 +1115,19 @@ class SaleOrderLine(models.Model):
                 old_lots = old_lots_map[line.id]
                 if new_lots < old_lots:
                     continue
+                # SIN PLACAS NUEVAS y sin tocar cantidad/modo en el mismo
+                # write (p. ej. writes de plomería que solo re-alinean
+                # x_selected_lots o el desglose): no hay asignación nueva
+                # que topar. Sin este escape, el write espejo del carrito
+                # dentro de una DESASIGNACIÓN re-validaba el tope sin el
+                # contexto de quitado y bloqueaba la operación completa.
+                trigger_fields = set(
+                    self.env.context.get('tc_cap_trigger_fields') or [])
+                lots_only_trigger = trigger_fields and trigger_fields <= {
+                    'lot_ids', 'x_selected_lots', 'x_lot_breakdown_json',
+                }
+                if lots_only_trigger and new_lots <= old_lots:
+                    continue
                 # REEMPLAZO en un solo paso (quitar placa A, poner placa B —
                 # caso placa rota): no es una asignación nueva neta. El
                 # Solicitado puede quedar arriba del nuevo físico por el
@@ -2220,6 +2233,8 @@ class SaleOrderLine(models.Model):
         if _tc_check_stock_cap:
             self.with_context(
                 tc_cap_old_lots=tc_cap_old_lots,
+                tc_cap_trigger_fields=sorted(
+                    _tc_stock_cap_fields.intersection(vals.keys())),
             )._tc_validate_assignment_stock_cap()
 
         return res
