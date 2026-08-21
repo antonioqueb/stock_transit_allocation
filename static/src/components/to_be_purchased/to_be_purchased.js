@@ -707,6 +707,80 @@ export class ToBePurchased extends Component {
         });
     }
 
+    // CIERRE MASIVO: cierra la demanda de TODAS las líneas del grupo
+    // (producto / pedido / proveedor / cliente / vendedor / tipo) con una
+    // sola decisión. El backend ya acepta lista de líneas y filtra las
+    // válidas (pendiente > 0, no cerradas).
+    async cancelPendingGroup(group, ev) {
+        if (ev) {
+            ev.stopPropagation();
+            ev.preventDefault();
+        }
+
+        const lines = (group.so_lines || group.products || []).filter((l) => l && l.id);
+        if (!lines.length) {
+            return;
+        }
+        const ids = [...new Set(lines.map((l) => l.id))];
+        const label = group.name || group.so_name || group.group_name || "Grupo";
+
+        const summary = {
+            so_name: `${label} — ${ids.length} línea(s)`,
+            customer: "CIERRE MASIVO de todo el grupo",
+            qty_requested: lines.reduce((s, l) => s + Number(l.qty_requested || l.qty_orig || 0), 0),
+            qty_assigned: lines.reduce((s, l) => s + Number(l.qty_assigned || 0), 0),
+            qty_pending: lines.reduce((s, l) => s + Number(l.qty_pending || 0), 0),
+            unit_label: lines[0].unit_label || "",
+            po_name: "",
+        };
+
+        const decision = await this.askCancelDecision(summary);
+        if (!decision) {
+            return;
+        }
+
+        const progress = somProgress({
+            title: "Cerrando demanda del grupo",
+            subtitle: summary.so_name,
+            steps: ["Cerrando pendientes", "Actualizando el tablero"],
+        });
+
+        try {
+            const result = await this.orm.call(
+                "purchase.manager.logic",
+                "cancel_pending",
+                [
+                    ids,
+                    decision.reason || "Cierre masivo desde To Be Purchased.",
+                    decision.action || "settle",
+                ]
+            );
+
+            if (result && result.error) {
+                progress.fail(result.error);
+                this.notification.add(result.error, { type: "danger" });
+                return;
+            }
+
+            this.state.selectedLines = this.state.selectedLines.filter(
+                (id) => !ids.includes(id));
+
+            this.notification.add(
+                `Demanda cerrada: ${ids.length} línea(s) del grupo.`,
+                { type: "success", sticky: false });
+
+            progress.step(1);
+            await this.loadData();
+            progress.done("Demanda del grupo cerrada");
+        } catch (error) {
+            console.error("[ToBePurchased] Error en cierre masivo:", error);
+            progress.fail("Error al cerrar el grupo: " + (error.message || error));
+            this.notification.add(
+                "Error al cerrar el grupo: " + (error.message || error),
+                { type: "danger" });
+        }
+    }
+
     async cancelPending(line, ev) {
         if (ev) {
             ev.stopPropagation();

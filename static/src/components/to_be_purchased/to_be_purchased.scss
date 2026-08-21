@@ -2003,3 +2003,26 @@ $o-tbp-pill: 999px;
         border-bottom: 0;
     }
 }
+
+// Botón de CIERRE MASIVO en la cabecera de grupo (junto a las pastillas).
+.o_tbp_group_close_btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 800;
+    color: #dc2626;
+    background: #fef2f2;
+    border: 1px solid rgba(220, 38, 38, 0.35);
+    border-radius: 999px;
+    padding: 3px 12px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+
+    &:hover {
+        color: #ffffff;
+        background: #dc2626;
+        border-color: #dc2626;
+    }
+}

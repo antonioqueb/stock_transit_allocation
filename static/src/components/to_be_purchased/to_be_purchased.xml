@@ -187,6 +187,11 @@
                                           t-att-title="fmtAvailableStockTitle(product)">
                                         Stock disp. <b><t t-esc="fmtAvailableStock(product)"/></b>
                                     </span>
+                                    <button class="o_tbp_group_close_btn"
+                                            t-on-click="(ev) => this.cancelPendingGroup(product, ev)"
+                                            title="Cerrar la demanda de TODAS las líneas de este producto">
+                                        <i class="fa fa-scissors me-1"/> Cerrar todos
+                                    </button>
                                 </div>
                             </div>
 
@@ -428,6 +433,11 @@
                                     <span class="o_tbp_stat">
                                         Días <b><t t-esc="fmtDays(so.max_days_unassigned)"/></b>
                                     </span>
+                                    <button class="o_tbp_group_close_btn"
+                                            t-on-click="(ev) => this.cancelPendingGroup(so, ev)"
+                                            title="Cerrar la demanda de TODAS las líneas de este pedido">
+                                        <i class="fa fa-scissors me-1"/> Cerrar todos
+                                    </button>
                                 </div>
                             </div>
 
@@ -536,6 +546,11 @@
                                     <span class="o_tbp_stat">
                                         Días <b><t t-esc="fmtDays(vendor.max_days_unassigned)"/></b>
                                     </span>
+                                    <button class="o_tbp_group_close_btn"
+                                            t-on-click="(ev) => this.cancelPendingGroup(vendor, ev)"
+                                            title="Cerrar la demanda de TODAS las líneas de este grupo">
+                                        <i class="fa fa-scissors me-1"/> Cerrar todos
+                                    </button>
                                 </div>
                             </div>
 
