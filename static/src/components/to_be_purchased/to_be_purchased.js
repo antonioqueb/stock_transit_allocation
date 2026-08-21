@@ -26,7 +26,9 @@ export class ToBePurchased extends Component {
             excludeQuery: "",
             // Por DEFAULT se ocultan las líneas que YA tienen referencia de
             // cliente; el toggle "Todas" las vuelve a mostrar.
-            hideWithRef: true,
+            // Filtro por referencia de cliente: 'all' (mixto, default) |
+            // 'with' (solo con referencia) | 'without' (solo sin referencia).
+            refFilter: "all",
             showOnlyPending: true,
             groupBy: "product", // product | sale_order | vendor | salesperson | customer | unit_type
 
@@ -134,13 +136,17 @@ export class ToBePurchased extends Component {
             });
         }
 
-        // DEFAULT: fuera las líneas que YA tienen referencia de cliente.
-        // Al apagar el toggle se muestra todo.
-        if (this.state.hideWithRef) {
+        // Filtro por REFERENCIA de cliente (3 estados):
+        // 'all' = mixto (default, todo); 'with' = solo líneas CON
+        // referencia; 'without' = solo líneas SIN referencia.
+        const refMode = this.state.refFilter;
+        if (refMode === "with" || refMode === "without") {
             result = result.map((product) => {
                 const allLines = product.so_lines || [];
-                const keptLines = allLines.filter(
-                    (line) => !(line.client_ref || "").trim());
+                const keptLines = allLines.filter((line) => {
+                    const hasRef = !!(line.client_ref || "").trim();
+                    return refMode === "with" ? hasRef : !hasRef;
+                });
                 if (keptLines.length === 0) {
                     return null;
                 }
@@ -547,8 +553,8 @@ export class ToBePurchased extends Component {
         this.applyFilters();
     }
 
-    toggleHideWithRef() {
-        this.state.hideWithRef = !this.state.hideWithRef;
+    setRefFilter(mode) {
+        this.state.refFilter = mode;
         this.applyFilters();
     }
 

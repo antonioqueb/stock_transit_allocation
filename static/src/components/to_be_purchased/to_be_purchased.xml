@@ -35,15 +35,26 @@
                     </button>
                 </div>
 
-                <!-- Toggle DEFAULT: oculta las líneas con referencia de
-                     cliente; al apagarlo se muestra todo. -->
-                <button t-attf-class="o_tbp_filter_btn #{state.hideWithRef ? 'active' : ''}"
-                        t-on-click="toggleHideWithRef"
-                        t-att-title="state.hideWithRef ? 'Ocultando líneas con referencia de cliente — clic para mostrar todo' : 'Mostrando todo — clic para ocultar líneas con referencia'">
-                    <i t-attf-class="fa #{state.hideWithRef ? 'fa-eye-slash' : 'fa-eye'} me-1"/>
-                    <t t-if="state.hideWithRef">Sin referencia</t>
-                    <t t-else="">Todas</t>
-                </button>
+                <!-- Filtro por referencia de cliente (3 estados, mismo
+                     lenguaje visual que los agrupadores): Mixto (default,
+                     todo) · Con referencia · Sin referencia. -->
+                <div class="o_tbp_group_buttons" title="Filtro por referencia de cliente">
+                    <button t-attf-class="o_tbp_group_btn #{state.refFilter === 'all' ? 'active' : ''}"
+                            t-on-click="() => this.setRefFilter('all')"
+                            title="Mostrar todo (con y sin referencia)">
+                        <i class="fa fa-th-large me-1"/> Mixto
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.refFilter === 'with' ? 'active' : ''}"
+                            t-on-click="() => this.setRefFilter('with')"
+                            title="Solo líneas CON referencia de cliente">
+                        <i class="fa fa-tag me-1"/> Con referencia
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.refFilter === 'without' ? 'active' : ''}"
+                            t-on-click="() => this.setRefFilter('without')"
+                            title="Solo líneas SIN referencia de cliente">
+                        <i class="fa fa-circle-o me-1"/> Sin referencia
+                    </button>
+                </div>
 
                 <button t-attf-class="o_tbp_filter_btn #{state.showOnlyPending ? 'active' : ''}"
                         t-on-click="togglePendingFilter">
