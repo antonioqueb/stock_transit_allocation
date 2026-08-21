@@ -1957,6 +1957,24 @@ class SaleOrderLine(models.Model):
             if vals.get('por_asignar') and vals.get('auto_transit_assign'):
                 vals['por_asignar'] = False
         lines = super().create(vals_list)
+
+        # REGLA DE PISO también AL CREAR: una línea que NACE con placas
+        # (agregar línea nueva + asignar placas antes de guardar la orden:
+        # el form la crea con lot_ids en el mismo create) se saltaba la
+        # derivación —que solo corría en write()— y el Solicitado se quedaba
+        # en lo capturado (típicamente el default 1.0) por debajo de lo
+        # asignado. Mismo ratchet que en write: sube a lo asignado, nunca
+        # baja.
+        if not self.env.context.get('tc_qty_sync_from_lots'):
+            derive = lines.filtered(
+                lambda l: not l.display_type
+                and l.product_id
+                and 'lot_ids' in l._fields
+                and l.lot_ids
+            )
+            if derive:
+                derive._tc_sync_requested_qty_from_lots()
+
         # Las líneas creadas por el carrito en cotización (x_selected_lots +
         # product_uom_qty) entran por aquí, no por write(): se valida el techo de
         # stock también en este camino para que la restricción aplique en
