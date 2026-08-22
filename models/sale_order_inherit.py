@@ -2387,6 +2387,39 @@ class SaleOrderLine(models.Model):
                 skip_tc_stock_cap=True,
             ).write(write_vals)
 
+            # AVISO EN VIVO: el sistema movió una cantidad que el usuario
+            # no tecleó. Sin esto, el Solicitado "cambiaba solo" y el
+            # vendedor no sabía por qué (misma confusión que la demanda de
+            # recepción). El aviso es cosmético: jamás tumba el flujo.
+            if 'product_uom_qty' in write_vals:
+                self._tc_notify_current_user(
+                    _('Solicitado ajustado por placas'),
+                    _('La cantidad solicitada de "%(prod)s" pasó de '
+                      '%(antes).2f a %(ahora).2f para igualar las placas '
+                      'asignadas.') % {
+                        'prod': line.product_id.display_name,
+                        'antes': current_qty,
+                        'ahora': write_vals['product_uom_qty'],
+                    })
+
+    @api.model
+    def _tc_notify_current_user(self, title, message, sticky=False):
+        """Notificación en pantalla (bus) al usuario que dispara la acción.
+        Cosmética: cualquier fallo se traga en silencio."""
+        try:
+            partner = self.env.user.partner_id
+            if not partner:
+                return
+            self.env['bus.bus'].sudo()._sendone(
+                partner, 'simple_notification', {
+                    'type': 'warning',
+                    'sticky': sticky,
+                    'title': title,
+                    'message': message,
+                })
+        except Exception:
+            _logger.debug('[TC_NOTIFY] No se pudo notificar', exc_info=True)
+
     def _tc_post_plain_message(self, title, lines=None):
         """
         Publica mensajes operativos en texto plano.
