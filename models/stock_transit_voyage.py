@@ -3679,9 +3679,126 @@ class StockTransitVoyage(models.Model):
                     'tránsito</b>: %s.') % (
                         len(missing),
                         ', '.join(missing.mapped('name'))))
+            # Sin esto, el material cancelado seguía vivo en SOM/TRANSIT
+            # para siempre: la recepción se cancelaba pero nadie tocaba
+            # los quants de tránsito y el visual mostraba material que
+            # jamás iba a recibirse.
+            rec._tc_purge_orphan_transit()
             rec.with_context(
                 tc_force_close_pending=True)._auto_finalize_after_reception()
         return True
+
+    def _tc_orphan_transit_report(self):
+        """Material del embarque que sigue vivo en SOM/TRANSIT sin estar
+        comprometido con nada: ni pedido (order_id o reservado), ni taller,
+        ni referenciado por una línea de venta confirmada. Es exactamente
+        lo que un cierre forzado del pendiente deja en el limbo."""
+        self.ensure_one()
+        Quant = self.env['stock.quant'].sudo()
+        SaleLine = self.env['sale.order.line'].sudo()
+        leaf_domain = self.env['stock.location']._som_transit_quant_leaf()
+
+        orphan_lines = self.env['stock.transit.line']
+        kept_lines = self.env['stock.transit.line']
+        for line in self.line_ids.filtered('lot_id'):
+            committed = bool(line.order_id) \
+                or line.allocation_status == 'reserved'
+            if not committed and 'workshop_sale_line_id' in line._fields:
+                committed = bool(line.workshop_sale_line_id)
+            if not committed and 'lot_ids' in SaleLine._fields:
+                # Defensa extra: una venta confirmada que apunte al lote
+                # directamente (aunque la línea de tránsito no lo sepa)
+                # también lo protege de la purga.
+                committed = bool(SaleLine.search_count([
+                    ('lot_ids', 'in', line.lot_id.id),
+                    ('state', '=', 'sale'),
+                ]))
+            if committed:
+                kept_lines |= line
+            else:
+                orphan_lines |= line
+
+        quants = Quant
+        if orphan_lines:
+            quants = Quant.search(
+                [('lot_id', 'in', orphan_lines.mapped('lot_id').ids),
+                 ('quantity', '>', 0)] + leaf_domain)
+        return {
+            'orphan_lines': orphan_lines,
+            'kept_lines': kept_lines,
+            'quants': quants,
+        }
+
+    def _tc_purge_orphan_transit(self):
+        """Saca del tránsito (ajuste de inventario a 0) el material huérfano
+        del embarque y archiva los lotes que quedan sin existencia en
+        ninguna parte. Lo comprometido con pedidos o taller se respeta."""
+        for rec in self:
+            report = rec._tc_orphan_transit_report()
+            quants = report['quants']
+            if not quants:
+                continue
+            total = sum(quants.mapped('quantity'))
+            lots = quants.mapped('lot_id')
+
+            quants.with_context(inventory_mode=True).write(
+                {'inventory_quantity': 0})
+            quants.action_apply_inventory()
+
+            # Lote fantasma: si tras la purga no tiene existencia en NINGÚN
+            # lado, se archiva para que no siga apareciendo en selectores.
+            archived = self.env['stock.lot'].sudo()
+            for lot in lots:
+                if 'active' not in lot._fields:
+                    break
+                remaining = self.env['stock.quant'].sudo().search_count([
+                    ('lot_id', '=', lot.id),
+                    ('quantity', '!=', 0),
+                ])
+                if not remaining:
+                    lot.sudo().write({'active': False})
+                    archived |= lot
+
+            kept_msg = ''
+            if report['kept_lines']:
+                kept_msg = Markup(
+                    ' Se respetaron <b>%s</b> línea(s) comprometidas con '
+                    'pedido o taller.') % len(report['kept_lines'])
+            rec.message_post(body=Markup(
+                '🧹 <b>Tránsito huérfano eliminado</b>: %s lote(s) con '
+                '<b>%.2f</b> retirados de SOM/TRANSIT — se cerró la '
+                'demanda y ese material jamás va a recibirse. Lotes: '
+                '%s.%s') % (
+                    len(lots), total,
+                    ', '.join(lots.mapped('name')), kept_msg))
+            _logger.info(
+                '[TC_VOYAGE] %s: purga de tránsito huérfano — %s lotes, '
+                '%.2f (archivados: %s)',
+                rec.name, len(lots), total,
+                ', '.join(archived.mapped('name')) or '-')
+
+    @api.model
+    def tc_purge_orphan_transit_closed(self, names=None, dry_run=True):
+        """Mantenimiento: aplica la misma purga a embarques YA cerrados
+        (delivered) que quedaron con material en el limbo por cierres
+        forzados previos al fix. Con dry_run=True solo reporta."""
+        domain = [('custom_status', '=', 'delivered')]
+        if names:
+            domain.append(('name', 'in', names))
+        out = []
+        for rec in self.search(domain):
+            rep = rec._tc_orphan_transit_report()
+            if not rep['quants']:
+                continue
+            out.append({
+                'voyage': rec.name,
+                'qty': sum(rep['quants'].mapped('quantity')),
+                'lots': rep['quants'].mapped('lot_id.name'),
+                'kept': len(rep['kept_lines']),
+            })
+            if not dry_run:
+                rec._tc_purge_orphan_transit()
+        return out
 
     def _auto_finalize_after_reception(self):
         for rec in self:
