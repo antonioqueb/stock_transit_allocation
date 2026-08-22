@@ -3162,17 +3162,26 @@ class StockTransitVoyage(models.Model):
             )
 
             if not self._tc_reception_has_locked_physical_work(picking):
-                needs_rebuild = bool(
-                    not picking.move_ids
-                    or picking.move_line_ids
-                    or picking.state != 'draft'
-                )
-                if needs_rebuild:
-                    resolved_lines, _source_location = self._get_reception_candidate_lines()
-                    self._sync_reception_picking_lines(
-                        picking,
-                        resolved_lines=resolved_lines,
+                # RECEPCIÓN PARCIAL (backorder): nació con EXACTAMENTE el
+                # remanente no recibido. Resolver candidatos de TODO el
+                # viaje aquí truena — los lotes ya recibidos ya no tienen
+                # quant en tránsito — y era el error del botón Recepción
+                # en embarques multi-recepción. El sync de cadena solo
+                # suma llegadas nuevas.
+                if picking.backorder_id:
+                    self._sync_reception_picking_lines(picking)
+                else:
+                    needs_rebuild = bool(
+                        not picking.move_ids
+                        or picking.move_line_ids
+                        or picking.state != 'draft'
                     )
+                    if needs_rebuild:
+                        resolved_lines, _source_location = self._get_reception_candidate_lines()
+                        self._sync_reception_picking_lines(
+                            picking,
+                            resolved_lines=resolved_lines,
+                        )
 
             # tc_keep_status: crear la recepción SIN mover el estatus del
             # viaje (flujo del portal: el documento nace al completar la
@@ -3200,16 +3209,21 @@ class StockTransitVoyage(models.Model):
             })
 
             if not self._tc_reception_has_locked_physical_work(picking):
-                needs_rebuild = bool(
-                    not picking.move_ids
-                    or picking.move_line_ids
-                    or picking.state != 'draft'
-                )
-                if needs_rebuild:
-                    self._sync_reception_picking_lines(
-                        picking,
-                        resolved_lines=resolved_lines,
+                # Mismo guard de cadena: un backorder re-adoptado por la
+                # búsqueda de origen jamás se reconstruye desde el viaje.
+                if picking.backorder_id:
+                    self._sync_reception_picking_lines(picking)
+                else:
+                    needs_rebuild = bool(
+                        not picking.move_ids
+                        or picking.move_line_ids
+                        or picking.state != 'draft'
                     )
+                    if needs_rebuild:
+                        self._sync_reception_picking_lines(
+                            picking,
+                            resolved_lines=resolved_lines,
+                        )
 
             return self._tc_open_reception_action(picking)
 
@@ -3254,9 +3268,34 @@ class StockTransitVoyage(models.Model):
             raise UserError(_("Primero debe generar la Recepción Física."))
 
         picking = self.reception_picking_id
-        self._sync_reception_picking_lines(picking)
+        added = None
+        if picking.backorder_id:
+            # Cadena de parciales: solo llegadas nuevas, y el cambio de
+            # demanda se AVISA en pantalla — antes solo quedaba en el
+            # chatter y el usuario veía la demanda "cambiar sola".
+            if not picking.tc_reception_voyage_id:
+                picking.sudo().write({'tc_reception_voyage_id': self.id})
+            added = self._tc_append_new_arrivals_to_reception(picking)
+        else:
+            self._sync_reception_picking_lines(picking)
 
-        return self._tc_open_reception_action(picking)
+        action = self._tc_open_reception_action(picking)
+        if added:
+            return {
+                'type': 'ir.actions.client',
+                'tag': 'display_notification',
+                'params': {
+                    'title': _('Llegadas nuevas sumadas a la recepción'),
+                    'message': _(
+                        'Se agregó a la demanda: %s. El PL físico y el '
+                        'Worksheet deben reprocesarse para cubrir el '
+                        'material nuevo.') % ', '.join(added),
+                    'type': 'warning',
+                    'sticky': True,
+                    'next': action,
+                },
+            }
+        return action
 
     def action_print_reception_labels(self):
         self.ensure_one()
@@ -3554,6 +3593,7 @@ class StockTransitVoyage(models.Model):
 
         t = self._tc_reception_totals()
         covered = {}
+        open_demand = {}
         for p in t['done']:
             for ml in p.move_line_ids:
                 covered[ml.product_id.id] = (
@@ -3563,6 +3603,8 @@ class StockTransitVoyage(models.Model):
                 continue
             covered[mv.product_id.id] = (
                 covered.get(mv.product_id.id, 0.0) + mv.product_uom_qty)
+            open_demand[mv.product_id.id] = (
+                open_demand.get(mv.product_id.id, 0.0) + mv.product_uom_qty)
 
         expected = {}
         for line in self.line_ids.filtered(
@@ -3570,13 +3612,34 @@ class StockTransitVoyage(models.Model):
             expected[line.product_id.id] = (
                 expected.get(line.product_id.id, 0.0) + line.product_uom_qty)
 
+        # TOPE FÍSICO: solo se puede sumar lo que de verdad EXISTE en
+        # tránsito por encima de la demanda ya abierta. Sin este tope, un
+        # PL con centésimas de más que el físico (17.16 vs 17.15) inflaba
+        # la demanda con residuos irrecibibles que dejaban un pendiente
+        # eterno en la cadena.
+        avail = {}
+        voyage_lots = self.line_ids.mapped('lot_id')
+        if voyage_lots:
+            for q in self.env['stock.quant'].sudo().search(
+                    [('lot_id', 'in', voyage_lots.ids),
+                     ('quantity', '>', 0)]
+                    + self.env['stock.location']._som_transit_quant_leaf()):
+                avail[q.product_id.id] = (
+                    avail.get(q.product_id.id, 0.0) + q.quantity)
+
         ctx = self._tc_reception_safe_context()
         added = []
         for product_id, exp_qty in expected.items():
-            missing = exp_qty - covered.get(product_id, 0.0)
-            if missing <= 0.001:
-                continue
             product = self.env['product.product'].browse(product_id)
+            rounding = self._get_qty_rounding(product)
+            missing = exp_qty - covered.get(product_id, 0.0)
+            addable = (avail.get(product_id, 0.0)
+                       - open_demand.get(product_id, 0.0))
+            missing = float_round(
+                min(missing, addable), precision_rounding=rounding)
+            if float_compare(
+                    missing, 0.0, precision_rounding=rounding) <= 0:
+                continue
             move = picking.move_ids.filtered(
                 lambda m: m.product_id.id == product_id
                 and m.state not in ('done', 'cancel'))[:1]
@@ -3605,6 +3668,7 @@ class StockTransitVoyage(models.Model):
                 'El PL físico y el Worksheet deben reprocesarse para '
                 'cubrir el material nuevo.') % (
                     picking.name, ', '.join(added)))
+        return added
 
     def _tc_after_partial_reception(self, picking):
         """Tras validar una recepción del viaje: si Odoo generó backorder
