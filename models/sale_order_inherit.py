@@ -1140,6 +1140,21 @@ class SaleOrderLine(models.Model):
                 if removed_lots and added_lots:
                     continue
 
+                # SIN AUMENTO REAL: sin placas nuevas y con el Solicitado
+                # igual o menor que antes del write, no hay asignación
+                # nueva que topar. El tope solo frena INCREMENTOS; una
+                # línea cuyo Solicitado quedó por arriba del stock por
+                # historia legítima (ratchet, tránsito, entrega) debe
+                # poder seguirse editando y desasignando.
+                old_qty_map = self.env.context.get('tc_cap_old_qty') or {}
+                if line.id in old_qty_map and new_lots <= old_lots:
+                    rounding = line._tc_get_qty_rounding()
+                    if float_compare(
+                            line.product_uom_qty or 0.0,
+                            old_qty_map[line.id] or 0.0,
+                            precision_rounding=rounding) <= 0:
+                        continue
+
             # 'Mandar a pedir' puede superar el stock por diseño.
             if line.auto_transit_assign:
                 continue
@@ -2186,9 +2201,11 @@ class SaleOrderLine(models.Model):
         # distinguir una DESASIGNACIÓN (quitar placas) de una asignación nueva.
         # Quitar placas nunca debe bloquearse por el tope.
         tc_cap_old_lots = {}
+        tc_cap_old_qty = {}
         if _tc_check_stock_cap and 'lot_ids' in self._fields:
             for line in self:
                 tc_cap_old_lots[line.id] = set(line.lot_ids.ids) if line.lot_ids else set()
+                tc_cap_old_qty[line.id] = line.product_uom_qty or 0.0
 
         res = super(SaleOrderLine, self).write(vals)
 
@@ -2233,6 +2250,7 @@ class SaleOrderLine(models.Model):
         if _tc_check_stock_cap:
             self.with_context(
                 tc_cap_old_lots=tc_cap_old_lots,
+                tc_cap_old_qty=tc_cap_old_qty,
                 tc_cap_trigger_fields=sorted(
                     _tc_stock_cap_fields.intersection(vals.keys())),
             )._tc_validate_assignment_stock_cap()
@@ -2361,6 +2379,12 @@ class SaleOrderLine(models.Model):
                 tc_qty_sync_from_lots=True,
                 skip_tc_qty_manual_reset=True,
                 skip_tc_allocation_recovery=True,
+                # El Solicitado derivado sale del material YA asignado (esa
+                # asignación ya pasó el tope en su momento). Re-validar el
+                # tope en este write anidado bloqueaba DESASIGNACIONES:
+                # quitar placas disparaba la derivación y el tope tronaba
+                # contra el Solicitado retenido por el ratchet.
+                skip_tc_stock_cap=True,
             ).write(write_vals)
 
     def _tc_post_plain_message(self, title, lines=None):
