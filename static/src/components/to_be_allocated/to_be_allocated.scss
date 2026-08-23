@@ -1619,3 +1619,64 @@ $o-tba-pill: 999px;
         cursor: pointer;
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// MÓVIL — pedido explícito: en el teléfono solo buscador + actualizar
+// compacto; el banner (título + métricas + botón grande) se oculta
+// porque se comía todo el alto. La columna de Acciones deja de ser
+// pegajosa: fija tapaba media pantalla y el contenido se veía montado.
+// La versión de escritorio NO se toca.
+// ═══════════════════════════════════════════════════════════════════════
+
+.o_tba_refresh_sm {
+    display: none;
+}
+
+@media (max-width: 992px) {
+    .o_tba_table th:last-child,
+    .o_tba_table td:last-child {
+        position: static;
+        min-width: 0;
+        box-shadow: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .o_tba_header {
+        display: none;
+    }
+
+    .o_tba_toolbar {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        gap: 8px;
+    }
+
+    .o_tba_search {
+        flex: 1 1 auto;
+        min-width: 200px;
+    }
+
+    .o_tba_refresh_sm {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: 0 0 auto;
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        border: 1px solid #bdd7e8;
+        background: #ffffff;
+        color: #247fbd;
+        font-size: 13px;
+
+        &:disabled {
+            opacity: 0.6;
+        }
+    }
+
+    .o_tba_group_buttons {
+        flex: 0 0 auto;
+    }
+}

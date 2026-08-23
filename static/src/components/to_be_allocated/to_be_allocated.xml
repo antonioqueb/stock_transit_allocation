@@ -75,6 +75,16 @@
                     </button>
                 </div>
 
+                <!-- Actualizar COMPACTO: solo visible en móvil (CSS), donde
+                     el banner con métricas y el botón grande se ocultan. -->
+                <button type="button"
+                        class="o_tba_refresh_sm"
+                        title="Actualizar"
+                        t-on-click="refresh"
+                        t-att-disabled="state.loading">
+                    <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'}"/>
+                </button>
+
                 <div class="o_tba_group_buttons">
                     <button type="button"
                             t-att-class="state.groupBy === 'product' ? 'o_tba_group_btn active' : 'o_tba_group_btn'"
