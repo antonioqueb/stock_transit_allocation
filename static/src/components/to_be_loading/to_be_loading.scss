@@ -270,3 +270,37 @@ $opo-shadow-md: 0 12px 34px rgba(75, 164, 242, 0.14);
         border-color: #dc2626;
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// MÓVIL: el MISMO tablero de escritorio, paneado. La tarjeta de cada
+// grupo recortaba la tabla (overflow hidden + width 100%) y en el
+// teléfono el contenido quedaba cortado SIN forma de desplazarse a la
+// derecha. Ahora la tabla conserva su ancho natural y su contenedor
+// scrollea horizontal con inercia táctil. Nada se re-acomoda.
+// ═══════════════════════════════════════════════════════════════════════
+@media (max-width: 992px) {
+    .o_opo_root {
+        padding: 10px 8px 40px;
+
+        .o_opo_search {
+            width: 100%;
+            max-width: 340px;
+        }
+
+        .o_opo_group_body {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .o_opo_table {
+            width: max-content;
+            min-width: 100%;
+
+            th,
+            td {
+                padding: 8px 10px;
+                white-space: nowrap;
+            }
+        }
+    }
+}
