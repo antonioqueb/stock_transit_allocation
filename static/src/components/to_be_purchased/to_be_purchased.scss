@@ -2026,3 +2026,81 @@ $o-tbp-pill: 999px;
         border-color: #dc2626;
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// MÓVIL — pedido explícito: contenido primero.
+// · La toolbar NO queda anclada: la raíz scrollea y la barra se va hacia
+//   arriba con el scroll, dejando toda la pantalla al contenido.
+// · Fuera métricas (Líneas/Seleccionadas/Pendiente), botón Actualizar y
+//   filtro "Solo pendientes"; queda el buscador (+ filtros paneables).
+// · Generar OC solo aparece cuando HAY selección (deshabilitado = 0
+//   seleccionadas = oculto).
+// · La columna de Acciones deja de ser pegajosa: fija tapaba el
+//   contenido de las tarjetas abiertas.
+// Escritorio intacto.
+// ═══════════════════════════════════════════════════════════════════════
+@media (max-width: 992px) {
+    .o_tbp_table th:last-child,
+    .o_tbp_table td:last-child {
+        position: static;
+        min-width: 0;
+        box-shadow: none;
+    }
+}
+
+@media (max-width: 640px) {
+    .o_tbp_root {
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .o_tbp_groups {
+        flex: none;
+        overflow: visible;
+    }
+
+    .o_tbp_toolbar {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        align-items: center;
+        padding: 8px 10px;
+        gap: 8px;
+    }
+
+    .o_tbp_metrics,
+    .o_tbp_filter_btn,
+    .o_tbp_toolbar > .btn-outline-primary {
+        display: none;
+    }
+
+    .o_tbp_search {
+        width: auto;
+        flex: 1 1 auto;
+        min-width: 200px;
+    }
+
+    .o_tbp_group_buttons {
+        width: auto;
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
+    .o_tbp_group_btn {
+        flex: 0 0 auto;
+        width: auto;
+    }
+
+    // Sin selección el botón vive deshabilitado: en móvil directamente
+    // no existe; aparece en cuanto palomeas la primera línea.
+    .o_tbp_generate_btn {
+        display: none;
+    }
+
+    .o_tbp_generate_btn:not(:disabled) {
+        display: inline-flex;
+        width: auto;
+        flex: 0 0 auto;
+        justify-content: center;
+    }
+}
