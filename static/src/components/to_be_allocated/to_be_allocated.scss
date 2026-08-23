@@ -1646,6 +1646,19 @@ $o-tba-pill: 999px;
         display: none;
     }
 
+    // CONTENIDO PRIMERO: la raíz scrollea y la toolbar (buscador +
+    // filtros) se va hacia arriba con el scroll en vez de quedar
+    // anclada. Aplica también a Transit Allocation (comparte clases).
+    .o_tba_root {
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
+
+    .o_tba_groups {
+        flex: none;
+        overflow: visible;
+    }
+
     .o_tba_toolbar {
         flex-wrap: nowrap;
         overflow-x: auto;
