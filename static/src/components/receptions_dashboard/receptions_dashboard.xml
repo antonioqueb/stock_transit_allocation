@@ -123,6 +123,12 @@
                             t-on-click.stop="() => this.openReception(card.reception_id)">
                         Recepción <t t-esc="card.reception_name ? '· ' + card.reception_name : ''"/>
                     </button>
+                    <button t-if="!card.reception_id and card.phase === 'ready' and !card.needs_reopen"
+                            class="o_rcp_btn primary"
+                            title="El folio de recepción no se generó automáticamente: créalo aquí y comienza a recibir"
+                            t-on-click.stop="(ev) => this.ensureReception(card, ev)">
+                        Crear recepción y recibir
+                    </button>
                     <button t-if="card.needs_reopen"
                             class="o_rcp_btn primary"
                             title="Crear la recepción del material pendiente"

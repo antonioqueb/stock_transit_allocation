@@ -1260,12 +1260,24 @@ class StockTransitVoyage(models.Model):
                     if not rec.reception_picking_id:
                         try:
                             rec.action_generate_reception()
-                        except Exception:
+                        except Exception as exc:
                             _logger.exception(
                                 '[TC_VOYAGE] No se pudo crear la recepción '
                                 'automática del viaje %s al moverlo a Entrega '
                                 'en Sitio.', rec.name,
                             )
+                            # SOM-REC-01: EVIDENCIA visible — antes el fallo
+                            # solo iba al log y el viaje quedaba listo-para-
+                            # recibir sin folio ni explicación. El tablero de
+                            # Recepciones ofrece el reintento seguro.
+                            rec.message_post(body=Markup(_(
+                                '⚠️ El viaje quedó LISTO PARA RECIBIR pero '
+                                'la recepción automática no pudo crearse: '
+                                '%s. El botón "Crear recepción y recibir" '
+                                'del tablero de Recepciones permite '
+                                'reintentar.')) % str(
+                                    getattr(exc, 'args', None)
+                                    and exc.args[0] or exc))
                     rec.message_post(body=Markup(_(
                         "🚚 <b>Entrega en Sitio:</b> el viaje quedó <b>LISTO "
                         "PARA RECIBIR</b> (no Entregado). Se marcará Entregado "

@@ -22,7 +22,7 @@ from datetime import timedelta
 from markupsafe import Markup
 
 from odoo import _, api, fields, models
-from odoo.exceptions import AccessError
+from odoo.exceptions import AccessError, UserError
 
 from odoo.addons.stock_transit_allocation.models.som_date_format import (
     som_format_date,
@@ -351,6 +351,44 @@ class StockTransitVoyageReceptionsDash(models.Model):
         }
 
     @api.model
+    def rcp_ensure_reception(self, voyage_id):
+        """SOM-REC-01: garantiza el FOLIO de recepción desde el tablero.
+
+        Un viaje puede quedar LISTO PARA RECIBIR sin recepción (la creación
+        automática al entrar a Entrega en Sitio pudo fallar — p. ej. material
+        aún sin validar a tránsito) y el receptor quedaba sin botón, esperando
+        intervención administrativa. Este método es el REINTENTO SEGURO:
+        - Si ya hay recepción viva, devuelve su id (jamás duplica; además
+          action_generate_reception re-adopta por origen).
+        - Si falta, la crea con el mismo camino oficial.
+        - Si la creación vuelve a fallar, deja EVIDENCIA en el chatter del
+          viaje y el motivo llega al tablero tal cual.
+        Con sudo() tras el candado del tablero: lo dispara almacén."""
+        self._rcp_check_access()
+        v = self.sudo().browse(voyage_id)
+        if not v.exists():
+            raise UserError(_('El embarque ya no existe.'))
+        if v.reception_picking_id and v.reception_picking_id.state != 'cancel':
+            return v.reception_picking_id.id
+        try:
+            v.action_generate_reception()
+        except Exception as exc:
+            msg = getattr(exc, 'args', None) and exc.args[0] or str(exc)
+            v.message_post(body=Markup(_(
+                '⚠️ <b>Reintento de recepción desde el tablero FALLÓ</b> '
+                '(%(user)s): %(err)s')) % {
+                    'user': self.env.user.name, 'err': str(msg)})
+            raise UserError(_(
+                'No se pudo crear la recepción de %(voyage)s:\n\n%(err)s'
+            ) % {'voyage': v.name, 'err': msg})
+        if v.reception_picking_id:
+            v.message_post(body=Markup(_(
+                '📦 Recepción física <b>%s</b> creada desde el tablero de '
+                'Recepciones (reintento SOM-REC-01).'
+            )) % v.reception_picking_id.name)
+            return v.reception_picking_id.id
+        return False
+
     def rcp_reopen_next_reception(self, voyage_id):
         """Crea la SIGUIENTE recepción de un embarque con faltante cuya
         cadena quedó sin recepción abierta (p. ej. la demanda del backorder

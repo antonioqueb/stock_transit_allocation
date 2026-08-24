@@ -135,6 +135,32 @@ export class ReceptionsDashboard extends Component {
         }
     }
 
+    // SOM-REC-01: tarjeta LISTA sin folio de recepción (la creación
+    // automática falló al pasar a Entrega en Sitio). El receptor la crea
+    // aquí mismo — reintento seguro, sin intervención administrativa. El
+    // backend jamás duplica y deja evidencia en el chatter del embarque.
+    async ensureReception(card, ev) {
+        if (ev) {
+            ev.stopPropagation();
+        }
+        try {
+            const id = await this.orm.call(
+                "stock.transit.voyage", "rcp_ensure_reception", [card.id]
+            );
+            this.lastPayload = null;
+            await this.load();
+            if (id) {
+                this.openReception(id);
+            }
+        } catch (e) {
+            this.notification.add(
+                (e && e.data && e.data.message)
+                || "No se pudo crear la recepción.",
+                { type: "danger", sticky: true }
+            );
+        }
+    }
+
     openReception(id) {
         if (!id) {
             return;
