@@ -30,6 +30,49 @@ class PurchaseOrderProformaLink(models.Model):
             header = ProformaHeader.search([('purchase_id', '=', po.id)], limit=1)
             po.proforma_shipment_count = len(header.shipment_ids) if header else 0
 
+    tc_voyage_count = fields.Integer(
+        string='Embarques Torre de Control',
+        compute='_compute_tc_voyage_count',
+    )
+
+    def _compute_tc_voyage_count(self):
+        # sudo(): el grupo Tránsito es solo UI — el conteo debe calcularse
+        # para cualquiera que abra la OC.
+        Voyage = self.env['stock.transit.voyage'].sudo()
+        for po in self:
+            po.tc_voyage_count = Voyage.search_count([
+                ('purchase_id', '=', po.id),
+                ('custom_status', '!=', 'cancel'),
+            ])
+
+    def action_open_tc_voyage(self):
+        """Acceso DIRECTO al embarque de Torre de Control de esta OC.
+        Con uno solo abre su formulario; con varios, la lista filtrada.
+        El botón solo es visible cuando existe al menos un embarque —
+        pedido explícito: nada de formularios intermedios de proforma."""
+        self.ensure_one()
+        voyages = self.env['stock.transit.voyage'].sudo().search([
+            ('purchase_id', '=', self.id),
+            ('custom_status', '!=', 'cancel'),
+        ])
+        if len(voyages) == 1:
+            return {
+                'type': 'ir.actions.act_window',
+                'name': 'Embarque',
+                'res_model': 'stock.transit.voyage',
+                'res_id': voyages.id,
+                'view_mode': 'form',
+                'target': 'current',
+            }
+        return {
+            'type': 'ir.actions.act_window',
+            'name': 'Embarques',
+            'res_model': 'stock.transit.voyage',
+            'view_mode': 'list,form',
+            'domain': [('id', 'in', voyages.ids)],
+            'target': 'current',
+        }
+
     def action_open_proforma_header(self):
         """Abre o crea la proforma.header para esta OC."""
         self.ensure_one()
