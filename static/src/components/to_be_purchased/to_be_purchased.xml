@@ -301,6 +301,7 @@
                                             <th style="width: 88px;">Fecha</th>
                                             <th style="width: 98px;">Requerido</th>
                                             <th>Cliente</th>
+                                            <th style="width: 120px;">Vendedor</th>
                                             <th>Ubicación</th>
                                             <th>Descripción</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
@@ -337,6 +338,11 @@
                                                 <td>
                                                     <div class="o_tbp_cell_main" t-att-title="so.customer">
                                                         <t t-esc="so.customer"/>
+                                                    </div>
+                                                </td>
+                                                <td>
+                                                    <div class="o_tbp_cell_sub" t-att-title="so.salesperson">
+                                                        <t t-esc="so.salesperson || '—'"/>
                                                     </div>
                                                 </td>
                                                 <td>
