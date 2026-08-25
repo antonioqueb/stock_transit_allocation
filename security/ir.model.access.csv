@@ -51,3 +51,4 @@ access_som_user_session_admin,som.user.session.admin,model_som_user_session,base
 access_tc_physical_pl_job_user,tc.physical.pl.job user,model_tc_physical_pl_job,base.group_user,1,0,0,0
 access_tc_physical_pl_job_stock,tc.physical.pl.job stock,model_tc_physical_pl_job,stock.group_stock_user,1,1,1,0
 access_tc_physical_pl_job_manager,tc.physical.pl.job manager,model_tc_physical_pl_job,stock.group_stock_manager,1,1,1,1
+access_stock_transit_voyage_internal_read,stock.transit.voyage internal read,model_stock_transit_voyage,base.group_user,1,0,0,0
