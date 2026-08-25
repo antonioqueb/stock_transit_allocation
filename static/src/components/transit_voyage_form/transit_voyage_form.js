@@ -138,6 +138,21 @@ class TransitVoyageLinesWidget extends Component {
                 { order: "product_id asc, lot_id asc" }
             );
 
+            // UdM REAL por producto: nada de asumir m² — hay embarques de
+            // PIEZAS y el pie decía "62 m²" siendo piezas (tema de control).
+            const prodIds = [...new Set(lines.filter(l => l.product_id).map(l => l.product_id[0]))];
+            this.uomByProduct = {};
+            if (prodIds.length) {
+                try {
+                    const prods = await this.orm.read("product.product", prodIds, ["uom_id"]);
+                    for (const pr of prods) {
+                        this.uomByProduct[pr.id] = (pr.uom_id && pr.uom_id[1]) || "m²";
+                    }
+                } catch (e) {
+                    console.warn("[TVL] Sin UdM por producto:", e);
+                }
+            }
+
             // Cargar x_bloque / x_atado desde lot
             const lotIds = lines.filter(l => l.lot_id).map(l => l.lot_id[0]);
             let lotData  = {};
@@ -501,6 +516,7 @@ class TransitVoyageLinesWidget extends Component {
                 map.set(pid, {
                     product_id:   pid,
                     product_name: pname,
+                    uom:          (this.uomByProduct || {})[pid] || "m²",
                     lines:        [],
                     total_m2:     0,
                     reserved_m2:  0,
@@ -824,6 +840,7 @@ class TransitVoyageLinesWidget extends Component {
             rows.push({
                 product: g.product_name,
                 count: gLines.length,
+                uom: g.uom || "m²",
                 m2: gLines.reduce((s, l) => s + (l.product_uom_qty || 0), 0),
             });
         }
@@ -1111,6 +1128,42 @@ class TransitVoyageLinesWidget extends Component {
 
     get grandTotal()    { return this.state.groups.reduce((s, g) => s + g.total_m2, 0); }
     get grandReserved() { return this.state.groups.reduce((s, g) => s + g.reserved_m2, 0); }
+
+    // Totales POR UNIDAD: jamás se suman m² con piezas como si fueran lo
+    // mismo. Devuelve "62.00 m² · 24.00 Piezas" según lo que traiga el
+    // embarque.
+    _sumByUom(extractor) {
+        const acc = new Map();
+        for (const g of this.state.groups) {
+            const uom = g.uom || "m²";
+            acc.set(uom, (acc.get(uom) || 0) + extractor(g));
+        }
+        return [...acc.entries()]
+            .filter(([, qty]) => qty > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([uom, qty]) => `${this.fmtNum(qty)} ${uom}`)
+            .join(" · ") || `${this.fmtNum(0)} m²`;
+    }
+
+    get grandTotalLabel()    { return this._sumByUom((g) => g.total_m2); }
+    get grandReservedLabel() { return this._sumByUom((g) => g.reserved_m2); }
+
+    get selectedLabel() {
+        const acc = new Map();
+        for (const g of this.state.groups) {
+            const uom = g.uom || "m²";
+            for (const l of g.lines) {
+                if (this.state.selectedLines.has(l.id)) {
+                    acc.set(uom, (acc.get(uom) || 0) + (l.product_uom_qty || 0));
+                }
+            }
+        }
+        return [...acc.entries()]
+            .filter(([, qty]) => qty > 0)
+            .sort((a, b) => b[1] - a[1])
+            .map(([uom, qty]) => `${this.fmtNum(qty)} ${uom}`)
+            .join(" · ") || `${this.fmtNum(0)} m²`;
+    }
     get grandPercent()  {
         const t = this.grandTotal;
         return t > 0 ? ((this.grandReserved / t) * 100).toFixed(0) : "0";

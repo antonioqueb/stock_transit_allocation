@@ -162,7 +162,7 @@
                                                 </span>
                                             </td>
                                             <td t-att-colspan="hasDims ? 13 : 9" class="tvl-block-header-m2">
-                                                <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> m²
+                                                <strong t-esc="blockInfo ? fmtNum(blockInfo.total_m2) : '—'"/> <t t-esc="group.uom || 'm²'"/>
                                             </td>
                                         </tr>
                                     </t>
@@ -393,11 +393,11 @@
                                         Subtotal <strong t-esc="group.product_name"/>
                                     </td>
                                     <td class="tvl-td tvl-subtotal__m2">
-                                        <t t-esc="fmtNum(group.total_m2)"/> m²
+                                        <t t-esc="fmtNum(group.total_m2)"/> <t t-esc="group.uom || 'm²'"/>
                                     </td>
                                     <td colspan="8" class="tvl-td tvl-subtotal__info">
                                         <span t-if="group.reserved_m2 > 0" class="tvl-subtotal__reserved">
-                                            <t t-esc="fmtNum(group.reserved_m2)"/> m² reservados
+                                            <t t-esc="fmtNum(group.reserved_m2)"/> <t t-esc="group.uom || 'm²'"/> reservados
                                         </span>
                                     </td>
                                 </tr>
@@ -418,7 +418,7 @@
                     </div>
                     <span class="tvl-grand-total__pct"><t t-esc="grandPercent"/>% asignado</span>
                 </div>
-                <span class="tvl-grand-total__m2"><t t-esc="fmtNum(grandTotal)"/> m²</span>
+                <span class="tvl-grand-total__m2"><t t-esc="grandTotalLabel"/></span>
             </div>
         </div>
 
@@ -441,7 +441,7 @@
                 <!-- Total m² -->
                 <div class="tvl-floating-bar__m2">
                     <i class="fa fa-th"/>
-                    <span t-esc="fmtNum(selectedM2)"/> m² seleccionados
+                    <span t-esc="selectedLabel"/> seleccionados
                 </div>
             </div>
             <div class="tvl-floating-bar__right">
@@ -472,7 +472,7 @@
                 <div class="tvl-popup__header-text">
                     <h4 class="tvl-popup__title">Asignar Lotes</h4>
                     <p class="tvl-popup__subtitle">
-                        <strong t-esc="selectedCount"/> lotes · <t t-esc="fmtNum(selectedM2)"/> m²
+                        <strong t-esc="selectedCount"/> lotes · <t t-esc="selectedLabel"/>
                     </p>
                 </div>
                 <button class="tvl-popup__close" t-on-click="closeAssignPopup">
@@ -497,7 +497,7 @@
                                         <i class="fa fa-tag"/> <t t-esc="row.count"/> lotes
                                     </span>
                                     <span class="tvl-popup__summary-m2">
-                                        <t t-esc="fmtNum(row.m2)"/> m²
+                                        <t t-esc="fmtNum(row.m2)"/> <t t-esc="row.uom || 'm²'"/>
                                     </span>
                                 </div>
                             </div>
