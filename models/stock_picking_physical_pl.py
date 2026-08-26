@@ -149,10 +149,17 @@ class StockPickingPhysicalPackingList(models.Model):
             pending_qty = (line.product_uom_qty or 0.0) - \
                 received_by_lot.get(lot.id, 0.0)
             if pending_qty <= 0.001:
-                pending_qty = min(
-                    transit_qty_by_lot.get(lot.id, 0.0),
-                    line.product_uom_qty or 0.0,
-                )
+                # Solo lotes SIN ninguna recepción en la cadena: si la placa ya
+                # se recibió, el saldo que quede en tránsito es residuo de
+                # medición (proveedor declaró más m² que lo medido), no una
+                # placa pendiente — re-listarla duplicaría material recibido.
+                if received_by_lot.get(lot.id, 0.0) <= 0.001:
+                    pending_qty = min(
+                        transit_qty_by_lot.get(lot.id, 0.0),
+                        line.product_uom_qty or 0.0,
+                    )
+                else:
+                    pending_qty = 0.0
             if pending_qty <= 0.001:
                 continue
             result.append({
