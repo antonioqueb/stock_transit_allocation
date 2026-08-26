@@ -3797,8 +3797,14 @@ class StockTransitVoyage(models.Model):
                 and l.lot_id.id not in received_lot_ids)
             if not missing_lines:
                 raise UserError(_(
-                    'No hay remanente por recibir en %s: todo el material '
-                    'del embarque ya se recibió.') % rec.name)
+                    'No hay remanente por recibir en %s: TODOS los lotes '
+                    'del embarque (su Packing List) ya se recibieron.\n\n'
+                    'Si lo que falta es contra la COMPRA (el proveedor '
+                    'embarcó menos de lo comprado), ese material nunca '
+                    'existió en este embarque y no puede restaurarse aquí: '
+                    'persíguelo en el tablero Open PO (solicitado vs '
+                    'embarcado) y decide si vendrá en otro embarque o si '
+                    'se cierra la demanda de compra.') % rec.name)
 
             # Ubicación de tránsito de la cadena (origen de la recepción
             # física validada); fallback al leaf de tránsito normalizado.
