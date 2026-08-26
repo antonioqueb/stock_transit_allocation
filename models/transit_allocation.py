@@ -33,6 +33,9 @@ class TransitAllocationLogic(models.AbstractModel):
             ('state', 'in', ['sale', 'done']),
             ('display_type', '=', False),
             ('product_id', '!=', False),
+            # GARANTÍA SQL: un SERVICIO jamás entra a los tableros (además
+            # del filtro Python _is_hub_stock_product).
+            ('product_id.type', '!=', 'service'),
         ]
 
         if 'tc_assignment_closed' in SaleLine._fields:
