@@ -400,8 +400,19 @@ class SomAnalytics(models.AbstractModel):
     })
 
     def _profit_allowed(self):
-        return self.env.user.has_group(
-            'inventory_shopping_cart.group_price_authorizer')
+        # Nivel 2 nativo: Autorizador de Precios. Además, el permiso
+        # explícito 'Ver Márgenes y Rentabilidad' (sale_order_kpi_dashboard)
+        # existe EXACTAMENTE para ver márgenes — quien lo tiene también ve
+        # utilidad aquí (caso José Juan: visor + margin_viewer veía ceros
+        # mientras un Autorizador sí veía). Defensivo por si el módulo KPI
+        # no está instalado.
+        u = self.env.user
+        if u.has_group('inventory_shopping_cart.group_price_authorizer'):
+            return True
+        try:
+            return u.has_group('sale_order_kpi_dashboard.group_margin_viewer')
+        except ValueError:
+            return False
 
     def _scrub_profit(self, data):
         allowed = self._profit_allowed()
