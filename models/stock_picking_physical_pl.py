@@ -126,10 +126,33 @@ class StockPickingPhysicalPackingList(models.Model):
                             received_by_lot.get(ml.lot_id.id, 0.0)
                             + (ml.quantity or 0.0))
 
+        # DEMANDA REABIERTA: si la cadena de recepciones ya cubrió la línea
+        # del viaje pero el lote AÚN tiene saldo físico en la ubicación de
+        # tránsito origen (residuales restaurados al reabrir), ese saldo es
+        # lo receptable — sin él, el PL de una recepción reabierta sale vacío
+        # aunque tenga demanda abierta.
+        transit_qty_by_lot = {}
+        if transit_lines:
+            quants = self.env["stock.quant"].sudo().search([
+                ("location_id", "child_of", self.location_id.id),
+                ("product_id", "=", product.id),
+                ("lot_id", "in", transit_lines.mapped("lot_id").ids),
+                ("quantity", ">", 0),
+            ])
+            for quant in quants:
+                transit_qty_by_lot[quant.lot_id.id] = (
+                    transit_qty_by_lot.get(quant.lot_id.id, 0.0)
+                    + quant.quantity)
+
         for line in transit_lines:
             lot = line.lot_id
             pending_qty = (line.product_uom_qty or 0.0) - \
                 received_by_lot.get(lot.id, 0.0)
+            if pending_qty <= 0.001:
+                pending_qty = min(
+                    transit_qty_by_lot.get(lot.id, 0.0),
+                    line.product_uom_qty or 0.0,
+                )
             if pending_qty <= 0.001:
                 continue
             result.append({
