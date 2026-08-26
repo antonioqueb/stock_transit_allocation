@@ -244,4 +244,32 @@
         <field name="code">action = records.action_som_return_all_transit()</field>
     </record>
 
+
+    <!-- ↻ REABRIR DEMANDA (engrane de la RECEPCIÓN CANCELADA): reversa
+         consciente del cierre forzado. Vive aquí y no en el embarque —
+         pedido explícito: se ejecuta parado sobre la recepción que ya no
+         se iba a recibir. Guardas: debe ser una recepción de embarque
+         (tc_reception_voyage_id) y estar CANCELADA; la lógica de fondo
+         (revivir lotes, restaurar tránsito sin publicar, backorder del
+         pendiente) vive en voyage.action_reopen_closed_demand. -->
+    <record id="action_server_reopen_closed_demand" model="ir.actions.server">
+        <field name="name">↻ Reabrir demanda cerrada</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">
+if len(records) != 1:
+    raise UserError('Selecciona una sola recepción.')
+picking = records
+voyage = picking.tc_reception_voyage_id
+if not voyage:
+    raise UserError('Esta operación no está ligada a un embarque de Torre de Control: Reabrir demanda solo aplica a recepciones de embarque.')
+if picking.state != 'cancel':
+    raise UserError('Reabrir demanda se ejecuta desde la recepción CANCELADA por el cierre de pendiente. Esta recepción está en estado "%s".' % picking.state)
+result = voyage.action_reopen_closed_demand()
+if result and result is not True:
+    action = result
+        </field>
+    </record>
 </odoo>

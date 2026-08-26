@@ -151,15 +151,6 @@
                             invisible="not tc_reception_has_pending"
                             confirm="¿Cerrar el PENDIENTE de recepción de este embarque?&#10;&#10;Se cancelará la recepción abierta y el embarque quedará ENTREGADO solo con lo ya recibido. Lo no recibido NO entrará al inventario.&#10;&#10;Esta acción queda registrada con tu usuario."/>
 
-                    <!-- REVERSA del cierre forzado: restaura SOLO el
-                         remanente (lotes + tránsito sin publicar) y crea
-                         la recepción del pendiente. -->
-                    <button name="action_reopen_closed_demand"
-                            type="object" string="↻ Reabrir demanda"
-                            class="btn-secondary"
-                            invisible="custom_status != 'delivered'"
-                            confirm="¿Reabrir la demanda cerrada de este embarque?&#10;&#10;Se restaurará ÚNICAMENTE el material no recibido (sus lotes y su tránsito, SIN publicarlo como libre) y se creará la recepción del pendiente para continuar donde quedó.&#10;&#10;Si todo el material ya se recibió, la acción avisará y no hará nada."/>
-
                     <!-- Flujo post-entrega: imprimir (pone solo "En
                          Impresión") y el CHECK manual de etiquetado. -->
                     <button name="action_print_reception_labels"
