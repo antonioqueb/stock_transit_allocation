@@ -112,11 +112,29 @@ class StockPickingPhysicalPackingList(models.Model):
             )
         ).sorted(lambda line: line.lot_id.name or "") if voyage else []
 
+        # CADENA DE PARCIALES (backorder / demanda reabierta): el PL de esta
+        # recepción SOLO trae lo PENDIENTE — lo ya recibido en recepciones
+        # validadas de la cadena no debe reaparecer (duplicaría material).
+        # Placas: recibida completa => fuera; formatos: solo el residual.
+        received_by_lot = {}
+        if voyage and transit_lines:
+            totals = voyage._tc_reception_totals()
+            for done_pick in (totals['done'] - self):
+                for ml in done_pick.move_line_ids:
+                    if ml.lot_id and ml.product_id.id == product.id:
+                        received_by_lot[ml.lot_id.id] = (
+                            received_by_lot.get(ml.lot_id.id, 0.0)
+                            + (ml.quantity or 0.0))
+
         for line in transit_lines:
             lot = line.lot_id
+            pending_qty = (line.product_uom_qty or 0.0) - \
+                received_by_lot.get(lot.id, 0.0)
+            if pending_qty <= 0.001:
+                continue
             result.append({
                 "lot": lot,
-                "qty": line.product_uom_qty or 0.0,
+                "qty": pending_qty,
                 "grosor": self._tc_lot_value(lot, "x_grosor"),
                 "alto": self._tc_lot_value(lot, "x_alto", 0.0),
                 "ancho": self._tc_lot_value(lot, "x_ancho", 0.0),
