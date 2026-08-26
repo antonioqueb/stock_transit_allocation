@@ -261,13 +261,7 @@
         <field name="code">
 if len(records) != 1:
     raise UserError('Selecciona una sola recepción.')
-picking = records
-voyage = picking.tc_reception_voyage_id
-if not voyage:
-    raise UserError('Esta operación no está ligada a un embarque de Torre de Control: Reabrir demanda solo aplica a recepciones de embarque.')
-if picking.state != 'cancel':
-    raise UserError('Reabrir demanda se ejecuta desde la recepción CANCELADA por el cierre de pendiente. Esta recepción está en estado "%s".' % picking.state)
-result = voyage.action_reopen_closed_demand()
+result = records.action_tc_reopen_cancelled_reception()
 if result and result is not True:
     action = result
         </field>
