@@ -390,15 +390,24 @@ class StockTransitVoyageReceptionsDash(models.Model):
         return False
 
     def rcp_reopen_next_reception(self, voyage_id):
-        """Crea la SIGUIENTE recepción de un embarque con faltante cuya
-        cadena quedó sin recepción abierta (p. ej. la demanda del backorder
-        fue destruida). Calcula el pendiente por producto contra las líneas
-        del viaje y lo materializa como backorder de la última validada.
-        Con sudo(): lo dispara el almacén desde el tablero."""
+        """Wrapper del tablero de Recepciones (candado de grupo) sobre la
+        materialización del pendiente — el núcleo vive en
+        _tc_reopen_pending_reception para que otros flujos (Reabrir
+        demanda del embarque) lo reutilicen."""
         self._rcp_check_access()
         v = self.sudo().browse(voyage_id)
         if not v.exists():
             return False
+        return v._tc_reopen_pending_reception()
+
+    def _tc_reopen_pending_reception(self):
+        """Crea la SIGUIENTE recepción de un embarque con faltante cuya
+        cadena quedó sin recepción abierta (p. ej. la demanda del backorder
+        fue destruida, o un cierre forzado por error). Calcula el pendiente
+        por producto contra las líneas del viaje y lo materializa como
+        backorder de la última validada. Corre con sudo interno."""
+        self.ensure_one()
+        v = self.sudo()
         t = v._tc_reception_totals()
         if t['open']:
             return t['open'].sorted('id')[0].id

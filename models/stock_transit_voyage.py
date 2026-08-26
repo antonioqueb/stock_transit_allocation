@@ -3764,6 +3764,120 @@ class StockTransitVoyage(models.Model):
                 tc_force_close_pending=True)._auto_finalize_after_reception()
         return True
 
+    def action_reopen_closed_demand(self):
+        """REVERSA CONSCIENTE del cierre forzado (botón Reabrir demanda).
+
+        Caso: alguien dio '✂ Cerrar pendiente' por error cuando aún faltaba
+        material por recibir — el cierre canceló la recepción abierta,
+        purgó el tránsito huérfano y archivó los lotes fantasma. Esta
+        acción restaura SOLO el remanente no recibido, jamás desde cero:
+        1. Revive los lotes archivados por la purga.
+        2. Recrea sus quants de tránsito por la cantidad esperada, SIN
+           publicar (no aparece tránsito libre en el visual: existe solo
+           para poder recibirse).
+        3. Regresa el embarque a EN RECEPCIÓN y materializa la recepción
+           del pendiente como backorder de la última validada.
+        """
+        for rec in self:
+            if rec.custom_status != 'delivered':
+                raise UserError(_(
+                    'Solo un embarque ENTREGADO (demanda cerrada) puede '
+                    'reabrirse. %s no está cerrado.') % rec.name)
+            t = rec._tc_reception_totals()
+            if t['open']:
+                raise UserError(_(
+                    'El embarque %s ya tiene una recepción abierta (%s): '
+                    'no hay nada que reabrir.') % (
+                        rec.name, t['open'][0].name))
+            received_lot_ids = set(
+                t['done'].mapped('move_line_ids.lot_id').ids)
+            missing_lines = rec.line_ids.filtered(
+                lambda l: l.lot_id and l.product_id
+                and (l.product_uom_qty or 0.0) > 0
+                and l.lot_id.id not in received_lot_ids)
+            if not missing_lines:
+                raise UserError(_(
+                    'No hay remanente por recibir en %s: todo el material '
+                    'del embarque ya se recibió.') % rec.name)
+
+            # Ubicación de tránsito de la cadena (origen de la recepción
+            # física validada); fallback al leaf de tránsito normalizado.
+            src = rec.reception_picking_id.location_id \
+                if rec.reception_picking_id else False
+            if not src or not src._som_is_transit():
+                src = self.env['stock.location'].sudo().search(
+                    [('usage', '=', 'transit')], limit=1)
+            if not src:
+                raise UserError(_(
+                    'No se encontró la ubicación de tránsito para '
+                    'restaurar el remanente.'))
+
+            # 1) Revivir lotes archivados por la purga del cierre.
+            Lot = self.env['stock.lot'].sudo().with_context(
+                active_test=False)
+            lots = Lot.browse(missing_lines.mapped('lot_id').ids)
+            revived = lots.filtered(
+                lambda l: 'active' in l._fields and not l.active)
+            if revived:
+                revived.write({'active': True})
+
+            # 2) Restaurar el TRÁNSITO del remanente (ajuste de inventario
+            #    a la cantidad esperada de cada línea).
+            Quant = self.env['stock.quant'].sudo()
+            restored = []
+            for line in missing_lines:
+                target = line.product_uom_qty or 0.0
+                quant = Quant.search([
+                    ('lot_id', '=', line.lot_id.id),
+                    ('product_id', '=', line.product_id.id),
+                    ('location_id', '=', src.id),
+                ], limit=1)
+                current = quant.quantity if quant else 0.0
+                if current + 0.001 >= target:
+                    continue
+                if quant:
+                    quant.with_context(inventory_mode=True).write(
+                        {'inventory_quantity': target})
+                    quant.action_apply_inventory()
+                else:
+                    nq = Quant.with_context(inventory_mode=True).create({
+                        'product_id': line.product_id.id,
+                        'lot_id': line.lot_id.id,
+                        'location_id': src.id,
+                        'inventory_quantity': target,
+                    })
+                    nq.action_apply_inventory()
+                restored.append('%s (%.2f)' % (line.lot_id.name, target))
+
+            # SIN PUBLICAR: el tránsito restaurado jamás aparece libre en
+            # el visual — existe únicamente para recibirse.
+            if 'transit_inventory_published' in Quant._fields:
+                Quant.search([
+                    ('lot_id', 'in', lots.ids),
+                    ('location_id', '=', src.id),
+                    ('transit_inventory_published', '=', True),
+                ]).write({'transit_inventory_published': False})
+
+            # 3) Recepción del remanente como backorder de la última
+            #    validada (misma maquinaria del tablero de Recepciones).
+            new_id = rec._tc_reopen_pending_reception()
+            rec.message_post(body=Markup(_(
+                '↻ <b>Demanda REABIERTA</b> por %(user)s tras un cierre '
+                'forzado: se restauró el tránsito del remanente (%(lots)s) '
+                'sin publicar y se creó la recepción del pendiente.')) % {
+                    'user': self.env.user.name,
+                    'lots': ', '.join(restored) or _('ya existente'),
+                })
+            if new_id:
+                return {
+                    'type': 'ir.actions.act_window',
+                    'res_model': 'stock.picking',
+                    'res_id': new_id,
+                    'view_mode': 'form',
+                    'target': 'current',
+                }
+        return True
+
     def _tc_orphan_transit_report(self):
         """Material del embarque que sigue vivo en SOM/TRANSIT sin estar
         comprometido con nada: ni pedido (order_id o reservado), ni taller,
