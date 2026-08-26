@@ -2138,10 +2138,12 @@ class StockPickingReopenCancelled(models.Model):
         usuario es el ÚLTIMO FILTRO. No se debate si el material "debería"
         existir: se restaura la demanda tal cual la traía la cancelada, en
         una recepción nueva EDITABLE (puede ajustar cantidades y agregar
-        productos), y el tránsito se reconstruye desde el residual REAL
-        entradas−salidas por lote en la ubicación de origen — sin
-        publicarse jamás (cero tránsito libre en el visual).
-        Solo aplica a recepciones de TRÁNSITO canceladas de un embarque.
+        productos). El caso real es placas NO declaradas por el proveedor
+        (dijeron 20, llegaron 21): se agregan como filas nuevas en el PL
+        físico y el import crea los lotes con el consecutivo del contenedor
+        y materializa su tránsito — por eso aquí NO se reconstruye ningún
+        residual (hacerlo sembraba tránsito fantasma sobre placas ya
+        recibidas). Solo aplica a recepciones de TRÁNSITO canceladas.
         """
         self.ensure_one()
         if self.state != 'cancel':
@@ -2170,12 +2172,7 @@ class StockPickingReopenCancelled(models.Model):
             raise UserError(_(
                 'La recepción cancelada no trae demanda que restaurar.'))
 
-        # 1) TRÁNSITO: residual real por lote (todo lo que ENTRÓ a la
-        #    ubicación menos lo que SALIÓ y aún no está en el quant).
-        restored = self._tc_restore_transit_residuals(
-            demand_products, self.location_id)
-
-        # 2) Recepción NUEVA con la demanda de la cancelada, editable.
+        # Recepción NUEVA con la demanda de la cancelada, editable.
         ctx = voyage._tc_reception_safe_context()
         new = self.sudo().with_context(ctx).copy({
             'name': '/',
@@ -2199,17 +2196,16 @@ class StockPickingReopenCancelled(models.Model):
         voyage.message_post(body=Markup(_(
             '↻ <b>Demanda REABIERTA</b> por %(user)s desde la recepción '
             'cancelada %(old)s: nueva recepción %(new)s con la demanda '
-            'original (editable). Tránsito restaurado sin publicar: '
-            '%(rest)s.')) % {
+            'original (editable).')) % {
                 'user': self.env.user.name,
                 'old': self.name,
                 'new': new.name,
-                'rest': ', '.join(restored) or _('sin cambios (ya existía)'),
             })
         new.message_post(body=Markup(_(
-            '↻ Recepción REABIERTA desde la cancelada %s. Ajusta '
-            'cantidades o agrega productos según lo que FÍSICAMENTE '
-            'llegó: tú eres el último filtro.')) % self.name)
+            '↻ Recepción REABIERTA desde la cancelada %s. Agrega en el PL '
+            'físico las placas que llegaron sin declarar (el import les '
+            'asigna el consecutivo del contenedor) y ajusta cantidades: '
+            'tú eres el último filtro.')) % self.name)
         return {
             'type': 'ir.actions.act_window',
             'res_model': 'stock.picking',
@@ -2218,60 +2214,3 @@ class StockPickingReopenCancelled(models.Model):
             'target': 'current',
         }
 
-    def _tc_restore_transit_residuals(self, products, src):
-        """Reconstruye en `src` (tránsito) el residual real por lote:
-        entradas hechas − salidas hechas − quant actual. Revive lotes
-        archivados. Jamás publica. Devuelve descripciones de lo restaurado."""
-        Quant = self.env['stock.quant'].sudo()
-        MoveLine = self.env['stock.move.line'].sudo()
-        restored = []
-        for product in products:
-            per_lot = {}
-            for ml in MoveLine.search([
-                    ('product_id', '=', product.id),
-                    ('state', '=', 'done'),
-                    ('location_dest_id', '=', src.id)]):
-                if ml.lot_id:
-                    per_lot[ml.lot_id.id] = (
-                        per_lot.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0))
-            for ml in MoveLine.search([
-                    ('product_id', '=', product.id),
-                    ('state', '=', 'done'),
-                    ('location_id', '=', src.id)]):
-                if ml.lot_id:
-                    per_lot[ml.lot_id.id] = (
-                        per_lot.get(ml.lot_id.id, 0.0) - (ml.quantity or 0.0))
-            Lot = self.env['stock.lot'].sudo().with_context(active_test=False)
-            for lot_id, residual in per_lot.items():
-                if residual <= 0.001:
-                    continue
-                lot = Lot.browse(lot_id)
-                quant = Quant.search([
-                    ('lot_id', '=', lot_id),
-                    ('location_id', '=', src.id)], limit=1)
-                current = quant.quantity if quant else 0.0
-                if current + 0.001 >= residual:
-                    continue
-                if 'active' in lot._fields and not lot.active:
-                    lot.write({'active': True})
-                if quant:
-                    quant.with_context(inventory_mode=True).write(
-                        {'inventory_quantity': residual})
-                    quant.action_apply_inventory()
-                else:
-                    nq = Quant.with_context(inventory_mode=True).create({
-                        'product_id': product.id,
-                        'lot_id': lot_id,
-                        'location_id': src.id,
-                        'inventory_quantity': residual,
-                    })
-                    nq.action_apply_inventory()
-                restored.append('%s (%.2f)' % (lot.name, residual - current))
-            # SIN PUBLICAR: nada de tránsito libre en el visual.
-            if 'transit_inventory_published' in Quant._fields:
-                Quant.search([
-                    ('product_id', '=', product.id),
-                    ('location_id', '=', src.id),
-                    ('transit_inventory_published', '=', True),
-                ]).write({'transit_inventory_published': False})
-        return restored
