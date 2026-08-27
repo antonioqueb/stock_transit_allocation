@@ -35,13 +35,27 @@ class PurchaseOrderProformaLink(models.Model):
         compute='_compute_tc_voyage_count',
     )
 
+    def _som_cargo_sibling_pos(self):
+        """La OC + sus hermanas de FACTURA DE CARGA (una carga = varias OCs
+        en un solo embarque). El viaje solo apunta a la OC principal de la
+        carga: sin esto, las demás OCs no ven su embarque."""
+        self.ensure_one()
+        pos = self
+        header = self.env['supplier.proforma.header'].sudo().search(
+            [('purchase_id', '=', self.id)], limit=1)
+        access = header.access_id if header else False
+        cargo = getattr(access, 'cargo_invoice_id', False) if access else False
+        if cargo and getattr(cargo, 'purchase_ids', False):
+            pos |= cargo.purchase_ids
+        return pos
+
     def _compute_tc_voyage_count(self):
         # sudo(): el grupo Tránsito es solo UI — el conteo debe calcularse
         # para cualquiera que abra la OC.
         Voyage = self.env['stock.transit.voyage'].sudo()
         for po in self:
             po.tc_voyage_count = Voyage.search_count([
-                ('purchase_id', '=', po.id),
+                ('purchase_id', 'in', po._som_cargo_sibling_pos().ids),
                 ('custom_status', '!=', 'cancel'),
             ])
 
@@ -49,10 +63,12 @@ class PurchaseOrderProformaLink(models.Model):
         """Acceso DIRECTO al embarque de Torre de Control de esta OC.
         Con uno solo abre su formulario; con varios, la lista filtrada.
         El botón solo es visible cuando existe al menos un embarque —
-        pedido explícito: nada de formularios intermedios de proforma."""
+        pedido explícito: nada de formularios intermedios de proforma.
+        Con factura de carga, el embarque de la OC principal ampara a
+        todas sus hermanas."""
         self.ensure_one()
         voyages = self.env['stock.transit.voyage'].sudo().search([
-            ('purchase_id', '=', self.id),
+            ('purchase_id', 'in', self._som_cargo_sibling_pos().ids),
             ('custom_status', '!=', 'cancel'),
         ])
         if len(voyages) == 1:
