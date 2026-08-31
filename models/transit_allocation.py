@@ -115,8 +115,10 @@ class TransitAllocationLogic(models.AbstractModel):
             return result
 
         TransitLine = self.env['stock.transit.line'].sudo()
+        # sudo() salta las reglas: el hub lista solo las compañías del switcher.
         transit_lines = TransitLine.search(
-            self._tal_get_transit_line_domain(product_ids=product_ids, available_only=True),
+            self._tal_get_transit_line_domain(product_ids=product_ids, available_only=True)
+            + [('company_id', 'in', self.env.companies.ids)],
             order='eta asc, voyage_id asc, product_id asc, id asc',
         )
 
@@ -1168,6 +1170,7 @@ class StockTransitLineTransitAllocationSync(models.Model):
         breakdown = dict(breakdown or {})
 
         active_transit_lot_ids = self.env['stock.transit.line'].sudo().search([
+            ('company_id', '=', sale_line.order_id.company_id.id),
             ('product_id', '=', sale_line.product_id.id),
             ('lot_id', '!=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
@@ -1238,6 +1241,7 @@ class StockTransitLineTransitAllocationSync(models.Model):
         ], order='voyage_id asc, id asc')
 
         active_transit_lot_ids = set(TransitLine.search([
+            ('company_id', '=', order.company_id.id),
             ('product_id', '=', product.id),
             ('lot_id', '!=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),

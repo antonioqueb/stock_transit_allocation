@@ -59,20 +59,34 @@ class StockLocation(models.Model):
                 to_fix.mapped('complete_name'),
             )
 
-        # Tipos de operación de recepción: el destino default es SOM/TRANSIT,
-        # para que las recepciones creadas a mano ya nazcan con él en la UI
-        # (el forzado duro vive en stock.picking.create/write).
-        transit_loc = self.env['purchase.order']._som_transit_source_location()
-        if transit_loc:
-            picking_types = self.env['stock.picking.type'].sudo().search([
+        # Tipos de operación de recepción: el destino default es el tránsito
+        # DE SU COMPAÑÍA, para que las recepciones creadas a mano ya nazcan
+        # con él en la UI (el forzado duro vive en stock.picking.create/write).
+        # Cada compañía apunta a SU tránsito; si una compañía no tiene
+        # ubicación de tránsito, sus tipos no se tocan.
+        PurchaseOrder = self.env['purchase.order']
+        PickingType = self.env['stock.picking.type'].sudo()
+        for company in self.env['res.company'].sudo().search([]):
+            transit_loc = PurchaseOrder._som_transit_source_location(
+                company=company)
+            if not transit_loc:
+                _logger.info(
+                    '[SOM] La compañía %s no tiene ubicación de tránsito '
+                    '(…/TRANSIT): no se ajustan sus tipos de recepción.',
+                    company.name,
+                )
+                continue
+            picking_types = PickingType.search([
                 ('code', '=', 'incoming'),
+                ('company_id', '=', company.id),
             ])
             wrong = picking_types.filtered(
                 lambda p: p.default_location_dest_id.id != transit_loc.id)
             if wrong:
                 wrong.write({'default_location_dest_id': transit_loc.id})
                 _logger.info(
-                    '[SOM] Tipos de recepción con destino default SOM/TRANSIT: %s',
+                    '[SOM] %s: tipos de recepción con destino default %s: %s',
+                    company.name, transit_loc.complete_name,
                     wrong.mapped('name'),
                 )
         return True

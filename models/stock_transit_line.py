@@ -21,10 +21,25 @@ class StockTransitLine(models.Model):
         required=True,
         ondelete='cascade',
     )
+    # Compañía heredada del viaje (cabecera): manda sobre reglas de registro
+    # y sobre qué pedidos/quants son elegibles para esta línea.
     company_id = fields.Many2one(
+        'res.company',
+        string='Compañía',
         related='voyage_id.company_id',
         store=True,
+        readonly=True,
+        index=True,
     )
+
+    def _tc_company_domain_for_sales(self):
+        """Fragmento de dominio para acotar las ventas elegibles a la
+        compañía de la línea (vacío si aún no tiene compañía)."""
+        self.ensure_one()
+        company = self.company_id or self.voyage_id.company_id
+        if not company:
+            return []
+        return [('order_id.company_id', '=', company.id)]
     product_id = fields.Many2one(
         'product.product',
         string='Descripción / Producto',
@@ -229,7 +244,7 @@ class StockTransitLine(models.Model):
                 ('product_id', '=', line.product_id.id),
                 ('order_id.state', 'in', ['sale', 'done']),
                 ('display_type', '=', False),
-            ])
+            ] + line._tc_company_domain_for_sales())
 
             partner_ids = sale_lines.mapped('order_id.partner_id').ids
             line.eligible_partner_ids = [(6, 0, partner_ids)]
@@ -246,7 +261,7 @@ class StockTransitLine(models.Model):
                 ('order_id.partner_id', '=', line.partner_id.id),
                 ('order_id.state', 'in', ['sale', 'done']),
                 ('display_type', '=', False),
-            ])
+            ] + line._tc_company_domain_for_sales())
 
             order_ids = sale_lines.mapped('order_id').ids
             line.eligible_order_ids = [(6, 0, order_ids)]
@@ -266,7 +281,7 @@ class StockTransitLine(models.Model):
             ('order_id.partner_id', '=', self.partner_id.id),
             ('order_id.state', 'in', ['sale', 'done']),
             ('display_type', '=', False),
-        ])
+        ] + self._tc_company_domain_for_sales())
 
         eligible_orders = sale_lines.mapped('order_id')
 

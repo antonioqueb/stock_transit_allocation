@@ -64,9 +64,13 @@ class StockTransitVoyageReceptionsDash(models.Model):
         self._rcp_check_access()
         Voyage = self.env['stock.transit.voyage'].sudo()
         today = fields.Date.context_today(self)
+        # Multiempresa: sudo() salta las reglas → se acota a mano a las
+        # compañías seleccionadas en el switcher.
+        cids = list(self.env.companies.ids) or [self.env.company.id]
 
         active = Voyage.search([
             ('custom_status', 'not in', ('delivered', 'cancel')),
+            ('company_id', 'in', [False] + cids),
         ], order='eta asc, id desc')
 
         status_labels = dict(
@@ -255,10 +259,12 @@ class StockTransitVoyageReceptionsDash(models.Model):
         done_picks = Picking.search([
             ('tc_reception_voyage_id', '!=', False),
             ('state', '=', 'done'),
+            ('company_id', 'in', cids),
         ], order='id desc', limit=200)
         pick_voyage = {p.id: p.tc_reception_voyage_id for p in done_picks}
         for v in Voyage.search([
             ('reception_picking_id.state', '=', 'done'),
+            ('company_id', 'in', [False] + cids),
         ], order='id desc', limit=120):
             if v.reception_picking_id.id not in pick_voyage:
                 done_picks |= v.reception_picking_id
@@ -443,7 +449,9 @@ class StockTransitVoyageReceptionsDash(models.Model):
             reset['worksheet_imported'] = False
         if reset:
             new.with_context(ctx).write(reset)
-        Move = self.env['stock.move'].sudo()
+        # Multiempresa: los movimientos nacen en la compañía de la
+        # recepción (defaults de tipo de operación/ubicaciones de ESA).
+        Move = self.env['stock.move'].sudo().with_company(last.company_id)
         for p, q in missing.items():
             Move.with_context(ctx).create({
                 'picking_id': new.id, 'product_id': p.id,

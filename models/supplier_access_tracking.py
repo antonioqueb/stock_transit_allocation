@@ -11,7 +11,13 @@ class SupplierAccessTracking(models.Model):
 
     @api.model
     def get_links_tracking(self):
-        accesses = self.sudo().search([])
+        # sudo() salta las reglas: se listan solo las ligas cuyas OC son de
+        # las compañías del switcher (una liga sin OC se conserva).
+        accesses = self.sudo().search([
+            '|',
+            ('purchase_id', '=', False),
+            ('purchase_id.company_id', 'in', self.env.companies.ids),
+        ])
         Proforma = self.env['supplier.proforma.header'].sudo()
         Picking = self.env['stock.picking'].sudo()
         Shipment = self.env['supplier.shipment'].sudo()

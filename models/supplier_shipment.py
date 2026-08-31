@@ -20,9 +20,11 @@ class SupplierShipment(models.Model):
         'purchase.order', string='Orden de Compra',
         related='proforma_id.purchase_id', store=True,
     )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
     company_id = fields.Many2one(
         'res.company', string='Compañía',
-        related='proforma_id.company_id', store=True,
+        related='proforma_id.company_id', store=True, readonly=True, index=True,
     )
 
     sequence = fields.Integer(string='Secuencia', default=10)
@@ -534,7 +536,12 @@ class SupplierShipment(models.Model):
                     'purchase_id': self.purchase_id.id,
                     'custom_status': 'solicitud',
                 })
-                voyage = Voyage.with_context(skip_date_sync=True).create(vals)
+                # Multiempresa: el viaje nace en la compañía del embarque/OC.
+                if 'company_id' in Voyage._fields and self.company_id:
+                    vals['company_id'] = self.company_id.id
+                voyage = Voyage.with_company(
+                    self.company_id or self.env.company,
+                ).with_context(skip_date_sync=True).create(vals)
                 self.write({'voyage_id': voyage.id})
                 _logger.info(f"[SHIPMENT] Voyage {voyage.name} creado desde embarque {self.name}")
 

@@ -951,6 +951,10 @@ class SaleOrderLine(models.Model):
             ('quantity', '>', 0),
         ]
 
+        # Stock libre DE LA COMPAÑÍA del pedido (sudo salta las reglas).
+        if 'company_id' in Quant._fields and self.order_id and self.order_id.company_id:
+            domain.append(('company_id', 'in', [False, self.order_id.company_id.id]))
+
         safe_ids = self._tc_get_own_order_lot_ids()
 
         # Excluir placas con hold SALVO las de la propia orden: el flujo
@@ -1015,6 +1019,10 @@ class SaleOrderLine(models.Model):
             ('location_id.usage', '=', 'internal'),
             ('quantity', '>', 0),
         ]
+
+        # Techo con el stock DE LA COMPAÑÍA del pedido (sudo salta las reglas).
+        if 'company_id' in Quant._fields and self.order_id and self.order_id.company_id:
+            domain.append(('company_id', 'in', [False, self.order_id.company_id.id]))
 
         safe_ids = self._tc_get_own_order_lot_ids()
 

@@ -47,6 +47,11 @@ class SomUserSession(models.Model):
     started_at = fields.Datetime(string='Conexión', required=True, index=True)
     last_seen_at = fields.Datetime(string='Última señal', required=True, index=True)
     device = fields.Char(string='Dispositivo')
+    # Multiempresa: compañía ACTIVA del usuario al abrir la pestaña. Es
+    # dato de contexto (dónde trabajaba), no candado.
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', index=True,
+        default=lambda self: self.env.company)
     active_seconds = fields.Integer(string='Segundos activos', default=0)
     idle_seconds = fields.Integer(string='Segundos inactivos', default=0)
 
@@ -79,6 +84,11 @@ class SomUserActivity(models.Model):
         ondelete='cascade')
     session_id = fields.Many2one(
         'som.user.session', string='Sesión', index=True, ondelete='set null')
+    # Multiempresa: hereda la de la sesión (NULL si el latido llegó sin
+    # token de sesión — se conserva y las consultas lo admiten).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía', related='session_id.company_id',
+        store=True, readonly=True, index=True)
     day = fields.Date(string='Día', required=True, index=True)
     hour = fields.Integer(
         string='Hora del día', index=True,
@@ -175,6 +185,7 @@ class SomUserActivity(models.Model):
             return session
         return Session.create({
             'user_id': self.env.user.id,
+            'company_id': self.env.company.id,
             'token': token,
             'started_at': now,
             'last_seen_at': now,

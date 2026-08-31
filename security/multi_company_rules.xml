@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Reglas de registro multiempresa de Torre de Control. Con una sola
+         compañía el dominio deja pasar todo (company_ids = la única). -->
+    <data noupdate="1">
+        <record id="rule_stock_transit_voyage_company" model="ir.rule">
+            <field name="name">Viaje en tránsito: multiempresa</field>
+            <field name="model_id" ref="model_stock_transit_voyage"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+
+        <record id="rule_stock_transit_line_company" model="ir.rule">
+            <field name="name">Línea en tránsito: multiempresa</field>
+            <field name="model_id" ref="model_stock_transit_line"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+
+        <record id="rule_purchase_order_line_allocation_company" model="ir.rule">
+            <field name="name">Asignación de compra a venta: multiempresa</field>
+            <field name="model_id" ref="model_purchase_order_line_allocation"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+
+        <record id="rule_tc_physical_pl_job_company" model="ir.rule">
+            <field name="name">Job de PL físico: multiempresa</field>
+            <field name="model_id" ref="model_tc_physical_pl_job"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+    </data>
+</odoo>

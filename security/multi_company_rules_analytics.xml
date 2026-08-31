@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Reglas de registro multiempresa de los modelos de analítica /
+         medición de usuarios / Cronograma. NULL = compartido (filas
+         históricas sin compañía siguen visibles). -->
+    <data noupdate="1">
+        <record id="rule_som_user_session_company" model="ir.rule">
+            <field name="name">Sesión de usuario (SOM): multiempresa</field>
+            <field name="model_id" ref="model_som_user_session"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+
+        <record id="rule_som_user_activity_company" model="ir.rule">
+            <field name="name">Actividad de usuario (SOM): multiempresa</field>
+            <field name="model_id" ref="model_som_user_activity"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+
+        <record id="rule_stock_transit_sheet_company" model="ir.rule">
+            <field name="name">Cronograma (Resumen): multiempresa</field>
+            <field name="model_id" ref="model_stock_transit_sheet"/>
+            <field name="domain_force">['|', ('company_id', '=', False), ('company_id', 'in', company_ids)]</field>
+            <field name="global" eval="True"/>
+        </record>
+    </data>
+</odoo>

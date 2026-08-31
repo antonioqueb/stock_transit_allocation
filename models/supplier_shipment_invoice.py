@@ -135,6 +135,12 @@ class SupplierShipmentInvoice(models.Model):
         'purchase.order', string='OC',
         related='shipment_id.purchase_id', store=True,
     )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía',
+        related='shipment_id.company_id', store=True, readonly=True, index=True,
+    )
 
     invoice_number = fields.Char(string='Número de Invoice', required=True)
     # Marcador de la FACTURA GLOBAL sincronizada desde la proforma: el folio

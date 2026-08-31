@@ -333,6 +333,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             ('location_id.usage', '=', 'internal'),
             ('quantity', '>', 0),
             ('reserved_quantity', '=', 0),
+            # Multiempresa: sudo() salta las reglas → compañías seleccionadas
+            ('company_id', 'in', [False] + self._hub_company_ids()),
         ]
 
         if 'x_tiene_hold' in Quant._fields:
@@ -380,6 +382,12 @@ class AllocationHubPaymentMixin(models.AbstractModel):
     # -------------------------------------------------------------------------
     # OPTIMIZACIÓN HUBS
     # -------------------------------------------------------------------------
+
+    def _hub_company_ids(self):
+        """Multiempresa: compañías SELECCIONADAS en el switcher. Los hubs son
+        listados y su plomería corre con sudo() (salta las reglas), así que
+        cada búsqueda de quants/tránsito se acota a mano con esto."""
+        return list(self.env.companies.ids) or [self.env.company.id]
 
     def _hub_float_gt_zero(self, qty, precision=0.0001):
         return float(qty or 0.0) > precision
@@ -453,8 +461,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             ('quantity', '>', 0),
         ]
 
-        if 'company_id' in Quant._fields and self.env.company:
-            domain.append(('company_id', 'in', [False, self.env.company.id]))
+        if 'company_id' in Quant._fields:
+            domain.append(('company_id', 'in', [False] + self._hub_company_ids()))
 
         qty_map = {}
         for group in self._hub_get_quant_sum(domain, ['product_id', 'lot_id']):
@@ -483,8 +491,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         if 'x_tiene_hold' in Quant._fields:
             domain.append(('x_tiene_hold', '=', False))
 
-        if 'company_id' in Quant._fields and self.env.company:
-            domain.append(('company_id', 'in', [False, self.env.company.id]))
+        if 'company_id' in Quant._fields:
+            domain.append(('company_id', 'in', [False] + self._hub_company_ids()))
 
         committed_lot_ids = set()
         if hasattr(Quant, '_get_committed_lot_ids'):
@@ -517,6 +525,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         domain = [
             ('product_id', 'in', list(product_ids)),
             ('quantity', '>', 0),
+            ('company_id', 'in', [False] + self._hub_company_ids()),
         ] + self.env['stock.location']._som_transit_quant_leaf()
 
         qty_map = defaultdict(float)
@@ -555,6 +564,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             ('partner_id', '=', False),
             ('order_id', '=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+            ('company_id', 'in', [False] + self._hub_company_ids()),
         ], order='eta asc, voyage_id asc, product_id asc, id asc')
 
         if not transit_lines:
@@ -591,8 +601,8 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 ('quantity', '>', 0),
             ] + self.env['stock.location']._som_transit_quant_leaf()
 
-            if 'company_id' in Quant._fields and self.env.company:
-                quant_domain.append(('company_id', 'in', [False, self.env.company.id]))
+            if 'company_id' in Quant._fields:
+                quant_domain.append(('company_id', 'in', [False] + self._hub_company_ids()))
 
             quant_map = {}
             for quant in Quant.search(quant_domain, order='id desc'):
@@ -1451,9 +1461,12 @@ class ToBePurchasedLogic(models.AbstractModel):
 
         return [{'id': partner.id, 'name': partner.name} for partner in partners]
 
-    def _get_transit_picking_type(self):
+    def _get_transit_picking_type(self, company=None):
+        """Tipo de operación de recepción a tránsito de la COMPAÑÍA dada
+        (la de la OC que se está creando); SOM/TRANSIT es por compañía."""
+        company = company or self.env.company
         domain_loc = [
-            ('company_id', '=', self.env.company.id),
+            ('company_id', 'in', [company.id, False]),
             '|', '|',
             ('name', '=', 'SOM/Transit'),
             ('name', 'ilike', 'Transit'),
@@ -1476,7 +1489,7 @@ class ToBePurchasedLogic(models.AbstractModel):
         picking_type = self.env['stock.picking.type'].search([
             ('code', '=', 'incoming'),
             ('default_location_dest_id', '=', transit_loc.id),
-            ('company_id', '=', self.env.company.id),
+            ('company_id', '=', company.id),
         ], limit=1)
 
         if picking_type:
@@ -1619,13 +1632,25 @@ class ToBePurchasedLogic(models.AbstractModel):
         if not vendor.exists():
             return {'error': 'Proveedor no encontrado'}
 
+        # Multiempresa: la OC nace en la compañía de las ÓRDENES DE VENTA
+        # que la piden (no en la activa del usuario). Una sola por OC.
+        companies = self.env['res.company']
+        for data in line_data:
+            companies |= data['sale_line'].order_id.company_id
+        companies = companies or self.env.company
+        if len(companies) > 1:
+            return {'error': 'Los pendientes seleccionados pertenecen a varias '
+                             'compañías (%s). Genere una OC por compañía.'
+                             % ', '.join(companies.mapped('name'))}
+        company = companies[:1]
+
         po_vals = {
             'partner_id': vendor.id,
             'origin': ', '.join(sorted(set(data['sale_line'].order_id.name for data in line_data))),
-            'company_id': self.env.company.id,
+            'company_id': company.id,
         }
 
-        picking_type = self._get_transit_picking_type()
+        picking_type = self._get_transit_picking_type(company)
         if picking_type:
             po_vals['picking_type_id'] = picking_type.id
 
@@ -1637,6 +1662,11 @@ class ToBePurchasedLogic(models.AbstractModel):
 
             if po.partner_id.id != vendor.id:
                 return {'error': 'La OC seleccionada pertenece a otro proveedor.'}
+
+            if po.company_id and po.company_id != company:
+                return {'error': 'La OC seleccionada es de otra compañía (%s); '
+                                 'los pendientes son de %s.'
+                                 % (po.company_id.name, company.name)}
 
             if 'locked' in po._fields and po.locked:
                 return {'error': 'La OC seleccionada está bloqueada. Cree una OC nueva para este incremento.'}
@@ -1650,7 +1680,7 @@ class ToBePurchasedLogic(models.AbstractModel):
 
             po.write({'origin': current_origin})
         else:
-            po = self.env['purchase.order'].create(po_vals)
+            po = self.env['purchase.order'].with_company(company).create(po_vals)
 
         po_line_by_product = {}
         created_allocation_count = 0
@@ -1692,13 +1722,15 @@ class ToBePurchasedLogic(models.AbstractModel):
                         'order_id': po.id,
                         'product_id': product_id,
                         'product_qty': qty_pending,
-                        'price_unit': product.standard_price,
+                        # costo company_dependent: el de la compañía de la OC
+                        'price_unit': product.with_company(company).standard_price,
                         'name': f"[{so_refs}] {product.name}",
                         'date_planned': fields.Datetime.now(),
                     }
                     po_line_vals.update(self._prepare_purchase_line_uom_vals(product))
 
-                    po_line = self.env['purchase.order.line'].create(po_line_vals)
+                    po_line = self.env['purchase.order.line'].with_company(
+                        company).create(po_line_vals)
                     po_line_created_now = True
 
                 po_line_by_product[product_id] = po_line

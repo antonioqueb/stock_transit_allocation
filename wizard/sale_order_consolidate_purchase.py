@@ -34,18 +34,34 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
         if not self.sale_order_ids:
             raise UserError(_("No hay pedidos seleccionados para consolidar."))
 
+        # La OC nace en la compañía de los PEDIDOS consolidados (no en la
+        # activa del usuario): diario, moneda, picking type y tránsito de esa
+        # compañía. Pedidos de varias compañías no se mezclan en una OC.
+        so_companies = self.sale_order_ids.mapped('company_id')
+        if len(so_companies) > 1:
+            raise UserError(_(
+                "Los pedidos seleccionados pertenecen a compañías distintas "
+                "(%s): consolide pedidos de una sola compañía."
+            ) % ', '.join(so_companies.mapped('name')))
+        company = so_companies[:1] or self.env.company
+
         if self.target_type == 'new':
             origin_names = ', '.join(self.sale_order_ids.mapped('name'))
-            purchase_order = self.env['purchase.order'].create({
+            purchase_order = self.env['purchase.order'].with_company(company).create({
                 'partner_id': self.vendor_id.id,
                 'origin': origin_names,
                 'date_order': fields.Datetime.now(),
-                'company_id': self.env.company.id,
+                'company_id': company.id,
             })
         else:
             if not self.purchase_order_id:
                 raise UserError(_("Debe seleccionar una Orden de Compra existente."))
-            
+            if self.purchase_order_id.company_id != company:
+                raise UserError(_(
+                    "La Orden de Compra %s pertenece a otra compañía (%s)."
+                ) % (self.purchase_order_id.name,
+                     self.purchase_order_id.company_id.name))
+
             purchase_order = self.purchase_order_id
             new_origins = self.sale_order_ids.mapped('name')
             current_origin = purchase_order.origin or ''
@@ -96,7 +112,8 @@ class SaleOrderConsolidatePurchase(models.TransientModel):
                     'name': f"[{', '.join(so_refs)}] {product.name}",
                     'product_qty': total_qty,
                     'product_uom_id': uom_id,
-                    'price_unit': product.standard_price, 
+                    # Costo company_dependent: el de la compañía de la OC.
+                    'price_unit': product.with_company(company).standard_price,
                     'date_planned': fields.Datetime.now(),
                 })
             

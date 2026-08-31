@@ -11,20 +11,39 @@ class PurchaseOrder(models.Model):
     _inherit = 'purchase.order'
 
     @api.model
-    def _som_transit_source_location(self):
-        """SOM/TRANSIT, la ubicación donde LLEGA toda recepción de compra.
+    def _som_transit_source_location(self, company=None):
+        """Ubicación de tránsito (…/TRANSIT) donde LLEGA toda recepción de
+        compra, POR COMPAÑÍA: cada compañía tiene su propio almacén y su
+        propio tránsito. La compañía se recibe explícita o se deriva del
+        documento (self.company_id); env.company solo como último recurso.
         Se resuelve por ruta completa (sobrevive renombres de hijos) con
-        respaldo por id histórico (1019)."""
-        Location = self.env['stock.location']
-        loc = Location.search(
-            [('complete_name', '=ilike', 'SOM/TRANSIT')], limit=1)
+        respaldo por id histórico (1019) solo si pertenece a esa compañía."""
+        if not company:
+            company = self[:1].company_id if self else self.env['res.company']
+        company = company or self.env.company
+        # sudo(): el documento puede ser de una compañía que el usuario no
+        # tiene activa en el switcher; el filtro explícito acota el alcance.
+        Location = self.env['stock.location'].sudo()
+        # Una ubicación de tránsito SIN compañía (compartida) también vale:
+        # es el respaldo que preserva el comportamiento de una sola empresa.
+        loc = Location.search([
+            ('complete_name', '=ilike', 'SOM/TRANSIT'),
+            ('company_id', 'in', [company.id, False]),
+        ], order='company_id desc, id', limit=1)
         if not loc:
-            loc = Location.browse(1019).exists()
+            loc = Location.search([
+                ('complete_name', 'ilike', '%/TRANSIT'),
+                ('company_id', 'in', [company.id, False]),
+            ], order='company_id desc, id', limit=1)
+        if not loc:
+            legacy = Location.browse(1019).exists()
+            if legacy and legacy.company_id.id in (company.id, False):
+                loc = legacy
         return loc
 
     def _prepare_picking(self):
         vals = super()._prepare_picking()
-        loc = self._som_transit_source_location()
+        loc = self._som_transit_source_location(company=self.company_id)
         # DESTINO, no origen: el origen de una recepción es Proveedores.
         # Con origen = destino = SOM/TRANSIT la entrada y la salida se
         # cancelan y el lote queda con quant en cero (bug SOM/IN/00009).
@@ -129,8 +148,13 @@ class PurchaseOrder(models.Model):
                 ], limit=1)
 
                 if not existing_voyage:
-                    voyage = self.env['stock.transit.voyage'].sudo().create({
+                    # El viaje nace en la compañía de la OC (no en la del
+                    # comprador): folio, tránsito y recepción de esa compañía.
+                    voyage = self.env['stock.transit.voyage'].sudo().with_company(
+                        po.company_id
+                    ).create({
                         'purchase_id': po.id,
+                        'company_id': po.company_id.id,
                         'custom_status': 'solicitud',
                         'vessel_name': 'Por Definir',
                         'bl_number': po.partner_ref or po.name,

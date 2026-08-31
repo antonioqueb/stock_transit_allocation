@@ -396,7 +396,12 @@ class StockPickingPhysicalPackingList(models.Model):
         if not products:
             raise UserError(_("No hay productos/lotes para preparar el Packing List físico."))
 
-        folder = self.env["documents.document"].search([("type", "=", "folder")], limit=1)
+        # Carpeta de Documentos de la compañía de la recepción (o compartida).
+        Document = self.env["documents.document"]
+        folder_domain = [("type", "=", "folder")]
+        if "company_id" in Document._fields:
+            folder_domain.append(("company_id", "in", [self.company_id.id, False]))
+        folder = Document.search(folder_domain, limit=1)
 
         common_headers_suffix = [
             "Peso (kg)",

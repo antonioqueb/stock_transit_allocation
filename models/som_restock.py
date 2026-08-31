@@ -44,6 +44,11 @@ class SomRestock(models.AbstractModel):
     # ------------------------------------------------------------------
     # BLOQUES DE DATOS
     # ------------------------------------------------------------------
+    # Multiempresa: todo va con sudo() (plomería del radar), así que cada
+    # bloque filtra a mano por las compañías SELECCIONADAS en el switcher.
+
+    def _cids(self):
+        return list(self.env.companies.ids) or [self.env.company.id]
 
     def _stock_by_product(self):
         """{product_id: {'on_hand', 'reserved', 'holds'}} de ubicaciones internas."""
@@ -52,6 +57,7 @@ class SomRestock(models.AbstractModel):
             ('location_id.usage', '=', 'internal'),
             ('quantity', '>', 0),
             ('product_id.tracking', '=', 'lot'),
+            ('company_id', 'in', self._cids()),
         ]
         out = {}
         for product, qty, reserved in Quant._read_group(
@@ -78,6 +84,7 @@ class SomRestock(models.AbstractModel):
                 ('product_id', '!=', False),
                 ('product_uom_qty', '>', 0),
                 ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+                ('company_id', 'in', [False] + self._cids()),
             ],
             ['product_id', 'product_uom_qty', 'allocation_status',
              'partner_id', 'order_id', 'eta'],
@@ -112,6 +119,7 @@ class SomRestock(models.AbstractModel):
             ('state', '=', 'done'),
             ('date', '>=', start),
             ('product_id.tracking', '=', 'lot'),
+            ('company_id', 'in', self._cids()),
         ]
         totals = {}
         for product, qty in Ml._read_group(
@@ -130,6 +138,7 @@ class SomRestock(models.AbstractModel):
         voyages = self.env['stock.transit.voyage'].sudo().search([
             ('custom_status', '=', 'delivered'),
             ('reception_picking_id', '!=', False),
+            ('company_id', 'in', [False] + self._cids()),
         ])
         samples = {}
         for v in voyages:
@@ -164,6 +173,7 @@ class SomRestock(models.AbstractModel):
                     ('order_id.state', 'in', ['purchase', 'done']),
                     ('order_id.date_order', '>=', start),
                     ('partner_id', '!=', False),
+                    ('company_id', 'in', self._cids()),
                 ],
                 ['product_id', 'partner_id'], ['product_qty:sum']):
             cur = best.get(product.id)

@@ -13,6 +13,9 @@ class StockTransitSheet(models.Model):
     _order = 'eta asc, voyage_id desc'
 
     voyage_id = fields.Many2one('stock.transit.voyage', string='Viaje', readonly=True)
+    # Multiempresa: la del viaje, para que la regla de registro aplique
+    # sobre la vista SQL igual que sobre el viaje.
+    company_id = fields.Many2one('res.company', string='Compañía', readonly=True)
     product_id = fields.Many2one('product.product', string='Descripción / Producto', readonly=True)
     order_id = fields.Many2one('sale.order', string='Sales Order', readonly=True)
     purchase_id = fields.Many2one('purchase.order', string='OC Sistema', readonly=True)
@@ -63,6 +66,7 @@ class StockTransitSheet(models.Model):
                 SELECT
                     MIN(l.id) as id,
                     l.voyage_id,
+                    v.company_id,
                     l.product_id,
                     l.order_id,
                     l.purchase_id,
@@ -95,6 +99,7 @@ class StockTransitSheet(models.Model):
                     LEFT JOIN product_template pt ON pt.id = pp.product_tmpl_id
                 GROUP BY
                     l.voyage_id,
+                    v.company_id,
                     l.product_id,
                     l.order_id,
                     l.purchase_id,

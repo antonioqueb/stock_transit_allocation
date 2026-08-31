@@ -111,7 +111,12 @@ class SupplierShipmentPackingRowTrace(models.Model):
         if not product_ids:
             return {}, {}, {}
 
-        lots = Lot.search([('product_id', 'in', product_ids)])
+        # sudo() salta las reglas: lotes de las compañías del switcher (o
+        # compartidos), nunca los de otra compañía con el mismo bloque/placa.
+        lots = Lot.search([
+            ('product_id', 'in', product_ids),
+            ('company_id', 'in', self.env.companies.ids + [False]),
+        ])
 
         by_bloque_placa = {}
         by_placa_atado = {}

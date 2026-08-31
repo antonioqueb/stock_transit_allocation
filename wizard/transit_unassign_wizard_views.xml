@@ -83,6 +83,7 @@
                 <field name="partner_id"/>
                 <field name="order_id"/>
                 <field name="allocation_status"/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
             </list>
         </field>
     </record>

@@ -163,7 +163,7 @@ class StockPickingReturnRescue(models.Model):
         MoveLine = self.env['stock.move.line'].sudo()
         qty_key = 'quantity' if 'quantity' in MoveLine._fields else 'qty_done'
 
-        rescue = self.env['stock.picking'].sudo().create({
+        rescue = self.env['stock.picking'].sudo().with_company(pk.company_id).create({
             'picking_type_id': int_type.id,
             'location_id': dest.id,
             'location_dest_id': target_loc.id,
@@ -259,8 +259,11 @@ class StockPickingReturnRescue(models.Model):
                 'Ya no queda existencia en tránsito de los lotes de esta '
                 'recepción (quizá ya se devolvieron o se recibieron).'))
 
+        # property_stock_supplier es company_dependent: se lee con la
+        # compañía de la recepción.
         supplier_loc = (
-            pk.partner_id.property_stock_supplier if pk.partner_id else False
+            pk.partner_id.with_company(pk.company_id).property_stock_supplier
+            if pk.partner_id else False
         ) or self.env.ref('stock.stock_location_suppliers',
                           raise_if_not_found=False)
         if not supplier_loc:
@@ -282,7 +285,8 @@ class StockPickingReturnRescue(models.Model):
         if 'return_id' in pk._fields:
             ret_vals['return_id'] = pk.id
         ctx = {'skip_whole_lot_no_assign': True, 'skip_date_sync': True}
-        ret = self.env['stock.picking'].sudo().with_context(**ctx).create(ret_vals)
+        ret = self.env['stock.picking'].sudo().with_context(**ctx).with_company(
+            pk.company_id).create(ret_vals)
 
         by_product = {}
         for quant in quants:

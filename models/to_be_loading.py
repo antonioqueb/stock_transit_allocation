@@ -37,8 +37,11 @@ class ToBeLoadingLogic(models.AbstractModel):
 
     @api.model
     def get_data(self):
+        # Multiempresa: sudo() salta las reglas → OCs de las compañías
+        # seleccionadas en el switcher.
         pos = self.env['purchase.order'].sudo().search(
-            [('state', 'in', ('purchase', 'done'))],
+            [('state', 'in', ('purchase', 'done')),
+             ('company_id', 'in', self.env.companies.ids)],
             order='date_approve asc')
 
         groups = []

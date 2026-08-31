@@ -226,11 +226,64 @@ class StockTransitVoyage(models.Model):
         readonly=True,
     )
 
+    # Compañía del embarque: la de la OC / recepción que lo origina (ninguna
+    # es obligatoria, por eso es compute almacenado con respaldo en la
+    # compañía activa). Manda sobre folio, tránsito, tipos de operación y
+    # recepción física.
     company_id = fields_module.Many2one(
         'res.company',
         string='Compañía',
-        default=lambda self: self.env.company,
+        compute='_compute_company_id',
+        store=True,
+        readonly=False,
+        precompute=True,
+        index=True,
     )
+
+    @api.depends('purchase_id.company_id', 'picking_id.company_id')
+    def _compute_company_id(self):
+        for rec in self:
+            company = rec.purchase_id.company_id or rec.picking_id.company_id
+            if not company:
+                # Sin padre: conserva lo ya guardado; solo un registro nuevo
+                # cae a la compañía activa.
+                company = rec.company_id or self.env.company
+            rec.company_id = company
+
+    @api.model
+    def _som_next_sequence(self, code, company=None):
+        """next_by_code con la compañía del documento; si la compañía no tiene
+        secuencia propia y la plantilla es de otra compañía, se clona para ella."""
+        company = company or self.env.company
+        Seq = self.env['ir.sequence'].sudo()
+        name = Seq.with_company(company).next_by_code(code)
+        if name:
+            return name
+        template = Seq.search([('code', '=', code)], order='company_id', limit=1)
+        if not template:
+            return False
+        template.copy({
+            'company_id': company.id,
+            'number_next': 1,
+            'name': '%s (%s)' % (template.name, company.name),
+        })
+        return Seq.with_company(company).next_by_code(code)
+
+    @api.model
+    def _som_voyage_company_from_vals(self, vals):
+        """Compañía del viaje a partir de los vals de create: explícita, la
+        de la OC, la de la recepción; env.company como último recurso."""
+        if vals.get('company_id'):
+            return self.env['res.company'].browse(vals['company_id'])
+        if vals.get('purchase_id'):
+            po = self.env['purchase.order'].sudo().browse(vals['purchase_id'])
+            if po.company_id:
+                return po.company_id
+        if vals.get('picking_id'):
+            pick = self.env['stock.picking'].sudo().browse(vals['picking_id'])
+            if pick.company_id:
+                return pick.company_id
+        return self.env.company
 
     line_ids = fields_module.One2many(
         'stock.transit.line',
@@ -1191,7 +1244,12 @@ class StockTransitVoyage(models.Model):
     def create(self, vals_list):
         for vals in vals_list:
             if vals.get('name', _('Nuevo')) == _('Nuevo'):
-                vals['name'] = self.env['ir.sequence'].next_by_code('stock.transit.voyage') or _('Nuevo')
+                # Folio con la compañía del viaje (OC/recepción), no la del
+                # usuario que dispara la creación.
+                vals['name'] = self._som_next_sequence(
+                    'stock.transit.voyage',
+                    self._som_voyage_company_from_vals(vals),
+                ) or _('Nuevo')
 
             vals.pop('container_number', None)
 
@@ -1647,8 +1705,10 @@ class StockTransitVoyage(models.Model):
         parseada (shipsgo_payload guarda el map_data del refresh: rutas
         pasado/actual/futuro, puertos y posición del buque), más la ficha
         comercial: OC, proveedor, embarque, contenedores, ETD/ETA."""
+        # sudo() salta las reglas: se acota a las compañías del switcher.
         voyages = self.sudo().search(
-            [('custom_status', '!=', 'cancel')],
+            [('custom_status', '!=', 'cancel'),
+             ('company_id', 'in', self.env.companies.ids)],
             order='eta asc, id desc', limit=500,
         )
 
@@ -2447,10 +2507,12 @@ class StockTransitVoyage(models.Model):
             if not relevant_lines:
                 continue
 
-            hold_order = self.env['stock.lot.hold.order'].create({
+            hold_order = self.env['stock.lot.hold.order'].with_company(
+                self.company_id
+            ).create({
                 'partner_id': partner.id,
                 'user_id': self.env.user.id,
-                'company_id': self.env.company.id,
+                'company_id': self.company_id.id,
                 'fecha_orden': fields_module.Datetime.now(),
                 'notas': f"Asignación Automática - Pedido {order.name} (Desde Tránsito)",
             })
@@ -3259,7 +3321,7 @@ class StockTransitVoyage(models.Model):
 
         picking = self.env['stock.picking'].with_context(
             self._tc_reception_safe_context()
-        ).create(vals)
+        ).with_company(self.company_id).create(vals)
 
         self.write({
             'reception_picking_id': picking.id,
@@ -3633,7 +3695,8 @@ class StockTransitVoyage(models.Model):
         voyage_lots = self.line_ids.mapped('lot_id')
         if voyage_lots:
             for q in self.env['stock.quant'].sudo().search(
-                    [('lot_id', 'in', voyage_lots.ids),
+                    [('company_id', '=', self.company_id.id),
+                     ('lot_id', 'in', voyage_lots.ids),
                      ('quantity', '>', 0)]
                     + self.env['stock.location']._som_transit_quant_leaf()):
                 avail[q.product_id.id] = (
@@ -3811,8 +3874,15 @@ class StockTransitVoyage(models.Model):
             src = rec.reception_picking_id.location_id \
                 if rec.reception_picking_id else False
             if not src or not src._som_is_transit():
-                src = self.env['stock.location'].sudo().search(
-                    [('usage', '=', 'transit')], limit=1)
+                # Tránsito DE LA COMPAÑÍA del viaje (jamás el primero de
+                # cualquier compañía).
+                src = self.env['purchase.order']._som_transit_source_location(
+                    company=rec.company_id)
+            if not src:
+                src = self.env['stock.location'].sudo().search([
+                    ('usage', '=', 'transit'),
+                    ('company_id', 'in', [rec.company_id.id, False]),
+                ], limit=1)
             if not src:
                 raise UserError(_(
                     'No se encontró la ubicación de tránsito para '
@@ -3917,7 +3987,8 @@ class StockTransitVoyage(models.Model):
         quants = Quant
         if orphan_lines:
             quants = Quant.search(
-                [('lot_id', 'in', orphan_lines.mapped('lot_id').ids),
+                [('company_id', '=', self.company_id.id),
+                 ('lot_id', 'in', orphan_lines.mapped('lot_id').ids),
                  ('quantity', '>', 0)] + leaf_domain)
         return {
             'orphan_lines': orphan_lines,

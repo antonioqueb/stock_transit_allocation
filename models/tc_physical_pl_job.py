@@ -31,6 +31,12 @@ class TcPhysicalPlJob(models.Model):
         "stock.picking", string="Recepción", required=True,
         ondelete="cascade", index=True,
     )
+    # Compañía de la recepción (padre obligatorio): regla de registro
+    # multiempresa; el job ya corre con with_company(picking.company_id).
+    company_id = fields.Many2one(
+        "res.company", string="Compañía",
+        related="picking_id.company_id", store=True, readonly=True, index=True,
+    )
     user_id = fields.Many2one(
         "res.users", string="Solicitado por", required=True,
         default=lambda self: self.env.user,

@@ -86,10 +86,14 @@ class TransitManager:
 
         # Caso: Asignación a nuevo cliente
         if new_partner_id:
+            # Compañía del documento (línea/viaje), no la del usuario: precios
+            # company_dependent, moneda y reserva salen de ella.
+            company = transit_line.company_id or transit_line.voyage_id.company_id or env.company
+            tmpl = product.product_tmpl_id.with_company(company)
             price_unit = 0.0
-            if hasattr(product.product_tmpl_id, 'x_price_usd_1'):
-                price_unit = product.product_tmpl_id.x_price_usd_1
-            
+            if hasattr(tmpl, 'x_price_usd_1'):
+                price_unit = tmpl.x_price_usd_1
+
             if price_unit <= 0:
                 price_unit = product.list_price
 
@@ -99,7 +103,7 @@ class TransitManager:
             if not order:
                 project_id = False
                 architect_id = False
-                
+
                 if new_order_id:
                     project_id_obj = getattr(new_order_id, 'x_project_id', False)
                     architect_id_obj = getattr(new_order_id, 'x_architect_id', False)
@@ -108,12 +112,12 @@ class TransitManager:
 
                 currency = env['res.currency'].search([('name', '=', 'USD')], limit=1)
                 if not currency:
-                    currency = env.company.currency_id
+                    currency = company.currency_id
 
-                order = env['stock.lot.hold.order'].sudo().create({
+                order = env['stock.lot.hold.order'].sudo().with_company(company).create({
                     'partner_id': new_partner_id.id,
                     'user_id': env.user.id,
-                    'company_id': transit_line.company_id.id or env.company.id,
+                    'company_id': company.id,
                     'project_id': project_id,
                     'arquitecto_id': architect_id,
                     'currency_id': currency.id,

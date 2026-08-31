@@ -72,9 +72,11 @@ class TransitReassignWizard(models.TransientModel):
             return res
         
         product_ids = lines.mapped('product_id').ids
-        
-        # Calcular clientes elegibles
-        partner_ids = self._get_eligible_partner_ids(product_ids)
+
+        # Calcular clientes elegibles (solo pedidos de la compañía de las líneas)
+        partner_ids = self.with_context(
+            tc_reassign_company_id=lines[:1].company_id.id or False,
+        )._get_eligible_partner_ids(product_ids)
         
         # Info del cliente actual (tomamos el primero si todos son iguales)
         current_partners = lines.mapped('partner_id')
@@ -94,17 +96,27 @@ class TransitReassignWizard(models.TransientModel):
     # MÉTODOS DE CÁLCULO DE ELEGIBLES
     # =========================================================================
 
+    def _tc_company_domain(self):
+        """Acota las ventas elegibles a la compañía de las líneas de tránsito
+        (por contexto en default_get; por line_ids ya cargadas después)."""
+        company_id = self.env.context.get('tc_reassign_company_id')
+        if not company_id and self:
+            company_id = self.line_ids[:1].company_id.id
+        if not company_id:
+            return []
+        return [('order_id.company_id', '=', company_id)]
+
     @api.model
     def _get_eligible_partner_ids(self, product_ids):
         """Clientes con SO confirmadas que tengan estos productos con qty pendiente."""
         if not product_ids:
             return []
-        
+
         sale_lines = self.env['sale.order.line'].search([
             ('product_id', 'in', product_ids),
             ('order_id.state', 'in', ['sale', 'done']),
             ('display_type', '=', False),
-        ])
+        ] + self._tc_company_domain())
         pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
         return pending_lines.mapped('order_id.partner_id').ids
 
@@ -112,13 +124,13 @@ class TransitReassignWizard(models.TransientModel):
         """Órdenes del partner con estos productos y qty pendiente."""
         if not product_ids or not partner_id:
             return []
-        
+
         sale_lines = self.env['sale.order.line'].search([
             ('product_id', 'in', product_ids),
             ('order_id.partner_id', '=', partner_id),
             ('order_id.state', 'in', ['sale', 'done']),
             ('display_type', '=', False),
-        ])
+        ] + self._tc_company_domain())
         pending_lines = sale_lines.filtered(lambda l: l.qty_delivered < l.product_uom_qty)
         return pending_lines.mapped('order_id').ids
 
@@ -158,15 +170,18 @@ class TransitReassignWizard(models.TransientModel):
         if self.new_partner_id:
             project_id = getattr(self.new_order_id, 'x_project_id', False)
             architect_id = getattr(self.new_order_id, 'x_architect_id', False)
-            
+
+            # Compañía de las líneas de tránsito (documento), no la del usuario.
+            company = self.line_ids[:1].company_id or self.env.company
+
             currency = self.env['res.currency'].search([('name', '=', 'USD')], limit=1)
             if not currency:
-                currency = self.env.company.currency_id
+                currency = company.currency_id
 
-            hold_order = self.env['stock.lot.hold.order'].create({
+            hold_order = self.env['stock.lot.hold.order'].with_company(company).create({
                 'partner_id': self.new_partner_id.id,
                 'user_id': self.env.user.id,
-                'company_id': self.env.company.id,
+                'company_id': company.id,
                 'project_id': project_id.id if project_id else False,
                 'arquitecto_id': architect_id.id if architect_id else False,
                 'currency_id': currency.id,

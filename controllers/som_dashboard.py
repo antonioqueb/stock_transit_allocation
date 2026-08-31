@@ -9,6 +9,7 @@ Autorizador de Precios (misma regla que el resto de Analytics: la
 utilidad con costo all-in es información restringida).
 """
 import json
+import re
 
 from markupsafe import Markup
 
@@ -34,14 +35,30 @@ class SomDashboardController(http.Controller):
     def _check_group(self):
         return any(request.env.user.has_group(g) for g in GROUPS)
 
+    def _apply_company_context(self):
+        """Multiempresa: la página standalone NO pasa por el webclient, así
+        que su RPC llega sin allowed_company_ids y env.companies caería a
+        TODAS las compañías del usuario. Se toma la selección del switcher
+        del backend (cookie `cids`, que es donde el webclient la guarda),
+        acotada a las compañías permitidas; sin cookie válida, la activa."""
+        user = request.env.user
+        allowed = user.company_ids.ids
+        raw = request.httprequest.cookies.get('cids') or ''
+        cids = [int(x) for x in re.findall(r'\d+', raw) if int(x) in allowed]
+        if not cids:
+            cids = [user.company_id.id]
+        request.update_context(allowed_company_ids=cids)
+        return request.env['res.company'].browse(cids)
+
     @http.route('/som/analytics', type='http', auth='user')
     def dashboard_page(self, **kw):
         if not self._check_group():
             return request.redirect('/odoo')
         user = request.env.user
+        companies = self._apply_company_context()
         boot = {
             'user': user.name,
-            'company': user.company_id.name,
+            'company': ' + '.join(companies.mapped('name')),
             'uid': user.id,
         }
         # Cache-bust: la URL del bundle lleva la versión instalada del
@@ -67,4 +84,5 @@ class SomDashboardController(http.Controller):
             return {'error': 'unknown method'}
         fname, max_args = spec
         args = list(args or [])[:max_args]
+        self._apply_company_context()
         return getattr(request.env['som.analytics'], fname)(*args)

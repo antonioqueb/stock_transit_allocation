@@ -160,9 +160,8 @@ class StockPicking(models.Model):
         """Toda recepción (tipo incoming) DEBE llegar a SOM/TRANSIT aunque el
         usuario u otro flujo haya seleccionado otra ubicación. Excepciones:
         devoluciones de cliente (return_id) y pickings ya done/cancel."""
-        loc = self.env['purchase.order']._som_transit_source_location()
-        if not loc:
-            return
+        PurchaseOrder = self.env['purchase.order']
+        loc_by_company = {}
         for pick in self:
             if pick.picking_type_code != 'incoming':
                 continue
@@ -173,6 +172,14 @@ class StockPicking(models.Model):
             # Devolución de cliente sin return_id (flujo del wizard): el
             # material regresa a stock interno, no a tránsito.
             if pick.location_id.usage == 'customer':
+                continue
+            # Tránsito DE LA COMPAÑÍA de la recepción (no de la del usuario).
+            company = pick.company_id or self.env.company
+            if company.id not in loc_by_company:
+                loc_by_company[company.id] = \
+                    PurchaseOrder._som_transit_source_location(company=company)
+            loc = loc_by_company[company.id]
+            if not loc:
                 continue
             if pick.location_dest_id.id != loc.id:
                 pick.with_context(
@@ -400,6 +407,7 @@ class StockPicking(models.Model):
             origin_ref = self.origin.split(' ')[0]
             voyage = Voyage.search([
                 ('name', '=', origin_ref),
+                ('company_id', '=', self.company_id.id),
             ], limit=1)
 
         return voyage
@@ -1320,7 +1328,10 @@ class StockPicking(models.Model):
             return picking.sale_id.sudo()
 
         if picking and picking.origin:
-            sale_order = SaleOrder.search([('name', '=', picking.origin)], limit=1)
+            sale_order = SaleOrder.search([
+                ('name', '=', picking.origin),
+                ('company_id', '=', picking.company_id.id),
+            ], limit=1)
             if sale_order:
                 return sale_order
 
@@ -1926,10 +1937,13 @@ class StockPicking(models.Model):
                 orphan.action_load_from_picking()
                 return
 
-        voyage = Voyage.create({
+        # El viaje nace en la compañía de la RECEPCIÓN (folio y tránsito de
+        # esa compañía), no en la del almacenista que valida.
+        voyage = Voyage.with_company(self.company_id).create({
             'picking_id': self.id,
             'picking_ids': [(4, self.id)],
             'purchase_id': self.purchase_id.id if self.purchase_id else False,
+            'company_id': self.company_id.id,
             'bl_number': bl,
             'etd': fields.Date.today(),
             'custom_status': 'on_sea',

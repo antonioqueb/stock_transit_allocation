@@ -19,6 +19,12 @@ class SupplierShipmentContainer(models.Model):
         'supplier.proforma.header', string='Proforma',
         related='shipment_id.proforma_id', store=True,
     )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía',
+        related='shipment_id.company_id', store=True, readonly=True, index=True,
+    )
 
     container_number = fields.Char(string='Número de Contenedor', required=True)
     seal_number = fields.Char(string='Número de Sello')

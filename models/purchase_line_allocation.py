@@ -37,6 +37,16 @@ class PurchaseOrderLineAllocation(models.Model):
         store=True,
         string='Orden de Compra',
     )
+    # Compañía de la LÍNEA DE COMPRA (padre obligatorio): reglas de registro
+    # multiempresa y trazabilidad sin depender de la compañía del usuario.
+    company_id = fields.Many2one(
+        'res.company',
+        string='Compañía',
+        related='purchase_line_id.company_id',
+        store=True,
+        readonly=True,
+        index=True,
+    )
     sale_order_id = fields.Many2one(
         'sale.order',
         related='sale_line_id.order_id',

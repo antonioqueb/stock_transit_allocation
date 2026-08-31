@@ -17,9 +17,11 @@ class SupplierProformaHeader(models.Model):
         'stock.picking.supplier.access', string='Acceso Portal',
         ondelete='set null', index=True,
     )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
     company_id = fields.Many2one(
         'res.company', string='Compañía',
-        related='purchase_id.company_id', store=True,
+        related='purchase_id.company_id', store=True, readonly=True, index=True,
     )
     partner_id = fields.Many2one(
         'res.partner', string='Proveedor',

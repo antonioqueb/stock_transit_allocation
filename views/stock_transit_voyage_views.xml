@@ -27,6 +27,7 @@
                 <field name="eta" widget="remaining_days" optional="show"/>
                 <field name="transit_progress" widget="progressbar" string="Progreso" optional="show"/>
                 <field name="allocation_percent" widget="progressbar" string="% Asig."/>
+                <field name="company_id" optional="hide" groups="base.group_multi_company"/>
             </list>
         </field>
     </record>
@@ -251,6 +252,14 @@
                                 </span>
                                 <span class="vf-log-value vf-log-value--empty" invisible="bl_number">Sin definir</span>
                             </div>
+                            <!-- Solo visible con multiempresa activa: con una
+                                 sola compañía la UI queda igual. -->
+                            <div class="vf-log-item" groups="base.group_multi_company">
+                                <span class="vf-log-label">Compañía</span>
+                                <span class="vf-log-value">
+                                    <field name="company_id" readonly="1" options="{'no_open': True}"/>
+                                </span>
+                            </div>
                         </div>
 
                         <!-- 3. Cobertura comercial (30%): una sola línea, centrada -->
@@ -454,6 +463,7 @@
                         domain="[('tc_publication_pending', '=', True)]"
                         help="PL procesado, en Puerto Origen o superior, y el inventario de tránsito sigue sin publicarse."/>
                 <filter name="group_status" string="Estado" context="{'group_by': 'custom_status'}"/>
+                <filter name="group_company" string="Compañía" context="{'group_by': 'company_id'}" groups="base.group_multi_company"/>
             </search>
         </field>
     </record>

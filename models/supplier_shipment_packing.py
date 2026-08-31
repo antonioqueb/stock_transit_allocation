@@ -19,6 +19,12 @@ class SupplierShipmentPacking(models.Model):
         'purchase.order', string='OC',
         related='shipment_id.purchase_id', store=True,
     )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía',
+        related='shipment_id.company_id', store=True, readonly=True, index=True,
+    )
 
     packing_number = fields.Char(string='Número de Packing List', required=True)
     packing_date = fields.Date(string='Fecha')
@@ -76,6 +82,12 @@ class SupplierShipmentPackingRow(models.Model):
     shipment_id = fields.Many2one(
         'supplier.shipment', string='Embarque',
         related='packing_id.shipment_id', store=True,
+    )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía',
+        related='packing_id.company_id', store=True, readonly=True, index=True,
     )
     sequence = fields.Integer(default=10)
 
@@ -165,6 +177,12 @@ class SupplierShipmentBlockImage(models.Model):
     proforma_id = fields.Many2one(
         'supplier.proforma.header', string='Proforma',
         related='shipment_id.proforma_id', store=True,
+    )
+    # Multiempresa. DUPLICADO INTENCIONAL con stock_lot_packing_import
+    # (patrón _name duplicado: la definición debe ser IDÉNTICA en ambas).
+    company_id = fields.Many2one(
+        'res.company', string='Compañía',
+        related='shipment_id.company_id', store=True, readonly=True, index=True,
     )
     block_name = fields.Char(string='Nombre del Bloque', required=True, index=True)
     product_id = fields.Many2one('product.product', string='Producto', required=True)

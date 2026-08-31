@@ -103,6 +103,58 @@ class SomAnalytics(models.AbstractModel):
     def _cid(self):
         return str(self.env.company.id)
 
+    # ── Multiempresa ──────────────────────────────────────────────────
+    # El BI agrega lo que el usuario está VIENDO: las compañías
+    # seleccionadas en el switcher (env.companies), no solo la activa.
+    # Toda consulta SQL/ORM con sudo lleva este filtro; los costos y
+    # precios company_dependent (jsonb) se leen con la compañía de la
+    # FILA (so.company_id / q.company_id) donde la hay.
+    def _cids(self):
+        return list(self.env.companies.ids) or [self.env.company.id]
+
+    def _co_sql(self, alias='so', nullable=False):
+        """Fragmento ' AND alias.company_id IN (...)' con las compañías
+        seleccionadas. Va EMBEBIDO (ids enteros del ORM, sin parámetro):
+        las consultas mezclan %s posicionales y %(x)s nombrados y un
+        parámetro extra rompería cualquiera de las dos formas.
+        nullable=True admite NULL (lotes / filas históricas sin
+        compañía)."""
+        col = ('%s.company_id' % alias) if alias else 'company_id'
+        ids = ','.join(str(int(i)) for i in self._cids())
+        if nullable:
+            return ' AND (%s IN (%s) OR %s IS NULL)' % (col, ids, col)
+        return ' AND %s IN (%s)' % (col, ids)
+
+    def _has_col(self, table, col='company_id'):
+        """¿Existe la columna? Cacheado por request (en el cursor). Para
+        tablas de módulos que NO son dependencia de este: si se actualizan
+        después, un UndefinedColumn dejaría la tarjeta en ceros mudos."""
+        cache = getattr(self.env.cr, '_som_has_col', None)
+        if cache is None:
+            cache = {}
+            self.env.cr._som_has_col = cache
+        key = (table, col)
+        if key not in cache:
+            self.env.cr.execute(
+                "SELECT 1 FROM information_schema.columns "
+                "WHERE table_name = %s AND column_name = %s LIMIT 1",
+                (table, col))
+            cache[key] = bool(self.env.cr.fetchone())
+        return cache[key]
+
+    def _co_opt(self, table, alias='', nullable=False):
+        """_co_sql SOLO si la tabla ya tiene company_id (módulos ajenos)."""
+        if not self._has_col(table):
+            return ''
+        return self._co_sql(alias, nullable)
+
+    def _co_via_so(self, fk):
+        """Filtro de compañía para tablas SIN company_id que cuelgan de
+        una orden de venta (comprobantes, documentos de entrega): EXISTS
+        contra sale_order por la llave dada."""
+        return (' AND EXISTS(SELECT 1 FROM sale_order _cso'
+                ' WHERE _cso.id = %s%s)' % (fk, self._co_sql('_cso')))
+
     def _sq(self, sql, params=None, default=None):
         """Consulta segura: corre dentro de un SAVEPOINT. Si falla (tabla
         de módulo opcional, columna versionada), el savepoint se revierte y
@@ -132,13 +184,18 @@ class SomAnalytics(models.AbstractModel):
         """Fragmento SQL del filtro global Odoo/SPS/Mixto para CUALQUIER
         consulta sobre sale_order (mismo criterio que _sale_rows):
         Odoo = referencia de cliente vacía, SPS = con folio del legado,
-        mixto/None = sin filtro."""
+        mixto/None = sin filtro de origen.
+
+        SIEMPRE incluye el filtro de COMPAÑÍAS seleccionadas (multiempresa)
+        con el mismo alias: es el punto único por el que pasan casi todas
+        las consultas sobre sale_order."""
         col = ('%s.client_order_ref' % alias) if alias else 'client_order_ref'
+        out = self._co_sql(alias)
         if f.get('source') == 'sps':
-            return " AND COALESCE(%s, '') != ''" % col
+            return out + " AND COALESCE(%s, '') != ''" % col
         if f.get('source') == 'odoo':
-            return " AND COALESCE(%s, '') = ''" % col
-        return ''
+            return out + " AND COALESCE(%s, '') = ''" % col
+        return out
 
     def _src_wrap(self, f, exists_sql):
         """Convierte un EXISTS(...) que identifica al LEGADO SPS en el
@@ -173,12 +230,14 @@ class SomAnalytics(models.AbstractModel):
     def _src_where_invoice(self, f):
         """El mismo filtro de origen para FACTURAS de cliente (alias m):
         la factura hereda el origen de su(s) órdenes. Solo restringe
-        out_invoice/out_refund — proveedores pasan libres."""
+        out_invoice/out_refund — proveedores pasan libres. Siempre lleva
+        el filtro de compañías seleccionadas (account_move.company_id)."""
         cond = self._src_wrap(f, self._SPS_INVOICE_EXISTS)
+        out = self._co_sql('m')
         if not cond:
-            return ''
-        return (" AND (m.move_type NOT IN ('out_invoice', 'out_refund')"
-                " OR " + cond[len(' AND '):] + ")")
+            return out
+        return out + (" AND (m.move_type NOT IN ('out_invoice', 'out_refund')"
+                      " OR " + cond[len(' AND '):] + ")")
 
     def _sale_rows(self, f, extra_where='', extra_params=None):
         date_from, date_to = self._dates(f)
@@ -253,7 +312,7 @@ class SomAnalytics(models.AbstractModel):
                      ELSE COALESCE(sol.price_subtotal,0)
                 END AS venta_mxn,
                 COALESCE(sol.product_uom_qty,0)
-                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0) AS costo_mxn
+                    * COALESCE((pt.x_costo_mayor->>so.company_id::text)::float, 0) AS costo_mxn
             FROM sale_order_line sol
             JOIN sale_order so        ON so.id = sol.order_id
             JOIN product_product pp   ON pp.id = sol.product_id
@@ -267,9 +326,10 @@ class SomAnalytics(models.AbstractModel):
             WHERE so.state = 'sale'
               AND sol.display_type IS NULL
               AND so.date_order >= %(date_from)s
-              AND so.date_order <= %(date_to)s
+              AND so.date_order <= %(date_to)s {co}
               {extra}
-        """.format(extra=(' AND ' + ' AND '.join(where)) if where else '')
+        """.format(extra=(' AND ' + ' AND '.join(where)) if where else '',
+                   co=self._co_sql('so'))
         self.env.cr.execute(sql, params)
         rows = self.env.cr.dictfetchall()
         # Clave de PERIODO según la granularidad pedida (day|week|month):
@@ -581,8 +641,8 @@ class SomAnalytics(models.AbstractModel):
                    AVG(EXTRACT(EPOCH FROM (authorization_date - create_date))
                        / 3600.0) FILTER (WHERE authorization_date IS NOT NULL)
             FROM price_authorization
-            WHERE create_date >= %s AND create_date <= %s
-        """, dt, default=[(0, 0, 0, None)])[0]
+            WHERE create_date >= %s AND create_date <= %s {co}
+        """.format(co=self._co_sql('')), dt, default=[(0, 0, 0, None)])[0]
         pack['kpis']['auth_solicitudes'] = row[0]
         pack['kpis']['auth_aprobadas'] = row[1]
         pack['kpis']['auth_pendientes'] = row[2]
@@ -596,9 +656,9 @@ class SomAnalytics(models.AbstractModel):
             FROM commission_move cm
             LEFT JOIN res_partner p ON p.id = cm.partner_id
             LEFT JOIN res_currency rc ON rc.id = cm.currency_id
-            WHERE cm.date >= %s AND cm.date <= %s
+            WHERE cm.date >= %s AND cm.date <= %s {co}
             GROUP BY 1, 2 ORDER BY 3 DESC
-        """, (date_from, date_to))
+        """.format(co=self._co_opt('commission_move', 'cm')), (date_from, date_to))
         com_map = {}
         for (name, cur, amt) in com:
             mxn = (amt or 0.0) * (rate if cur == 'USD' else 1.0)
@@ -612,8 +672,8 @@ class SomAnalytics(models.AbstractModel):
         row = self._sq("""
             SELECT SUM(sol.price_unit * sol.product_uom_qty),
                    SUM(CASE WHEN rc.name='USD'
-                            THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
-                            ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                            THEN COALESCE((pt.x_price_usd_1->>so.company_id::text)::float, 0)
+                            ELSE COALESCE((pt.x_price_mxn_1->>so.company_id::text)::float, 0)
                        END * sol.product_uom_qty)
             FROM sale_order_line sol
             JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
@@ -624,8 +684,8 @@ class SomAnalytics(models.AbstractModel):
             WHERE sol.display_type IS NULL
               AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s {src}
               AND CASE WHEN rc.name='USD'
-                       THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
-                       ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                       THEN COALESCE((pt.x_price_usd_1->>so.company_id::text)::float, 0)
+                       ELSE COALESCE((pt.x_price_mxn_1->>so.company_id::text)::float, 0)
                   END > 0
         """.format(src=_src), {'cid': self._cid(), 'd1': dt[0], 'd2': dt[1]},
             default=[(0, 0)])[0]
@@ -646,8 +706,8 @@ class SomAnalytics(models.AbstractModel):
                 / NULLIF(requested_price, 0)) * 100
             FROM price_authorization_line
             WHERE requested_price > 0 AND authorized_price > 0
-              AND create_date >= %s AND create_date <= %s
-        """, dt, default=[(None,)])[0]
+              AND create_date >= %s AND create_date <= %s {co}
+        """.format(co=self._co_sql('')), dt, default=[(None,)])[0]
         pack['kpis']['auth_delta_pct'] = round(row[0] or 0.0, 1)
 
         # 2.2b Ganancia/pérdida cambiaria realizada (TC entrega vs TC confirmación)
@@ -728,16 +788,16 @@ class SomAnalytics(models.AbstractModel):
                          AND so.date_order
                              <= gs.create_date + INTERVAL '30 days' {src}))
             FROM gallery_share gs
-            WHERE gs.create_date >= %s AND gs.create_date <= %s
-        """.format(src=_src), (dt[0], dt[1]), default=[(0, 0, 0)])[0]
+            WHERE gs.create_date >= %s AND gs.create_date <= %s {cog}
+        """.format(cog=self._co_opt('gallery_share', 'gs'), src=_src), (dt[0], dt[1]), default=[(0, 0, 0)])[0]
         res_row = self._sq("""
             SELECT COUNT(*),
                    COUNT(*) FILTER (WHERE state = 'done')
             FROM stock_lot_hold_order
             WHERE notas LIKE
                 'Reserva creada automáticamente desde Galería Pública%%'
-              AND create_date >= %s AND create_date <= %s
-        """, (dt[0], dt[1]), default=[(0, 0)])[0]
+              AND create_date >= %s AND create_date <= %s {co}
+        """.format(co=self._co_sql('')), (dt[0], dt[1]), default=[(0, 0)])[0]
         links = cat_row[0] or 0
         pack['catalogo'] = {
             'links': links,
@@ -764,9 +824,9 @@ class SomAnalytics(models.AbstractModel):
                 FROM gallery_share gs
                 LEFT JOIN res_users u ON u.id = gs.user_id
                 LEFT JOIN res_partner p ON p.id = u.partner_id
-                WHERE gs.create_date >= %s AND gs.create_date <= %s
+                WHERE gs.create_date >= %s AND gs.create_date <= %s {cog}
                 GROUP BY 1 ORDER BY 2 DESC LIMIT 10
-            """.format(src=_src), (dt[0], dt[1]), default=[])]
+            """.format(src=_src, cog=self._co_opt('gallery_share', 'gs')), (dt[0], dt[1]), default=[])]
 
         # ── F2.1: series para el storytelling de conversión y autorizaciones ──
         dtf, dtt = self._bounds(f)
@@ -789,8 +849,8 @@ class SomAnalytics(models.AbstractModel):
             crm_row = self._sq("""
                 SELECT COUNT(*), COALESCE(SUM(expected_revenue), 0)
                 FROM crm_lead
-                WHERE create_date >= %s AND create_date <= %s
-            """, (dtf, dtt), default=[(0, 0)])[0]
+                WHERE create_date >= %s AND create_date <= %s {co}
+            """.format(co=self._co_sql('')), (dtf, dtt), default=[(0, 0)])[0]
             if crm_row[0]:
                 pack['funnel'].append({
                     'stage': 'Oportunidad CRM',
@@ -1083,8 +1143,8 @@ class SomAnalytics(models.AbstractModel):
                            pc.complete_name, 'Sin categoría') AS categ,
                        SUM(sol.price_unit * sol.product_uom_qty),
                        SUM(CASE WHEN rc.name = 'USD'
-                                THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
-                                ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                                THEN COALESCE((pt.x_price_usd_1->>so.company_id::text)::float, 0)
+                                ELSE COALESCE((pt.x_price_mxn_1->>so.company_id::text)::float, 0)
                            END * sol.product_uom_qty)
                 FROM sale_order_line sol
                 JOIN sale_order so ON so.id = sol.order_id AND so.state = 'sale'
@@ -1096,8 +1156,8 @@ class SomAnalytics(models.AbstractModel):
                 WHERE sol.display_type IS NULL
                   AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s {src}
                   AND CASE WHEN rc.name = 'USD'
-                           THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
-                           ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                           THEN COALESCE((pt.x_price_usd_1->>so.company_id::text)::float, 0)
+                           ELSE COALESCE((pt.x_price_mxn_1->>so.company_id::text)::float, 0)
                       END > 0
                 GROUP BY 1
                 HAVING SUM(sol.price_unit * sol.product_uom_qty) > 0
@@ -1205,16 +1265,16 @@ class SomAnalytics(models.AbstractModel):
         created = dict((a, b) for (a, b) in self._sq("""
             SELECT to_char(create_date, 'IYYY-IW'), COUNT(*)
             FROM price_authorization
-            WHERE create_date >= %s AND create_date <= %s
+            WHERE create_date >= %s AND create_date <= %s {co}
             GROUP BY 1
-        """, (dtf, dtt), default=[]))
+        """.format(co=self._co_sql('')), (dtf, dtt), default=[]))
         resolved = dict((a, b) for (a, b) in self._sq("""
             SELECT to_char(write_date, 'IYYY-IW'), COUNT(*)
             FROM price_authorization
             WHERE state IN ('approved', 'rejected', 'expired')
-              AND write_date >= %s AND write_date <= %s
+              AND write_date >= %s AND write_date <= %s {co}
             GROUP BY 1
-        """, (dtf, dtt), default=[]))
+        """.format(co=self._co_sql('')), (dtf, dtt), default=[]))
         weeks = sorted(set(created) | set(resolved))
         pack['auth_weekly'] = [
             {'week': w[5:], 'created': created.get(w, 0),
@@ -1234,9 +1294,9 @@ class SomAnalytics(models.AbstractModel):
                        AS horas
                 FROM price_authorization
                 WHERE state IN ('approved', 'rejected')
-                  AND write_date >= %s AND write_date <= %s
+                  AND write_date >= %s AND write_date <= %s {co}
             ) t
-        """, (dtf, dtt), default=[(None, None, None)])[0]
+        """.format(co=self._co_sql('')), (dtf, dtt), default=[(None, None, None)])[0]
         # ── Series F2.3 (visuales ECharts 6) ────────────────────────────
         # Venta DIARIA del periodo (calendar heatmap) — misma conversión USD.
         _rate = self._current_usd_rate()
@@ -1363,6 +1423,8 @@ class SomAnalytics(models.AbstractModel):
     def _inventory_pack(self, f):
         params = {'area_uoms': tuple(self._area_uom_ids()),
                   'cid': self._cid()}
+        # Multiempresa: quants (y costo all-in) de la compañía de cada quant
+        _coq = self._co_sql('q')
         prod_where = ''
         if f.get('product_id'):
             prod_where = ' AND pt.id = %(tmpl_id)s'
@@ -1408,7 +1470,7 @@ class SomAnalytics(models.AbstractModel):
                 {hold} AS has_hold,
                 SUM(q.quantity) AS m2,
                 SUM(q.quantity
-                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0))
+                    * COALESCE((pt.x_costo_mayor->>q.company_id::text)::float, 0))
                     AS valor
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
@@ -1417,9 +1479,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %(area_uoms)s
             LEFT JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0 {pw} {nc}
+            WHERE q.quantity > 0 {pw} {nc} {co}
             GROUP BY pt.id, product_name, lot_name, has_hold
-        """.format(hold=hold_expr, pw=prod_where, nc=not_committed), params)
+        """.format(co=_coq, hold=hold_expr, pw=prod_where, nc=not_committed), params)
         rows = self.env.cr.dictfetchall()
 
         # ── VENDIDO EN BODEGA: el espejo committed, medido APARTE ──
@@ -1429,7 +1491,7 @@ class SomAnalytics(models.AbstractModel):
                 COALESCE(pt.name->>'es_MX', pt.name->>'en_US','') AS product_name,
                 SUM(q.quantity) AS m2,
                 SUM(q.quantity
-                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0)) AS valor,
+                    * COALESCE((pt.x_costo_mayor->>q.company_id::text)::float, 0)) AS valor,
                 COUNT(DISTINCT q.lot_id) AS lots
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
@@ -1437,11 +1499,11 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %(area_uoms)s
-            WHERE q.quantity > 0 {pw}
+            WHERE q.quantity > 0 {pw} {co}
               AND q.id IN ({committed})
             GROUP BY pt.id, product_name
             ORDER BY SUM(q.quantity) DESC
-        """.format(pw=prod_where, committed=committed_sql), params)
+        """.format(co=_coq, pw=prod_where, committed=committed_sql), params)
         vend_rows = self.env.cr.dictfetchall()
         vendido_m2 = sum(r['m2'] for r in vend_rows)
         vendido_valor = sum(r['valor'] for r in vend_rows)
@@ -1508,9 +1570,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0 {nc}
+            WHERE q.quantity > 0 {nc} {co}
             GROUP BY 1
-        """.format(age=self._AGE_CASE, nc=not_committed), default=[])
+        """.format(co=_coq, age=self._AGE_CASE, nc=not_committed), default=[])
         order_edad = self._AGE_ORDER
         edad_map = {a: (b, c) for (a, b, c) in edad_rows}
 
@@ -1522,9 +1584,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot_hold h ON h.quant_id = q.id
-                 AND h.estado = 'activo'
-            WHERE q.quantity > 0 {nc}
-        """.format(nc=not_committed), default=[(0,)])[0][0]
+                 AND h.estado = 'activo' {coh}
+            WHERE q.quantity > 0 {nc} {co}
+        """.format(coh=self._co_sql('h'), co=_coq, nc=not_committed), default=[(0,)])[0][0]
         if hold_real:
             holdm = float(hold_real)
             disp = max(sum(r['m2'] for r in rows) - holdm, 0.0)
@@ -1539,8 +1601,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
-        """, default=[(0, 0)])[0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=_coq), default=[(0, 0)])[0]
         fl_total, fl_con = foto_lote[0] or 0, foto_lote[1] or 0
         edad_prom = self._sq("""
             SELECT COALESCE(
@@ -1550,8 +1612,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0 {nc}
-        """.format(nc=not_committed), default=[(0,)])[0][0]
+            WHERE q.quantity > 0 {nc} {co}
+        """.format(co=_coq, nc=not_committed), default=[(0,)])[0][0]
 
         return {
             'kpis': {
@@ -1596,8 +1658,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %s
             WHERE ml.state = 'done'
-              AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
-        """, (tuple(self._area_uom_ids()),))
+              AND ml.date >= (CURRENT_DATE - INTERVAL '12 months') {co}
+        """.format(co=self._co_sql('ml')), (tuple(self._area_uom_ids()),))
         out_12m = self.env.cr.fetchone()[0] or 0.0
         stock = pack['kpis']['disponible_m2'] + pack['kpis']['hold_m2']
         pack['kpis']['salidas_12m_m2'] = round(out_12m, 1)
@@ -1612,8 +1674,8 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(*) FILTER (WHERE create_date
                        < NOW() - INTERVAL '30 days')
             FROM stock_lot_hold_order
-            WHERE state NOT IN ('cancelled','cancel','done')
-        """, default=[(0, None, 0)])[0]
+            WHERE state NOT IN ('cancelled','cancel','done') {co}
+        """.format(co=self._co_sql('')), default=[(0, None, 0)])[0]
         pack['kpis']['holds_activos'] = row[0]
         pack['kpis']['holds_edad_dias'] = round(row[1] or 0.0, 1)
         pack['kpis']['holds_eternos'] = row[2]
@@ -1625,12 +1687,12 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage='internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0 AND COALESCE(sl.x_bloque,'') != ''
-        """)}
+            WHERE q.quantity > 0 AND COALESCE(sl.x_bloque,'') != '' {co}
+        """.format(co=self._co_sql('q')))}
         blocks_photo = {b for (b,) in self._sq(
             "SELECT DISTINCT UPPER(block_name) "
             "FROM supplier_shipment_block_image "
-            "WHERE COALESCE(block_name,'') != ''")}
+            "WHERE COALESCE(block_name,'') != ''" + self._co_sql(''))}
         pack['kpis']['bloques_stock'] = len(blocks_stock)
         pack['kpis']['bloques_con_foto_pct'] = round(
             len(blocks_stock & blocks_photo) / len(blocks_stock) * 100, 1
@@ -1649,10 +1711,10 @@ class SomAnalytics(models.AbstractModel):
               AND COALESCE(ml.x_alto_temp,0) > 0
               AND COALESCE(ml.x_ancho_temp,0) > 0
               AND COALESCE(sl.x_alto,0) > 0
-              AND COALESCE(sl.x_ancho,0) > 0
+              AND COALESCE(sl.x_ancho,0) > 0 {co}
             GROUP BY 1 HAVING SUM(ml.x_alto_temp * ml.x_ancho_temp) > 0
             ORDER BY 2 DESC LIMIT 10
-        """)
+        """.format(co=self._co_sql('ml')))
         # 3.4 Integridad del bloque: bloques con ventas parciales
         row = self._sq("""
             WITH block_lots AS (
@@ -1662,7 +1724,7 @@ class SomAnalytics(models.AbstractModel):
                 FROM stock_lot sl
                 LEFT JOIN stock_quant q ON q.lot_id = sl.id AND q.quantity > 0
                 LEFT JOIN stock_location loc ON loc.id = q.location_id
-                WHERE COALESCE(sl.x_bloque,'') != ''
+                WHERE COALESCE(sl.x_bloque,'') != '' {co}
                 GROUP BY sl.x_bloque, sl.id
             ), agg AS (
                 SELECT b,
@@ -1677,7 +1739,7 @@ class SomAnalytics(models.AbstractModel):
                        AND con_stock < total), 0),
                    COUNT(*) FILTER (WHERE con_stock > 0)
             FROM agg
-        """, default=[(0, 0, 0)])[0]
+        """.format(co=self._co_sql('sl', nullable=True)), default=[(0, 0, 0)])[0]
         pack['kpis']['bloques_rotos'] = row[0]
         pack['kpis']['bloques_rotos_m2'] = round(row[1] or 0, 1)
         pack['kpis']['bloques_activos'] = row[2]
@@ -1690,8 +1752,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN sale_order so ON so.id = sol.order_id AND so.state = 'sale'
             JOIN stock_quant q ON q.id = rel.stock_quant_id AND q.quantity > 0
             JOIN stock_location loc ON loc.id = q.location_id
-                 AND loc.usage = 'internal'
-        """, default=[(0,)])[0]
+                 AND loc.usage = 'internal' {co}
+        """.format(co=self._co_sql('q')), default=[(0,)])[0]
         # Fuente única con 'Vendido en bodega' (incluye la vía de lotes
         # del selector, no solo quants del carrito).
         pack['kpis']['committed_m2'] = pack['kpis'].get(
@@ -1707,8 +1769,8 @@ class SomAnalytics(models.AbstractModel):
             FROM stock_transit_line l
             JOIN stock_transit_voyage v ON v.id = l.voyage_id
                  AND v.custom_status NOT IN ('delivered','cancel')
-            WHERE v.transit_inventory_published = true
-        """, default=[(0, 0)])[0]
+            WHERE v.transit_inventory_published = true {co}
+        """.format(co=self._co_sql('v')), default=[(0, 0)])[0]
         pack['kpis']['t_committed_m2'] = round(row[0] or 0.0, 1)
         pack['kpis']['t_available_m2'] = round(row[1] or 0.0, 1)
 
@@ -1719,20 +1781,20 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage='internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0 AND COALESCE(sl.x_bloque,'') != ''
+            WHERE q.quantity > 0 AND COALESCE(sl.x_bloque,'') != '' {co}
               AND UPPER(sl.x_bloque) NOT IN (
                   SELECT DISTINCT UPPER(block_name)
                   FROM supplier_shipment_block_image
-                  WHERE COALESCE(block_name,'') != '')
-        """, default=[(0,)])[0][0]
+                  WHERE COALESCE(block_name,'') != ''{cob})
+        """.format(cob=self._co_sql(''), co=self._co_sql('q')), default=[(0,)])[0][0]
         pack['kpis']['m2_sin_foto'] = round(m2_sin_foto or 0.0, 1)
 
         # 3.6b Conversión de holds: vendidos vs liberados (histórico)
         hrow = self._sq("""
             SELECT COUNT(*) FILTER (WHERE state = 'done'),
                    COUNT(*) FILTER (WHERE state IN ('cancelled','cancel'))
-            FROM stock_lot_hold_order
-        """, default=[(0, 0)])[0]
+            FROM stock_lot_hold_order WHERE true {co}
+        """.format(co=self._co_sql('')), default=[(0, 0)])[0]
         closed = (hrow[0] or 0) + (hrow[1] or 0)
         pack['kpis']['holds_conversion_pct'] = round(
             (hrow[0] or 0) / closed * 100, 1) if closed else 0.0
@@ -1770,9 +1832,9 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN res_currency rc ON rc.id = po.currency_id
             LEFT JOIN res_partner p ON p.id = po.partner_id
             WHERE po.state IN ('purchase','done')
-              AND po.date_approve >= %s AND po.date_approve <= %s
+              AND po.date_approve >= %s AND po.date_approve <= %s {co}
             GROUP BY 1, 2, 3, 4
-        """, (dt_from, dt_to))
+        """.format(co=self._co_sql('po')), (dt_from, dt_to))
         rows = self.env.cr.dictfetchall()
 
         months = defaultdict(lambda: {'USD': 0.0, 'MXN': 0.0, 'mxn_norm': 0.0})
@@ -1800,8 +1862,8 @@ class SomAnalytics(models.AbstractModel):
             self.env.cr.execute("""
                 SELECT COALESCE(state,'draft'), COUNT(*),
                        COALESCE(SUM(quantity),0)
-                FROM purchase_order_line_allocation GROUP BY 1
-            """)
+                FROM purchase_order_line_allocation WHERE true {co} GROUP BY 1
+            """.format(co=self._co_sql('')))
             alloc = [{'state': a, 'count': b, 'qty': round(c or 0, 1)}
                      for (a, b, c) in self.env.cr.fetchall()]
         except Exception:
@@ -1817,16 +1879,17 @@ class SomAnalytics(models.AbstractModel):
                     AND sp.state = 'done'
                 JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
                     AND spt.code = 'incoming'
-                WHERE po.date_approve >= %s AND po.date_approve <= %s
+                WHERE po.date_approve >= %s AND po.date_approve <= %s {co}
                 GROUP BY po.id, po.date_approve
             ) t
-        """, (dt_from, dt_to), default=[(None, 0)])[0]
+        """.format(co=self._co_sql('po')), (dt_from, dt_to), default=[(None, 0)])[0]
         lead_days = round(row[0] or 0.0, 1)
         lead_count = row[1]
 
         # 4.6 Discrepancias PL portal vs recibido
         disc = self._sq(
-            'SELECT COUNT(*) FROM purchase_discrepancy',
+            'SELECT COUNT(*) FROM purchase_discrepancy WHERE true'
+            + self._co_sql(''),
             default=[(0,)])[0][0]
 
         # Top materiales comprados en el periodo (normalizado a MXN)
@@ -1845,9 +1908,9 @@ class SomAnalytics(models.AbstractModel):
                 LEFT JOIN res_currency rc ON rc.id = po.currency_id
                 JOIN product_product pp ON pp.id = pol.product_id
                 JOIN product_template pt ON pt.id = pp.product_tmpl_id
-                WHERE po.date_approve >= %s AND po.date_approve <= %s
+                WHERE po.date_approve >= %s AND po.date_approve <= %s {co}
                 GROUP BY 1, 2 ORDER BY 4 DESC LIMIT 12
-            """, (rate, dt_from, dt_to), default=[])]
+            """.format(co=self._co_sql('po')), (rate, dt_from, dt_to), default=[])]
 
         # OCs abiertas con material pendiente de recibir (backlog vivo)
         open_pos = [
@@ -1863,12 +1926,12 @@ class SomAnalytics(models.AbstractModel):
                 JOIN purchase_order_line pol ON pol.order_id = po.id
                 LEFT JOIN res_partner p ON p.id = po.partner_id
                 LEFT JOIN res_currency rc ON rc.id = po.currency_id
-                WHERE po.state = 'purchase'
+                WHERE po.state = 'purchase' {co}
                 GROUP BY po.id, po.name, p.name, po.date_approve,
                          po.amount_total, rc.name
                 HAVING SUM(pol.product_qty) > SUM(pol.qty_received) + 0.01
                 ORDER BY po.date_approve LIMIT 15
-            """, default=[])]
+            """.format(co=self._co_sql('po')), default=[])]
 
         return {
             'kpis': {
@@ -1896,19 +1959,19 @@ class SomAnalytics(models.AbstractModel):
                         JOIN stock_move_line ml ON ml.picking_id = sp.id
                              AND ml.state = 'done'
                         WHERE sp.supplier_shipment_id = sh.id
-                          AND sp.state = 'done'
+                          AND sp.state = 'done' {co}
                           AND ml.product_uom_id IN %s
                     ) m2 ON m2.total > 0
-                    WHERE sh.pol_id IS NOT NULL AND sh.pod_id IS NOT NULL
-                """, (rate, tuple(self._area_uom_ids())),
+                    WHERE sh.pol_id IS NOT NULL AND sh.pod_id IS NOT NULL {cosh}
+                """.format(cosh=self._co_sql('sh'), co=self._co_sql('sp')), (rate, tuple(self._area_uom_ids())),
                     default=[(None,)])[0]),
                 'pipeline_edad_dias': (lambda r: round(r[0] or 0.0, 1))(
                     self._sq("""
                     SELECT AVG(EXTRACT(EPOCH FROM (NOW() - create_date))
                         / 86400.0)
                     FROM purchase_order_line_allocation
-                    WHERE COALESCE(state,'draft') IN ('draft','pending')
-                """, default=[(None,)])[0]),
+                    WHERE COALESCE(state,'draft') IN ('draft','pending') {co}
+                """.format(co=self._co_sql('')), default=[(None,)])[0]),
             },
             'by_month': by_month,
             'top_suppliers': top_prov,
@@ -1934,9 +1997,9 @@ class SomAnalytics(models.AbstractModel):
                  AND ml.state = 'done'
             WHERE sp.state = 'done'
               AND sp.origin LIKE %s
-              AND sp.date_done >= %s AND sp.date_done <= %s
+              AND sp.date_done >= %s AND sp.date_done <= %s {co}
             GROUP BY 1 ORDER BY 1
-        """, (area, '%(Recepción Física)', dt[0], dt[1]))
+        """.format(co=self._co_sql('sp')), (area, '%(Recepción Física)', dt[0], dt[1]))
         by_week = [{'week': a[5:], 'count': b, 'm2': round(c or 0, 1)}
                    for (a, b, c) in weekly]
 
@@ -1952,8 +2015,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %s
-            WHERE q.quantity > 0
-        """, (area,), default=[(0, 0)])[0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q')), (area,), default=[(0, 0)])[0]
         total_lots, with_ped = row
 
         # Recepciones de compra validadas (contenedores absorbidos)
@@ -1962,8 +2025,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
                  AND spt.code = 'incoming'
             WHERE sp.state = 'done'
-              AND sp.date_done >= %s AND sp.date_done <= %s
-        """, dt, default=[(0,)])[0][0]
+              AND sp.date_done >= %s AND sp.date_done <= %s {co}
+        """.format(co=self._co_sql('sp')), dt, default=[(0,)])[0][0]
 
         # 6.3 Exactitud: recepciones del periodo CON devolución posterior
         row = self._sq("""
@@ -1974,8 +2037,8 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN stock_picking ret ON ret.return_id = sp.id
                  AND ret.state != 'cancel'
             WHERE sp.state = 'done'
-              AND sp.date_done >= %s AND sp.date_done <= %s
-        """, dt, default=[(0,)])[0]
+              AND sp.date_done >= %s AND sp.date_done <= %s {co}
+        """.format(co=self._co_sql('sp')), dt, default=[(0,)])[0]
         con_devolucion = row[0] or 0
 
         # 6.4 Etiquetado ZPL: lotes recibidos en el periodo con etiqueta
@@ -1986,8 +2049,8 @@ class SomAnalytics(models.AbstractModel):
                        AND sl.x_zpl_printed_at
                            <= sl.create_date + INTERVAL '24 hours')
             FROM stock_lot sl
-            WHERE sl.create_date >= %s AND sl.create_date <= %s
-        """, dt, default=[(0, 0)])[0]
+            WHERE sl.create_date >= %s AND sl.create_date <= %s {co}
+        """.format(co=self._co_sql('sl', nullable=True)), dt, default=[(0, 0)])[0]
         lots_period, lots_labeled = row
 
         return {
@@ -2007,18 +2070,18 @@ class SomAnalytics(models.AbstractModel):
                 'faltantes_piezas': (lambda r: round(r[0] or 0, 1))(self._sq("""
                     SELECT SUM(COALESCE(x_ws_missing_pieces,0))
                     FROM stock_picking
-                    WHERE date_done >= %s AND date_done <= %s
-                """, dt, default=[(0,)])[0]),
+                    WHERE date_done >= %s AND date_done <= %s {co}
+                """.format(co=self._co_sql('')), dt, default=[(0,)])[0]),
                 'faltantes_m2': (lambda r: round(r[0] or 0, 1))(self._sq("""
                     SELECT SUM(COALESCE(x_ws_missing_m2,0))
                     FROM stock_picking
-                    WHERE date_done >= %s AND date_done <= %s
-                """, dt, default=[(0,)])[0]),
+                    WHERE date_done >= %s AND date_done <= %s {co}
+                """.format(co=self._co_sql('')), dt, default=[(0,)])[0]),
                 'bajas_scrap': (lambda r: round(r[0] or 0, 1))(self._sq("""
                     SELECT SUM(COALESCE(scrap_qty,0)) FROM stock_scrap
                     WHERE state = 'done'
-                      AND write_date >= %s AND write_date <= %s
-                """, dt, default=[(0,)])[0]),
+                      AND write_date >= %s AND write_date <= %s {co}
+                """.format(co=self._co_sql('')), dt, default=[(0,)])[0]),
                 'puerto_a_stock_dias': (lambda r: round(r[0] or 0.0, 1))(
                     self._sq("""
                     SELECT AVG(EXTRACT(EPOCH FROM (sp.date_done
@@ -2037,8 +2100,8 @@ class SomAnalytics(models.AbstractModel):
                     JOIN stock_picking sp ON sp.id = v.picking_id
                         AND sp.state = 'done'
                     WHERE sp.date_done >= arr.arrived_at
-                      AND sp.date_done >= %s AND sp.date_done <= %s
-                """, dt, default=[(None,)])[0]),
+                      AND sp.date_done >= %s AND sp.date_done <= %s {co}
+                """.format(co=self._co_sql('sp')), dt, default=[(None,)])[0]),
             },
             'by_week': by_week,
             'by_supplier': [
@@ -2056,9 +2119,9 @@ class SomAnalytics(models.AbstractModel):
                          AND ml.state = 'done'
                     LEFT JOIN res_partner p ON p.id = sp.partner_id
                     WHERE sp.state = 'done'
-                      AND sp.date_done >= %s AND sp.date_done <= %s
+                      AND sp.date_done >= %s AND sp.date_done <= %s {co}
                     GROUP BY 1 ORDER BY 3 DESC NULLS LAST LIMIT 10
-                """, (area, dt[0], dt[1]), default=[])],
+                """.format(co=self._co_sql('sp')), (area, dt[0], dt[1]), default=[])],
             'recent': [
                 {'id': a, 'name': b, 'partner': c, 'date': d,
                  'm2': round(e or 0, 1), 'origin': f_ or ''}
@@ -2075,10 +2138,10 @@ class SomAnalytics(models.AbstractModel):
                     JOIN stock_move_line ml ON ml.picking_id = sp.id
                          AND ml.state = 'done'
                     LEFT JOIN res_partner p ON p.id = sp.partner_id
-                    WHERE sp.state = 'done'
+                    WHERE sp.state = 'done' {co}
                     GROUP BY sp.id, sp.name, p.name, sp.date_done, sp.origin
                     ORDER BY sp.date_done DESC LIMIT 12
-                """, (area,), default=[])],
+                """.format(co=self._co_sql('sp')), (area,), default=[])],
             'by_month12': [
                 {'key': a, 'm2': round(b or 0, 1), 'count': c}
                 for (a, b, c) in self._sq("""
@@ -2094,9 +2157,9 @@ class SomAnalytics(models.AbstractModel):
                          AND ml.state = 'done'
                     WHERE sp.state = 'done'
                       AND sp.date_done
-                          >= (CURRENT_DATE - INTERVAL '12 months')
+                          >= (CURRENT_DATE - INTERVAL '12 months') {co}
                     GROUP BY 1 ORDER BY 1
-                """, (area,), default=[])],
+                """.format(co=self._co_sql('sp')), (area,), default=[])],
         }
 
     # ── TALLER ─────────────────────────────────────────────────────────
@@ -2104,11 +2167,13 @@ class SomAnalytics(models.AbstractModel):
         date_from, date_to = self._dates(f)
         dt_from, dt_to = self._bounds(f)
         dt = (dt_from, dt_to)
+        # Multiempresa: taller es de otro módulo → filtro solo si la columna existe
+        _cow = self._co_opt('workshop_order')
 
         by_state = self._sq("""
             SELECT state, COUNT(*) FROM workshop_order
-            WHERE state != 'cancel' GROUP BY 1
-        """)
+            WHERE state != 'cancel' {co} GROUP BY 1
+        """.format(co=_cow))
         labels = {'draft': 'Borrador', 'in_workshop': 'En taller',
                   'done': 'Terminada'}
         states = [{'state': labels.get(a, a), 'count': b}
@@ -2119,27 +2184,27 @@ class SomAnalytics(models.AbstractModel):
                 / 86400.0), COUNT(*)
             FROM workshop_order
             WHERE state = 'done' AND date_done IS NOT NULL
-              AND date_done >= %s AND date_done <= %s
-        """, dt, default=[(None, 0)])[0]
+              AND date_done >= %s AND date_done <= %s {co}
+        """.format(co=_cow), dt, default=[(None, 0)])[0]
 
         row2 = self._sq("""
             SELECT AVG(EXTRACT(EPOCH FROM (NOW() - create_date)) / 86400.0),
                    COUNT(*)
-            FROM workshop_order WHERE state = 'in_workshop'
-        """, default=[(None, 0)])[0]
+            FROM workshop_order WHERE state = 'in_workshop' {co}
+        """.format(co=_cow), default=[(None, 0)])[0]
 
         reclas = self._sq("""
             SELECT COUNT(*) FROM stock_lot_reclassification
-            WHERE create_date >= %s AND create_date <= %s
-        """, dt, default=[(0,)])[0][0]
+            WHERE create_date >= %s AND create_date <= %s {co}
+        """.format(co=self._co_opt('stock_lot_reclassification')), dt, default=[(0,)])[0][0]
 
         weekly = self._sq("""
             SELECT to_char(date_trunc('week', date_done), 'YYYY-MM-DD'),
                    COUNT(*)
             FROM workshop_order
-            WHERE state='done' AND date_done >= %s AND date_done <= %s
+            WHERE state='done' AND date_done >= %s AND date_done <= %s {co}
             GROUP BY 1 ORDER BY 1
-        """, dt)
+        """.format(co=_cow), dt)
 
         # 8.3 Merma de proceso: áreas almacenadas de OTs terminadas
         row3 = self._sq("""
@@ -2147,8 +2212,8 @@ class SomAnalytics(models.AbstractModel):
                    SUM(COALESCE(area_out_total,0)),
                    SUM(COALESCE(area_loss_total,0))
             FROM workshop_order
-            WHERE state = 'done' AND date_done >= %s AND date_done <= %s
-        """, dt, default=[(0, 0, 0)])[0]
+            WHERE state = 'done' AND date_done >= %s AND date_done <= %s {co}
+        """.format(co=_cow), dt, default=[(0, 0, 0)])[0]
         area_in = row3[0] or 0.0
 
         return {
@@ -2170,7 +2235,8 @@ class SomAnalytics(models.AbstractModel):
                             for (a, b) in weekly],
             'pasadas': [
                 {'label': lbl, 'count': (lambda r: r[0])(self._sq(
-                    "SELECT COUNT(*) FROM stock_lot WHERE name ~ %s",
+                    "SELECT COUNT(*) FROM stock_lot WHERE name ~ %s"
+                    + self._co_sql('', nullable=True),
                     (rx,), default=[(0,)])[0])}
                 for (lbl, rx) in [
                     ('2ª pasada (-R2)', '-R2$'),
@@ -2255,6 +2321,8 @@ class SomAnalytics(models.AbstractModel):
 
     def _dom_control(self, f):
         pend = []
+        # Multiempresa: bandeja de las compañías seleccionadas
+        _cob = self._co_sql('')
 
         def add(label, sql, params=None):
             row = self._sq(sql, params, default=[(0, None)])[0]
@@ -2265,7 +2333,7 @@ class SomAnalytics(models.AbstractModel):
         add('Autorizaciones de precio pendientes', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - create_date))
                 / 86400.0)
-            FROM price_authorization WHERE state = 'pending'""")
+            FROM price_authorization WHERE state = 'pending'""" + _cob)
         add('Solicitudes de entrega sin resolver', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - request_date))
                 / 86400.0)
@@ -2273,25 +2341,25 @@ class SomAnalytics(models.AbstractModel):
         add('Exenciones de IVA en espera', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
                 / 86400.0)
-            FROM sale_order WHERE x_iva_exempt_state = 'requested'""")
+            FROM sale_order WHERE x_iva_exempt_state = 'requested'""" + _cob)
         add('Órdenes bloqueadas por precios', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
                 / 86400.0)
             FROM sale_order
-            WHERE COALESCE(x_has_low_prices,false) AND state != 'cancel'""")
+            WHERE COALESCE(x_has_low_prices,false) AND state != 'cancel'""" + _cob)
         add('Descuentos esperando autorización', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
                 / 86400.0)
             FROM sale_order
             WHERE COALESCE(x_discount_auth_requested,false)
-              AND state != 'cancel'""")
+              AND state != 'cancel'""" + _cob)
         add('Cotizaciones abiertas +30 días', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - date_order))
                 / 86400.0)
             FROM sale_order
             WHERE state IN ('draft','sent')
               AND COALESCE(x_is_quote_backup,false) = false
-              AND date_order < NOW() - INTERVAL '30 days'""")
+              AND date_order < NOW() - INTERVAL '30 days'""" + _cob)
 
         add('Worksheets sin procesar', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - write_date))
@@ -2299,7 +2367,7 @@ class SomAnalytics(models.AbstractModel):
             FROM stock_picking
             WHERE COALESCE(packing_list_imported, false)
               AND COALESCE(worksheet_imported, false) = false
-              AND state NOT IN ('done','cancel')""")
+              AND state NOT IN ('done','cancel')""" + _cob)
         add('Alertas de inventario duplicado (quant > PL)', """
             SELECT COUNT(*), MAX(EXTRACT(EPOCH FROM (NOW() - create_date))
                 / 86400.0)
@@ -2311,7 +2379,8 @@ class SomAnalytics(models.AbstractModel):
         # Viajes sin publicar (compute con search propio → ORM)
         try:
             pend_pub = self.env['stock.transit.voyage'].sudo().search_count(
-                [('tc_publication_pending', '=', True)])
+                [('tc_publication_pending', '=', True),
+                 ('company_id', 'in', self._cids())])
         except Exception:
             pend_pub = 0
         pend.append({'label': 'Viajes con inventario sin publicar',
@@ -2332,8 +2401,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
-        """, default=[(0, 0, 0, 0, 0, 0)])[0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q')), default=[(0, 0, 0, 0, 0, 0)])[0]
         total = row[0] or 1
         ficha = [
             {'campo': 'Bloque', 'pct': round(row[1] / total * 100, 1)},
@@ -2347,13 +2416,13 @@ class SomAnalytics(models.AbstractModel):
                 WHERE UPPER(COALESCE(sl.x_bloque,'')) IN (
                     SELECT DISTINCT UPPER(block_name)
                     FROM supplier_shipment_block_image
-                    WHERE COALESCE(block_name,'') != ''))
+                    WHERE COALESCE(block_name,'') != ''{cob}))
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
-        """, default=[(0,)])[0][0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q'), cob=self._co_sql('')), default=[(0,)])[0][0]
         ficha.append({'campo': 'Foto de bloque',
                       'pct': round((foto or 0) / total * 100, 1)})
 
@@ -2365,8 +2434,8 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(*) FILTER (WHERE x_project_id IS NULL),
                    COUNT(*) FILTER (WHERE COALESCE(client_order_ref,'') = '')
             FROM sale_order
-            WHERE state = 'sale' AND date_order >= %s AND date_order <= %s
-        """, (dt_from, dt_to), default=[(0, 0, 0)])[0]
+            WHERE state = 'sale' AND date_order >= %s AND date_order <= %s {co}
+        """.format(co=self._co_sql('')), (dt_from, dt_to), default=[(0, 0, 0)])[0]
 
         # FOTOS: % de lotes de placa (UdM de área) en stock con fotografía
         # de su bloque + quién sube las fotos (ranking y serie mensual).
@@ -2377,7 +2446,7 @@ class SomAnalytics(models.AbstractModel):
                        WHERE UPPER(COALESCE(sl.x_bloque,'')) IN (
                            SELECT DISTINCT UPPER(block_name)
                            FROM supplier_shipment_block_image
-                           WHERE COALESCE(block_name,'') != ''))
+                           WHERE COALESCE(block_name,'') != ''{cob}))
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
@@ -2385,8 +2454,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %s
-            WHERE q.quantity > 0
-        """, (area,), default=[(0, 0)])[0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q'), cob=self._co_sql('')), (area,), default=[(0, 0)])[0]
         placas, placas_foto = foto_row[0] or 0, foto_row[1] or 0
 
         def uploader_rank(table):
@@ -2401,8 +2470,9 @@ class SomAnalytics(models.AbstractModel):
                     FROM {t} i
                     LEFT JOIN res_users u ON u.id = i.create_uid
                     LEFT JOIN res_partner p ON p.id = u.partner_id
+                    WHERE true {co}
                     GROUP BY 1 ORDER BY 3 DESC, 2 DESC LIMIT 12
-                """.format(t=table), default=[])]
+                """.format(co=self._co_opt(table, 'i'), t=table), default=[])]
 
         def photos_monthly(table):
             return [
@@ -2411,9 +2481,9 @@ class SomAnalytics(models.AbstractModel):
                     SELECT to_char(create_date, 'YYYY-MM'), COUNT(*)
                     FROM {t}
                     WHERE create_date
-                        >= (CURRENT_DATE - INTERVAL '12 months')
+                        >= (CURRENT_DATE - INTERVAL '12 months') {co}
                     GROUP BY 1 ORDER BY 1
-                """.format(t=table), default=[])]
+                """.format(co=self._co_opt(table), t=table), default=[])]
 
         # FOTOS DE LOTE: la métrica a premiar — quién sube más fotos de
         # lote (stock.lot.image). Las de bloque quedan como secundarias.
@@ -2431,8 +2501,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
-        """, default=[(0, 0)])[0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q')), default=[(0, 0)])[0]
         lotes_stock, lotes_foto = lot_foto[0] or 0, lot_foto[1] or 0
 
         # AJUSTE DE PRECIOS: productos vendidos a precio DISTINTO de N1 y
@@ -2463,12 +2533,12 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
             WHERE sol.display_type IS NULL
               AND sol.product_uom_qty > 0
-              AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s
+              AND so.date_order >= %(d1)s AND so.date_order <= %(d2)s {co}
             GROUP BY pt.id, pt.name, COALESCE(rc.name, 'MXN'),
                      pt.x_price_usd_1, pt.x_price_usd_2, pt.x_price_usd_3,
                      pt.x_price_mxn_1, pt.x_price_mxn_2, pt.x_price_mxn_3,
                      pt.x_costo_mayor, COALESCE(pt.x_costo_divisa, 'USD')
-        """, {'cid': self._cid(), 'd1': dt_from,
+        """.format(co=self._co_sql('so')), {'cid': self._cid(), 'd1': dt_from,
               'd2': dt_to}, default=[])
         price_adjust = []
         for (tid, name, cur, venta, qty, ordenes,
@@ -2620,7 +2690,8 @@ class SomAnalytics(models.AbstractModel):
         portal_avance, portal_terminadas = self._portal_avg_progress()
         Voyage = self.env['stock.transit.voyage'].sudo()
         voyages = Voyage.search_read(
-            [('custom_status', 'not in', ('delivered', 'cancel'))],
+            [('custom_status', 'not in', ('delivered', 'cancel')),
+             ('company_id', 'in', self._cids())],
             ['name', 'custom_status', 'total_m2', 'allocated_m2',
              'allocation_percent', 'eta', 'etd', 'container_number',
              'tc_supplier_id', 'tc_publication_pending'],
@@ -2660,8 +2731,8 @@ class SomAnalytics(models.AbstractModel):
             FROM stock_transit_voyage
             WHERE eta IS NOT NULL AND eta_original IS NOT NULL
               AND eta != eta_original
-              AND custom_status NOT IN ('cancel')
-        """, default=[(None, 0)])[0]
+              AND custom_status NOT IN ('cancel') {co}
+        """.format(co=self._co_sql('')), default=[(None, 0)])[0]
 
         # m² activos por proveedor + arribos por mes de ETA (de los mismos
         # viajes ya cargados — sin SQL extra)
@@ -2697,9 +2768,9 @@ class SomAnalytics(models.AbstractModel):
                 JOIN stock_move_line ml ON ml.picking_id = sp.id
                      AND ml.state = 'done'
                 WHERE sp.state = 'done'
-                  AND sp.date_done >= (CURRENT_DATE - INTERVAL '12 months')
+                  AND sp.date_done >= (CURRENT_DATE - INTERVAL '12 months') {co}
                 GROUP BY 1 ORDER BY 1
-            """, (tuple(self._area_uom_ids()),), default=[])]
+            """.format(co=self._co_sql('sp')), (tuple(self._area_uom_ids()),), default=[])]
 
         return {
             'kpis': {
@@ -2714,16 +2785,17 @@ class SomAnalytics(models.AbstractModel):
                     SELECT AVG(EXTRACT(EPOCH FROM
                         (transit_inventory_published_at - create_date)) / 86400.0)
                     FROM stock_transit_voyage
-                    WHERE transit_inventory_published_at IS NOT NULL
-                """, default=[(None,)])[0]),
+                    WHERE transit_inventory_published_at IS NOT NULL {co}
+                """.format(co=self._co_sql('')), default=[(None,)])[0]),
                 'ligas_portal': (lambda r: r[0])(self._sq(
-                    'SELECT COUNT(*) FROM supplier_access',
+                    'SELECT COUNT(*) FROM supplier_access WHERE true'
+                    + self._co_opt('supplier_access'),
                     default=[(0,)])[0]),
                 'ligas_sin_acceso_7d': (lambda r: r[0])(self._sq("""
                     SELECT COUNT(*) FROM supplier_access
-                    WHERE last_access IS NULL
-                       OR last_access < NOW() - INTERVAL '7 days'
-                """, default=[(0,)])[0]),
+                    WHERE (last_access IS NULL
+                       OR last_access < NOW() - INTERVAL '7 days') {co}
+                """.format(co=self._co_opt('supplier_access')), default=[(0,)])[0]),
                 'ligas_avance_pct': portal_avance,
                 'ligas_terminadas': portal_terminadas,
             },
@@ -2745,7 +2817,9 @@ class SomAnalytics(models.AbstractModel):
         try:
             Access = self.env['supplier.access'].sudo()
             Header = self.env['supplier.proforma.header'].sudo()
-            headers = Header.search([], order='id desc', limit=60)
+            headers = Header.search(
+                [('company_id', 'in', [False] + self._cids())],
+                order='id desc', limit=60)
             vals = []
             for h in headers:
                 try:
@@ -2775,14 +2849,18 @@ class SomAnalytics(models.AbstractModel):
             return {'kpis': {}, 'unavailable': True}
         date_from, date_to = self._dates(f)
         dt_from, dt_to = self._bounds(f)
+        # Multiempresa: el documento de entrega no tiene compañía propia;
+        # hereda la de su orden de venta.
+        _co_d = self._co_via_so('d.sale_order_id')
+        _co_d0 = self._co_via_so('sale_delivery_document.sale_order_id')
 
         self.env.cr.execute("""
             SELECT COALESCE(delivery_status,'preparacion'), COUNT(*)
             FROM sale_delivery_document
             WHERE document_type = 'remission'
-              AND create_date >= %s AND create_date <= %s
+              AND create_date >= %s AND create_date <= %s {co}
             GROUP BY 1
-        """, (dt_from, dt_to))
+        """.format(co=_co_d0), (dt_from, dt_to))
         by_status = [{'status': a, 'count': b}
                      for (a, b) in self.env.cr.fetchall()]
 
@@ -2796,8 +2874,8 @@ class SomAnalytics(models.AbstractModel):
                     AND signed_at IS NULL)
             FROM sale_delivery_document
             WHERE document_type = 'remission'
-              AND create_date >= %s AND create_date <= %s
-        """, (dt_from, dt_to))
+              AND create_date >= %s AND create_date <= %s {co}
+        """.format(co=_co_d0), (dt_from, dt_to))
         app_signed, manual, en_ruta = self.env.cr.fetchone()
 
         # Autorizaciones de entrega sin pago completo (crédito informal)
@@ -2805,7 +2883,9 @@ class SomAnalytics(models.AbstractModel):
         auth_total = 0.0
         if 'delivery.auth.request' in self.env:
             for req in self.env['delivery.auth.request'].sudo().search(
-                    [('state', '=', 'approved')], limit=200,
+                    [('state', '=', 'approved'),
+                     ('sale_order_id.company_id', 'in', self._cids())],
+                    limit=200,
                     order='approval_date desc'):
                 residual = (req.sale_order_id.amount_total or 0.0) - (
                     getattr(req.sale_order_id, 'delivery_paid_amount', 0.0) or 0.0)
@@ -2841,17 +2921,17 @@ class SomAnalytics(models.AbstractModel):
             FROM sale_delivery_document d
             LEFT JOIN sale_return_reason r ON r.id = d.return_reason_id
             WHERE d.document_type = 'return' AND d.state != 'cancelled'
-              AND d.create_date >= %s AND d.create_date <= %s
+              AND d.create_date >= %s AND d.create_date <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 8
-        """, (dt_from, dt_to))
+        """.format(co=_co_d), (dt_from, dt_to))
         dev_pickings = self._sq("""
             SELECT COUNT(*) FROM stock_picking ret
             JOIN stock_picking orig ON orig.id = ret.return_id
             JOIN stock_picking_type spt ON spt.id = orig.picking_type_id
                  AND spt.code = 'outgoing'
             WHERE ret.state = 'done'
-              AND ret.date_done >= %s AND ret.date_done <= %s
-        """, (dt_from, dt_to), default=[(0,)])[0][0] or 0
+              AND ret.date_done >= %s AND ret.date_done <= %s {co}
+        """.format(co=self._co_sql('ret')), (dt_from, dt_to), default=[(0,)])[0][0] or 0
         dev_docs = sum(b for (_a, b) in devs)
         if dev_pickings > dev_docs:
             devs = list(devs) + [(
@@ -2880,15 +2960,15 @@ class SomAnalytics(models.AbstractModel):
                         WHERE d.document_type = 'remission'
                           AND d.state = 'confirmed'
                           AND COALESCE(d.vehicle_capacity_sqm, 0) > 0
-                          AND d.create_date >= %s AND d.create_date <= %s
+                          AND d.create_date >= %s AND d.create_date <= %s {co}
                         GROUP BY d.id, d.vehicle_capacity_sqm
                     ) t
-                """, (tuple(self._area_uom_ids()), dt_from,
+                """.format(co=_co_d), (tuple(self._area_uom_ids()), dt_from,
                        dt_to), default=[(None,)])[0]),
                 'paradas_gps': (lambda r: r[0])(self._sq("""
                     SELECT COUNT(*) FROM sale_delivery_route_point
-                    WHERE create_date >= %s AND create_date <= %s
-                """, (dt_from, dt_to),
+                    WHERE create_date >= %s AND create_date <= %s {co}
+                """.format(co=self._co_opt('sale_delivery_route_point')), (dt_from, dt_to),
                     default=[(0,)])[0]),
                 'cobrado_al_entregar_pct': (lambda r: round(r[0] or 0.0, 1))(
                     self._sq("""
@@ -3077,6 +3157,9 @@ class SomAnalytics(models.AbstractModel):
     def _dom_usuarios(self, f):
         date_from, date_to = self._dates(f)
         params = (date_from, date_to)
+        # Multiempresa: sesiones/actividad de las compañías seleccionadas
+        # (las filas históricas sin compañía se conservan).
+        _coa = self._co_sql('', nullable=True)
 
         vacio_actividad = {
             'kpis': {
@@ -3097,8 +3180,8 @@ class SomAnalytics(models.AbstractModel):
                    COALESCE(SUM(rpc_count), 0),
                    COALESCE(MAX(rpc_ms_max), 0)
             FROM som_user_activity
-            WHERE day >= %s AND day <= %s
-        """, params, default=[(0, 0, 0, 0, 0, 0)])[0]
+            WHERE day >= %s AND day <= %s {co}
+        """.format(co=_coa), params, default=[(0, 0, 0, 0, 0, 0)])[0]
 
         users_count = totals[0] or 0
         if not users_count:
@@ -3118,8 +3201,8 @@ class SomAnalytics(models.AbstractModel):
         sessions = self._sq("""
             SELECT COUNT(*) FROM som_user_session
             WHERE started_at >= %s::date
-              AND started_at < (%s::date + INTERVAL '1 day')
-        """, params, default=[(0,)])[0][0] or 0
+              AND started_at < (%s::date + INTERVAL '1 day') {co}
+        """.format(co=_coa), params, default=[(0,)])[0][0] or 0
 
         # Por usuario: jornada, foco, horario y espera del sistema.
         rows = self._sq("""
@@ -3137,10 +3220,10 @@ class SomAnalytics(models.AbstractModel):
             FROM som_user_activity a
             JOIN res_users u ON u.id = a.user_id
             LEFT JOIN res_partner p ON p.id = u.partner_id
-            WHERE a.day >= %s AND a.day <= %s
+            WHERE a.day >= %s AND a.day <= %s {co}
             GROUP BY a.user_id, p.name, u.login
             ORDER BY SUM(a.active_seconds) DESC
-        """, params)
+        """.format(co=self._co_sql('a', nullable=True)), params)
 
         # Primera y última señal del día, promediadas: la hora real a la que
         # cada quien arranca y cierra.
@@ -3153,10 +3236,10 @@ class SomAnalytics(models.AbstractModel):
                        MIN(start_at AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey') AS primera,
                        MAX(end_at   AT TIME ZONE 'UTC' AT TIME ZONE 'America/Monterrey') AS ultima
                 FROM som_user_activity
-                WHERE day >= %s AND day <= %s
+                WHERE day >= %s AND day <= %s {co}
                 GROUP BY user_id, day
             ) d GROUP BY user_id
-        """, params)}
+        """.format(co=_coa), params)}
 
         # Pantalla donde más tiempo activo pasa cada quien.
         top_screen = {}
@@ -3165,10 +3248,10 @@ class SomAnalytics(models.AbstractModel):
                    user_id, screen_key, COALESCE(NULLIF(screen_label, ''), screen_key),
                    SUM(active_seconds) AS s
             FROM som_user_activity
-            WHERE day >= %s AND day <= %s
+            WHERE day >= %s AND day <= %s {co}
             GROUP BY user_id, screen_key, screen_label
             ORDER BY user_id, s DESC
-        """, params):
+        """.format(co=_coa), params):
             top_screen.setdefault(uid, (label or screen, secs or 0))
 
         usuarios = []
@@ -3210,11 +3293,11 @@ class SomAnalytics(models.AbstractModel):
                    SUM(active_seconds), SUM(idle_seconds),
                    COUNT(DISTINCT user_id)
             FROM som_user_activity
-            WHERE day >= %s AND day <= %s
+            WHERE day >= %s AND day <= %s {co}
             GROUP BY screen_key
             ORDER BY SUM(active_seconds) DESC
             LIMIT 15
-        """, params)]
+        """.format(co=_coa), params)]
 
         horario = [{
             'hora': int(h or 0),
@@ -3223,9 +3306,9 @@ class SomAnalytics(models.AbstractModel):
         } for h, act, n in self._sq("""
             SELECT hour, SUM(active_seconds), COUNT(DISTINCT user_id)
             FROM som_user_activity
-            WHERE day >= %s AND day <= %s
+            WHERE day >= %s AND day <= %s {co}
             GROUP BY hour ORDER BY hour
-        """, params)]
+        """.format(co=_coa), params)]
 
         # TIEMPO DE CAPTURA de una orden de venta: minutos ACTIVOS que el
         # usuario pasó con ese documento abierto. No es reloj de pared —
@@ -3242,7 +3325,7 @@ class SomAnalytics(models.AbstractModel):
             FROM (
                 SELECT user_id, res_id, SUM(active_seconds) AS segundos
                 FROM som_user_activity
-                WHERE day >= %s AND day <= %s
+                WHERE day >= %s AND day <= %s {co}
                   AND model_name = 'sale.order' AND res_id > 0
                 GROUP BY user_id, res_id
                 HAVING SUM(active_seconds) >= 60
@@ -3252,7 +3335,7 @@ class SomAnalytics(models.AbstractModel):
             GROUP BY p.name, u.login
             ORDER BY COUNT(*) DESC
             LIMIT 15
-        """, params)]
+        """.format(co=_coa), params)]
 
         # ── A14 · Minutos activos por TIPO de documento ───────────────
         etiquetas_modelo = {
@@ -3275,12 +3358,12 @@ class SomAnalytics(models.AbstractModel):
                 SELECT model_name AS modelo, user_id, res_id,
                        SUM(active_seconds) AS segundos
                 FROM som_user_activity
-                WHERE day >= %s AND day <= %s
+                WHERE day >= %s AND day <= %s {co}
                   AND model_name IS NOT NULL AND res_id > 0
                 GROUP BY 1, 2, 3
                 HAVING SUM(active_seconds) >= 30
             ) d GROUP BY modelo ORDER BY 4 DESC LIMIT 12
-        """, params)]
+        """.format(co=_coa), params)]
 
         # ── A15 · Escritorio contra móvil ─────────────────────────────
         dispositivos = [{
@@ -3292,9 +3375,9 @@ class SomAnalytics(models.AbstractModel):
                    COALESCE(SUM(s.active_seconds), 0)
             FROM som_user_session s
             WHERE s.started_at >= %s::date
-              AND s.started_at < (%s::date + INTERVAL '1 day')
+              AND s.started_at < (%s::date + INTERVAL '1 day') {co}
             GROUP BY 1 ORDER BY 4 DESC
-        """, params)]
+        """.format(co=self._co_sql('s', nullable=True)), params)]
 
         # ── A16 · Curva mes a mes: ¿mejora el equipo? ─────────────────
         curva = [{
@@ -3310,9 +3393,9 @@ class SomAnalytics(models.AbstractModel):
                    SUM(idle_seconds), COUNT(DISTINCT user_id),
                    SUM(rpc_ms_total), NULLIF(SUM(rpc_count), 0)
             FROM som_user_activity
-            WHERE day >= %s AND day <= %s
+            WHERE day >= %s AND day <= %s {co}
             GROUP BY 1 ORDER BY 1
-        """, params)]
+        """.format(co=_coa), params)]
 
         # ── A17 · Cuánta gente trabaja a la vez, por hora ─────────────
         concurrencia = [{
@@ -3323,10 +3406,10 @@ class SomAnalytics(models.AbstractModel):
             SELECT hora, MAX(personas), AVG(personas) FROM (
                 SELECT hour AS hora, day, COUNT(DISTINCT user_id) AS personas
                 FROM som_user_activity
-                WHERE day >= %s AND day <= %s AND active_seconds > 0
+                WHERE day >= %s AND day <= %s AND active_seconds > 0 {co}
                 GROUP BY hour, day
             ) d GROUP BY hora ORDER BY hora
-        """, params)]
+        """.format(co=_coa), params)]
 
         salida = {
             'kpis': {
@@ -3389,9 +3472,9 @@ class SomAnalytics(models.AbstractModel):
                    MAX(EXTRACT(EPOCH FROM (pa.authorization_date - pa.create_date))/60.0)
             FROM price_authorization pa {j}
             WHERE pa.authorization_date IS NOT NULL
-              AND pa.create_date >= %s AND pa.create_date <= %s
+              AND pa.create_date >= %s AND pa.create_date <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'pa.authorizer_id'))]
+        """.format(co=self._co_sql('pa'), n=NOMBRE, j=JOIN % 'pa.authorizer_id'))]
 
         # ── C1/C5 · Quién PIDE autorización y con qué resultado ───────
         solicitantes = [{
@@ -3407,9 +3490,9 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(*) FILTER (WHERE pa.state = 'pending'),
                    AVG(EXTRACT(EPOCH FROM (pa.authorization_date - pa.create_date))/60.0)
             FROM price_authorization pa {j}
-            WHERE pa.create_date >= %s AND pa.create_date <= %s
+            WHERE pa.create_date >= %s AND pa.create_date <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'pa.seller_id'))]
+        """.format(co=self._co_sql('pa'), n=NOMBRE, j=JOIN % 'pa.seller_id'))]
 
         # ── C3 · La cola viva: quién espera y desde hace cuánto ───────
         auth_pendientes = [{
@@ -3419,9 +3502,9 @@ class SomAnalytics(models.AbstractModel):
             SELECT pa.name, {n},
                    EXTRACT(EPOCH FROM (NOW() - pa.create_date))/3600.0
             FROM price_authorization pa {j}
-            WHERE pa.state = 'pending'
+            WHERE pa.state = 'pending' {co}
             ORDER BY 3 DESC LIMIT 15
-        """.format(n=NOMBRE, j=JOIN % 'pa.seller_id'), (), default=[])]
+        """.format(co=self._co_sql('pa'), n=NOMBRE, j=JOIN % 'pa.seller_id'), (), default=[])]
 
         # ── C10-C12 · Cotización, cierre y deuda de datos por vendedor ─
         cotizaciones = [{
@@ -3444,10 +3527,10 @@ class SomAnalytics(models.AbstractModel):
                                        OR so.client_order_ref = ''),
                    COALESCE(SUM(so.amount_total) FILTER (WHERE so.state = 'sale'), 0)
             FROM sale_order so {j}
-            WHERE so.date_order >= %s AND so.date_order <= %s
+            WHERE so.date_order >= %s AND so.date_order <= %s {co}
               AND COALESCE(so.x_is_quote_backup, false) = false
             GROUP BY 1 ORDER BY 2 DESC LIMIT 25
-        """.format(n=NOMBRE, j=JOIN % 'so.user_id'))]
+        """.format(co=self._co_sql('so'), n=NOMBRE, j=JOIN % 'so.user_id'))]
 
         # ── C17-C22 · Apartados: bloquear material tiene costo ────────
         apartados = [{
@@ -3467,9 +3550,9 @@ class SomAnalytics(models.AbstractModel):
                                       AND h.fecha_expiracion >= NOW()),
                    AVG(EXTRACT(EPOCH FROM (h.fecha_expiracion - h.fecha_orden))/86400.0)
             FROM stock_lot_hold_order h {j}
-            WHERE h.fecha_orden >= %s AND h.fecha_orden <= %s
+            WHERE h.fecha_orden >= %s AND h.fecha_orden <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 25
-        """.format(n=NOMBRE, j=JOIN % 'h.user_id'))]
+        """.format(co=self._co_sql('h'), n=NOMBRE, j=JOIN % 'h.user_id'))]
 
         # ── C23-C26 · Placas: quién mueve material entre pedidos ──────
         placas = [{
@@ -3488,9 +3571,9 @@ class SomAnalytics(models.AbstractModel):
                                         OR l.reason ILIKE '%%liberaci%%'
                                         OR l.reason ILIKE '%%sincronizaci%%'))
             FROM stock_lot_assignment_log l {j}
-            WHERE l.date >= %s AND l.date <= %s
+            WHERE l.date >= %s AND l.date <= %s {co}
             GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 25
-        """.format(n=NOMBRE, j=JOIN % 'l.user_id'))]
+        """.format(co=self._co_sql('l', nullable=True), n=NOMBRE, j=JOIN % 'l.user_id'))]
 
         # ── C27 · Cambios de placa en pedidos ya hechos ───────────────
         swaps = [{
@@ -3499,9 +3582,9 @@ class SomAnalytics(models.AbstractModel):
         } for r in rows("""
             SELECT {n}, COUNT(*), COUNT(DISTINCT sw.sale_order_id)
             FROM sale_stone_swap_history sw {j}
-            WHERE sw.create_date >= %s AND sw.create_date <= %s
+            WHERE sw.create_date >= %s AND sw.create_date <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'sw.user_id'))]
+        """.format(co=self._co_sql('sw'), n=NOMBRE, j=JOIN % 'sw.user_id'))]
 
         # ── C38-C41 · Almacén: quién cierra el trabajo físico ─────────
         almacen = [{
@@ -3519,9 +3602,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_picking_type t ON t.id = sp.picking_type_id
             {j}
             WHERE sp.state = 'done'
-              AND sp.date_done >= %s AND sp.date_done <= %s
+              AND sp.date_done >= %s AND sp.date_done <= %s {co}
             GROUP BY 1 ORDER BY COUNT(*) DESC LIMIT 25
-        """.format(n=NOMBRE, j=JOIN % 'sp.write_uid'))]
+        """.format(co=self._co_sql('sp'), n=NOMBRE, j=JOIN % 'sp.write_uid'))]
 
         # ── C39 · Dónde se atora una recepción: horas entre creación y
         #    validación, por persona que la cerró.
@@ -3538,9 +3621,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_picking_type t ON t.id = sp.picking_type_id
             {j}
             WHERE sp.state = 'done' AND t.code = 'incoming'
-              AND sp.date_done >= %s AND sp.date_done <= %s
+              AND sp.date_done >= %s AND sp.date_done <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'sp.write_uid'))]
+        """.format(co=self._co_sql('sp'), n=NOMBRE, j=JOIN % 'sp.write_uid'))]
 
         # ── C43-C48 · Calidad de ficha y herramientas de corrección ───
         #    Una consulta por fuente: si un módulo no está, solo falta esa
@@ -3548,25 +3631,27 @@ class SomAnalytics(models.AbstractModel):
         fuentes_ficha = [
             ('Fotos de lote', """
                 SELECT {n}, COUNT(*) FROM stock_lot_image i {j}
-                WHERE i.create_date >= %s AND i.create_date <= %s
-                GROUP BY 1""", 'i.create_uid'),
+                WHERE i.create_date >= %s AND i.create_date <= %s {co}
+                GROUP BY 1""", 'i.create_uid', self._co_opt('stock_lot_image', 'i')),
             ('Fotos de bloque', """
                 SELECT {n}, COUNT(*) FROM supplier_shipment_block_image b {j}
-                WHERE b.create_date >= %s AND b.create_date <= %s
-                GROUP BY 1""", 'b.create_uid'),
+                WHERE b.create_date >= %s AND b.create_date <= %s {co}
+                GROUP BY 1""", 'b.create_uid', self._co_sql('b')),
             ('Bajas de material', """
                 SELECT {n}, COUNT(*) FROM stock_lot_writeoff w {j}
-                WHERE w.create_date >= %s AND w.create_date <= %s
-                GROUP BY 1""", 'w.user_id'),
+                WHERE w.create_date >= %s AND w.create_date <= %s {co}
+                GROUP BY 1""", 'w.user_id',
+             self._co_opt('stock_lot_writeoff', 'w')),
             ('Reclasificaciones', """
                 SELECT {n}, COUNT(*) FROM stock_lot_reclassification rc {j}
-                WHERE rc.create_date >= %s AND rc.create_date <= %s
-                GROUP BY 1""", 'rc.user_id'),
+                WHERE rc.create_date >= %s AND rc.create_date <= %s {co}
+                GROUP BY 1""", 'rc.user_id',
+             self._co_opt('stock_lot_reclassification', 'rc')),
         ]
         ficha_map = {}
         ficha_tipos = []
-        for etiqueta, sql, campo in fuentes_ficha:
-            datos = rows(sql.format(n=NOMBRE, j=JOIN % campo))
+        for etiqueta, sql, campo, co in fuentes_ficha:
+            datos = rows(sql.format(n=NOMBRE, j=JOIN % campo, co=co))
             if not datos:
                 continue
             ficha_tipos.append(etiqueta)
@@ -3581,9 +3666,9 @@ class SomAnalytics(models.AbstractModel):
             'usuario': r[0] or '', 'ordenes': int(r[1] or 0),
         } for r in rows("""
             SELECT {n}, COUNT(*) FROM workshop_order w {j}
-            WHERE w.create_date >= %s AND w.create_date <= %s
+            WHERE w.create_date >= %s AND w.create_date <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'w.responsible_id'))]
+        """.format(co=self._co_opt('workshop_order', 'w'), n=NOMBRE, j=JOIN % 'w.responsible_id'))]
 
         taller_tickets = [{
             'usuario': r[0] or '', 'tickets': int(r[1] or 0),
@@ -3595,9 +3680,9 @@ class SomAnalytics(models.AbstractModel):
                    PERCENTILE_CONT(0.5) WITHIN GROUP (
                        ORDER BY EXTRACT(EPOCH FROM (tk.consumed_date - tk.date_ticket))/3600.0)
             FROM workshop_ticket tk {j}
-            WHERE tk.date_ticket >= %s AND tk.date_ticket <= %s
+            WHERE tk.date_ticket >= %s AND tk.date_ticket <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'tk.responsible_id'))]
+        """.format(co=self._co_opt('workshop_ticket', 'tk'), n=NOMBRE, j=JOIN % 'tk.responsible_id'))]
 
         # ── C56-C58 · Caja: doble control ────────────────────────────
         caja = [{
@@ -3608,9 +3693,9 @@ class SomAnalytics(models.AbstractModel):
             SELECT {n}, COUNT(*), COALESCE(SUM(ce.amount), 0),
                    COUNT(*) FILTER (WHERE ce.has_internal_diff)
             FROM cash_entry ce {j}
-            WHERE ce.date >= %s AND ce.date <= %s
+            WHERE ce.date >= %s AND ce.date <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'ce.user_id'))]
+        """.format(co=self._co_opt('cash_entry', 'ce'), n=NOMBRE, j=JOIN % 'ce.user_id'))]
 
         # ── C15/C16 · Catálogo compartido y su conversión ────────────
         catalogo = [{
@@ -3624,11 +3709,11 @@ class SomAnalytics(models.AbstractModel):
                        WHERE so.partner_id = gs.partner_id
                          AND so.state = 'sale'
                          AND so.date_order >= gs.create_date
-                         AND so.date_order <= gs.create_date + INTERVAL '30 days'))
+                         AND so.date_order <= gs.create_date + INTERVAL '30 days' {co}))
             FROM gallery_share gs {j}
-            WHERE gs.create_date >= %s AND gs.create_date <= %s
+            WHERE gs.create_date >= %s AND gs.create_date <= %s {cog}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'gs.user_id'))]
+        """.format(cog=self._co_opt('gallery_share', 'gs'), co=self._co_sql('so'), n=NOMBRE, j=JOIN % 'gs.user_id'))]
 
         # ── C28-C36 · Entregas: cierre en el cliente ─────────────────
         #    Kilómetros y velocidad viven en el reporte del módulo de
@@ -3645,9 +3730,9 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(*) FILTER (WHERE rp.event_type = 'llegada'),
                    COUNT(*) FILTER (WHERE rp.event_type = 'firma')
             FROM sale_delivery_route_point rp {j}
-            WHERE rp.timestamp >= %s AND rp.timestamp <= %s
+            WHERE rp.timestamp >= %s AND rp.timestamp <= %s {co}
             GROUP BY 1 ORDER BY 2 DESC LIMIT 20
-        """.format(n=NOMBRE, j=JOIN % 'rp.user_id'))]
+        """.format(co=self._co_opt('sale_delivery_route_point', 'rp'), n=NOMBRE, j=JOIN % 'rp.user_id'))]
 
         # ── B1/B2 · Conexiones (lo único nativo de Odoo) ─────────────
         logins = [{
@@ -3664,20 +3749,20 @@ class SomAnalytics(models.AbstractModel):
 
         # ── B4 · La mina desaprovechada: qué CREA cada quien ─────────
         fuentes_creacion = [
-            ('Cotizaciones', 'sale_order', 'so'),
-            ('Apartados', 'stock_lot_hold_order', 'ho'),
-            ('Clientes', 'res_partner', 'rp'),
-            ('Productos', 'product_template', 'pt'),
-            ('Placas', 'stock_lot', 'sl'),
+            ('Cotizaciones', 'sale_order', 'so', self._co_sql('so')),
+            ('Apartados', 'stock_lot_hold_order', 'ho', ''),
+            ('Clientes', 'res_partner', 'rp', ''),
+            ('Productos', 'product_template', 'pt', ''),
+            ('Placas', 'stock_lot', 'sl', self._co_sql('sl', nullable=True)),
         ]
         creacion_map = {}
         creacion_tipos = []
-        for etiqueta, tabla, alias in fuentes_creacion:
+        for etiqueta, tabla, alias, co in fuentes_creacion:
             datos = rows("""
                 SELECT {n}, COUNT(*) FROM {t} {a} {j}
-                WHERE {a}.create_date >= %s AND {a}.create_date <= %s
+                WHERE {a}.create_date >= %s AND {a}.create_date <= %s {co}
                 GROUP BY 1
-            """.format(n=NOMBRE, t=tabla, a=alias,
+            """.format(n=NOMBRE, t=tabla, a=alias, co=co,
                        j=JOIN % ('%s.create_uid' % alias)))
             if not datos:
                 continue
@@ -3805,9 +3890,9 @@ class SomAnalytics(models.AbstractModel):
             LEFT JOIN res_currency rc ON rc.id = po.currency_id
             WHERE po.state IN ('purchase', 'done')
               AND po.date_order >= date_trunc(
-                  'month', CURRENT_DATE) - INTERVAL '11 months'
+                  'month', CURRENT_DATE) - INTERVAL '11 months' {co}
             GROUP BY 1
-        """, {'rate': rate}, default=[]))
+        """.format(co=self._co_sql('po')), {'rate': rate}, default=[]))
         months = sorted(set(vend) | set(comp))
         by_month = [
             {'key': m, 'facturado': round(vend.get(m, 0.0), 2),
@@ -3821,6 +3906,7 @@ class SomAnalytics(models.AbstractModel):
         # El recibo de efectivo cuelga de sus pedidos (m2m): es del legado
         # si alguno de ellos trae folio SPS. Los recibos sueltos cuentan
         # como Odoo — misma partición que el resto del tablero.
+        _co_pp = self._co_via_so('pp.sale_order_id')
         _src_proof = self._src_wrap(f, """EXISTS(
             SELECT 1 FROM sale_order so
             WHERE so.id = pp.sale_order_id
@@ -3834,9 +3920,9 @@ class SomAnalytics(models.AbstractModel):
             SELECT cr.state, COUNT(*), COALESCE(SUM(cr.amount_mxn), 0)
             FROM cash_receipt cr
             WHERE cr.date >= %s AND cr.date <= %s
-              AND cr.state != 'cancelled' {src}
+              AND cr.state != 'cancelled' {src} {co}
             GROUP BY 1
-        """.format(src=_src_cash), (dt_from, dt_to))
+        """.format(co=self._co_opt('cash_receipt', 'cr'), src=_src_cash), (dt_from, dt_to))
         cash_map = {a: (b, c) for (a, b, c) in cash}
         sin_aplicar = cash_map.get('delivered', (0, 0.0))
         aplicado = cash_map.get('paid', (0, 0.0))
@@ -3937,14 +4023,14 @@ class SomAnalytics(models.AbstractModel):
                 'efectivo_aplicado': round(aplicado[1], 2),
                 'comprobantes_pendientes': (lambda r: r[0])(self._sq("""
                     SELECT COUNT(*) FROM sale_payment_proof pp
-                    WHERE pp.state = 'pending' {src}
-                """.format(src=_src_proof), default=[(0,)])[0]),
+                    WHERE pp.state = 'pending' {src} {co}
+                """.format(co=_co_pp, src=_src_proof), default=[(0,)])[0]),
                 'comprobantes_monto': (lambda r: round(r[0] or 0, 2))(
                     self._sq("""
                     SELECT COALESCE(SUM(pp.amount),0)
                     FROM sale_payment_proof pp
-                    WHERE pp.state = 'pending' {src}
-                """.format(src=_src_proof), default=[(0,)])[0]),
+                    WHERE pp.state = 'pending' {src} {co}
+                """.format(co=_co_pp, src=_src_proof), default=[(0,)])[0]),
             }),
             'pedidos_con_anticipo': seg.get('pedidos', []),
             'pago_post_entrega': [
@@ -3997,15 +4083,15 @@ class SomAnalytics(models.AbstractModel):
         ent = dict(self._sq("""
             SELECT to_char(ce.date,'YYYY-MM'), SUM(COALESCE(ce.amount,0))
             FROM cash_entry ce WHERE ce.state='done'
-              AND ce.date >= (CURRENT_DATE - INTERVAL '12 months') {src}
+              AND ce.date >= (CURRENT_DATE - INTERVAL '12 months') {src} {co}
             GROUP BY 1
-        """.format(src=_src)))
+        """.format(co=self._co_opt('cash_entry', 'ce'), src=_src)))
         sal = dict(self._sq("""
             SELECT to_char(date,'YYYY-MM'), SUM(COALESCE(amount_mxn,0))
             FROM cash_disbursement WHERE state NOT IN ('cancelled','cancel')
-              AND date >= (CURRENT_DATE - INTERVAL '12 months')
+              AND date >= (CURRENT_DATE - INTERVAL '12 months') {co}
             GROUP BY 1
-        """))
+        """.format(co=self._co_opt('cash_disbursement'))))
         months = sorted(set(ent) | set(sal))
         return [{'key': m, 'entradas': round(ent.get(m, 0) or 0, 2),
                  'salidas': round(sal.get(m, 0) or 0, 2)} for m in months]
@@ -4103,7 +4189,7 @@ class SomAnalytics(models.AbstractModel):
                     JOIN stock_location loc ON loc.id = q.location_id
                          AND loc.usage = 'internal'
                     JOIN product_product pp ON pp.id = q.product_id
-                    WHERE pp.product_tmpl_id = pt.id AND q.quantity > 0
+                    WHERE pp.product_tmpl_id = pt.id AND q.quantity > 0 {coq}
                 ) stock ON stock.m2 > 0
                 JOIN LATERAL (
                     SELECT SUM(ml.quantity) AS m2
@@ -4114,12 +4200,12 @@ class SomAnalytics(models.AbstractModel):
                          AND dst.usage = 'customer'
                     JOIN product_product pp ON pp.id = ml.product_id
                     WHERE pp.product_tmpl_id = pt.id AND ml.state = 'done'
-                      AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
+                      AND ml.date >= (CURRENT_DATE - INTERVAL '12 months') {coml}
                 ) ventas ON ventas.m2 > 0
                 WHERE pt.uom_id IN %s
                 ORDER BY stock.m2 / (ventas.m2 / 12.0) ASC
                 LIMIT 15
-            """, (area,), default=[])]
+            """.format(coq=self._co_sql('q'), coml=self._co_sql('ml')), (area,), default=[])]
 
         prox = proy[0]['proyectado'] if proy else 0.0
         return {
@@ -4266,7 +4352,7 @@ class SomAnalytics(models.AbstractModel):
                    SUM(q.quantity) AS m2,
                    COUNT(DISTINCT sl.id) AS lots,
                    SUM(q.quantity
-                       * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0))
+                       * COALESCE((pt.x_costo_mayor->>q.company_id::text)::float, 0))
                        AS valor
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
@@ -4275,9 +4361,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
             LEFT JOIN product_category pc ON pc.id = pt.categ_id
-            WHERE q.quantity > 0 AND {age} = %(bucket)s
+            WHERE q.quantity > 0 AND {age} = %(bucket)s {co}
             GROUP BY pt.id, pname, cname
-        """.format(age=self._AGE_CASE),
+        """.format(co=self._co_sql('q'), age=self._AGE_CASE),
             {'cid': self._cid(), 'bucket': bucket})
         rows = self.env.cr.dictfetchall()
         return self._aging_drill_pack(bucket, rows)
@@ -4294,7 +4380,7 @@ class SomAnalytics(models.AbstractModel):
                    COALESCE(sl.name, '') AS lot_name,
                    SUM(q.quantity) AS m2,
                    SUM(q.quantity
-                       * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0))
+                       * COALESCE((pt.x_costo_mayor->>q.company_id::text)::float, 0))
                        AS valor
             FROM stock_quant q
             JOIN stock_location loc ON loc.id = q.location_id
@@ -4303,9 +4389,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
             LEFT JOIN product_category pc ON pc.id = pt.categ_id
-            WHERE q.quantity > 0
+            WHERE q.quantity > 0 {co}
             GROUP BY pt.id, pname, cname, lot_name
-        """, {'cid': self._cid()})
+        """.format(co=self._co_sql('q')), {'cid': self._cid()})
         raw = self.env.cr.dictfetchall()
         keys = [self._lot_bucket_key(r['lot_name']) for r in raw]
         numeric = sorted({k[1] for k in keys if k[0] == 0 and k[1] >= 0})
@@ -4473,7 +4559,7 @@ class SomAnalytics(models.AbstractModel):
                         THEN sol.price_subtotal * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
                         ELSE sol.price_subtotal END)
                        - sol.product_uom_qty
-                         * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0)), 0)
+                         * COALESCE((pt.x_costo_mayor->>so.company_id::text)::float, 0)), 0)
             FROM sale_order_line sol
             JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
             JOIN product_product pp ON pp.id = sol.product_id
@@ -4508,8 +4594,8 @@ class SomAnalytics(models.AbstractModel):
                    COUNT(DISTINCT NULLIF(v.container_number, ''))
             FROM stock_transit_voyage v
             LEFT JOIN stock_transit_line l ON l.voyage_id = v.id
-            WHERE v.custom_status NOT IN ('delivered','cancel')
-        """, default=[(0, 0)])[0]
+            WHERE v.custom_status NOT IN ('delivered','cancel') {co}
+        """.format(co=self._co_sql('v')), default=[(0, 0)])[0]
 
         inv = self._sq("""
             SELECT COALESCE(SUM(q.quantity), 0)
@@ -4519,8 +4605,8 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  AND pt.uom_id IN %s
-            WHERE q.quantity > 0
-        """, (tuple(self._area_uom_ids()),), default=[(0,)])[0][0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q')), (tuple(self._area_uom_ids()),), default=[(0,)])[0][0]
 
         # Antigüedad de inventario: días desde la CREACIÓN del lote
         # (stock.lot.create_date), promedio ponderado por m² en stock.
@@ -4532,15 +4618,17 @@ class SomAnalytics(models.AbstractModel):
             JOIN stock_location loc ON loc.id = q.location_id
                  AND loc.usage = 'internal'
             JOIN stock_lot sl ON sl.id = q.lot_id
-            WHERE q.quantity > 0
-        """, default=[(0,)])[0][0]
+            WHERE q.quantity > 0 {co}
+        """.format(co=self._co_sql('q')), default=[(0,)])[0][0]
 
         holds = self._sq(
             "SELECT COUNT(*) FROM stock_lot_hold_order "
-            "WHERE state NOT IN ('cancelled','cancel','done')",
+            "WHERE state NOT IN ('cancelled','cancel','done')"
+            + self._co_sql(''),
             default=[(0,)])[0][0]
         pend_precio = self._sq(
-            "SELECT COUNT(*) FROM price_authorization WHERE state='pending'",
+            "SELECT COUNT(*) FROM price_authorization WHERE state='pending'"
+            + self._co_sql(''),
             default=[(0,)])[0][0]
 
         # ── Medición mensual diaria (2026-08-13) ──────────────────────────
@@ -4621,14 +4709,14 @@ class SomAnalytics(models.AbstractModel):
                             THEN %(rate)s ELSE 1 END), 0)
             FROM commission_move cm
             LEFT JOIN res_currency rc ON rc.id = cm.currency_id
-            WHERE to_char(cm.date,'YYYY-MM') = %(m)s
-        """, {'m': month, 'rate': rate}, default=[(0,)])[0][0] or 0)
+            WHERE to_char(cm.date,'YYYY-MM') = %(m)s {co}
+        """.format(co=self._co_opt('commission_move', 'cm')), {'m': month, 'rate': rate}, default=[(0,)])[0][0] or 0)
 
         rowr = self._sq("""
             SELECT SUM(sol.price_unit * sol.product_uom_qty),
                    SUM(CASE WHEN rc.name='USD'
-                            THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
-                            ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                            THEN COALESCE((pt.x_price_usd_1->>so.company_id::text)::float, 0)
+                            ELSE COALESCE((pt.x_price_mxn_1->>so.company_id::text)::float, 0)
                        END * sol.product_uom_qty)
             FROM sale_order_line sol
             JOIN sale_order so ON so.id = sol.order_id AND so.state='sale'
@@ -4639,8 +4727,8 @@ class SomAnalytics(models.AbstractModel):
             WHERE sol.display_type IS NULL
               AND to_char(so.date_order,'YYYY-MM') = %(m)s {src}
               AND CASE WHEN rc.name='USD'
-                       THEN COALESCE((pt.x_price_usd_1->>%(cid)s)::float, 0)
-                       ELSE COALESCE((pt.x_price_mxn_1->>%(cid)s)::float, 0)
+                       THEN COALESCE((pt.x_price_usd_1->>so.company_id::text)::float, 0)
+                       ELSE COALESCE((pt.x_price_mxn_1->>so.company_id::text)::float, 0)
                   END > 0
         """.format(src=_src), {'cid': cid, 'm': month},
             default=[(0, 0)])[0]
@@ -4714,9 +4802,9 @@ class SomAnalytics(models.AbstractModel):
                                     AND apml.payment_account_id IS NOT NULL))
                    ), 0) AS balance
             FROM account_journal j
-            WHERE j.type IN ('bank', 'cash') AND j.active
+            WHERE j.type IN ('bank', 'cash') AND j.active {co}
             ORDER BY balance DESC
-        """)
+        """.format(co=self._co_sql('j')))
         out = [{'id': a, 'name': b, 'type': c, 'balance': round(d or 0, 2)}
                for (a, b, c, d) in rows]
         return {
@@ -4742,7 +4830,7 @@ class SomAnalytics(models.AbstractModel):
                           * COALESCE(NULLIF(so.x_delivery_exchange_rate,0), %(rate)s)
                      ELSE sol.price_subtotal END AS venta_mxn,
                 COALESCE(sol.product_uom_qty, 0)
-                    * COALESCE((pt.x_costo_mayor->>%(cid)s)::float, 0)
+                    * COALESCE((pt.x_costo_mayor->>so.company_id::text)::float, 0)
                     AS costo_mxn,
                 pt.id AS tmpl_id
             FROM sale_order_line sol
@@ -4820,9 +4908,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  {uom_filter}
             WHERE ml.state = 'done'
-              AND ml.date >= (CURRENT_DATE - INTERVAL '12 months')
+              AND ml.date >= (CURRENT_DATE - INTERVAL '12 months') {co}
             GROUP BY pt.id, pt.name
-        """.format(uom_filter=uom_filter), params)
+        """.format(co=self._co_sql('ml'), uom_filter=uom_filter), params)
         sold = {r[0]: r for r in self.env.cr.fetchall()}
         self.env.cr.execute("""
             SELECT pt.id,
@@ -4838,9 +4926,9 @@ class SomAnalytics(models.AbstractModel):
             JOIN product_product pp ON pp.id = q.product_id
             JOIN product_template pt ON pt.id = pp.product_tmpl_id
                  {uom_filter}
-            WHERE q.quantity > 0
+            WHERE q.quantity > 0 {co}
             GROUP BY pt.id, pt.name
-        """.format(uom_filter=uom_filter), params)
+        """.format(co=self._co_sql('q'), uom_filter=uom_filter), params)
         stock = {r[0]: r for r in self.env.cr.fetchall()}
         out = []
         for tid in set(sold) | set(stock):
