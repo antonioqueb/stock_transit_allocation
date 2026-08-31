@@ -1875,7 +1875,9 @@ class SomAnalytics(models.AbstractModel):
                 SELECT EXTRACT(EPOCH FROM (MIN(sp.date_done)
                     - po.date_approve)) / 86400.0 AS dias
                 FROM purchase_order po
-                JOIN stock_picking sp ON sp.purchase_id = po.id
+                JOIN purchase_order_line pol ON pol.order_id = po.id
+                JOIN stock_move sm ON sm.purchase_line_id = pol.id
+                JOIN stock_picking sp ON sp.id = sm.picking_id
                     AND sp.state = 'done'
                 JOIN stock_picking_type spt ON spt.id = sp.picking_type_id
                     AND spt.code = 'incoming'
@@ -2788,14 +2790,14 @@ class SomAnalytics(models.AbstractModel):
                     WHERE transit_inventory_published_at IS NOT NULL {co}
                 """.format(co=self._co_sql('')), default=[(None,)])[0]),
                 'ligas_portal': (lambda r: r[0])(self._sq(
-                    'SELECT COUNT(*) FROM supplier_access WHERE true'
-                    + self._co_opt('supplier_access'),
+                    'SELECT COUNT(*) FROM stock_picking_supplier_access WHERE true'
+                    + self._co_opt('stock_picking_supplier_access'),
                     default=[(0,)])[0]),
                 'ligas_sin_acceso_7d': (lambda r: r[0])(self._sq("""
-                    SELECT COUNT(*) FROM supplier_access
+                    SELECT COUNT(*) FROM stock_picking_supplier_access
                     WHERE (last_access IS NULL
                        OR last_access < NOW() - INTERVAL '7 days') {co}
-                """.format(co=self._co_opt('supplier_access')), default=[(0,)])[0]),
+                """.format(co=self._co_opt('stock_picking_supplier_access')), default=[(0,)])[0]),
                 'ligas_avance_pct': portal_avance,
                 'ligas_terminadas': portal_terminadas,
             },
@@ -2815,7 +2817,7 @@ class SomAnalytics(models.AbstractModel):
         del proforma header, por eso se resuelve vía ORM acotado."""
         result = (0.0, 0)
         try:
-            Access = self.env['supplier.access'].sudo()
+            Access = self.env['stock.picking.supplier.access'].sudo()
             Header = self.env['supplier.proforma.header'].sudo()
             headers = Header.search(
                 [('company_id', 'in', [False] + self._cids())],
@@ -2917,7 +2919,7 @@ class SomAnalytics(models.AbstractModel):
         # devolución del módulo de entregas Y devoluciones hechas directo
         # en almacén (picking de retorno sobre una salida a cliente).
         devs = self._sq("""
-            SELECT COALESCE(r.name, 'Sin motivo'), COUNT(*)
+            SELECT COALESCE(r.name->>'es_MX', r.name->>'en_US', 'Sin motivo'), COUNT(*)
             FROM sale_delivery_document d
             LEFT JOIN sale_return_reason r ON r.id = d.return_reason_id
             WHERE d.document_type = 'return' AND d.state != 'cancelled'

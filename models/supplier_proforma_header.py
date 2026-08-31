@@ -5,6 +5,15 @@ from odoo.exceptions import ValidationError
 
 class SupplierProformaHeader(models.Model):
     _name = 'supplier.proforma.header'
+
+    # La re-declaración con _name REEMPLAZA la clase de stock_lot_packing_import
+    # (métodos incluidos): sin esto, torre de control y avance de cargas
+    # truenan con "no attribute _portal_progress". Se reutiliza la ÚNICA
+    # implementación del portal en vez de duplicarla.
+    from odoo.addons.stock_lot_packing_import.models.supplier_proforma_header import (
+        SupplierProformaHeader as _PkgProformaHeader,
+    )
+    _portal_progress = _PkgProformaHeader._portal_progress
     _description = 'Cabecera de Proforma (Datos Globales del Proveedor)'
     _order = 'create_date desc'
     _inherit = ['mail.thread']
