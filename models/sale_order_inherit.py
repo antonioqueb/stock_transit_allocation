@@ -278,6 +278,22 @@ class SaleOrderLine(models.Model):
         help='Cantidad asignada por placas/lotes seleccionados.',
     )
 
+    # Desglose del asignado (1 sep 2026): lo que YA está en almacén vs lo
+    # PREALOCADO en tránsito (embarque activo). El vendedor debe verlos
+    # distintos para no prometer como disponible lo que aún viaja.
+    tc_qty_assigned_stock = fields.Float(
+        string='Asignado (stock)',
+        compute='_compute_tc_allocation_qtys',
+        digits='Product Unit of Measure',
+        help='Parte del asignado cuyas placas/lotes están físicamente en almacén.',
+    )
+    tc_qty_assigned_transit = fields.Float(
+        string='Prealocado (tránsito)',
+        compute='_compute_tc_allocation_qtys',
+        digits='Product Unit of Measure',
+        help='Parte del asignado cuyas placas/lotes aún vienen en tránsito (prealocación).',
+    )
+
     tc_qty_pending_allocation = fields.Float(
         string='Pendiente por asignar',
         compute='_compute_tc_allocation_qtys',
@@ -874,6 +890,34 @@ class SaleOrderLine(models.Model):
 
         return total
 
+    def _tc_lot_is_in_transit(self, lot):
+        """True si el lote asignado NO está en almacén y sí viene en un
+        embarque (reserva de tránsito activa o quant en ubicación de tránsito)."""
+        self.ensure_one()
+        if not lot:
+            return False
+        if self._tc_float_gt_zero(self._tc_get_lot_internal_qty(lot)):
+            return False
+        if self._tc_float_gt_zero(self._tc_get_lot_transit_reserved_qty(lot)):
+            return True
+        Loc = self.env['stock.location']
+        base = [('lot_id', '=', lot.id), ('quantity', '>', 0)]
+        if hasattr(Loc, '_som_transit_quant_leaf'):
+            dom = base + Loc._som_transit_quant_leaf()
+        else:
+            dom = base + [('location_id.usage', '=', 'transit')]
+        return bool(self.env['stock.quant'].sudo().search_count(dom))
+
+    def _tc_get_assigned_transit_qty(self):
+        """Suma del asignado que aún viene en tránsito (prealocado)."""
+        self.ensure_one()
+        if 'lot_ids' not in self._fields or not self.lot_ids:
+            return 0.0
+        breakdown = self._tc_read_lot_breakdown()
+        return sum(
+            self._tc_get_lot_qty(lot, breakdown=breakdown)
+            for lot in self.lot_ids if self._tc_lot_is_in_transit(lot))
+
     def _tc_get_covered_qty_for_allocation(self):
         """
         Cubierto para efectos del hub:
@@ -1277,6 +1321,8 @@ class SaleOrderLine(models.Model):
                 or line._tc_is_service_product()
             ):
                 line.tc_qty_assigned_lots = 0.0
+                line.tc_qty_assigned_stock = 0.0
+                line.tc_qty_assigned_transit = 0.0
                 line.tc_qty_pending_allocation = 0.0
                 line.tc_qty_assigned_percent = 0.0
                 line.tc_qty_over_assigned = 0.0
@@ -1300,6 +1346,9 @@ class SaleOrderLine(models.Model):
             over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
 
             line.tc_qty_assigned_lots = assigned_qty
+            transit_qty = min(line._tc_get_assigned_transit_qty(), assigned_qty)
+            line.tc_qty_assigned_transit = transit_qty
+            line.tc_qty_assigned_stock = max(assigned_qty - transit_qty, 0.0)
             line.tc_qty_pending_allocation = pending_qty
             line.tc_qty_assigned_percent = (assigned_qty / requested_qty) * 100.0 if requested_qty > 0 else 0.0
             line.tc_qty_over_assigned = over_assigned_qty

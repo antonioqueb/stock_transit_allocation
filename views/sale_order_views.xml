@@ -135,7 +135,11 @@
 
                             <field name="product_template_id" string="Producto" readonly="1"/>
                             <field name="product_uom_qty" string="Solicitado" readonly="1"/>
-                            <field name="tc_qty_assigned_lots" string="Asignado" readonly="1"/>
+                            <field name="tc_qty_assigned_lots" column_invisible="True"/>
+                            <field name="tc_qty_assigned_stock" string="Asignado" readonly="1"/>
+                            <field name="tc_qty_assigned_transit" string="Prealocado" readonly="1"
+                                   decoration-muted="1"
+                                   help="Placas asignadas que AÚN vienen en tránsito: prealocadas, no disponibles en almacén."/>
                             <field name="tc_qty_pending_allocation" string="Pendiente" readonly="1"/>
                             <field name="tc_qty_assigned_percent" string="% Asignado" optional="hide" readonly="1"/>
                             <field name="tc_qty_over_assigned" string="Sobreasignado" optional="hide" readonly="1"/>
@@ -203,9 +207,17 @@
                  aplica después de la de Nivel de Precio (priority 130), por lo
                  que su inserción queda pegada a la cantidad. -->
             <xpath expr="//field[@name='order_line']/list/field[@name='product_uom_qty']" position="after">
-                <field name="tc_qty_assigned_lots"
+                <field name="tc_qty_assigned_lots" column_invisible="True"/>
+                <field name="tc_qty_assigned_stock"
                        string="Asignado"
                        readonly="1"/>
+                <!-- Prealocado = asignado que AÚN viaja: en gris tenue para
+                     no confundirlo con lo que ya está en almacén. -->
+                <field name="tc_qty_assigned_transit"
+                       string="Prealocado"
+                       readonly="1"
+                       decoration-muted="1"
+                       help="Placas asignadas que aún vienen en tránsito (prealocación): no están disponibles en almacén."/>
                 <field name="tc_qty_pending_allocation"
                        string="Pendiente"
                        readonly="1"/>
