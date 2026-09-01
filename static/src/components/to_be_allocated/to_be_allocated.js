@@ -1336,6 +1336,12 @@ export class ToBeAllocated extends Component {
                 let statusBadge;
                 if (sel) {
                     statusBadge = `<span class="stone-tag stone-tag-ok">Selec.</span>`;
+                } else if (isPartial && q.physical_qty !== undefined
+                           && (q.physical_qty - (q.quantity || 0)) > 0.005) {
+                    // Formato/pieza con parte ya tomada por otro documento:
+                    // Disp. muestra SOLO el remanente libre.
+                    statusBadge = `<span class="stone-tag stone-tag-warn"
+                                         title="Físico ${this._fmtPlain(q.physical_qty)} · libre ${this._fmtPlain(q.quantity || 0)} ${qtyLabel}">Parcial</span>`;
                 } else if (reserved) {
                     statusBadge = `<span class="stone-tag stone-tag-warn">Reserv.</span>`;
                 } else {
@@ -1519,6 +1525,12 @@ export class ToBeAllocated extends Component {
             }
         };
 
+        // Línea de venta en edición: el backend no le descuenta su propia
+        // reserva/captura al calcular el libre de cada formato.
+        const saleLineId = Number.isInteger(config.saleLine?.id)
+            ? config.saleLine.id
+            : (Number.isInteger(config.line?.id) ? config.line.id : false);
+
         const loadPage = async (page, reset) => {
             if (reset) {
                 state.isLoading = true;
@@ -1547,6 +1559,7 @@ export class ToBeAllocated extends Component {
                             product_id: config.productId,
                             filters: state.filters,
                             current_lot_ids: Array.from(state.pendingIds),
+                            sale_line_id: saleLineId,
                             page,
                             page_size: PAGE_SIZE,
                         }
@@ -1560,6 +1573,7 @@ export class ToBeAllocated extends Component {
                             product_id: config.productId,
                             filters: state.filters,
                             current_lot_ids: Array.from(state.pendingIds),
+                            sale_line_id: saleLineId,
                         }
                     );
 
