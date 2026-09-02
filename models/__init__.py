@@ -35,3 +35,4 @@ from . import som_restock
 from . import stock_lot_inherit
 from . import som_user_permission_log
 from . import tc_physical_pl_job
+from . import stock_move_voyage_reservation
