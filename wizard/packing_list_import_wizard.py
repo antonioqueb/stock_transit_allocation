@@ -833,9 +833,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         # nombre puede escaparse. Se salta cualquier número ya ocupado.
         Lot = self.env["stock.lot"].sudo().with_context(active_test=False)
         lot_name = f"{seq_data['prefix']}-{seq_data['num']:02d}"
+        # El nombre debe ser unico en TODA la serie, sin importar el
+        # producto: dos productos del mismo contenedor no pueden estrenar
+        # el mismo numero (caso S68-01 duplicado PULIDO/CEPILLADO).
         while Lot.search_count([
             ("name", "=", lot_name),
-            ("product_id", "=", row["product"].id),
         ]):
             seq_data["num"] += 1
             lot_name = f"{seq_data['prefix']}-{seq_data['num']:02d}"
