@@ -656,7 +656,9 @@ class SomAnalytics(models.AbstractModel):
             FROM commission_move cm
             LEFT JOIN res_partner p ON p.id = cm.partner_id
             LEFT JOIN res_currency rc ON rc.id = cm.currency_id
-            WHERE cm.date >= %s AND cm.date <= %s {co}
+            WHERE COALESCE(cm.payment_date, cm.date) >= %s
+              AND COALESCE(cm.payment_date, cm.date) <= %s
+              AND COALESCE(cm.pre_start, FALSE) = FALSE {co}
             GROUP BY 1, 2 ORDER BY 3 DESC
         """.format(co=self._co_opt('commission_move', 'cm')), (date_from, date_to))
         com_map = {}
@@ -4711,7 +4713,8 @@ class SomAnalytics(models.AbstractModel):
                             THEN %(rate)s ELSE 1 END), 0)
             FROM commission_move cm
             LEFT JOIN res_currency rc ON rc.id = cm.currency_id
-            WHERE to_char(cm.date,'YYYY-MM') = %(m)s {co}
+            WHERE to_char(COALESCE(cm.payment_date, cm.date),'YYYY-MM') = %(m)s
+              AND COALESCE(cm.pre_start, FALSE) = FALSE {co}
         """.format(co=self._co_opt('commission_move', 'cm')), {'m': month, 'rate': rate}, default=[(0,)])[0][0] or 0)
 
         rowr = self._sq("""
