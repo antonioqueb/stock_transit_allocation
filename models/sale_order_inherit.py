@@ -981,7 +981,18 @@ class SaleOrderLine(models.Model):
                 return True
         return False
 
-    def _tc_get_free_internal_qty(self):
+    def _tc_get_free_internal_qty(self, include_own=True):
+        """Stock libre interno del producto.
+
+        include_own=True (comportamiento historico): los lotes de la PROPIA
+        orden cuentan como disponibles (flujo apartar->cotizar). Cada orden
+        ve un numero distinto.
+
+        include_own=False: numero GLOBAL — se excluye lo comprometido por
+        CUALQUIER orden (incluida la propia), lo apartado y lo reservado.
+        Es el que se MUESTRA en la columna de stock libre para que todas
+        las ordenes vean la misma cifra (pedido de negocio: dos vendedores
+        viendo numeros distintos parecia inconsistencia)."""
         self.ensure_one()
 
         if not self.product_id:
@@ -999,7 +1010,7 @@ class SaleOrderLine(models.Model):
         if 'company_id' in Quant._fields and self.order_id and self.order_id.company_id:
             domain.append(('company_id', 'in', [False, self.order_id.company_id.id]))
 
-        safe_ids = self._tc_get_own_order_lot_ids()
+        safe_ids = self._tc_get_own_order_lot_ids() if include_own else set()
 
         # Excluir placas con hold SALVO las de la propia orden: el flujo
         # "apartar para el cliente → cotizar" pone esos lotes en
@@ -1331,7 +1342,7 @@ class SaleOrderLine(models.Model):
                 line.tc_available_internal_qty = (
                     0.0
                     if (line.display_type or not line.product_id or line._tc_is_service_product())
-                    else line._tc_get_free_internal_qty()
+                    else line._tc_get_free_internal_qty(include_own=False)
                 )
                 line.tc_assignment_state = 'no_demand'
                 line.tc_allocation_hub_state = 'nothing'
@@ -1342,7 +1353,7 @@ class SaleOrderLine(models.Model):
             covered_qty = line._tc_get_covered_qty_for_allocation()
             raw_pending_qty = line._tc_get_raw_pending_allocation_qty()
             pending_qty = line._tc_get_pending_allocation_qty()
-            available_qty = line._tc_get_free_internal_qty()
+            available_qty = line._tc_get_free_internal_qty(include_own=False)
             over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
 
             line.tc_qty_assigned_lots = assigned_qty
