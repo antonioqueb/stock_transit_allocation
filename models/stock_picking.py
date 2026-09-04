@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 import json
 import logging
+import re
 
-from markupsafe import Markup
+from markupsafe import Markup, escape
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -382,6 +383,117 @@ class StockPicking(models.Model):
                 'Esta recepción no está ligada a ningún embarque.'))
         return voyage.action_force_close_pending_reception()
 
+
+    # ══════════════════════════════════════════════════════════════════
+    # REABRIR RECEPCIÓN SIN DEMANDA PENDIENTE (4 sep 2026)
+    #
+    # Caso: la recepción del embarque se validó completa (o se cerró la
+    # demanda) y después llega material adicional del mismo contenedor.
+    # Desde la recepción en HECHO, el engrane ofrece "Reabrir recepción
+    # (recibir adicional)": nace una recepción NUEVA de la misma cadena,
+    # ligada al mismo embarque, con la demanda EN CERO (el usuario la llena
+    # a mano desde el PL físico) y los lotes continúan el consecutivo del
+    # contenedor (el PL físico siembra la serie con los lotes ya recibidos).
+    # ══════════════════════════════════════════════════════════════════
+    def _tc_next_lot_hints(self):
+        """{prefijo: siguiente nombre} a partir de los lotes de ESTA
+        recepción, contando TODOS los lotes existentes con ese prefijo
+        (mismo candado global que el importador de PL)."""
+        self.ensure_one()
+        prefixes = []
+        for lot in self.move_line_ids.mapped('lot_id'):
+            m = re.match(r'^(.+)-(\d+)$', (lot.name or '').strip())
+            if m and m.group(1) not in prefixes:
+                prefixes.append(m.group(1))
+        hints = {}
+        for prefix in prefixes:
+            self.env.cr.execute("""
+                SELECT sl.name FROM stock_lot sl
+                WHERE sl.name LIKE %s
+                  AND (sl.company_id = %s OR sl.company_id IS NULL)
+                  AND SUBSTRING(sl.name FROM '-([0-9]+)$') IS NOT NULL
+                ORDER BY CAST(SUBSTRING(sl.name FROM '-([0-9]+)$') AS INTEGER) DESC
+                LIMIT 1
+            """, (f'{prefix}-%', self.company_id.id))
+            row = self.env.cr.fetchone()
+            nxt = int(row[0].rsplit('-', 1)[1]) + 1 if row else 1
+            hints[prefix] = f'{prefix}-{nxt:02d}'
+        return hints
+
+    def action_tc_reopen_reception_extra(self):
+        self.ensure_one()
+        if self.state != 'done':
+            raise UserError(_(
+                'Solo se puede reabrir una recepción ya validada (HECHO). '
+                'Si la recepción sigue abierta, trabaje directamente en ella.'))
+        voyage = self.tc_reception_voyage_id or self._get_linked_reception_voyage()
+        if not voyage:
+            raise UserError(_(
+                'Esta recepción no está ligada a ningún embarque: la reapertura '
+                'solo aplica a recepciones físicas de embarque.'))
+        voyage = voyage.sudo()
+
+        # Cadena con recepción abierta: se abre esa, jamás se duplica.
+        totals = voyage._tc_reception_totals()
+        if totals['open']:
+            open_pick = totals['open'].sorted('id')[0]
+            return voyage._tc_open_reception_action(open_pick)
+
+        ctx = voyage._tc_reception_safe_context()
+        new = self.sudo().with_context(ctx).copy({
+            'name': '/', 'move_ids': [], 'move_line_ids': [],
+            'backorder_id': self.id, 'tc_reception_voyage_id': voyage.id,
+            'origin': self.origin or f'{voyage.name} (Recepción Física)',
+        })
+        reset = {}
+        for flag in ('packing_list_imported', 'worksheet_imported'):
+            if flag in new._fields:
+                reset[flag] = False
+        if 'tc_labeling_status' in new._fields:
+            reset['tc_labeling_status'] = 'none'
+            reset['tc_label_print_count'] = 0
+        if reset:
+            new.with_context(ctx).write(reset)
+
+        # Demanda EN CERO por producto: la llena el usuario desde el PL
+        # físico. Productos de esta recepción + los del viaje.
+        products = (self.move_ids.mapped('product_id')
+                    | self.move_line_ids.mapped('product_id')
+                    | voyage.line_ids.mapped('product_id'))
+        Move = self.env['stock.move'].sudo().with_company(self.company_id)
+        for product in products:
+            Move.with_context(ctx).create({
+                'picking_id': new.id, 'product_id': product.id,
+                'product_uom_qty': 0.0, 'product_uom': product.uom_id.id,
+                'location_id': self.location_id.id,
+                'location_dest_id': self.location_dest_id.id,
+                'company_id': self.company_id.id,
+                'picking_type_id': self.picking_type_id.id,
+                'origin': new.origin,
+                'description_picking': product.display_name,
+            })
+        new.move_ids.with_context(ctx)._action_confirm()
+
+        voyage.write({'reception_picking_id': new.id,
+                      'custom_status': 'reception_pending'})
+
+        hints = self._tc_next_lot_hints()
+        hint_txt = ', '.join(hints.values()) if hints else _('(sin lotes previos)')
+        body = Markup(_(
+            '🔁 <b>Recepción reabierta sin demanda pendiente</b> por %(user)s '
+            'desde %(prev)s. Demanda en cero: cárguela desde el PL físico. '
+            'Siguiente lote por contenedor: <b>%(hint)s</b>.')) % {
+                'user': escape(self.env.user.name), 'prev': escape(self.name),
+                'hint': escape(hint_txt)}
+        new.message_post(body=body)
+        voyage.message_post(body=body)
+        self.message_post(body=Markup(_(
+            '🔁 Se abrió la recepción adicional <b>%(new)s</b> para recibir '
+            'material extra de este embarque (por %(user)s).')) % {
+                'new': escape(new.name), 'user': escape(self.env.user.name)})
+        _logger.info('[TC_RECEPTION] %s reabierta como %s (demanda 0) por %s; siguientes lotes %s',
+                     self.name, new.name, self.env.user.name, hints)
+        return voyage._tc_open_reception_action(new)
 
     def _get_linked_reception_voyage(self):
         self.ensure_one()

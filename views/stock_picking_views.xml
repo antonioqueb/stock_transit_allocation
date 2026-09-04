@@ -187,6 +187,20 @@
         </field>
     </record>
 
+    <!-- Reabrir recepción sin demanda pendiente (engrane): recepción en
+         HECHO de un embarque → nace la recepción adicional de la misma
+         cadena con demanda en cero; se llena desde el PL físico y los lotes
+         continúan el consecutivo del contenedor. -->
+    <record id="action_tc_reopen_reception_extra" model="ir.actions.server">
+        <field name="name">Reabrir recepción (recibir adicional)</field>
+        <field name="model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_model_id" ref="stock.model_stock_picking"/>
+        <field name="binding_type">action</field>
+        <field name="binding_view_types">form</field>
+        <field name="state">code</field>
+        <field name="code">action = records.action_tc_reopen_reception_extra()</field>
+    </record>
+
     <!-- Regenerar PL físico: en el MENÚ DE ACCIONES (engrane) del formulario,
          no como botón de header. Reconstruye la plantilla con las Ref.
          Internas VIGENTES del viaje (imprescindible tras un renumerado de
