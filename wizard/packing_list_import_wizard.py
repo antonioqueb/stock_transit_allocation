@@ -192,6 +192,13 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         return "%g" % number
 
+    def _tc_is_extra_reception(self):
+        """Recepción ADICIONAL (reabierta sin demanda pendiente): TODO lo
+        capturado en su PL físico es material nuevo. Jamás se empareja con
+        lotes del viaje que nunca llegaron (4 sep 2026: S19-51 'reutilizado'
+        con puntaje 7 cuando el usuario quería un lote NUEVO)."""
+        return bool(getattr(self.picking_id, 'tc_extra_reception', False))
+
     def _tc_pairing_candidate_lots(self, voyage):
         """Lotes candidatos para emparejar filas del PL físico.
 
@@ -203,6 +210,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         ellos "roba" las filas de las placas reales y bloquea la importación
         con el guard de placas reservadas, aunque las placas sí vengan.
         """
+        if self._tc_is_extra_reception():
+            # Sin candidatos: cada fila estrena lote (consecutivo del
+            # contenedor, ver _tc_collect_existing_sequence_lots).
+            return self.env["stock.lot"]
+
         voyage_lots = voyage.line_ids.mapped("lot_id").filtered(
             lambda lot: lot and lot.name
         )
@@ -295,6 +307,15 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         viaje ya reemplazó (S26-*), contarlas aquí hacía ganar al prefijo
         muerto y los lotes nuevos nacían en la serie equivocada.
         """
+        if self._tc_is_extra_reception():
+            # Recepción adicional: no hay candidatos de emparejamiento, pero
+            # la SERIE sí debe continuar: lotes del viaje + los ya recibidos
+            # en la cadena (S19-01..S19-101 ⇒ el nuevo nace S19-102).
+            chain = voyage._tc_reception_totals()['done']
+            return (
+                voyage.line_ids.mapped("lot_id")
+                | chain.mapped("move_line_ids.lot_id")
+            ).filtered(lambda lot: lot and lot.name)
         return self._tc_pairing_candidate_lots(voyage)
 
     def _tc_choose_prefix_from_lots(self, lots):
@@ -1433,6 +1454,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             )
         )
         blocked_reserved = predicted_omitted.filtered(lambda l: l.order_id)
+        if self._tc_is_extra_reception():
+            # Adicional: lo que no vino ya se resolvió al cerrar la demanda
+            # original; este PL solo AGREGA placas, no juzga las del viaje.
+            blocked_reserved = predicted_omitted.browse()
         if blocked_reserved:
             # Diagnóstico completo: qué trae el PL, qué se descartó y por
             # qué, y cómo se reparte por contenedor — para que el error se
@@ -1573,6 +1598,9 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 and _line_in_scope(line)
             )
         )
+        if self._tc_is_extra_reception():
+            # Adicional: jamás libera/pone en cero líneas del viaje.
+            omitted_lines = voyage.line_ids.browse()
 
         # GUARD: una línea omitida RESERVADA A UN PEDIDO no se desasigna en
         # silencio. Si el emparejamiento no encontró la placa (identidad muy
@@ -1674,8 +1702,11 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         if _job_id:
             self.env.cr.commit()
 
-        # Normalizar nombres después de reconstruir líneas.
-        self._tc_renumber_physical_reception_lots_by_container(voyage)
+        # Normalizar nombres después de reconstruir líneas. En la recepción
+        # adicional NO: el lote nuevo debe conservar el consecutivo siguiente
+        # de la serie (S19-102), no reacomodarse.
+        if not self._tc_is_extra_reception():
+            self._tc_renumber_physical_reception_lots_by_container(voyage)
         _mark('renumerado')
 
         prev = _t0

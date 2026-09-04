@@ -102,6 +102,13 @@ class StockPickingPhysicalPackingList(models.Model):
 
         result = []
 
+        # RECEPCIÓN ADICIONAL (reabierta sin demanda pendiente): la plantilla
+        # sale VACÍA a propósito. Las placas del viaje que nunca llegaron ya
+        # se resolvieron al cerrar la demanda; prellenarlas hacía que el
+        # almacén "recibiera" un folio que no existe físicamente.
+        if getattr(self, 'tc_extra_reception', False):
+            return result
+
         voyage = self._tc_get_physical_reception_voyage()
 
         transit_lines = voyage.line_ids.filtered(
