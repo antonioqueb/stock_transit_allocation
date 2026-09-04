@@ -1937,6 +1937,24 @@ class StockPicking(models.Model):
                 orphan.action_load_from_picking()
                 return
 
+        if self.purchase_id:
+            # ═══ CANDADO ANTI-ESPEJO ═══
+            # Una recepción ADICIONAL de la misma OC (reingreso tras una
+            # devolución, complemento, parcialidad tardía) NO estrena viaje:
+            # si la OC tiene EXACTAMENTE UN viaje vivo, se SUMA a él. Crear
+            # otro duplicaba el embarque en pantalla con líneas espejo
+            # (EMBARQUE/2026/0126 nació así del reingreso SOM/IN/00215 de
+            # C77 y hubo que eliminarlo a mano dos veces). Con varios viajes
+            # vivos no se adivina: ahí sí nace uno nuevo (comportamiento
+            # histórico para OCs multi-embarque).
+            vivos = Voyage.search([
+                ('purchase_id', '=', self.purchase_id.id),
+                ('custom_status', '!=', 'cancel'),
+            ])
+            if len(vivos) == 1:
+                self._tc_join_shared_voyage(vivos)
+                return
+
         # El viaje nace en la compañía de la RECEPCIÓN (folio y tránsito de
         # esa compañía), no en la del almacenista que valida.
         voyage = Voyage.with_company(self.company_id).create({
