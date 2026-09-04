@@ -241,7 +241,7 @@
                         </div>
                         <div t-if="filteredDone.length" class="o_rcp_done_list">
                             <div class="o_rcp_done_row rich"
-                                 t-foreach="filteredDone" t-as="row" t-key="row.id"
+                                 t-foreach="filteredDone" t-as="row" t-key="row.reception_id || row.id"
                                  t-on-click="() => this.openReception(row.reception_id)">
                                 <div class="o_rcp_done_main">
                                     <span class="s" t-esc="row.supplier or row.folio"/>
