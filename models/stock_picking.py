@@ -362,6 +362,14 @@ class StockPicking(models.Model):
     # se etiqueta de forma independiente; cuando TODAS las parcialidades
     # quedan etiquetadas (y no hay pendiente), el viaje se marca labeled
     # y el tablero re-unifica las tarjetas (siempre fueron un embarque).
+    # Recepción ADICIONAL (reabierta sin demanda pendiente): nace con
+    # demanda en cero y la demanda real es lo que se capture del PL físico.
+    tc_extra_reception = fields.Boolean(
+        string='Recepción adicional (reabierta)', default=False, copy=False,
+        help='Recepción abierta desde una recepción ya validada para recibir '
+             'material extra del mismo embarque. Su demanda se alinea con lo '
+             'capturado al validar.')
+
     tc_labeling_status = fields.Selection([
         ('none', 'Entregado'),
         ('printing', 'En impresión'),
@@ -443,6 +451,7 @@ class StockPicking(models.Model):
         new = self.sudo().with_context(ctx).copy({
             'name': '/', 'move_ids': [], 'move_line_ids': [],
             'backorder_id': self.id, 'tc_reception_voyage_id': voyage.id,
+            'tc_extra_reception': True,
             'origin': self.origin or f'{voyage.name} (Recepción Física)',
         })
         reset = {}
@@ -905,6 +914,15 @@ class StockPicking(models.Model):
                 done_qty = sum(mv.move_line_ids.mapped('quantity'))
                 demand = mv.product_uom_qty or 0.0
                 rounding = mv.product_uom.rounding or 0.01
+                # Recepción ADICIONAL (reabierta): nació con demanda 0 y la
+                # demanda real es lo capturado del PL — se alinea aquí.
+                if pick.tc_extra_reception and float_compare(
+                        done_qty, demand, precision_rounding=rounding) != 0:
+                    mv.with_context(
+                        skip_transit_reception_sync=True,
+                        tracking_disable=True,
+                    ).write({'product_uom_qty': done_qty})
+                    demand = done_qty
                 if float_compare(done_qty, demand,
                                  precision_rounding=rounding) > 0:
                     raise UserError(_(
