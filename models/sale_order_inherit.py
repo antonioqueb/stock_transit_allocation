@@ -554,6 +554,17 @@ class SaleOrderLine(models.Model):
 
         return {}
 
+    def _tc_line_is_fractionable(self):
+        """True si la línea vende material FORMATO/PIEZA (fraccionable):
+        por sus lotes asignados o, sin lotes, por la unidad del producto."""
+        self.ensure_one()
+        lots = self.lot_ids if 'lot_ids' in self._fields else self.env['stock.lot']
+        if lots:
+            return all(self._tc_get_lot_type(l) in ('formato', 'pieza') for l in lots)
+        tmpl = self.product_id.product_tmpl_id if self.product_id else None
+        unit = str(getattr(tmpl, 'x_unidad_del_producto', '') or '').strip().lower() if tmpl else ''
+        return unit in ('formato', 'pieza')
+
     def _tc_get_lot_type(self, lot):
         self.ensure_one()
 
@@ -2383,6 +2394,20 @@ class SaleOrderLine(models.Model):
                 line.id, line.product_id.display_name, current_qty,
                 assigned_qty, bool(force), over_action or '-')
 
+            # SOLICITADO PROTEGIDO EN FORMATO/PIEZA (incidencia V/745, 8 sep
+            # 2026): el material fraccionable se toma en la cantidad exacta
+            # que se captura (desglose por lote), así que no hay "placa que
+            # no se puede partir" que justifique subir lo que pidió el
+            # cliente. Ninguna asignación, reserva o desglose mueve el
+            # Solicitado; si se asigna de más, queda visible como
+            # sobre-asignación (Asignado > Solicitado) para decisión humana.
+            # El ajuste forzado explícito ('Ajustar') sí sigue aplicando.
+            if not force and line._tc_line_is_fractionable():
+                _logger.info(
+                    '[TC_RATCHET] línea %s omitida: formato/pieza (Solicitado '
+                    'protegido; asignado=%.4f)', line.id, assigned_qty)
+                continue
+
             # DECISIÓN DE SOBRE-ASIGNACIÓN (popup del Viaje): cuando se asignó
             # más de lo solicitado y el usuario eligió free/bill, se aplica el
             # ajuste de cantidad y, en 'free', el descuento equivalente, en
@@ -2994,6 +3019,11 @@ class SaleOrderLine(models.Model):
             return
 
         if self.display_type or not self.product_id:
+            return
+
+        # Formato/pieza: Solicitado protegido (V/745, 8 sep 2026); el piso
+        # por placas no aplica a material fraccionable.
+        if self._tc_line_is_fractionable():
             return
 
         assigned_qty = self._tc_get_assigned_lot_qty()
