@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from collections import defaultdict
 import logging
+import time
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
@@ -347,8 +348,14 @@ class TransitAllocationLogic(models.AbstractModel):
         # @api.model es OBLIGATORIO: el hub llama por RPC sin ids y este
         # build de Odoo 19 truena con IndexError en call_kw si el método
         # se registra como de instancia (args[0] serían los ids).
+        t0 = time.time()
         SaleLine = self.env['sale.order.line']
-        sale_lines_all = SaleLine.search(self._tal_get_sale_line_domain(), order='order_id desc, id desc')
+        domain = self._tal_get_sale_line_domain()
+        # Prefiltro SQL de líneas ya entregadas (ver _hub_undelivered_line_ids).
+        undelivered_ids = self._hub_undelivered_line_ids()
+        if undelivered_ids is not None:
+            domain.append(('id', 'in', undelivered_ids))
+        sale_lines_all = SaleLine.search(domain, order='order_id desc, id desc')
         sale_lines_all = sale_lines_all.filtered(lambda line: self._is_hub_stock_product(line.product_id))
 
         metrics_by_line, _free_qty_by_product, _product_ids = self._hub_compute_sale_line_metrics(sale_lines_all)
@@ -501,6 +508,8 @@ class TransitAllocationLogic(models.AbstractModel):
             )
         )
 
+        _logger.info('[HUB_PERF] transit.allocation get_data: %s productos, %s líneas candidatas, %.2fs',
+                     len(result), len(sale_lines_all), time.time() - t0)
         return result
 
     # ---------------------------------------------------------------------

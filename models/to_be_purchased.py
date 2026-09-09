@@ -2,6 +2,7 @@
 from collections import defaultdict
 import json
 import logging
+import time
 
 from odoo.tools import float_compare
 from odoo import models, fields, api
@@ -434,11 +435,62 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         if 'product_uom_qty' in SaleLine._fields:
             domain.append(('product_uom_qty', '>', 0))
 
+        # PREFILTRO SQL (rendimiento, 9 sep 2026): una línea ya ENTREGADA
+        # completa jamás tiene pendiente (cubierto = max(asignado, entregado)),
+        # pero antes entraba al cálculo de métricas con sus lotes, quants y
+        # allocations. Con la historia de ventas eso eran miles de líneas y
+        # ~8,700 consultas por carga del tablero. Odoo no filtra columna
+        # contra columna en dominio, así que se resuelve en SQL y luego se
+        # re-aplica el dominio (y las reglas de registro) con search.
+        undelivered_ids = self._hub_undelivered_line_ids()
+        if undelivered_ids is not None:
+            domain.append(('id', 'in', undelivered_ids))
+
         sale_lines = SaleLine.search(domain, order='order_id desc, id desc')
 
         return sale_lines.filtered(
             lambda line: self._is_hub_stock_product(line.product_id)
         )
+
+    def _hub_undelivered_line_ids(self):
+        """Ids de líneas confirmadas con entregado < solicitado (columnas
+        almacenadas). None si la columna no existe (compatibilidad)."""
+        SaleLine = self.env['sale.order.line']
+        if 'qty_delivered' not in SaleLine._fields or not SaleLine._fields['qty_delivered'].store:
+            return None
+        self.env['sale.order.line'].flush_model(['qty_delivered', 'product_uom_qty', 'state'])
+        self.env.cr.execute("""
+            SELECT id FROM sale_order_line
+             WHERE state IN ('sale', 'done')
+               AND display_type IS NULL
+               AND product_id IS NOT NULL
+               AND COALESCE(product_uom_qty, 0) > 0
+               AND COALESCE(qty_delivered, 0) < COALESCE(product_uom_qty, 0) - 0.0001
+        """)
+        return [r[0] for r in self.env.cr.fetchall()]
+
+    def _hub_get_any_qty_by_product_lot(self, product_ids, lot_ids):
+        """Físico del lote en CUALQUIER ubicación (mismo criterio que
+        sale.order.line._tc_get_lot_any_location_qty) en UNA consulta
+        agrupada, para lotes que ya salieron de almacén/tránsito."""
+        if not product_ids or not lot_ids:
+            return {}
+        Quant = self.env['stock.quant'].sudo()
+        domain = [
+            ('product_id', 'in', list(product_ids)),
+            ('lot_id', 'in', list(lot_ids)),
+            ('quantity', '>', 0),
+        ]
+        if 'company_id' in Quant._fields:
+            domain.append(('company_id', 'in', [False] + self._hub_company_ids()))
+        qty_map = {}
+        for group in self._hub_get_quant_sum(domain, ['product_id', 'lot_id']):
+            product = group.get('product_id')
+            lot = group.get('lot_id')
+            if not product or not lot:
+                continue
+            qty_map[(product[0], lot[0])] = group.get('quantity') or group.get('quantity_sum') or 0.0
+        return qty_map
 
     def _hub_get_quant_sum(self, domain, groupby):
         Quant = self.env['stock.quant'].sudo()
@@ -976,13 +1028,20 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         if not sale_lines:
             return {}, {}, {}
 
+        t0 = time.time()
         product_ids = set(sale_lines.mapped('product_id').ids)
         line_lot_ids, all_lot_ids = self._hub_get_line_lot_ids(sale_lines)
         lot_metadata = self._hub_get_lot_metadata(all_lot_ids)
         internal_qty_by_product_lot = self._hub_get_internal_qty_by_product_lot(product_ids, all_lot_ids)
         transit_qty_by_order_product_lot = self._hub_get_transit_reserved_qty_map(sale_lines, all_lot_ids)
+        # Lotes fuera de almacén/tránsito (entregados, taller…): físico en
+        # cualquier ubicación en UNA consulta, no una por lote.
+        any_qty_by_product_lot = self._hub_get_any_qty_by_product_lot(product_ids, all_lot_ids)
         free_qty_by_product = self._hub_get_free_internal_qty_by_product(product_ids)
         active_purchase_qty_by_line = self._hub_get_active_purchase_qty_by_sale_line(sale_lines.ids)
+        _logger.info(
+            '[HUB_PERF] métricas: %s líneas, %s lotes, mapas en %.2fs',
+            len(sale_lines), len(all_lot_ids), time.time() - t0)
 
         metrics = {}
 
@@ -1014,19 +1073,12 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                             (line.order_id.id, product.id, lot_id), 0.0)
                     if not self._hub_float_gt_zero(qty):
                         # Lote ya fuera de almacén/tránsito (entregado, en
-                        # taller, otra ubicación): MISMO cálculo que la línea
-                        # (_tc_get_lot_qty: físico en cualquier ubicación y
-                        # luego área teórica). Antes el tablero caía directo
-                        # al área teórica y no cuadraba con el cierre: IVORY
-                        # solicitado 225.07 = asignado 225.07 (142.37 ya
-                        # entregados) aparecía con pendiente en To Be
-                        # Allocated y "Cerrar" respondía que no había nada.
-                        try:
-                            qty = line._tc_get_lot_qty(
-                                self.env['stock.lot'].browse(lot_id),
-                                breakdown=breakdown)
-                        except Exception:  # noqa: BLE001
-                            qty = 0.0
+                        # taller, otra ubicación): físico en cualquier
+                        # ubicación, mismo criterio que la línea
+                        # (_tc_get_lot_any_location_qty) pero en lote. Antes
+                        # caía al área teórica y no cuadraba con el cierre
+                        # (IVORY 225.07 con 0.8 de pendiente fantasma).
+                        qty = any_qty_by_product_lot.get((product.id, lot_id), 0.0)
                     if not self._hub_float_gt_zero(qty):
                         qty = lot_info.get('fallback_qty') or 0.0
 
@@ -1224,6 +1276,7 @@ class ToBeAllocatedLogic(models.AbstractModel):
 
     @api.model
     def get_data(self):
+        t0 = time.time()
         sale_lines = self._hub_get_candidate_sale_lines()
         metrics_by_line, _free_qty_by_product, _product_ids = self._hub_compute_sale_line_metrics(sale_lines)
         payment_map = self._hub_get_payment_percent_map(sale_lines)
@@ -1258,6 +1311,8 @@ class ToBeAllocatedLogic(models.AbstractModel):
             )
         )
 
+        _logger.info('[HUB_PERF] sale.allocation get_data: %s filas de %s candidatas, %.2fs',
+                     len(result), len(sale_lines), time.time() - t0)
         return result
 
     @api.model
@@ -1298,6 +1353,7 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def get_data(self):
+        t0 = time.time()
         sale_lines_all = self._hub_get_candidate_sale_lines()
         metrics_by_line, free_qty_by_product, product_ids = self._hub_compute_sale_line_metrics(sale_lines_all)
         payment_map = self._hub_get_payment_percent_map(sale_lines_all)
@@ -1457,6 +1513,7 @@ class ToBePurchasedLogic(models.AbstractModel):
             )
         )
 
+        _logger.info('[HUB_PERF] purchase.manager get_data: %.2fs', time.time() - t0)
         return result
 
     @api.model
