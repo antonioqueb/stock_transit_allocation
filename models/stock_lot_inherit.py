@@ -60,10 +60,18 @@ class StockLot(models.Model):
             if not src or not src._som_is_transit():
                 continue
             left_qty[ml.lot_id.id] = left_qty.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0)
+        # Solo las PLACAS (indivisibles) se depuran por residuo. Un formato o
+        # pieza puede tener saldo legítimo en tránsito tras una recepción
+        # parcial (parcialidades del viaje), así que con quant > 0 cuenta.
+        fractionable = set()
+        if 'x_tipo' in self._fields:
+            for lot in self.sudo().browse(list(transit_qty)):
+                if str(lot.x_tipo or '').lower() in ('formato', 'pieza'):
+                    fractionable.add(lot.id)
         result = set()
         for lot_id, qty in transit_qty.items():
             left = left_qty.get(lot_id, 0.0)
-            if left <= 0.0 or qty > left + 0.0001:
+            if lot_id in fractionable or left <= 0.0 or qty > left + 0.0001:
                 result.add(lot_id)
         return result
 
