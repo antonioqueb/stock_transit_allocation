@@ -173,11 +173,28 @@ class StockTransitVoyageAllocationGuard(models.Model):
             for line in existing_stock_lines
         }
 
+        # EXCEDENTE "PARA STOCK" AGREGADO POR PRODUCTO. La OC puede repetir
+        # el producto en varias líneas (precios distintos) y el placeholder
+        # del viaje es UNO por producto: recorrer línea por línea borraba el
+        # placeholder en la primera línea sin excedente y lo releía en la
+        # segunda (MissingError stock.transit.line, C113 desde To Be
+        # Purchased) y, si ambas tenían excedente, la segunda pisaba a la
+        # primera en vez de sumar.
+        extra_by_product = {}
+        product_order = []
         for po_line in self.purchase_id.order_line:
+            if po_line.display_type or not po_line.product_id:
+                continue
             total_po_qty = po_line.product_qty or 0.0
             reserved_qty = reserved_qty_by_po_line.get(po_line.id, 0.0)
-            extra_for_stock = total_po_qty - reserved_qty
             product_id = po_line.product_id.id
+            if product_id not in extra_by_product:
+                extra_by_product[product_id] = 0.0
+                product_order.append(product_id)
+            extra_by_product[product_id] += total_po_qty - reserved_qty
+
+        for product_id in product_order:
+            extra_for_stock = extra_by_product[product_id]
 
             # Descontar reservas manuales del mismo producto (bucket
             # compartido entre líneas de OC del mismo producto).
@@ -187,14 +204,17 @@ class StockTransitVoyageAllocationGuard(models.Model):
                 extra_for_stock -= take
                 manual_reserved_by_product[product_id] = manual_left - take
 
+            existing_line = existing_stock_by_product.get(product_id)
+            if existing_line and not existing_line.exists():
+                existing_line = None
+
             if extra_for_stock <= 0:
-                if product_id in existing_stock_by_product:
-                    existing_stock_by_product[product_id].unlink()
+                if existing_line:
+                    existing_line.unlink()
+                    existing_stock_by_product.pop(product_id, None)
                 continue
 
-            if product_id in existing_stock_by_product:
-                existing_line = existing_stock_by_product[product_id]
-
+            if existing_line:
                 if existing_line.product_uom_qty != extra_for_stock:
                     existing_line.write({
                         'product_uom_qty': extra_for_stock,
