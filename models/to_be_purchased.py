@@ -528,10 +528,24 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return qty_map
 
     def _hub_get_free_internal_qty_by_product(self, product_ids):
+        """Stock LIBRE en bodega por (compañía, producto) — {(company_id,
+        product_id): qty} más {product_id: qty} agregado por compatibilidad.
+
+        Reglas (9 sep 2026):
+        - EXCLUYE ubicaciones de tránsito: SOM/TRANSIT nació como interna y
+          el material que aún viaja contaba como "disponible", mandando a
+          To Be Allocated pedidos sin nada en bodega (deben ir a To Be
+          Purchased / tránsito).
+        - Por compañía: el stock de otra compañía del switcher no cubre el
+          pedido de ésta.
+        - Sin reservas, sin holds y sin lotes comprometidos en ventas
+          (resueltos en UNA pasada, no por producto).
+        """
         if not product_ids:
             return {}
 
         Quant = self.env['stock.quant'].sudo()
+        Location = self.env['stock.location'].sudo()
         domain = [
             ('product_id', 'in', list(product_ids)),
             ('location_id.usage', '=', 'internal'),
@@ -547,29 +561,96 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         if 'company_id' in Quant._fields:
             domain.append(('company_id', 'in', [False] + self._hub_company_ids()))
 
-        committed_lot_ids = set()
-        if hasattr(Quant, '_get_committed_lot_ids'):
-            for product_id in product_ids:
-                try:
-                    committed_lot_ids.update(Quant._get_committed_lot_ids(product_id) or [])
-                except Exception as e:
-                    _logger.warning(
-                        '[AllocationHub] No se pudieron resolver committed_lot_ids para product_id=%s: %s',
-                        product_id,
-                        e,
-                    )
+        # Fuera tránsito (criterio tolerante de stock.location).
+        if hasattr(Location, '_som_transit_quant_leaf'):
+            transit_locs = Location.search([('usage', 'in', ('internal', 'transit'))]).filtered(
+                lambda l: l._som_is_transit())
+            if transit_locs:
+                domain.append(('location_id', 'not in', transit_locs.ids))
 
+        committed_lot_ids = self._hub_get_committed_lot_ids(product_ids)
         if committed_lot_ids:
             domain.append(('lot_id', 'not in', list(committed_lot_ids)))
 
         qty_map = defaultdict(float)
-        for group in self._hub_get_quant_sum(domain, ['product_id']):
+        groupby = ['product_id']
+        if 'company_id' in Quant._fields:
+            groupby = ['company_id', 'product_id']
+        for group in self._hub_get_quant_sum(domain, groupby):
             product = group.get('product_id')
             if not product:
                 continue
-            qty_map[product[0]] += group.get('quantity') or group.get('quantity_sum') or 0.0
+            qty = group.get('quantity') or group.get('quantity_sum') or 0.0
+            company = group.get('company_id')
+            company_id = company[0] if company else False
+            qty_map[(company_id, product[0])] += qty
+            qty_map[product[0]] += qty
 
         return dict(qty_map)
+
+    def _hub_get_committed_lot_ids(self, product_ids):
+        """Lotes comprometidos en ventas confirmadas para TODOS los productos
+        en una pasada (antes _get_committed_lot_ids por producto: N×4
+        consultas). Mismo criterio: move lines vivas de ventas confirmadas
+        + lot_ids de líneas confirmadas no entregados; los formato/pieza
+        solo cuentan si ya no tienen libre (delegado al helper por
+        producto solo para esos, que son pocos)."""
+        Quant = self.env['stock.quant'].sudo()
+        if not hasattr(Quant, '_get_committed_lot_ids'):
+            return set()
+        Sol = self.env['sale.order.line'].sudo()
+        Ml = self.env['stock.move.line'].sudo()
+        product_ids = list(product_ids)
+        mls = Ml.search([
+            ('product_id', 'in', product_ids),
+            ('lot_id', '!=', False),
+            ('state', 'not in', ['done', 'cancel']),
+            ('move_id.sale_line_id', '!=', False),
+            ('move_id.sale_line_id.order_id.state', 'in', ['sale', 'done']),
+        ])
+        committed = set(mls.mapped('lot_id').ids)
+        sols = Sol.search([
+            ('product_id', 'in', product_ids),
+            ('lot_ids', '!=', False),
+            ('order_id.state', 'in', ['sale', 'done']),
+        ]) if 'lot_ids' in Sol._fields else Sol
+        sol_lots = set()
+        for sol in sols:
+            sol_lots.update(sol.lot_ids.ids)
+        if sol_lots:
+            done_mls = Ml.search([
+                ('product_id', 'in', product_ids),
+                ('lot_id', 'in', list(sol_lots)),
+                ('state', '=', 'done'),
+                ('location_dest_id.usage', '=', 'customer'),
+                ('move_id.sale_line_id', 'in', sols.ids),
+            ])
+            delivered = {}
+            for ml in done_mls:
+                delivered.setdefault(ml.move_id.sale_line_id.id, set()).add(ml.lot_id.id)
+            for sol in sols:
+                dl = delivered.get(sol.id, set())
+                committed.update(l for l in sol.lot_ids.ids if l not in dl)
+        if not committed:
+            return set()
+        # Formato/pieza: solo comprometidos si ya no tienen libre. Se resuelve
+        # con el helper canónico únicamente para los productos que tengan
+        # lotes fraccionables comprometidos.
+        lots = self.env['stock.lot'].sudo().browse(list(committed))
+        fractionable_products = set()
+        result = set()
+        for lot in lots:
+            tipo = str(getattr(lot, 'x_tipo', '') or '').lower()
+            if tipo in ('formato', 'pieza'):
+                fractionable_products.add(lot.product_id.id)
+            else:
+                result.add(lot.id)
+        for pid in fractionable_products:
+            try:
+                result.update(Quant._get_committed_lot_ids(pid) or [])
+            except Exception as e:  # noqa: BLE001
+                _logger.warning('[AllocationHub] committed_lot_ids product %s: %s', pid, e)
+        return result
 
     def _hub_get_transit_qty_by_product(self, product_ids):
         if not product_ids:
@@ -1105,7 +1186,13 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 getattr(line, 'tc_stock_rejected', False)
                 or getattr(line, 'auto_transit_assign', False)
             )
-            available_qty = free_qty_by_product.get(product.id, 0.0)
+            # Disponible = stock libre en BODEGA de la compañía de la orden
+            # (sin tránsito). Sin stock real => To Be Purchased.
+            line_company_id = (line.order_id.company_id or line.company_id).id
+            available_qty = (
+                free_qty_by_product.get((line_company_id, product.id), 0.0)
+                + free_qty_by_product.get((False, product.id), 0.0)
+            )
 
             if requested_qty <= 0:
                 assignment_state = 'no_demand'
