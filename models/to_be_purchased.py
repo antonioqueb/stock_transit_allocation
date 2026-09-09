@@ -1362,6 +1362,69 @@ class ToBeAllocatedLogic(models.AbstractModel):
     _description = 'Lógica para el Tablero To Be Allocated'
 
     @api.model
+    def get_sellers_summary(self):
+        """Resumen por VENDEDOR de pedidos con material sin asignar por
+        completo (submenú "Vendedores" de To Be Allocated). Cuenta todas las
+        líneas confirmadas con pendiente (haya o no stock: To Be Allocated y
+        To Be Purchased), agrupadas por vendedor principal, y regresa los
+        pedidos de cada uno con su referencia del cliente (para filtrar
+        SPS/legado en el front)."""
+        t0 = time.time()
+        sale_lines = self._hub_get_candidate_sale_lines()
+        metrics_by_line, _free, _pids = self._hub_compute_sale_line_metrics(sale_lines)
+        sellers = {}
+        for line in sale_lines:
+            m = metrics_by_line.get(line.id, {})
+            if m.get('hub_state') not in ('to_be_allocated', 'to_be_purchased'):
+                continue
+            if not self._hub_float_gt_zero(m.get('pending_qty')):
+                continue
+            row = self._hub_make_sale_line_row(line, m)
+            order = line.order_id
+            seller = order.user_id
+            key = seller.id or 0
+            s = sellers.get(key)
+            if s is None:
+                s = sellers[key] = {
+                    'seller_id': seller.id or False,
+                    'seller_name': seller.name or 'Sin vendedor',
+                    'orders': {},
+                }
+            o = s['orders'].get(order.id)
+            if o is None:
+                o = s['orders'][order.id] = {
+                    'so_id': order.id,
+                    'so_name': order.name,
+                    'client_ref': order.client_order_ref or '',
+                    'customer': order.partner_id.name or '',
+                    'date': row.get('date') or '',
+                    'commitment_date': row.get('commitment_date') or '',
+                    'lines': 0,
+                    'pending_m2': 0.0,
+                    'pending_pieces': 0.0,
+                    'to_be_allocated': 0,
+                    'to_be_purchased': 0,
+                    'products': [],
+                }
+            o['lines'] += 1
+            o['pending_m2'] += float(row.get('qty_pending_m2') or 0.0)
+            o['pending_pieces'] += float(row.get('qty_pending_pieces') or 0.0)
+            o[m.get('hub_state')] += 1
+            if len(o['products']) < 6:
+                o['products'].append(row.get('product_name') or '')
+        result = []
+        for s in sellers.values():
+            orders = sorted(s['orders'].values(), key=lambda o: (-o['pending_m2'], o['so_name']))
+            result.append({
+                'seller_id': s['seller_id'],
+                'seller_name': s['seller_name'],
+                'orders': orders,
+            })
+        result.sort(key=lambda s: (-len(s['orders']), s['seller_name']))
+        _logger.info('[HUB_PERF] sellers_summary: %s vendedores, %.2fs', len(result), time.time() - t0)
+        return result
+
+    @api.model
     def get_data(self):
         t0 = time.time()
         sale_lines = self._hub_get_candidate_sale_lines()

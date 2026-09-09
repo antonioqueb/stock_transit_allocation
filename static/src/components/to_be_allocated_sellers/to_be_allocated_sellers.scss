@@ -1,0 +1,88 @@
+// Submenú "Vendedores" de To Be Allocated. Hereda todo el look de
+// to_be_allocated.scss (misma raíz .o_tba_root); aquí solo van los
+// detalles propios del ranking. Debe cargarse DESPUÉS de to_be_allocated.scss
+// en el bundle para reutilizar sus variables $o-tba-*.
+
+.o_tbas_left {
+    flex: 1;
+    min-width: 0;
+}
+
+.o_tbas_seller {
+    min-width: 0;
+    flex: 1;
+}
+
+.o_tbas_rank {
+    flex: 0 0 auto;
+    width: 30px;
+    height: 30px;
+    border-radius: 11px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12.5px;
+    font-weight: 850;
+    font-variant-numeric: tabular-nums;
+    color: $o-tba-blue-deep;
+    background: $o-tba-blue-soft;
+    border: 1px solid rgba(92, 185, 242, 0.42);
+
+    &.top {
+        color: #fff;
+        background: linear-gradient(135deg, $o-tba-blue, $o-tba-blue-deep);
+        border-color: $o-tba-blue-deep;
+    }
+}
+
+.o_tbas_bar {
+    margin-top: 7px;
+    height: 6px;
+    width: 100%;
+    max-width: 420px;
+    border-radius: 999px;
+    background: rgba(92, 185, 242, 0.16);
+    overflow: hidden;
+}
+
+.o_tbas_bar_fill {
+    height: 100%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, $o-tba-blue, $o-tba-blue-2, $o-tba-green);
+    transition: width 0.25s ease;
+}
+
+.o_tbas_stat_orders {
+    border-color: rgba(21, 95, 148, 0.4);
+    background: $o-tba-blue-soft;
+}
+
+.o_tbas_ref {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 750;
+    font-size: 10.5px;
+    color: #1f5b13;
+    background: rgba(4, 217, 79, 0.12);
+    border: 1px solid rgba(4, 217, 79, 0.35);
+    white-space: nowrap;
+}
+
+.o_tbas_products {
+    max-width: 320px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: $o-tba-text-2;
+}
+
+@media (max-width: 767.98px) {
+    .o_tbas_bar {
+        max-width: 100%;
+    }
+
+    .o_tbas_products {
+        max-width: 180px;
+    }
+}

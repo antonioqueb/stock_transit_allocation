@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_transit_allocation.ToBeAllocatedSellers" owl="1">
+        <div class="o_tba_root o_tbas_root">
+
+            <!-- HEADER -->
+            <div class="o_tba_header">
+                <div class="o_tba_title_box">
+                    <div class="o_tba_icon">
+                        <i class="fa fa-users"/>
+                    </div>
+                    <div>
+                        <h2 class="o_tba_title">Vendedores</h2>
+                        <div class="o_tba_subtitle">
+                            Quién tiene más pedidos confirmados sin asignar por completo (con o sin stock).
+                        </div>
+                    </div>
+                </div>
+
+                <div class="o_tba_metrics">
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Pedidos</span>
+                        <span class="o_tba_metric_value"><t t-esc="fmtInt(totalOrders)"/></span>
+                    </div>
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Con ref. cliente</span>
+                        <span class="o_tba_metric_value"><t t-esc="fmtInt(totalOrdersWithRef)"/></span>
+                    </div>
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Pend. m²</span>
+                        <span class="o_tba_metric_value"><t t-esc="fmtNum(totalPendingM2)"/></span>
+                    </div>
+                    <div class="o_tba_metric">
+                        <span class="o_tba_metric_label">Pend. pzas</span>
+                        <span class="o_tba_metric_value"><t t-esc="fmtNum(totalPendingPieces)"/></span>
+                    </div>
+                </div>
+
+                <button type="button"
+                        class="btn btn-sm btn-outline-primary"
+                        t-on-click="refresh"
+                        t-att-disabled="state.loading">
+                    <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'} me-1"/>
+                    Actualizar
+                </button>
+            </div>
+
+            <!-- TOOLBAR -->
+            <div class="o_tba_toolbar">
+                <div class="o_tba_search">
+                    <i class="fa fa-search o_tba_search_icon"/>
+                    <input type="text"
+                           class="o_tba_search_input"
+                           placeholder="Buscar por vendedor, pedido, referencia del cliente o cliente..."
+                           t-att-value="state.searchQuery"
+                           t-on-input="onSearchInput"/>
+                    <button t-if="state.searchQuery"
+                            type="button"
+                            class="o_tba_search_clear"
+                            t-on-click="clearSearch">
+                        <i class="fa fa-times"/>
+                    </button>
+                </div>
+
+                <!-- Filtro por Referencia del cliente (pedidos SPS/legado) -->
+                <button type="button"
+                        t-att-class="state.refFilter === 'with_ref' ? 'o_tba_mine_btn active' : 'o_tba_mine_btn'"
+                        t-on-click="() => this.setRefFilter('with_ref')"
+                        title="Solo pedidos que traen Referencia del cliente (SPS)">
+                    <i t-attf-class="fa #{state.refFilter === 'with_ref' ? 'fa-check-square-o' : 'fa-square-o'} me-1"/>
+                    Con referencia del cliente
+                    <span class="o_tba_mine_count"><t t-esc="fmtInt(countWithRef)"/></span>
+                </button>
+
+                <button type="button"
+                        t-att-class="state.refFilter === 'without_ref' ? 'o_tba_mine_btn active' : 'o_tba_mine_btn'"
+                        t-on-click="() => this.setRefFilter('without_ref')"
+                        title="Solo pedidos sin Referencia del cliente">
+                    <i t-attf-class="fa #{state.refFilter === 'without_ref' ? 'fa-check-square-o' : 'fa-square-o'} me-1"/>
+                    Sin referencia
+                    <span class="o_tba_mine_count"><t t-esc="fmtInt(countWithoutRef)"/></span>
+                </button>
+
+                <button type="button"
+                        class="o_tba_refresh_sm"
+                        title="Actualizar"
+                        t-on-click="refresh"
+                        t-att-disabled="state.loading">
+                    <i t-attf-class="fa #{state.loading ? 'fa-spinner fa-spin' : 'fa-refresh'}"/>
+                </button>
+
+                <div class="o_tba_group_buttons">
+                    <button type="button" class="o_tba_group_btn" t-on-click="openToBeAllocated">
+                        <i class="fa fa-object-group me-1"/>
+                        Ir al tablero
+                    </button>
+                </div>
+            </div>
+
+            <!-- LOADING / EMPTY -->
+            <div t-if="state.loading" class="o_tba_loading">
+                <i class="fa fa-spinner fa-spin me-2"/>
+                Calculando pendientes por vendedor...
+            </div>
+
+            <div t-elif="!sellers.length" class="o_tba_empty">
+                <i class="fa fa-check-circle me-2"/>
+                No hay pedidos sin asignar por completo con este filtro.
+            </div>
+
+            <!-- RANKING -->
+            <div t-else="" class="o_tba_groups">
+                <t t-foreach="sellers" t-as="seller" t-key="seller.key">
+                    <div class="o_tba_group">
+                        <div class="o_tba_group_header" t-on-click="() => this.toggleExpanded(seller.key)">
+                            <div class="o_tba_group_left o_tbas_left">
+                                <div class="o_tba_chevron">
+                                    <i t-attf-class="fa #{isExpanded(seller.key) ? 'fa-chevron-down' : 'fa-chevron-right'}"/>
+                                </div>
+                                <div t-att-class="seller_index === 0 ? 'o_tbas_rank top' : 'o_tbas_rank'">
+                                    <t t-esc="seller_index + 1"/>
+                                </div>
+                                <div class="o_tbas_seller">
+                                    <div class="o_tba_group_title">
+                                        <i class="fa fa-user me-1"/>
+                                        <t t-esc="seller.seller_name"/>
+                                    </div>
+                                    <div class="o_tba_group_subtitle">
+                                        <t t-esc="fmtInt(seller.orders_count)"/> pedido<t t-if="seller.orders_count !== 1">s</t> sin asignar por completo
+                                        · <t t-esc="fmtInt(seller.lines)"/> línea<t t-if="seller.lines !== 1">s</t>
+                                    </div>
+                                    <div class="o_tbas_bar">
+                                        <div class="o_tbas_bar_fill" t-attf-style="width: #{barWidth(seller)}"/>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="o_tba_group_stats">
+                                <span class="o_tba_stat o_tbas_stat_orders">Pedidos <b><t t-esc="fmtInt(seller.orders_count)"/></b></span>
+                                <span class="o_tba_stat" title="Pedidos con Referencia del cliente (SPS)">Con ref. <b><t t-esc="fmtInt(seller.orders_with_ref)"/></b></span>
+                                <span class="o_tba_stat" title="Líneas con stock disponible por asignar">Por asignar <b><t t-esc="fmtInt(seller.to_be_allocated)"/></b></span>
+                                <span class="o_tba_stat" title="Líneas sin stock (To Be Purchased)">Por comprar <b><t t-esc="fmtInt(seller.to_be_purchased)"/></b></span>
+                                <span t-if="seller.pending_m2 > 0.0001" class="o_tba_stat">Pend. <b><t t-esc="fmtNum(seller.pending_m2)"/> m²</b></span>
+                                <span t-if="seller.pending_pieces > 0.0001" class="o_tba_stat">Pend. <b><t t-esc="fmtNum(seller.pending_pieces)"/> pzas</b></span>
+                            </div>
+                        </div>
+
+                        <div t-if="isExpanded(seller.key)" class="o_tba_table_wrap">
+                            <table class="o_tba_table">
+                                <thead>
+                                    <tr>
+                                        <th>Pedido</th>
+                                        <th>Referencia del cliente</th>
+                                        <th>Cliente</th>
+                                        <th>Fecha</th>
+                                        <th>Compromiso</th>
+                                        <th class="text-center">Líneas</th>
+                                        <th class="text-center">Por asignar</th>
+                                        <th class="text-center">Por comprar</th>
+                                        <th class="text-end">Pendiente</th>
+                                        <th>Productos</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="seller.orders" t-as="order" t-key="order.so_id">
+                                        <tr>
+                                            <td>
+                                                <button type="button"
+                                                        class="btn btn-link p-0 o_tba_so_link"
+                                                        t-on-click="(ev) => this.openSaleOrder(order.so_id, ev)">
+                                                    <i class="fa fa-external-link"/>
+                                                    <t t-esc="order.so_name"/>
+                                                </button>
+                                            </td>
+                                            <td>
+                                                <span t-if="order.client_ref" class="o_tbas_ref"><t t-esc="order.client_ref"/></span>
+                                                <span t-else="" class="text-muted">—</span>
+                                            </td>
+                                            <td><t t-esc="order.customer"/></td>
+                                            <td><t t-esc="fmtDate(order.date)"/></td>
+                                            <td><t t-esc="fmtDate(order.commitment_date)"/></td>
+                                            <td class="text-center"><t t-esc="fmtInt(order.lines)"/></td>
+                                            <td class="text-center"><t t-esc="fmtInt(order.to_be_allocated)"/></td>
+                                            <td class="text-center"><t t-esc="fmtInt(order.to_be_purchased)"/></td>
+                                            <td class="text-end"><t t-esc="fmtPending(order)"/></td>
+                                            <td class="o_tbas_products" t-att-title="(order.products || []).join(', ')">
+                                                <t t-esc="(order.products || []).join(', ')"/>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </t>
+            </div>
+        </div>
+    </t>
+</templates>

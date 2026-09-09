@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.104.91.0',
+    'version': '19.0.104.92.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -183,6 +183,9 @@
             'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.js',
             'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.xml',
             'stock_transit_allocation/static/src/components/to_be_allocated/to_be_allocated.scss',
+            'stock_transit_allocation/static/src/components/to_be_allocated_sellers/to_be_allocated_sellers.js',
+            'stock_transit_allocation/static/src/components/to_be_allocated_sellers/to_be_allocated_sellers.xml',
+            'stock_transit_allocation/static/src/components/to_be_allocated_sellers/to_be_allocated_sellers.scss',
 
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.js',
             'stock_transit_allocation/static/src/components/transit_sheet/transit_sheet.xml',
