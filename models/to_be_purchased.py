@@ -1171,6 +1171,9 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             'customer_id': order.partner_id.id,
             'salesperson': order.user_id.name if order.user_id else '',
             'salesperson_id': order.user_id.id if order.user_id else False,
+            # Vendedor secundario (sale_order_second_salesperson): cuenta como
+            # "mi pedido" en el filtro del tablero.
+            'salesperson2_id': (order.user_id_2.id if 'user_id_2' in order._fields and order.user_id_2 else False),
             'product_id': product.id,
             'product_name': product.display_name,
             'product_type': unit_group_label,

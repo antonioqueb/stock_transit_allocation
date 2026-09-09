@@ -2,6 +2,7 @@
 import { registry } from "@web/core/registry";
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
+import { user } from "@web/core/user";
 import { somFormatDate } from "@stock_transit_allocation/utils/som_date";
 import { somProgress } from "@stock_transit_allocation/utils/som_progress";
 
@@ -25,6 +26,9 @@ export class ToBeAllocated extends Component {
             loading: true,
             expanded: {},
             searchQuery: "",
+            // "Mis pedidos": SIEMPRE activo al abrir (cada vendedor ve lo suyo);
+            // se quita con un clic para ver todo.
+            onlyMine: true,
             groupBy: "product", // product | sale_order | salesperson | customer | unit_type
             sending: {},
             assigning: {},
@@ -66,8 +70,27 @@ export class ToBeAllocated extends Component {
         }
     }
 
+    get hiddenByMine() {
+        if (!this.state.onlyMine) return 0;
+        return this.state.data.length - this.state.data.filter((l) => this._isMine(l)).length;
+    }
+
+    _isMine(line) {
+        const uid = user.userId;
+        return line.salesperson_id === uid || line.salesperson2_id === uid;
+    }
+
+    toggleOnlyMine() {
+        this.state.onlyMine = !this.state.onlyMine;
+        this.applyFilters();
+    }
+
     applyFilters() {
         let rows = [...this.state.data];
+
+        if (this.state.onlyMine) {
+            rows = rows.filter((line) => this._isMine(line));
+        }
 
         const query = (this.state.searchQuery || "").trim().toLowerCase();
 

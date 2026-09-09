@@ -75,6 +75,18 @@
                     </button>
                 </div>
 
+                <!-- MIS PEDIDOS: activo por defecto; un clic muestra todo. -->
+                <button type="button"
+                        t-att-class="state.onlyMine ? 'o_tba_mine_btn active' : 'o_tba_mine_btn'"
+                        t-on-click="toggleOnlyMine"
+                        t-att-title="state.onlyMine ? 'Mostrando solo tus pedidos (clic para ver todos)' : 'Mostrando todos los pedidos (clic para ver solo los tuyos)'">
+                    <i t-attf-class="fa #{state.onlyMine ? 'fa-check-square-o' : 'fa-square-o'} me-1"/>
+                    Mis pedidos
+                    <span t-if="state.onlyMine and hiddenByMine" class="o_tba_mine_count">
+                        +<t t-esc="hiddenByMine"/> ocultos
+                    </span>
+                </button>
+
                 <!-- Actualizar COMPACTO: solo visible en móvil (CSS), donde
                      el banner con métricas y el botón grande se ocultan. -->
                 <button type="button"
