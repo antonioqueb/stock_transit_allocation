@@ -3,6 +3,7 @@ from collections import defaultdict
 import json
 import logging
 
+from odoo.tools import float_compare
 from odoo import models, fields, api
 from odoo.addons.stock_transit_allocation.models.som_date_format import som_format_date
 
@@ -1018,6 +1019,17 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
             covered_qty = max(assigned_qty, delivered_qty)
             raw_pending_qty = max(requested_qty - covered_qty, 0.0)
+            # MISMO REDONDEO QUE LA LÍNEA (sale.order.line._tc_float_le_zero):
+            # el tablero tomaba como pendiente cualquier resto > 0.0001 y el
+            # cierre lo evaluaba con el redondeo de la UoM (0.01): una línea
+            # con 0.004 m² de residuo aparecía en To Be Allocated y "Cerrar"
+            # respondía "no tiene pendiente por cerrar" (IVORY, 9 sep 2026).
+            try:
+                line_rounding = line._tc_get_qty_rounding() or 0.01
+            except Exception:  # noqa: BLE001
+                line_rounding = 0.01
+            if float_compare(raw_pending_qty, 0.0, precision_rounding=line_rounding) <= 0:
+                raw_pending_qty = 0.0
             pending_qty = 0.0 if getattr(line, 'tc_assignment_closed', False) else raw_pending_qty
             active_purchase_qty = active_purchase_qty_by_line.get(line.id, 0.0)
             purchase_pending_qty = 0.0 if getattr(line, 'tc_assignment_closed', False) else max(raw_pending_qty - active_purchase_qty, 0.0)

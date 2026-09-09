@@ -2839,8 +2839,16 @@ class SaleOrderLine(models.Model):
 
             if line._tc_float_le_zero(raw_pending_qty):
                 raise UserError(_(
-                    'La línea "%s" no tiene pendiente por cerrar.'
-                ) % (line.product_id.display_name or line.name or line.id))
+                    'La línea "%(prod)s" no tiene pendiente por cerrar: solicitado '
+                    '%(req).3f, asignado por placas %(asg).3f, entregado %(dlv).3f. '
+                    'Ya está cubierta. Si lo que quieres es bajar el Solicitado a '
+                    'lo asignado, usa "Ajustar cantidad a la selección" en la línea.'
+                ) % {
+                    'prod': line.product_id.display_name or line.name or line.id,
+                    'req': line.product_uom_qty or 0.0,
+                    'asg': line._tc_get_assigned_lot_qty(),
+                    'dlv': line.qty_delivered or 0.0,
+                })
 
             close_reason = reason or _('Cierre manual de pendiente')
             action_label = dict(line._fields['tc_closure_action'].selection).get(action_value, action_value)
