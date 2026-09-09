@@ -1013,6 +1013,21 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                         qty = transit_qty_by_order_product_lot.get(
                             (line.order_id.id, product.id, lot_id), 0.0)
                     if not self._hub_float_gt_zero(qty):
+                        # Lote ya fuera de almacén/tránsito (entregado, en
+                        # taller, otra ubicación): MISMO cálculo que la línea
+                        # (_tc_get_lot_qty: físico en cualquier ubicación y
+                        # luego área teórica). Antes el tablero caía directo
+                        # al área teórica y no cuadraba con el cierre: IVORY
+                        # solicitado 225.07 = asignado 225.07 (142.37 ya
+                        # entregados) aparecía con pendiente en To Be
+                        # Allocated y "Cerrar" respondía que no había nada.
+                        try:
+                            qty = line._tc_get_lot_qty(
+                                self.env['stock.lot'].browse(lot_id),
+                                breakdown=breakdown)
+                        except Exception:  # noqa: BLE001
+                            qty = 0.0
+                    if not self._hub_float_gt_zero(qty):
                         qty = lot_info.get('fallback_qty') or 0.0
 
                 assigned_qty += qty or 0.0
