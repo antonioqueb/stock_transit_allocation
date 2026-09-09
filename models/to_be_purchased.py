@@ -1611,6 +1611,42 @@ class ToBePurchasedLogic(models.AbstractModel):
 
     @api.model
     def create_purchase_orders(self, selected_line_ids, vendor_id=False, existing_po_id=False):
+        """Entrada del tablero. Cualquier excepción inesperada se registra
+        con traceback y se devuelve como mensaje legible (qué OC, qué
+        falló y dónde) en lugar de un "Server Error" mudo."""
+        try:
+            # savepoint: si algo truena a medio camino, se deshace lo parcial
+            # (líneas/allocations) y la transacción queda sana para devolver
+            # el mensaje; sin esto un error de BD dejaba el cursor abortado.
+            with self.env.cr.savepoint():
+                return self._create_purchase_orders_impl(
+                    selected_line_ids, vendor_id=vendor_id, existing_po_id=existing_po_id)
+        except Exception as exc:  # noqa: BLE001
+            po_ref = ''
+            if existing_po_id:
+                po = self.env['purchase.order'].browse(int(existing_po_id)).exists()
+                po_ref = ' a la OC %s' % (po.name if po else existing_po_id)
+            _logger.exception(
+                '[TBP] Falló create_purchase_orders (líneas=%s, proveedor=%s, oc=%s)',
+                selected_line_ids, vendor_id, existing_po_id)
+            detail = str(getattr(exc, 'args', [''])[0] or exc) if getattr(exc, 'args', None) else str(exc)
+            import traceback as _tb
+            frames = _tb.extract_tb(exc.__traceback__)
+            where = ''
+            for fr in reversed(frames):
+                if 'custom-addons' in (fr.filename or '') or 'Módulos' in (fr.filename or ''):
+                    where = ' [%s:%s en %s]' % (
+                        fr.filename.split('/')[-1], fr.lineno, fr.name)
+                    break
+            if not where and frames:
+                fr = frames[-1]
+                where = ' [%s:%s en %s]' % (fr.filename.split('/')[-1], fr.lineno, fr.name)
+            return {'error': (
+                'No se pudo agregar el pendiente%s. Causa: %s: %s%s. '
+                'El detalle completo quedó en el log del servidor con la marca [TBP].'
+            ) % (po_ref, type(exc).__name__, detail, where)}
+
+    def _create_purchase_orders_impl(self, selected_line_ids, vendor_id=False, existing_po_id=False):
         candidate_lines = self.env['sale.order.line'].browse(selected_line_ids).exists()
 
         candidate_lines = candidate_lines.filtered(
@@ -1684,11 +1720,21 @@ class ToBePurchasedLogic(models.AbstractModel):
         if existing_po_id:
             po = self.env['purchase.order'].browse(existing_po_id)
 
-            if not po.exists() or po.state not in ['draft', 'sent', 'purchase']:
-                return {'error': 'La orden de compra no existe o no permite agregar pendientes.'}
+            if not po.exists():
+                return {'error': 'La orden de compra seleccionada (id %s) ya no existe.' % existing_po_id}
+            if po.state not in ['draft', 'sent', 'purchase']:
+                state_label = dict(po._fields['state'].selection).get(po.state, po.state)
+                return {'error': (
+                    'La OC %s está en estado "%s" y no permite agregar pendientes: solo '
+                    'se puede agregar a OC en Borrador, Enviada o Confirmada.'
+                ) % (po.name, state_label)}
 
             if po.partner_id.id != vendor.id:
-                return {'error': 'La OC seleccionada pertenece a otro proveedor.'}
+                return {'error': (
+                    'La OC %s pertenece al proveedor "%s" y los pendientes se están '
+                    'asignando al proveedor "%s". Elige una OC de ese proveedor o '
+                    'cambia el proveedor.'
+                ) % (po.name, po.partner_id.display_name, vendor.display_name)}
 
             if po.company_id and po.company_id != company:
                 return {'error': 'La OC seleccionada es de otra compañía (%s); '
@@ -1696,7 +1742,10 @@ class ToBePurchasedLogic(models.AbstractModel):
                                  % (po.company_id.name, company.name)}
 
             if 'locked' in po._fields and po.locked:
-                return {'error': 'La OC seleccionada está bloqueada. Cree una OC nueva para este incremento.'}
+                return {'error': (
+                    'La OC %s está bloqueada (candado de Odoo activado). Desbloquéala '
+                    'desde la OC o crea una OC nueva para este incremento.'
+                ) % po.name}
 
             new_origins = [data['sale_line'].order_id.name for data in line_data]
             current_origin = po.origin or ''
