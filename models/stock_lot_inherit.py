@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import logging
 
-from odoo import fields, models
+from odoo import api, fields, models
 
 _logger = logging.getLogger(__name__)
 
@@ -19,6 +19,53 @@ class StockLot(models.Model):
         if {'x_alto', 'x_ancho'} & set(vals or {}):
             self._tc_ratchet_open_sale_lines()
         return res
+
+    @api.model
+    def _som_lot_ids_in_transit(self, lot_ids, company_id=None):
+        """Subconjunto de ``lot_ids`` que REALMENTE viene en tránsito.
+
+        Un lote cuenta como en tránsito solo si su existencia en ubicaciones
+        de tránsito es MAYOR que lo que ya salió de tránsito hacia almacén
+        (move lines hechas tránsito → interna). Así se descartan los
+        RESIDUOS: placas que la recepción física movió por la cantidad de la
+        línea del viaje (p.ej. 4.07) cuando el quant traía la del packing
+        list (4.08) y dejaron 0.01 m² colgando en SOM/TRANSIT. Incidencia
+        S51 (9 sep 2026): 31 residuos de 0.01–0.10 m² pintaban 28 placas ya
+        ENTREGADAS como "prealocadas en tránsito" con 1.47 m².
+        """
+        ids = [int(i) for i in (lot_ids or []) if i]
+        if not ids:
+            return set()
+        Quant = self.env['stock.quant'].sudo()
+        Loc = self.env['stock.location']
+        dom = [('lot_id', 'in', ids), ('quantity', '>', 0)] + Loc._som_transit_quant_leaf()
+        if company_id:
+            dom.append(('company_id', 'in', [False, company_id]))
+        transit_qty = {}
+        for lot, qty in Quant._read_group(dom, ['lot_id'], ['quantity:sum']):
+            transit_qty[lot.id] = qty or 0.0
+        if not transit_qty:
+            return set()
+        # Lo que ya SALIÓ de tránsito a una ubicación interna (recepción
+        # física validada); se compara contra lo que sigue en tránsito.
+        Ml = self.env['stock.move.line'].sudo()
+        left_dom = [
+            ('lot_id', 'in', list(transit_qty)),
+            ('state', '=', 'done'),
+            ('location_dest_id.usage', '=', 'internal'),
+        ]
+        left_qty = {}
+        for ml in Ml.search(left_dom):
+            src = ml.location_id
+            if not src or not src._som_is_transit():
+                continue
+            left_qty[ml.lot_id.id] = left_qty.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0)
+        result = set()
+        for lot_id, qty in transit_qty.items():
+            left = left_qty.get(lot_id, 0.0)
+            if left <= 0.0 or qty > left + 0.0001:
+                result.add(lot_id)
+        return result
 
     def _tc_ratchet_open_sale_lines(self):
         """Re-aplica el ratchet Solicitado≥Asignado en las líneas de venta

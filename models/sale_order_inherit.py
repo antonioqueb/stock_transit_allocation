@@ -911,13 +911,11 @@ class SaleOrderLine(models.Model):
             return False
         if self._tc_float_gt_zero(self._tc_get_lot_transit_reserved_qty(lot)):
             return True
-        Loc = self.env['stock.location']
-        base = [('lot_id', '=', lot.id), ('quantity', '>', 0)]
-        if hasattr(Loc, '_som_transit_quant_leaf'):
-            dom = base + Loc._som_transit_quant_leaf()
-        else:
-            dom = base + [('location_id.usage', '=', 'transit')]
-        return bool(self.env['stock.quant'].sudo().search_count(dom))
+        # Quant en tránsito SIN residuos: un lote cuya recepción física ya
+        # lo sacó de tránsito no vuelve a contar aunque queden centésimas
+        # colgando en SOM/TRANSIT (incidencia S51).
+        company_id = self.order_id.company_id.id if self.order_id and self.order_id.company_id else None
+        return lot.id in self.env['stock.lot']._som_lot_ids_in_transit([lot.id], company_id=company_id)
 
     def _tc_get_assigned_transit_qty(self):
         """Suma del asignado que aún viene en tránsito (prealocado)."""

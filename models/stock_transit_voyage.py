@@ -2626,7 +2626,25 @@ class StockTransitVoyage(models.Model):
                 pl_qty = self._normalize_product_qty(
                     product, line.product_uom_qty)
 
-                if pl_qty > 0 and physical > pl_qty and self._qty_differs(
+                # PLACAS ENTERAS: una placa no se recibe "en parte". Si el
+                # quant trae unas centésimas más que la línea del viaje
+                # (4.08 del packing list vs 4.07 de la OC/medidas), se
+                # recibe el físico completo; dejar 0.01 en SOM/TRANSIT
+                # pintaba placas ya entregadas como "en tránsito" (S51).
+                # El guard contra DUPLICACIÓN (quant ≈ 2× PL, caso S3) se
+                # conserva: solo un excedente ≥ 50 % se trata como duplicado.
+                whole_lot = (
+                    pl_qty > 0 and physical > pl_qty
+                    and self._qty_differs(product, physical, pl_qty)
+                    and not line._tc_is_fractionable()
+                    and physical < pl_qty * 1.5
+                )
+                if whole_lot:
+                    take = physical
+                    _logger.info(
+                        "[TC_RECEPTION_GUARD] %s: placa entera %.3f (línea %.3f)",
+                        quant.lot_id.display_name, physical, pl_qty)
+                elif pl_qty > 0 and physical > pl_qty and self._qty_differs(
                         product, physical, pl_qty):
                     excess_alerts.append(
                         "%s: quant en tránsito %.3f > PL %.3f" % (
