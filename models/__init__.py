@@ -24,6 +24,7 @@ from . import to_be_loading
 from . import stock_transit_sheet
 from . import purchase_order_proforma
 from . import stock_transit_voyage_allocation_guard
+from . import stock_transit_voyage_eta_mail
 from . import transit_allocation
 from . import transit_packing_report
 from . import supplier_access_tracking

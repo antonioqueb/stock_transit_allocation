@@ -1613,24 +1613,11 @@ class StockTransitVoyage(models.Model):
 
             days_to_eta = (rec.eta - today).days
 
+            # Aviso estructurado (SOM): compra, proveedor, logística,
+            # contenedores, materiales y ventas que dependen del embarque.
+            # Ver stock_transit_voyage_eta_mail.py.
             if days_to_eta == ETA_WARNING_DAYS_BEFORE and not rec.eta_warning_notified:
-                eta_str = som_format_date(rec.eta)
-                body = Markup(
-                    "⚠️ <b>Embarque próximo a llegar</b><br/>"
-                    "El embarque <b>%s</b> tiene ETA <b>mañana (%s)</b> y está en estado <b>%s</b>."
-                ) % (
-                    rec.name,
-                    eta_str,
-                    dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status),
-                )
-
-                rec.message_post(
-                    body=body,
-                    partner_ids=responsible.partner_id.ids,
-                    message_type='comment',
-                    subtype_xmlid='mail.mt_comment',
-                )
-
+                rec._tc_eta_mail_send('warning', responsible)
                 super(StockTransitVoyage, rec).write({
                     'eta_warning_notified': True,
                 })
@@ -1638,24 +1625,7 @@ class StockTransitVoyage(models.Model):
             days_overdue = (today - rec.eta).days
 
             if days_overdue == ETA_OVERDUE_DAYS_AFTER and not rec.eta_overdue_notified:
-                eta_str = som_format_date(rec.eta)
-                body = Markup(
-                    "🚨 <b>Embarque vencido</b><br/>"
-                    "El embarque <b>%s</b> tenía ETA <b>%s</b> y aún no ha llegado. "
-                    "Estado actual: <b>%s</b>."
-                ) % (
-                    rec.name,
-                    eta_str,
-                    dict(rec._fields['custom_status'].selection).get(rec.custom_status, rec.custom_status),
-                )
-
-                rec.message_post(
-                    body=body,
-                    partner_ids=responsible.partner_id.ids,
-                    message_type='comment',
-                    subtype_xmlid='mail.mt_comment',
-                )
-
+                rec._tc_eta_mail_send('overdue', responsible)
                 super(StockTransitVoyage, rec).write({
                     'eta_overdue_notified': True,
                 })
