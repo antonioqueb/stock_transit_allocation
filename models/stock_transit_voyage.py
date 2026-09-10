@@ -3518,6 +3518,116 @@ class StockTransitVoyage(models.Model):
             'seq': len(done) + (1 if open_ else 0),
         }
 
+    def _tc_chain_received_qty_by_lot(self, totals=None):
+        """Cantidad YA RECIBIDA por lote en las recepciones físicas HECHAS
+        de la cadena del viaje. Fuente única para el validador del PL
+        físico, el estampado por línea y los tableros."""
+        self.ensure_one()
+        totals = totals or self._tc_reception_totals()
+        received = {}
+        for pick in totals['done']:
+            for ml in pick.move_line_ids:
+                if not ml.lot_id:
+                    continue
+                received[ml.lot_id.id] = (
+                    received.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0))
+        return received
+
+    def _tc_sync_received_lines(self):
+        """Estampa en cada línea del viaje lo ya recibido en almacén
+        (tc_received_qty / tc_received_picking_id / tc_received_date).
+
+        Idempotente y SIEMPRE derivado de los movimientos hechos: se llama
+        al validar cada parcialidad, al cancelar/cerrar el pendiente y en
+        la migración. Un lote repartido en varias líneas (parcialidades de
+        formato) reparte lo recibido en orden, sin pasar la demanda de
+        cada una."""
+        for rec in self:
+            totals = rec._tc_reception_totals()
+            received = rec._tc_chain_received_qty_by_lot(totals)
+            last_pick_by_lot = {}
+            for pick in totals['done'].sorted(
+                    lambda p: (p.date_done or p.write_date, p.id)):
+                for ml in pick.move_line_ids:
+                    if ml.lot_id and (ml.quantity or 0.0) > 0:
+                        last_pick_by_lot[ml.lot_id.id] = pick
+            remaining = dict(received)
+            for line in rec.line_ids.sorted(lambda l: l.id):
+                if not line.lot_id:
+                    continue
+                lot_id = line.lot_id.id
+                rounding = rec._get_qty_rounding(line.product_id)
+                avail = remaining.get(lot_id, 0.0)
+                demand = line.product_uom_qty or 0.0
+                qty = min(avail, demand) if demand > 0 else avail
+                if qty < 0:
+                    qty = 0.0
+                remaining[lot_id] = avail - qty
+                pick = last_pick_by_lot.get(lot_id) if qty > 0 else False
+                vals = {}
+                if float_compare(qty, line.tc_received_qty or 0.0,
+                                 precision_rounding=rounding) != 0:
+                    vals['tc_received_qty'] = qty
+                pick_id = pick.id if pick else False
+                if (line.tc_received_picking_id.id or False) != pick_id:
+                    vals['tc_received_picking_id'] = pick_id
+                    vals['tc_received_date'] = (
+                        pick.date_done if pick else False)
+                if vals:
+                    line.sudo().with_context(
+                        skip_reservation_logic=True,
+                        skip_transit_publication_sync=True,
+                    ).write(vals)
+
+    def _tc_pending_transit_quants(self):
+        """Quants EN TRÁNSITO de los lotes del viaje que aún no se han
+        recibido por completo (lo que una siguiente parcialidad podría
+        mover)."""
+        self.ensure_one()
+        lots = self.line_ids.filtered(
+            lambda l: l.lot_id and l.tc_reception_state != 'received'
+        ).mapped('lot_id')
+        if not lots:
+            return self.env['stock.quant']
+        leaf = self.env['stock.location']._som_transit_quant_leaf()
+        return self.env['stock.quant'].sudo().search(
+            [('lot_id', 'in', lots.ids), ('quantity', '>', 0)] + leaf)
+
+    def _tc_auto_close_after_reception_cancel(self, picking):
+        """Al CANCELAR la recepción abierta de una cadena parcial: si ya
+        hubo al menos una parcialidad validada y NO queda material del
+        pendiente en tránsito (p. ej. salió por un traslado de carrito),
+        el embarque se cierra solo — antes exigía pulsar a mano
+        '✂ Cerrar pendiente de recepción'. Si aún hay material en
+        tránsito, se conserva el pendiente y se avisa en el chatter."""
+        self.ensure_one()
+        if self.custom_status != 'reception_pending':
+            return False
+        t = self._tc_reception_totals()
+        if t['open'] or not t['done_count']:
+            return False
+        self._tc_sync_received_lines()
+        in_transit = self._tc_pending_transit_quants()
+        if in_transit:
+            self.message_post(body=Markup(
+                'ℹ️ Se canceló la recepción <b>%s</b> pero quedan <b>%.2f</b> '
+                'del pendiente en tránsito (%s). El embarque sigue EN '
+                'RECEPCIÓN: reabra la demanda o use ✂ Cerrar pendiente.') % (
+                    picking.name, sum(in_transit.mapped('quantity')),
+                    ', '.join(in_transit.mapped('lot_id.name')[:10])))
+            return False
+        last_done = t['done'].sorted('date_done')[-1]
+        self.write({'reception_picking_id': last_done.id})
+        self.message_post(body=Markup(
+            '✂️ <b>Pendiente de recepción cerrado automáticamente</b>: se '
+            'canceló la última parcialidad <b>%s</b> y su material ya no '
+            'existe en tránsito. Recibido final: <b>%.2f</b> en %s '
+            'recepción(es).') % (
+                picking.name, t['received'], t['done_count']))
+        self.with_context(
+            tc_force_close_pending=True)._auto_finalize_after_reception()
+        return True
+
     def _tc_reception_partial_label(self):
         """Etiqueta corta de parcialidad para payloads masivos (kanban,
         tableros). A diferencia del campo compute, SOLO se llama para los
@@ -3739,6 +3849,10 @@ class StockTransitVoyage(models.Model):
         nueva recepción pendiente y NO se cierra."""
         self.ensure_one()
         picking.sudo().write({'tc_reception_voyage_id': self.id})
+        # Lo recibido queda estampado POR LÍNEA: el validador del PL, los
+        # tableros y la publicación dejan de ver como pendiente lo que ya
+        # está en almacén.
+        self._tc_sync_received_lines()
         backorders = self.env['stock.picking'].sudo().search([
             ('backorder_id', '=', picking.id),
             ('state', 'not in', ('done', 'cancel')),
@@ -3789,7 +3903,8 @@ class StockTransitVoyage(models.Model):
             pendiente = t['pending']
             for pick in t['open']:
                 pick.sudo().with_context(
-                    tc_allow_physical_reception_done=True).action_cancel()
+                    tc_allow_physical_reception_done=True,
+                    tc_skip_auto_close_on_cancel=True).action_cancel()
             last_done = t['done'].sorted('date_done')[-1]
             rec.write({'reception_picking_id': last_done.id})
             rec.message_post(body=Markup(

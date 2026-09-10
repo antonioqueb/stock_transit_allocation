@@ -2290,6 +2290,40 @@ class StockMove(models.Model):
         self._tc_assert_physical_reception_moves_can_be_done()
         return super(StockMove, self)._action_done(*args, **kwargs)
 
+class StockPickingReceptionCancelClose(models.Model):
+    _inherit = 'stock.picking'
+
+    def action_cancel(self):
+        """Cancelar la recepción abierta de una cadena parcial cierra el
+        pendiente del embarque cuando ya no hay nada que recibir (el
+        material salió de tránsito por otra vía). Ver
+        `voyage._tc_auto_close_after_reception_cancel`."""
+        voyages_by_pick = {}
+        if not self.env.context.get('tc_skip_auto_close_on_cancel'):
+            for pick in self:
+                voyage = pick.tc_reception_voyage_id
+                if (voyage and pick.state not in ('done', 'cancel')
+                        and voyage.custom_status == 'reception_pending'):
+                    voyages_by_pick[pick.id] = voyage
+        res = super().action_cancel()
+        for pick in self:
+            voyage = voyages_by_pick.get(pick.id)
+            if not voyage or pick.state != 'cancel':
+                continue
+            try:
+                voyage.sudo()._tc_auto_close_after_reception_cancel(pick)
+            except Exception:
+                _logger.exception(
+                    '[TC_RECEPTION] No se pudo cerrar automáticamente el '
+                    'pendiente del embarque %s al cancelar %s.',
+                    voyage.name, pick.name)
+                voyage.sudo().message_post(body=Markup(
+                    '⚠️ Se canceló la recepción <b>%s</b> pero el cierre '
+                    'automático del pendiente falló; use ✂ Cerrar '
+                    'pendiente de recepción.') % pick.name)
+        return res
+
+
 class StockPickingReopenCancelled(models.Model):
     _inherit = 'stock.picking'
 

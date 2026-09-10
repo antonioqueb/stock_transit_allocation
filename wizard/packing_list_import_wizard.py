@@ -1313,6 +1313,8 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         espera el remanente: sin este mapa, cada fila del archivo sumaba a la
         demanda y re-creaba el quant de tránsito de material ya recibido
         (la recepción parcial terminaba esperando el TOTAL del embarque)."""
+        if hasattr(voyage, "_tc_chain_received_qty_by_lot"):
+            return voyage._tc_chain_received_qty_by_lot()
         received = {}
         if not hasattr(voyage, "_tc_reception_totals"):
             return received
@@ -1324,6 +1326,22 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 received[ml.lot_id.id] = (
                     received.get(ml.lot_id.id, 0.0) + (ml.quantity or 0.0))
         return received
+
+    def _tc_fully_received_lot_ids(self, voyage, received_by_lot):
+        """Lotes del viaje que YA entraron completos a almacén en una
+        parcialidad anterior (recepción hecha de la cadena). No se les
+        exige en el PL de la siguiente parcialidad ni se tratan como
+        omitidos: están en Existencias, no en tránsito."""
+        done_ids = set()
+        for line in voyage.line_ids:
+            lot = line.lot_id
+            if not lot or (line.product_uom_qty or 0.0) <= 0:
+                continue
+            received_qty = received_by_lot.get(lot.id, 0.0)
+            if received_qty and self._tc_float_compare(
+                    line.product_id, received_qty, line.product_uom_qty) >= 0:
+                done_ids.add(lot.id)
+        return done_ids
 
     def _tc_apply_physical_reception_pl(self, rows):
         # Cronómetro por fase: el PL físico llegó a 8.5 min / 629k queries
@@ -1420,6 +1438,12 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
         _report(5, _total_units, _("Conciliando placas, lotes y existencias…"))
 
         received_by_lot = self._tc_chain_received_qty_by_lot(voyage)
+        # RECEPCIÓN PARCIAL: las placas que ya entraron completas en una
+        # parcialidad anterior NO se exigen en este PL (caso
+        # EMBARQUE/2026/0132: la 2ª parcialidad traía 1 placa y el guard
+        # reclamaba las 10 ya en bodega por estar reservadas a V/794).
+        fully_received_lot_ids = self._tc_fully_received_lot_ids(
+            voyage, received_by_lot)
         # Cachés del bucle por CONTEXTO (re-bind local de self: todas las
         # llamadas de aquí en adelante los ven).
         self = self.with_context(
@@ -1441,6 +1465,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             lambda l: (
                 l.lot_id
                 and l.lot_id.id not in sim_used
+                and l.lot_id.id not in fully_received_lot_ids
                 and l.product_uom_qty > 0
                 and _line_in_scope(l)
             )
@@ -1463,17 +1488,24 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             # qué, y cómo se reparte por contenedor — para que el error se
             # explique solo.
             per_cont_voyage = {}
+            per_cont_received = {}
             for line in voyage.line_ids:
                 if line.lot_id and line.product_uom_qty > 0:
                     key = _norm_cont(line.container_number) or _("(sin contenedor)")
                     per_cont_voyage[key] = per_cont_voyage.get(key, 0) + 1
+                    if line.lot_id.id in fully_received_lot_ids:
+                        per_cont_received[key] = per_cont_received.get(key, 0) + 1
             per_cont_pl = {}
             for row, _q in valid_rows:
                 key = _norm_cont(self._tc_row_container_key(row)) or _("(sin contenedor)")
                 per_cont_pl[key] = per_cont_pl.get(key, 0) + 1
             cont_detail = "\n".join(
-                "  · %s: %s placas en el viaje, %s filas válidas en el PL" % (
-                    cont, per_cont_voyage.get(cont, 0), per_cont_pl.get(cont, 0))
+                "  · %s: %s placas en el viaje · %s ya recibidas · %s "
+                "pendientes · %s filas válidas en el PL" % (
+                    cont, per_cont_voyage.get(cont, 0),
+                    per_cont_received.get(cont, 0),
+                    per_cont_voyage.get(cont, 0) - per_cont_received.get(cont, 0),
+                    per_cont_pl.get(cont, 0))
                 for cont in sorted(per_cont_voyage)
             )
 
@@ -1594,6 +1626,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
             lambda line: (
                 line.lot_id
                 and line.lot_id.id not in used_lot_ids
+                and line.lot_id.id not in fully_received_lot_ids
                 and line.product_uom_qty > 0
                 and _line_in_scope(line)
             )
@@ -1621,7 +1654,8 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "El PL físico no incluye estas placas que están RESERVADAS a "
                 "pedidos:\n%(detail)s\n\n"
                 "El PL trae %(rows)s filas válidas; el viaje tiene %(lots)s "
-                "placas activas (%(paired)s emparejadas).\n\n"
+                "placas activas (%(received)s ya recibidas en parciales "
+                "anteriores, %(paired)s emparejadas).\n\n"
                 "Corrige la identificación en el PL físico "
                 "(bloque/placa/Ref. Interna) o desasigna las placas de sus "
                 "pedidos antes de importar."
@@ -1630,6 +1664,7 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "rows": len(valid_rows),
                 "lots": len(voyage.line_ids.filtered(
                     lambda l: l.lot_id and l.product_uom_qty > 0)),
+                "received": len(fully_received_lot_ids),
                 "paired": len(pairing),
             })
 
