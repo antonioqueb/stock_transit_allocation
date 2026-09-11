@@ -356,7 +356,14 @@
                                                     </div>
                                                 </td>
                                                 <td class="text-end"><t t-esc="fmtDays(so.days_unassigned || 0)"/></td>
-                                                <td class="text-end o_tbp_pending_qty"><t t-esc="fmtPendingLine(so)"/></td>
+                                                <td class="text-end o_tbp_pending_qty">
+                                                    <t t-esc="fmtPendingLine(so)"/>
+                                                    <div t-if="so.hub_state === 'partial' and so.partial_note"
+                                                         class="small text-warning-emphasis o_tbp_partial_note"
+                                                         t-att-title="so.partial_note.purchase">
+                                                        <i class="fa fa-adjust me-1"/><t t-esc="so.partial_note.purchase"/>
+                                                    </div>
+                                                </td>
                                                 <td>
                                                     <div t-if="so.note" class="o_tbp_cell_note" t-att-title="so.note">
                                                         <i class="fa fa-sticky-note-o me-1"/>

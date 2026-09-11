@@ -435,11 +435,29 @@ class SaleOrderLine(models.Model):
         selection=[
             ('allocated', 'Asignado'),
             ('to_be_allocated', 'To Be Allocated'),
+            ('partial', 'Parcial (asignar + comprar)'),
             ('to_be_purchased', 'To Be Purchased'),
             ('nothing', 'Sin acción'),
         ],
         string='Hub de asignación',
         compute='_compute_tc_allocation_qtys',
+        help='partial: una parte del pendiente cabe en el stock libre de '
+             'bodega (To Be Allocated) y el resto va a compra (To Be '
+             'Purchased). Los tableros reparten el libre entre líneas que '
+             'compiten por fecha de pedido y % pagado.',
+    )
+    tc_qty_allocatable_now = fields.Float(
+        string='Asignable hoy',
+        compute='_compute_tc_allocation_qtys',
+        digits='Product Unit of Measure',
+        help='min(pendiente, stock libre en bodega). Sin reparto entre '
+             'líneas: ese lo hacen los tableros.',
+    )
+    tc_qty_to_purchase = fields.Float(
+        string='Por comprar',
+        compute='_compute_tc_allocation_qtys',
+        digits='Product Unit of Measure',
+        help='Pendiente que no cabe en el stock libre de bodega.',
     )
 
     # -------------------------------------------------------------------------
@@ -1355,6 +1373,8 @@ class SaleOrderLine(models.Model):
                 )
                 line.tc_assignment_state = 'no_demand'
                 line.tc_allocation_hub_state = 'nothing'
+                line.tc_qty_allocatable_now = 0.0
+                line.tc_qty_to_purchase = 0.0
                 continue
 
             requested_qty = line.product_uom_qty or 0.0
@@ -1373,6 +1393,12 @@ class SaleOrderLine(models.Model):
             line.tc_qty_assigned_percent = (assigned_qty / requested_qty) * 100.0 if requested_qty > 0 else 0.0
             line.tc_qty_over_assigned = over_assigned_qty
             line.tc_available_internal_qty = available_qty
+            # Parcial por línea (sin reparto entre líneas que compiten).
+            allocatable_now = min(pending_qty, available_qty) if pending_qty > 0 else 0.0
+            if line._tc_float_le_zero(allocatable_now):
+                allocatable_now = 0.0
+            line.tc_qty_allocatable_now = allocatable_now
+            line.tc_qty_to_purchase = max(pending_qty - allocatable_now, 0.0)
 
             if line._tc_float_le_zero(requested_qty):
                 line.tc_assignment_state = 'no_demand'
@@ -1399,7 +1425,14 @@ class SaleOrderLine(models.Model):
                 line.tc_allocation_hub_state = 'allocated'
             elif line.tc_stock_rejected or line.auto_transit_assign:
                 line.tc_allocation_hub_state = 'to_be_purchased'
-            elif line._tc_float_gt_zero(available_qty):
+                line.tc_qty_allocatable_now = 0.0
+                line.tc_qty_to_purchase = pending_qty
+            elif line._tc_float_gt_zero(allocatable_now) and line._tc_float_gt_zero(line.tc_qty_to_purchase):
+                # Todo o nada ANTES: con 141.93 libres y 208.45 pendientes la
+                # línea caía completa a compra y nadie le asignaba lo que sí
+                # había (V/039). Ahora vive en los dos tableros.
+                line.tc_allocation_hub_state = 'partial'
+            elif line._tc_float_gt_zero(allocatable_now):
                 line.tc_allocation_hub_state = 'to_be_allocated'
             else:
                 line.tc_allocation_hub_state = 'to_be_purchased'

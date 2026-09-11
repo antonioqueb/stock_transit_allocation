@@ -1232,9 +1232,78 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 'assignment_state': assignment_state,
                 'hub_state': hub_state,
                 'purchase_intent': purchase_intent,
+                'company_id': line_company_id,
             }
 
+        self._hub_split_partial_allocation(sale_lines, metrics, free_qty_by_product)
+
         return metrics, free_qty_by_product, product_ids
+
+    def _hub_split_partial_allocation(self, sale_lines, metrics, free_qty_by_product):
+        """ASIGNACIÓN PARCIAL POR LÍNEA (spec 11 sep 2026, caso V/039 TAJ MAHAL).
+
+        Antes la regla era todo o nada: si el libre no cubría TODO el pendiente
+        la línea desaparecía de To Be Allocated (y Compras veía el pendiente
+        completo). Ahora cada línea se parte en dos cantidades:
+
+            allocatable_qty = lo que SÍ puede asignarse hoy con stock libre
+            to_purchase_qty = pendiente − allocatable − ya cubierto por OC
+
+        y el libre de cada (compañía, producto) se REPARTE entre las líneas
+        que compiten con prioridad determinista: fecha del pedido (más
+        antiguo primero) y, a igual fecha, % pagado más alto. Así V/039
+        (4 ago, 53 %) ve sus 141.93 y V/384 no recibe el mismo material
+        como ofrecido. hub_state:
+            'to_be_allocated' → todo asignable hoy
+            'partial'         → una parte hoy, el resto a compra (ambos tableros)
+            'to_be_purchased' → nada asignable (o mandada a pedir)
+        """
+        payment_map = self._hub_get_payment_percent_map(sale_lines)
+        by_key = defaultdict(list)
+        for line in sale_lines:
+            m = metrics.get(line.id)
+            if not m:
+                continue
+            m['payment_percent'] = payment_map.get(line.order_id.id, 0.0)
+            m['allocatable_qty'] = 0.0
+            m['to_purchase_qty'] = m.get('purchase_pending_qty', 0.0)
+            m['available_line_qty'] = 0.0
+            if m['hub_state'] not in ('to_be_allocated', 'to_be_purchased'):
+                continue
+            if m.get('purchase_intent') or not self._hub_float_gt_zero(m.get('pending_qty')):
+                continue
+            by_key[(m.get('company_id'), line.product_id.id)].append(line)
+
+        for (company_id, product_id), lines in by_key.items():
+            remaining = (
+                free_qty_by_product.get((company_id, product_id), 0.0)
+                + free_qty_by_product.get((False, product_id), 0.0)
+            )
+            lines.sort(key=lambda l: (
+                l.order_id.date_order or l.order_id.create_date or l.create_date,
+                -metrics[l.id]['payment_percent'],
+                l.order_id.id, l.id))
+            for line in lines:
+                m = metrics[line.id]
+                pending = m['pending_qty']
+                share = min(pending, max(remaining, 0.0))
+                if not self._hub_float_gt_zero(share):
+                    share = 0.0
+                remaining -= share
+                m['allocatable_qty'] = share
+                m['available_line_qty'] = share
+                m['to_purchase_qty'] = max(m.get('purchase_pending_qty', 0.0) - share, 0.0)
+                if not self._hub_float_gt_zero(m['to_purchase_qty']):
+                    m['to_purchase_qty'] = 0.0
+                # El pendiente "por comprar" que consume To Be Purchased es
+                # SOLO lo que no cabe en bodega.
+                m['purchase_pending_qty'] = m['to_purchase_qty']
+                if self._hub_float_gt_zero(share) and self._hub_float_gt_zero(m['to_purchase_qty']):
+                    m['hub_state'] = 'partial'
+                elif self._hub_float_gt_zero(share):
+                    m['hub_state'] = 'to_be_allocated'
+                else:
+                    m['hub_state'] = 'to_be_purchased'
 
     def _hub_get_payment_percent_map(self, sale_lines):
         orders = sale_lines.mapped('order_id')
@@ -1323,7 +1392,14 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             'qty_ordered': requested_qty,
             'qty_assigned': assigned_qty,
             'qty_pending': pending_qty,
-            'qty_available': metrics.get('available_qty', 0.0),
+            # Ofrecido a ESTA línea tras el reparto por prioridad (no el
+            # libre bruto del producto, que es el mismo para todas).
+            'qty_available': metrics.get('available_line_qty', metrics.get('available_qty', 0.0)),
+            'qty_available_product': metrics.get('available_qty', 0.0),
+            'qty_allocatable': metrics.get('allocatable_qty', 0.0),
+            'qty_to_purchase': metrics.get('to_purchase_qty', 0.0),
+            'hub_state': metrics.get('hub_state') or '',
+            'partial_note': self._hub_partial_note(product, metrics),
             'assignment_percent': metrics.get('assigned_percent', 0.0),
             'assignment_state': metrics.get('assignment_state') or '',
             'days_unassigned': self._get_days_without_assignment(order),
@@ -1351,9 +1427,27 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         row.update(self._split_qty_fields(product, 'qty_ordered', requested_qty))
         row.update(self._split_qty_fields(product, 'qty_assigned', assigned_qty))
         row.update(self._split_qty_fields(product, 'qty_pending', pending_qty))
-        row.update(self._split_qty_fields(product, 'qty_available', metrics.get('available_qty', 0.0)))
+        row.update(self._split_qty_fields(product, 'qty_available', row['qty_available']))
+        row.update(self._split_qty_fields(product, 'qty_allocatable', row['qty_allocatable']))
+        row.update(self._split_qty_fields(product, 'qty_to_purchase', row['qty_to_purchase']))
 
         return row
+
+    def _hub_partial_note(self, product, metrics):
+        """Texto de la tarjeta para una línea parcial:
+        To Be Allocated → '141.93 de 208.45 disponibles · 66.52 en compra'
+        To Be Purchased → '66.52 (141.93 ya asignables en bodega)'."""
+        if metrics.get('hub_state') != 'partial':
+            return ''
+        unit = self._get_product_unit_label(product) or ''
+        alloc = metrics.get('allocatable_qty', 0.0)
+        pend = metrics.get('pending_qty', 0.0)
+        buy = metrics.get('to_purchase_qty', 0.0)
+        fmt = lambda v: ('%.2f' % v).rstrip('0').rstrip('.')
+        return {
+            'allocated': '%s de %s %s disponibles · %s en compra' % (fmt(alloc), fmt(pend), unit, fmt(buy)),
+            'purchase': '%s %s (%s ya asignables en bodega)' % (fmt(buy), unit, fmt(alloc)),
+        }
 
 
 class ToBeAllocatedLogic(models.AbstractModel):
@@ -1375,7 +1469,7 @@ class ToBeAllocatedLogic(models.AbstractModel):
         sellers = {}
         for line in sale_lines:
             m = metrics_by_line.get(line.id, {})
-            if m.get('hub_state') not in ('to_be_allocated', 'to_be_purchased'):
+            if m.get('hub_state') not in ('to_be_allocated', 'to_be_purchased', 'partial'):
                 continue
             if not self._hub_float_gt_zero(m.get('pending_qty')):
                 continue
@@ -1409,7 +1503,11 @@ class ToBeAllocatedLogic(models.AbstractModel):
             o['lines'] += 1
             o['pending_m2'] += float(row.get('qty_pending_m2') or 0.0)
             o['pending_pieces'] += float(row.get('qty_pending_pieces') or 0.0)
-            o[m.get('hub_state')] += 1
+            if m.get('hub_state') == 'partial':
+                o['to_be_allocated'] += 1
+                o['to_be_purchased'] += 1
+            else:
+                o[m.get('hub_state')] += 1
             if len(o['products']) < 6:
                 o['products'].append(row.get('product_name') or '')
         result = []
@@ -1429,20 +1527,22 @@ class ToBeAllocatedLogic(models.AbstractModel):
         t0 = time.time()
         sale_lines = self._hub_get_candidate_sale_lines()
         metrics_by_line, _free_qty_by_product, _product_ids = self._hub_compute_sale_line_metrics(sale_lines)
-        payment_map = self._hub_get_payment_percent_map(sale_lines)
+        # El % pagado ya se calculó en las métricas (reparto por prioridad).
+        payment_map = {l.order_id.id: metrics_by_line.get(l.id, {}).get('payment_percent', 0.0) for l in sale_lines}
 
         result = []
 
         for line in sale_lines:
             metrics = metrics_by_line.get(line.id, {})
 
-            if metrics.get('hub_state') != 'to_be_allocated':
+            if metrics.get('hub_state') not in ('to_be_allocated', 'partial'):
                 continue
 
             if not self._hub_float_gt_zero(metrics.get('pending_qty')):
                 continue
 
-            if not self._hub_float_gt_zero(metrics.get('available_qty')):
+            # Solo si a ESTA línea le toca algo tras el reparto.
+            if not self._hub_float_gt_zero(metrics.get('allocatable_qty')):
                 continue
 
             result.append(
@@ -1506,13 +1606,13 @@ class ToBePurchasedLogic(models.AbstractModel):
         t0 = time.time()
         sale_lines_all = self._hub_get_candidate_sale_lines()
         metrics_by_line, free_qty_by_product, product_ids = self._hub_compute_sale_line_metrics(sale_lines_all)
-        payment_map = self._hub_get_payment_percent_map(sale_lines_all)
+        payment_map = {l.order_id.id: metrics_by_line.get(l.id, {}).get('payment_percent', 0.0) for l in sale_lines_all}
 
         # Solo se muestran órdenes con pago/anticipo registrado. Si la SO no
         # tiene ningún cobro posteado (payment_percent == 0) no debe aparecer
         # en el tablero To Be Purchased.
         sale_lines = sale_lines_all.filtered(
-            lambda line: metrics_by_line.get(line.id, {}).get('hub_state') == 'to_be_purchased'
+            lambda line: metrics_by_line.get(line.id, {}).get('hub_state') in ('to_be_purchased', 'partial')
             and self._hub_float_gt_zero(metrics_by_line.get(line.id, {}).get('purchase_pending_qty'))
             and self._hub_float_gt_zero(payment_map.get(line.order_id.id, 0.0))
         )
@@ -1794,7 +1894,7 @@ class ToBePurchasedLogic(models.AbstractModel):
         lines = lines.filtered(
             lambda line: self._is_hub_stock_product(line.product_id)
             and line.state in ('sale', 'done')
-            and line.tc_allocation_hub_state == 'to_be_purchased'
+            and line.tc_allocation_hub_state in ('to_be_purchased', 'partial')
             and line.tc_qty_pending_allocation > 0
             and not line.tc_assignment_closed
         )

@@ -290,6 +290,11 @@
 
                                             <td class="text-end o_tba_pending_qty">
                                                 <t t-esc="fmtNum(line.qty_pending || 0)"/>
+                                                <div t-if="line.hub_state === 'partial' and line.partial_note"
+                                                     class="small text-warning-emphasis o_tba_partial_note"
+                                                     t-att-title="line.partial_note.allocated">
+                                                    <i class="fa fa-adjust me-1"/><t t-esc="line.partial_note.allocated"/>
+                                                </div>
                                             </td>
 
                                             <td class="text-end">
