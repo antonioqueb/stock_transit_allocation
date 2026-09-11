@@ -1414,7 +1414,11 @@ class SaleOrderLine(models.Model):
                 line.tc_assignment_state = 'over_assigned'
             elif line._tc_float_le_zero(raw_pending_qty):
                 line.tc_assignment_state = 'complete'
-            elif line.tc_stock_rejected or line.auto_transit_assign:
+            elif line.tc_stock_rejected or (
+                    line.auto_transit_assign and not line._tc_float_gt_zero(allocatable_now)):
+                # 'Mandar a pedir' explícito (stock rechazado) o automático
+                # sin nada asignable hoy. Con stock libre, la automática
+                # (carrito sin stock al cotizar) NO esconde lo asignable.
                 line.tc_assignment_state = 'to_purchase'
             elif line._tc_float_gt_zero(covered_qty):
                 line.tc_assignment_state = 'partial'
@@ -1423,7 +1427,7 @@ class SaleOrderLine(models.Model):
 
             if line._tc_float_le_zero(pending_qty):
                 line.tc_allocation_hub_state = 'allocated'
-            elif line.tc_stock_rejected or line.auto_transit_assign:
+            elif line.tc_stock_rejected:
                 line.tc_allocation_hub_state = 'to_be_purchased'
                 line.tc_qty_allocatable_now = 0.0
                 line.tc_qty_to_purchase = pending_qty

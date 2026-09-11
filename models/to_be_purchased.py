@@ -1182,10 +1182,16 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             active_purchase_qty = active_purchase_qty_by_line.get(line.id, 0.0)
             purchase_pending_qty = 0.0 if getattr(line, 'tc_assignment_closed', False) else max(raw_pending_qty - active_purchase_qty, 0.0)
             over_assigned_qty = max(assigned_qty - requested_qty, 0.0) if requested_qty > 0 else assigned_qty
-            purchase_intent = bool(
-                getattr(line, 'tc_stock_rejected', False)
-                or getattr(line, 'auto_transit_assign', False)
-            )
+            # INTENCIÓN DE COMPRA QUE EXCLUYE DEL REPARTO = decisión EXPLÍCITA
+            # del vendedor (tc_stock_rejected: "mandar a pedir aunque haya
+            # stock"; los botones de ambos tableros la marcan junto con
+            # auto_transit_assign). auto_transit_assign SOLA la ponen caminos
+            # automáticos (carrito al cotizar sin stock, autorización de
+            # precios, empaque) y no debe esconder stock que llegó después:
+            # V/039 (TAJ MAHAL) quedó marcada el 4 ago sin stock y con 141.93
+            # libres hoy seguía fuera de To Be Allocated.
+            purchase_intent = bool(getattr(line, 'tc_stock_rejected', False))
+            auto_purchase_flag = bool(getattr(line, 'auto_transit_assign', False))
             # Disponible = stock libre en BODEGA de la compañía de la orden
             # (sin tránsito). Sin stock real => To Be Purchased.
             line_company_id = (line.order_id.company_id or line.company_id).id
@@ -1207,6 +1213,9 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 assignment_state = 'complete'
                 hub_state = 'allocated'
             elif purchase_intent:
+                assignment_state = 'to_purchase'
+                hub_state = 'to_be_purchased'
+            elif auto_purchase_flag and not self._hub_float_gt_zero(available_qty):
                 assignment_state = 'to_purchase'
                 hub_state = 'to_be_purchased'
             elif self._hub_float_gt_zero(covered_qty):
@@ -1232,6 +1241,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 'assignment_state': assignment_state,
                 'hub_state': hub_state,
                 'purchase_intent': purchase_intent,
+                'auto_purchase_flag': auto_purchase_flag,
                 'company_id': line_company_id,
             }
 
