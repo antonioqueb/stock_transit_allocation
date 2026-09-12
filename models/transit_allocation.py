@@ -4,7 +4,7 @@ import logging
 import time
 
 from odoo import models, fields, api, _
-from odoo.exceptions import UserError
+from odoo.exceptions import UserError, MissingError
 from odoo.tools.float_utils import float_compare, float_round
 
 _logger = logging.getLogger(__name__)
@@ -67,14 +67,39 @@ class TransitAllocationLogic(models.AbstractModel):
 
         return domain
 
+    def _tal_quant_matches_line(self, transit_line, quant):
+        """El quant es el stock FÍSICO en tránsito de esta línea. Sin
+        .exists(): cada uno era una consulta por registro (3 por línea,
+        1,370 líneas = 4,000 consultas por carga; perfil QA 12 sep 2026).
+        Un quant borrado en caché lanza MissingError al leer: se trata
+        como inválido."""
+        if not quant:
+            return False
+        try:
+            if quant.quantity <= 0:
+                return False
+            if not quant.location_id._som_is_transit():
+                return False
+            if transit_line.company_id and quant.company_id and quant.company_id.id != transit_line.company_id.id:
+                return False
+            if quant.product_id.id != transit_line.product_id.id:
+                return False
+            if quant.lot_id.id != transit_line.lot_id.id:
+                return False
+        except MissingError:
+            return False
+        return True
+
     def _tal_resolve_valid_transit_quant(self, transit_line):
         """Confirma que la línea realmente tenga stock físico en ubicación tránsito."""
-        if not transit_line or not transit_line.exists():
+        if not transit_line:
             return False
 
         quant = transit_line.quant_id
+        if self._tal_quant_matches_line(transit_line, quant):
+            return quant
 
-        if (not quant or not quant.exists()) and hasattr(transit_line, '_tc_resolve_transit_quant'):
+        if hasattr(transit_line, '_tc_resolve_transit_quant'):
             try:
                 quant = transit_line._tc_resolve_transit_quant()
             except Exception as e:
@@ -84,26 +109,39 @@ class TransitAllocationLogic(models.AbstractModel):
                     e,
                 )
                 quant = False
+        return quant if self._tal_quant_matches_line(transit_line, quant) else False
 
-        if not quant or not quant.exists():
-            return False
-
-        if not quant.location_id._som_is_transit():
-            return False
-
-        if quant.quantity <= 0:
-            return False
-
-        if transit_line.company_id and quant.company_id and quant.company_id.id != transit_line.company_id.id:
-            return False
-
-        if quant.product_id.id != transit_line.product_id.id:
-            return False
-
-        if quant.lot_id.id != transit_line.lot_id.id:
-            return False
-
-        return quant
+    def _tal_batch_valid_transit_quants(self, transit_lines):
+        """{transit_line.id: quant} para las líneas con stock físico en
+        tránsito, en BLOQUE: quants prefetchados y UNA búsqueda para las
+        líneas cuyo quant_id falta o ya no es válido (antes una búsqueda
+        por línea vía _tc_resolve_transit_quant)."""
+        result = {}
+        if not transit_lines:
+            return result
+        transit_lines.mapped('quant_id.location_id')
+        missing = self.env['stock.transit.line']
+        for line in transit_lines:
+            if self._tal_quant_matches_line(line, line.quant_id):
+                result[line.id] = line.quant_id
+            else:
+                missing |= line
+        Location = self.env['stock.location']
+        if missing and hasattr(Location, '_som_transit_quant_leaf'):
+            found = self.env['stock.quant'].sudo().search([
+                ('company_id', 'in', missing.mapped('company_id').ids),
+                ('product_id', 'in', missing.mapped('product_id').ids),
+                ('lot_id', 'in', missing.mapped('lot_id').ids),
+                ('quantity', '>', 0),
+            ] + Location._som_transit_quant_leaf(), order='id desc')
+            by_key = {}
+            for q in found:
+                by_key.setdefault((q.company_id.id, q.product_id.id, q.lot_id.id), q)
+            for line in missing:
+                q = by_key.get((line.company_id.id, line.product_id.id, line.lot_id.id))
+                if q and self._tal_quant_matches_line(line, q):
+                    result[line.id] = q
+        return result
 
     # ---------------------------------------------------------------------
     # LECTURA DE DATOS
@@ -123,9 +161,9 @@ class TransitAllocationLogic(models.AbstractModel):
             order='eta asc, voyage_id asc, product_id asc, id asc',
         )
 
+        valid = self._tal_batch_valid_transit_quants(transit_lines)
         for line in transit_lines:
-            quant = self._tal_resolve_valid_transit_quant(line)
-            if not quant:
+            if line.id not in valid:
                 continue
             result[line.product_id.id] |= line
 
