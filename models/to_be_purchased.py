@@ -353,7 +353,9 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
     def _is_hub_stock_product(self, product):
         """Devuelve False para servicios: los hubs solo gestionan material físico."""
-        if not product or not product.exists():
+        # Sin .exists(): era UNA consulta por producto (1,398 en un tablero
+        # de 200 filas). product_id es required en la línea.
+        if not product:
             return False
 
         product_type = False
@@ -493,14 +495,21 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return qty_map
 
     def _hub_get_quant_sum(self, domain, groupby):
+        """Suma de quantity agrupada. Usa _read_group (tuplas) y no
+        read_group: este último arma un '__domain' por cada grupo y con
+        miles de lotes se llevaba ~16 % de la CPU del tablero (perfil QA
+        12 sep 2026). Devuelve dicts compatibles: {campo: (id, ''),
+        'quantity': suma}."""
         Quant = self.env['stock.quant'].sudo()
-        groups = Quant.read_group(
-            domain,
-            ['quantity:sum'],
-            groupby,
-            lazy=False,
-        )
-        return groups
+        rows = Quant._read_group(domain, groupby=list(groupby), aggregates=['quantity:sum'])
+        out = []
+        for row in rows:
+            item = {}
+            for name, value in zip(groupby, row[:-1]):
+                item[name] = (value.id, '') if value else False
+            item['quantity'] = row[-1] or 0.0
+            out.append(item)
+        return out
 
     def _hub_get_internal_qty_by_product_lot(self, product_ids, lot_ids):
         if not product_ids or not lot_ids:
@@ -631,25 +640,81 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             for sol in sols:
                 dl = delivered.get(sol.id, set())
                 committed.update(l for l in sol.lot_ids.ids if l not in dl)
-        if not committed:
-            return set()
-        # Formato/pieza: solo comprometidos si ya no tienen libre. Se resuelve
-        # con el helper canónico únicamente para los productos que tengan
-        # lotes fraccionables comprometidos.
-        lots = self.env['stock.lot'].sudo().browse(list(committed))
-        fractionable_products = set()
+        lots = self.env['stock.lot'].sudo().browse(list(committed)) if committed else self.env['stock.lot']
         result = set()
+        fractionable = self.env['stock.lot'].sudo()
         for lot in lots:
             tipo = str(getattr(lot, 'x_tipo', '') or '').lower()
             if tipo in ('formato', 'pieza'):
-                fractionable_products.add(lot.product_id.id)
+                fractionable |= lot
             else:
                 result.add(lot.id)
-        for pid in fractionable_products:
-            try:
-                result.update(Quant._get_committed_lot_ids(pid) or [])
-            except Exception as e:  # noqa: BLE001
-                _logger.warning('[AllocationHub] committed_lot_ids product %s: %s', pid, e)
+
+        # FORMATO/PIEZA en UNA pasada. Antes se delegaba a
+        # stock.quant._get_committed_lot_ids(pid) POR PRODUCTO "porque son
+        # pocos": eran 612 productos × 5 consultas (58 % de la CPU del
+        # tablero, perfil QA 12 sep 2026). Mismo criterio que el helper:
+        # comprometido = max(move lines vivas, min(capturado en ventas,
+        # físico)); excluido solo si cubre todo el físico.
+        if fractionable:
+            frac_ids = set(fractionable.ids)
+            fisico = defaultdict(float)
+            for group in self._hub_get_quant_sum([
+                ('lot_id', 'in', list(frac_ids)),
+                ('location_id.usage', '=', 'internal'),
+                ('quantity', '>', 0),
+            ], ['lot_id']):
+                if group.get('lot_id'):
+                    fisico[group['lot_id'][0]] += group.get('quantity') or 0.0
+            ml_qty = defaultdict(float)
+            qty_field = 'quantity' if 'quantity' in Ml._fields else 'qty_done'
+            for ml in mls:
+                if ml.lot_id.id in frac_ids:
+                    ml_qty[ml.lot_id.id] += getattr(ml, qty_field, 0.0) or 0.0
+            sol_qty = defaultdict(float)
+            Lot = self.env['stock.lot']
+            for sol in sols:
+                sol_frac = [lid for lid in sol.lot_ids.ids if lid in frac_ids]
+                if not sol_frac:
+                    continue
+                breakdown = self._hub_get_breakdown_for_line(sol)
+                for lid in sol_frac:
+                    qty = None
+                    if breakdown and hasattr(sol, '_som_breakdown_qty_for_lot'):
+                        try:
+                            qty = sol._som_breakdown_qty_for_lot(breakdown, Lot.browse(lid))
+                        except Exception:  # noqa: BLE001
+                            qty = None
+                    sol_qty[lid] += float(qty) if qty is not None else fisico.get(lid, 0.0)
+            for lid in frac_ids:
+                phys = fisico.get(lid, 0.0)
+                comprometido = max(ml_qty.get(lid, 0.0), min(sol_qty.get(lid, 0.0), phys))
+                if comprometido >= phys - 0.0001:
+                    result.add(lid)
+
+        # Extensión de TALLER (sale_stone_workshop_integration) en lote:
+        # placas base en órdenes de taller vivas o seleccionadas desde venta.
+        if 'workshop.input.line' in self.env:
+            wils = self.env['workshop.input.line'].sudo().search([
+                ('product_id', 'in', product_ids),
+                ('lot_id', '!=', False),
+                ('state', 'not in', ('cancelled', 'done', 'rejected')),
+            ])
+            for line in wils:
+                order = line.order_id
+                if order.state == 'in_workshop':
+                    result.add(line.lot_id.id)
+                elif (order.sale_order_id and order.state == 'draft'
+                        and line.state in ('pending', 'reserved_for_workshop', 'in_progress')):
+                    result.add(line.lot_id.id)
+        if 'sale.stone.workshop.input.selection' in self.env:
+            selections = self.env['sale.stone.workshop.input.selection'].sudo().search([
+                ('base_product_id', 'in', product_ids),
+                ('lot_id', '!=', False),
+                ('state', 'in', ('selected', 'reserved', 'moved_to_workshop')),
+                ('sale_order_id.state', 'in', ('sale', 'done')),
+            ])
+            result.update(selections.mapped('lot_id').ids)
         return result
 
     def _hub_get_transit_qty_by_product(self, product_ids):
@@ -1094,11 +1159,45 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ])
 
+        # Mismo número que _tc_operational_qty (min entre lo capturado y
+        # su quant de tránsito) pero SIN una consulta por línea: quants
+        # prefetchados y, para las líneas sin quant válido, UNA búsqueda
+        # agrupada en tránsito (antes 743 consultas por carga).
+        Quant = self.env['stock.quant'].sudo()
+        Location = self.env['stock.location']
+        transit_lines.mapped('quant_id.location_id')
+
+        def _valid(tl, q):
+            return bool(
+                q and q.quantity > 0
+                and q.company_id.id == tl.company_id.id
+                and q.product_id.id == tl.product_id.id
+                and q.lot_id.id == tl.lot_id.id
+                and q.location_id._som_is_transit()
+            )
+
+        missing = transit_lines.filtered(
+            lambda tl: tl.product_id and tl.lot_id and not _valid(tl, tl.quant_id))
+        resolved = {}
+        if missing and hasattr(Location, '_som_transit_quant_leaf'):
+            found = Quant.search([
+                ('company_id', 'in', missing.mapped('company_id').ids),
+                ('product_id', 'in', missing.mapped('product_id').ids),
+                ('lot_id', 'in', missing.mapped('lot_id').ids),
+                ('quantity', '>', 0),
+            ] + Location._som_transit_quant_leaf(), order='id desc')
+            for q in found:
+                resolved.setdefault((q.company_id.id, q.product_id.id, q.lot_id.id), q)
+
         qty_map = defaultdict(float)
         for tl in transit_lines:
             if not tl.product_id or not tl.lot_id:
                 continue
-            qty = tl._tc_operational_qty()
+            qty = tl.product_uom_qty or 0.0
+            quant = tl.quant_id if _valid(tl, tl.quant_id) else resolved.get(
+                (tl.company_id.id, tl.product_id.id, tl.lot_id.id))
+            if quant and quant.quantity > 0:
+                qty = min(quant.quantity, qty)
             if qty > 0:
                 qty_map[(tl.order_id.id, tl.product_id.id, tl.lot_id.id)] += qty
 
