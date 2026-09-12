@@ -1112,6 +1112,28 @@ class AllocationHubPaymentMixin(models.AbstractModel):
 
         return metadata
 
+    def _hub_prefetch_row_data(self, sale_lines):
+        """Calienta en BLOQUE lo que las filas leen registro a registro
+        (perfil QA 12 sep 2026 tras el batch de lotes: 117 consultas por
+        display_name del producto, 55 por nombre del cliente, 28 por el del
+        vendedor, y los lot_ids línea por línea)."""
+        if not sale_lines:
+            return
+        orders = sale_lines.mapped('order_id')
+        orders.mapped('partner_id.name')
+        orders.mapped('user_id.name')
+        orders.mapped('partner_shipping_id.city')
+        orders.mapped('client_order_ref')
+        orders.mapped('note')
+        if 'user_id_2' in orders._fields:
+            orders.mapped('user_id_2')
+        products = sale_lines.mapped('product_id')
+        products.mapped('display_name')
+        products.mapped('product_tmpl_id.categ_id')
+        products.mapped('uom_id')
+        if 'lot_ids' in sale_lines._fields:
+            sale_lines.mapped('lot_ids')
+
     def _hub_get_line_lot_ids(self, sale_lines):
         if not sale_lines or 'lot_ids' not in sale_lines._fields:
             return {}, set()
@@ -1209,6 +1231,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             return {}, {}, {}
 
         t0 = time.time()
+        self._hub_prefetch_row_data(sale_lines)
         product_ids = set(sale_lines.mapped('product_id').ids)
         line_lot_ids, all_lot_ids = self._hub_get_line_lot_ids(sale_lines)
         lot_metadata = self._hub_get_lot_metadata(all_lot_ids)
