@@ -1124,117 +1124,131 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         return lots.sorted(key=sort_key)
 
-    def _tc_build_conflict_free_names(self, target_prefix, ordered_lots, assigned_names):
+    def _tc_lot_is_frozen(self, lot):
         """
-        Genera nombres secuenciales ``prefijo-NN`` evitando la restricción de
-        unicidad de stock.lot (producto + nombre + compañía, incluso sin definir).
+        Lote que JAMÁS se renombra: ya tiene existencias fuera de tránsito
+        (está en bodega, con etiqueta física) o movimientos HECHOS hacia una
+        ubicación interna que no es tránsito (se recibió en una parcial
+        anterior). Los quants/movimientos de SOM/TRANSIT no cuentan: todo
+        lote del viaje los tiene antes de recibirse y bloquearían el
+        renumerado legítimo de la recepción en curso.
+        """
+        for quant in lot.quant_ids:
+            if (
+                quant.location_id.usage == "internal"
+                and not quant.location_id._som_is_transit()
+                and not self._tc_float_is_zero(lot.product_id, quant.quantity)
+            ):
+                return True
+        done_lines = self.env["stock.move.line"].sudo().search([
+            ("lot_id", "=", lot.id),
+            ("state", "=", "done"),
+            ("location_dest_id.usage", "=", "internal"),
+        ])
+        return any(
+            not ml.location_dest_id._som_is_transit() for ml in done_lines
+        )
 
-        Caso real que reventaba el flujo:
-        - El PL físico corrige datos de una placa y su firma ya no coincide con
-          el lote original (p.ej. 6-19). Se crea un lote nuevo y el 6-19 viejo
-          queda "omitido" (cantidad 0) pero conserva su nombre en BD.
-        - El renombrado secuencial intentaba asignar 6-19 a otro lote del mismo
-          producto → ValidationError de lote duplicado y rollback total.
-
-        Estrategia:
-        - Si el nombre deseado lo ocupa un lote ajeno al grupo pero "muerto"
-          (sin existencias en ningún quant), se renombra ese lote huérfano a
-          ``<nombre>-OBS-<id>`` para liberar el nombre y mantener la secuencia
-          contigua.
-        - Si el lote en conflicto sí tiene existencias, no se toca: se salta
-          ese número y se continúa con el siguiente.
+    def _tc_prefix_taken_names(self, target_prefix, exclude_lots):
+        """
+        Nombres ya ocupados con el prefijo en TODA la base de la compañía,
+        sin filtrar por producto: la unicidad de stock.lot es por producto,
+        pero para la operación un nombre repetido en dos tarimas de distinto
+        material es un error (etiquetas y surtido). Incluye archivados para
+        no reciclar un número cuya etiqueta física ya existió.
         """
         Lot = self.env["stock.lot"].sudo().with_context(active_test=False)
         picking = self.picking_id
-
-        product_ids = ordered_lots.mapped("product_id").ids
-
-        # Lotes fuera del grupo que podrían chocar con los nombres deseados.
-        conflict_candidates = Lot.search([
+        lots = Lot.search([
             ("name", "=like", f"{target_prefix}-%"),
-            ("product_id", "in", product_ids),
-            ("id", "not in", ordered_lots.ids),
+            ("id", "not in", exclude_lots.ids),
             ("company_id", "in", [False, picking.company_id.id]),
         ])
-        conflicts_by_name = {}
-        for lot in conflict_candidates:
-            conflicts_by_name.setdefault(lot.name, Lot.browse())
-            conflicts_by_name[lot.name] |= lot
+        return set(lots.mapped("name"))
+
+    def _tc_build_conflict_free_names(self, target_prefix, ordered_lots, assigned_names):
+        """
+        Asigna nombres ``prefijo-NN`` continuando la serie del embarque.
+
+        Reglas (spec de recepción parcial):
+        1. La numeración arranca en el máximo consecutivo ya usado por el
+           prefijo en toda la base (parciales anteriores, otros contenedores,
+           lotes archivados), nunca en 01.
+        2. Un lote con existencias en bodega o movimientos hechos fuera de
+           tránsito conserva su nombre tal cual.
+        3. Un lote que ya trae un nombre válido de la serie (``S124-17``) y
+           que no choca con nadie, conserva su nombre.
+        4. Jamás se renombra un lote ajeno al grupo (antes se apartaba a
+           ``OBS-<id>-<nombre>``). Los nombres nuevos se validan contra
+           todos los lotes del prefijo, de cualquier producto.
+
+        Devuelve ``(desired_names, collisions)``: ``collisions`` son los lotes
+        congelados cuyo nombre ya está ocupado por otro lote y que no se
+        pueden corregir automáticamente.
+        """
+        taken = self._tc_prefix_taken_names(target_prefix, ordered_lots)
+        taken |= set(assigned_names)
+
+        def _seq_of(name):
+            prefix, seq = self._tc_parse_lot_name(name)
+            return seq if prefix == target_prefix else 0
+
+        max_seq = max([_seq_of(name) for name in taken] + [0])
 
         desired_names = {}
-        idx = 1
+        collisions = self.env["stock.lot"]
 
+        # Paso 1: lotes que conservan su nombre (congelados o ya válidos).
         for lot in ordered_lots:
+            seq = _seq_of(lot.name)
+            frozen = self._tc_lot_is_frozen(lot)
+            if not frozen and not seq:
+                continue
+            if lot.name in taken:
+                if frozen:
+                    collisions |= lot
+                    desired_names[lot.id] = lot.name
+                    _logger.warning(
+                        "[TC_PHYSICAL_PL] Lote congelado %s (id %s) comparte "
+                        "nombre con otro lote; no se renombra.",
+                        lot.name, lot.id,
+                    )
+                continue
+            desired_names[lot.id] = lot.name
+            taken.add(lot.name)
+            max_seq = max(max_seq, seq)
+
+        # Paso 2: el resto continúa la serie desde el máximo ya usado.
+        idx = max_seq + 1
+        for lot in ordered_lots:
+            if lot.id in desired_names:
+                continue
             while True:
                 candidate = f"{target_prefix}-{idx:02d}"
                 idx += 1
-
-                if candidate in assigned_names:
+                if candidate in taken:
                     continue
+                desired_names[lot.id] = candidate
+                taken.add(candidate)
+                break
 
-                conflicting = conflicts_by_name.get(candidate)
-                if not conflicting:
-                    desired_names[lot.id] = candidate
-                    break
-
-                # Solo se puede liberar el nombre si TODOS los lotes en
-                # conflicto están muertos (sin existencias).
-                stale = all(
-                    self._tc_float_is_zero(
-                        c.product_id,
-                        sum(c.quant_ids.mapped("quantity")),
-                    )
-                    for c in conflicting
-                )
-
-                if stale:
-                    for c in conflicting:
-                        old_name = c.name
-                        # El nombre apartado NO debe empezar con el prefijo
-                        # numérico: _get_next_lot_number_for_prefix usa
-                        # LIKE 'prefijo-%' y un nombre tipo '6-19-OBS-123'
-                        # inflaría la secuencia siguiente.
-                        c.write({"name": f"OBS-{c.id}-{old_name}"})
-                        _logger.info(
-                            "[TC_PHYSICAL_PL] Lote huérfano %s (id %s) renombrado a %s "
-                            "para liberar el nombre en el renumerado.",
-                            old_name, c.id, c.name,
-                        )
-                    conflicts_by_name.pop(candidate, None)
-                    desired_names[lot.id] = candidate
-                    break
-
-                _logger.warning(
-                    "[TC_PHYSICAL_PL] Nombre %s ocupado por lote con existencias "
-                    "(ids %s); se salta ese número en la secuencia.",
-                    candidate, conflicting.ids,
-                )
-
-        return desired_names
+        return desired_names, collisions
 
     def _tc_renumber_physical_reception_lots_by_container(self, voyage):
         """
-        Normaliza nombres después de aplicar el PL físico.
+        Normaliza nombres después de aplicar el PL físico, continuando la
+        serie del embarque completo (no solo de la parcial en curso).
 
         Corrige el caso:
-            20206-01
-            20206-02
-            20206-03
-            20206-04
-            20206-05
-            20207-01
-            20207-02
-            20207-03
+            20206-01 … 20206-05
+            20207-01 … 20207-03
 
         Resultado:
-            20206-01
-            20206-02
-            20206-03
-            20206-04
-            20206-05
-            20206-06
-            20206-07
-            20206-08
+            20206-01 … 20206-08
+
+        En una parcial posterior del mismo embarque, con 20206-01 … 20206-12
+        ya recibidos, los lotes nuevos nacen en 20206-13 en adelante y los
+        que ya traen nombre válido en la serie no se tocan.
         """
         picking = self.picking_id
 
@@ -1268,37 +1282,52 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
             ordered_lots = self._tc_sort_lots_for_sequence(lots)
 
-            desired_names = self._tc_build_conflict_free_names(
+            desired_names, collisions = self._tc_build_conflict_free_names(
                 target_prefix,
                 ordered_lots,
                 assigned_names,
             )
             assigned_names.update(desired_names.values())
 
-            already_ok = all(lot.name == desired_names[lot.id] for lot in ordered_lots)
-            if already_ok:
+            if collisions:
+                picking.message_post(body=_(
+                    "⚠️ Lotes con nombre repetido que no se renombraron por "
+                    "tener existencias o movimientos hechos: %(lots)s. "
+                    "Corregir a mano."
+                ) % {
+                    "lots": ", ".join(
+                        f"{lot.name} ({lot.product_id.display_name})"
+                        for lot in collisions
+                    ),
+                })
+
+            to_rename = ordered_lots.filtered(
+                lambda lot: lot.name != desired_names[lot.id]
+            )
+            if not to_rename:
                 continue
 
             # Renombrado en dos pasos para evitar colisiones temporales.
             temp_prefix = f"TMP-TC-{picking.id}-{container}".replace("/", "_").replace(" ", "_")
 
-            for lot in ordered_lots:
+            for lot in to_rename:
                 lot.write({
                     "name": f"{temp_prefix}-{lot.id}"
                 })
 
-            for lot in ordered_lots:
+            for lot in to_rename:
                 lot.write({
                     "name": desired_names[lot.id]
                 })
 
             picking.message_post(body=_(
                 "🔢 Secuencia de lotes normalizada para contenedor/grupo %(container)s "
-                "con prefijo %(prefix)s. Total lotes: %(count)s."
+                "con prefijo %(prefix)s. Renombrados: %(count)s de %(total)s."
             ) % {
                 "container": container,
                 "prefix": target_prefix,
-                "count": len(ordered_lots),
+                "count": len(to_rename),
+                "total": len(ordered_lots),
             })
 
     # -------------------------------------------------------------------------
