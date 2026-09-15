@@ -3652,7 +3652,7 @@ class StockTransitVoyage(models.Model):
     tc_reception_expected_qty = fields_module.Float(
         string='Esperado', compute='_compute_tc_reception_metrics')
     tc_reception_received_qty = fields_module.Float(
-        string='Recibido', compute='_compute_tc_reception_metrics')
+        string='Recibido en recepción', compute='_compute_tc_reception_metrics')
     tc_reception_pending_qty = fields_module.Float(
         string='Pendiente de recibir', compute='_compute_tc_reception_metrics')
     tc_reception_pct = fields_module.Float(

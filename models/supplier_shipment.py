@@ -102,7 +102,7 @@ class SupplierShipment(models.Model):
         'supplier.shipment.packing', 'shipment_id', string='Packing Lists',
     )
     container_ids = fields.One2many(
-        'supplier.shipment.container', 'shipment_id', string='Contenedores',
+        'supplier.shipment.container', 'shipment_id', string='Contenedores del embarque',
     )
 
     # --- Vínculo con Torre de Control ---
