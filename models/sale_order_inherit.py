@@ -1272,39 +1272,62 @@ class SaleOrderLine(models.Model):
                 continue
 
             rounding = line._tc_get_qty_rounding()
-            # El techo nunca puede quedar por debajo de lo ya asignado en placas
-            # a esta línea: ese material es real aunque ya haya salido del stock
-            # interno (entregado / en tránsito), igual que en la regla de PISO.
-            #
-            # Además se suma el material reservado EN TRÁNSITO para la orden: al
-            # asignar lotes desde un viaje que aún no llega, ese material no
-            # figura como stock físico interno (los lotes a granel resuelven a 0
-            # en stock), por lo que el techo físico bloquearía una asignación
-            # legítima. Sumar el tránsito reservado deja pasar lo que viene en
-            # camino sin abrir la puerta a sobre-asignar stock que no existe.
-            ceiling = max(
-                line._tc_get_max_assignable_qty(),
-                line._tc_get_assigned_lot_qty(),
-            ) + line._tc_get_in_transit_reserved_qty()
+            # ENTREGA PARCIAL (caso V/332): lo ya entregado salió del stock y
+            # no vuelve a necesitar material. El tope se valida sobre lo
+            # PENDIENTE por entregar (solicitado − entregado), no sobre el
+            # solicitado completo; antes una línea de 468 con 138 entregados
+            # pedía 468 contra 269 en bodega y se bloqueaba aunque el faltante
+            # real fuera 60.
+            pending, available = line._tc_stock_cap_pending_and_available()
+            if line._tc_float_le_zero(pending):
+                continue
 
-            if float_compare(ceiling, 0.0, precision_rounding=rounding) <= 0:
+            if float_compare(available, 0.0, precision_rounding=rounding) <= 0:
                 raise UserError(_(
                     'No puedes asignar stock en "%(prod)s": el stock disponible '
                     'es 0. No hay material para asignar; usa "Pedir" para '
                     'solicitarlo a compras.'
                 ) % {'prod': line.product_id.display_name})
 
-            if float_compare(requested, ceiling, precision_rounding=rounding) > 0:
+            if float_compare(pending, available, precision_rounding=rounding) > 0:
+                delivered = line.qty_delivered or 0.0
                 raise UserError(_(
-                    'No puedes asignar %(req).3f de "%(prod)s": supera el stock '
-                    'disponible para la orden (%(stock).3f).\n\n'
+                    'No puedes asignar %(pend).3f pendientes de "%(prod)s" '
+                    '(solicitado %(req).3f, entregado %(dlv).3f): supera el '
+                    'stock disponible para la orden (%(stock).3f).\n\n'
                     'Asigna como máximo el stock disponible. Si necesitas más, '
                     'usa "Pedir" para solicitar el faltante a compras.'
                 ) % {
+                    'pend': pending,
                     'req': requested,
+                    'dlv': delivered,
                     'prod': line.product_id.display_name,
-                    'stock': ceiling,
+                    'stock': available,
                 })
+
+    def _tc_stock_cap_pending_and_available(self):
+        """(pendiente por entregar, disponible para cubrirlo) para el tope
+        de asignación.
+
+        - pendiente = solicitado − entregado.
+        - disponible = stock físico interno asignable a la orden (las placas
+          propias cuentan completas) o, si es mayor, lo asignado en placas
+          que aún no se entrega; más el tránsito reservado. Lo asignado
+          descuenta lo entregado porque las placas entregadas siguen ligadas
+          a la línea (covered = max(asignado, entregado)) y ya no están en
+          bodega.
+        - El tránsito reservado se suma: material que viene en camino para
+          la orden y aún no figura como stock interno."""
+        self.ensure_one()
+        delivered = self.qty_delivered or 0.0
+        pending = max((self.product_uom_qty or 0.0) - delivered, 0.0)
+        assigned_not_delivered = max(
+            self._tc_get_assigned_lot_qty() - delivered, 0.0)
+        available = max(
+            self._tc_get_max_assignable_qty(),
+            assigned_not_delivered,
+        ) + self._tc_get_in_transit_reserved_qty()
+        return pending, available
 
     def _tc_is_service_product(self):
         """Los hubs de asignación/compra no gestionan servicios."""
@@ -3143,24 +3166,28 @@ class SaleOrderLine(models.Model):
             return
 
         rounding = self._tc_get_qty_rounding()
-        ceiling = max(
-            self._tc_get_max_assignable_qty(),
-            self._tc_get_assigned_lot_qty(),
-        )
+        # Misma regla que el candado al guardar: pendiente por entregar
+        # contra disponible (entrega parcial, caso V/332).
+        pending, available = self._tc_stock_cap_pending_and_available()
+        if self._tc_float_le_zero(pending):
+            return
 
-        if float_compare(requested, ceiling, precision_rounding=rounding) > 0:
+        if float_compare(pending, available, precision_rounding=rounding) > 0:
             return {
                 'warning': {
                     'title': _('Cantidad mayor al stock'),
                     'message': _(
-                        'Estás asignando %(req).3f de "%(prod)s" pero el stock '
-                        'disponible es %(stock).3f. No podrás guardar hasta '
-                        'asignar como máximo el stock; usa "Pedir" para el '
-                        'faltante.'
+                        'Faltan por entregar %(pend).3f de "%(prod)s" '
+                        '(solicitado %(req).3f, entregado %(dlv).3f) pero el '
+                        'stock disponible es %(stock).3f. No podrás guardar '
+                        'hasta asignar como máximo el stock; usa "Pedir" para '
+                        'el faltante.'
                     ) % {
+                        'pend': pending,
                         'req': requested,
+                        'dlv': self.qty_delivered or 0.0,
                         'prod': self.product_id.display_name,
-                        'stock': ceiling,
+                        'stock': available,
                     },
                 }
             }
