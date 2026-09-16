@@ -3018,7 +3018,9 @@ class SomAnalytics(models.AbstractModel):
         el mismo número: CON pago recibido vs SIN un solo peso.
 
         'Pagado' = dinero realmente recibido en las facturas posteadas de
-        la orden, anticipos incluidos (sale_order.delivery_paid_amount).
+        la orden, anticipos incluidos (sale_order.delivery_paid_amount),
+        expresado SIN IVA en proporción al IVA del pedido. Todo el bloque
+        va sin IVA, la misma base que el KPI Venta neta.
         El efectivo capturado pero NO aplicado contablemente no cuenta —
         para eso está el indicador 'Efectivo sin aplicar'.
 
@@ -3074,10 +3076,18 @@ class SomAnalytics(models.AbstractModel):
                     "COALESCE(NULLIF(so.x_delivery_exchange_rate, 0),"
                     " %(rate)s) ELSE (" + expr + ") END")
 
-        _pagado = _mxn('COALESCE(so.delivery_paid_amount, 0)')
-        _saldo = _mxn(
-            'so.amount_total - COALESCE(so.delivery_paid_amount, 0)')
-        _total = _mxn('so.amount_total')
+        # TODO SIN IVA (16 sep 2026): misma base que el KPI Venta neta.
+        # El pago recibido viene con IVA (dinero en facturas); se lleva a
+        # neto en proporción al IVA de cada pedido (untaxed / total), así
+        # pedidos con anticipo + sin anticipo = venta neta del periodo.
+        _net = ('COALESCE(so.amount_untaxed, 0)'
+                ' / NULLIF(so.amount_total, 0)')
+        _pagado = _mxn('COALESCE(so.delivery_paid_amount, 0)'
+                       ' * COALESCE(' + _net + ', 1)')
+        _saldo = _mxn('COALESCE(so.amount_untaxed, 0)'
+                      ' - COALESCE(so.delivery_paid_amount, 0)'
+                      ' * COALESCE(' + _net + ', 1)')
+        _total = _mxn('COALESCE(so.amount_untaxed, 0)')
 
         row = self._sq("""
             SELECT COUNT(*) FILTER (WHERE t.pagado > 0.01),
