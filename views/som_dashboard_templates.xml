@@ -31,4 +31,26 @@
               parent="menu_som_analytics_root"
               action="action_som_dashboard_url" sequence="0"
               groups="inventory_shopping_cart.group_dashboard_viewer,inventory_shopping_cart.group_price_authorizer"/>
+
+    <template id="som_cobranza_page" name="SOM Analytics · Cobranza">
+        <html lang="es">
+            <head>
+                <meta charset="utf-8"/>
+                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                <title>Cobranza · SOM Analytics</title>
+                <link rel="icon" href="/stock_transit_allocation/static/description/analytics_icon.svg"/>
+                <link rel="preconnect" href="https://fonts.googleapis.com"/>
+                <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="crossorigin"/>
+                <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800;900&amp;display=swap"/>
+                <link rel="stylesheet" t-att-href="'/stock_transit_allocation/static/dashboard/som_dashboard.css?v=%s' % asset_v"/>
+                <link rel="stylesheet" t-att-href="'/stock_transit_allocation/static/dashboard/som_cobranza.css?v=%s' % asset_v"/>
+            </head>
+            <body>
+                <div id="som-root"></div>
+                <script id="som-boot" type="application/json"><t t-out="boot_json"/></script>
+                <script src="/web/static/lib/Chart/Chart.js"></script>
+                <script t-att-src="'/stock_transit_allocation/static/dashboard/som_cobranza.js?v=%s' % asset_v"></script>
+            </body>
+        </html>
+    </template>
 </odoo>

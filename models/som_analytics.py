@@ -4972,3 +4972,129 @@ class ProductTemplateCostCurrency(models.Model):
         help='Divisa en la que se captura/visualiza el costo all-in en el '
              'dashboard. El costo siempre se GUARDA en MXN (EUR convierte '
              'primero a USD y luego a MXN con TC Banorte).')
+
+    # ══════════════════════════════════════════════════════════════════
+    # COBRANZA (16 sep 2026): pedidos confirmados que aún no se cobran,
+    # un nivel abajo de la banda de anticipos. Misma base sin IVA que el
+    # resto de Analytics; el pago recibido se lleva a neto en proporción
+    # al IVA del pedido. Alimenta /som/analytics/cobranza y su XLSX.
+    # ══════════════════════════════════════════════════════════════════
+    def get_collections(self, filters=None, mode='todos'):
+        self._check_access()
+        f = dict(filters or {})
+        if mode not in ('todos', 'sin', 'con'):
+            mode = 'todos'
+        rate = self._current_usd_rate()
+        params = {'rate': rate}
+        cond = ''
+        if f.get('date_from') or f.get('date_to'):
+            dt_from, dt_to = self._bounds(f)
+            cond = "AND so.date_order >= %(sd_from)s AND so.date_order <= %(sd_to)s"
+            params.update(sd_from=dt_from, sd_to=dt_to)
+        net = 'COALESCE(so.amount_untaxed, 0) / NULLIF(so.amount_total, 0)'
+
+        def _mxn(expr):
+            return ("CASE WHEN rc.name = 'USD' THEN (" + expr + ") * "
+                    "COALESCE(NULLIF(so.x_delivery_exchange_rate, 0), %(rate)s) ELSE (" + expr + ") END")
+
+        pagado = _mxn('COALESCE(so.delivery_paid_amount, 0) * COALESCE(' + net + ', 1)')
+        total = _mxn('COALESCE(so.amount_untaxed, 0)')
+        mode_cond = {'sin': 'AND t.pagado <= 0.01', 'con': 'AND t.pagado > 0.01'}.get(mode, '')
+        self.env.cr.execute("""
+            SELECT * FROM (
+                SELECT so.id, so.name, so.date_order::date AS fecha,
+                       CURRENT_DATE - so.date_order::date AS dias,
+                       COALESCE(rp.name, '') AS cliente, COALESCE(rp.phone, '') AS telefono, COALESCE(rp.email, '') AS email,
+                       COALESCE(sp.name, 'Sin vendedor') AS vendedor, COALESCE(rc.name, 'MXN') AS moneda,
+                       ({total}) AS total, ({pagado}) AS pagado, ({total}) - ({pagado}) AS saldo,
+                       COALESCE(so.invoice_status, '') AS invoice_status,
+                       COALESCE(so.client_order_ref, '') AS ref
+                FROM sale_order so
+                LEFT JOIN res_partner rp ON rp.id = so.partner_id
+                LEFT JOIN res_users ru ON ru.id = so.user_id
+                LEFT JOIN res_partner sp ON sp.id = ru.partner_id
+                LEFT JOIN product_pricelist ppl ON ppl.id = so.pricelist_id
+                LEFT JOIN res_currency rc ON rc.id = ppl.currency_id
+                WHERE so.state = 'sale' AND so.amount_total > 0
+                  AND so.amount_total - COALESCE(so.delivery_paid_amount, 0) > 0.01
+                  {cond} {src}
+            ) t
+            WHERE t.saldo > 0.01 {mode_cond}
+            ORDER BY t.saldo DESC
+        """.format(total=total, pagado=pagado, cond=cond, src=self._src_where(f), mode_cond=mode_cond), params)
+        cols = [d[0] for d in self.env.cr.description]
+        rows = [dict(zip(cols, r)) for r in self.env.cr.fetchall()]
+        buckets = [('0-15', 0, 15), ('16-30', 16, 30), ('31-60', 31, 60), ('61-90', 61, 90), ('+90', 91, 10 ** 6)]
+        by_seller, by_customer, by_bucket = {}, {}, {b: dict(bucket=b, saldo=0.0, pedidos=0) for b, _, _ in buckets}
+        for r in rows:
+            r['fecha'] = str(r['fecha']); r['dias'] = int(r['dias'] or 0)
+            for k in ('total', 'pagado', 'saldo'):
+                r[k] = round(float(r[k] or 0.0), 2)
+            r['pct_pagado'] = round(r['pagado'] / r['total'] * 100, 1) if r['total'] else 0.0
+            r['bucket'] = next(b for b, lo, hi in buckets if lo <= r['dias'] <= hi)
+            s = by_seller.setdefault(r['vendedor'], dict(name=r['vendedor'], saldo=0.0, pedidos=0, sin_anticipo=0))
+            s['saldo'] += r['saldo']; s['pedidos'] += 1; s['sin_anticipo'] += 1 if r['pagado'] <= 0.01 else 0
+            c = by_customer.setdefault(r['cliente'], dict(name=r['cliente'], saldo=0.0, pedidos=0, max_dias=0))
+            c['saldo'] += r['saldo']; c['pedidos'] += 1; c['max_dias'] = max(c['max_dias'], r['dias'])
+            by_bucket[r['bucket']]['saldo'] += r['saldo']; by_bucket[r['bucket']]['pedidos'] += 1
+        saldo = sum(r['saldo'] for r in rows)
+        return {
+            'mode': mode, 'filters': f, 'rate': rate,
+            'kpis': {
+                'saldo_mxn': round(saldo, 2), 'pedidos': len(rows),
+                'sin_anticipo': sum(1 for r in rows if r['pagado'] <= 0.01),
+                'saldo_sin_anticipo': round(sum(r['saldo'] for r in rows if r['pagado'] <= 0.01), 2),
+                'saldo_con_anticipo': round(sum(r['saldo'] for r in rows if r['pagado'] > 0.01), 2),
+                'mas_90': round(by_bucket['+90']['saldo'], 2), 'pedidos_mas_90': by_bucket['+90']['pedidos'],
+                'dias_promedio': round(sum(r['dias'] * r['saldo'] for r in rows) / saldo, 0) if saldo else 0,
+            },
+            'by_seller': sorted([dict(v, saldo=round(v['saldo'], 2)) for v in by_seller.values()], key=lambda v: -v['saldo']),
+            'by_customer': sorted([dict(v, saldo=round(v['saldo'], 2)) for v in by_customer.values()], key=lambda v: -v['saldo'])[:15],
+            'by_bucket': [dict(v, saldo=round(v['saldo'], 2)) for v in by_bucket.values()],
+            'rows': rows,
+        }
+
+    def get_collections_xlsx(self, filters=None, mode='todos'):
+        """Bytes de un XLSX con el detalle de cobranza (hoja Pedidos) y el
+        resumen por vendedor y por antigüedad."""
+        import io
+        import xlsxwriter
+        data = self.get_collections(filters, mode)
+        buf = io.BytesIO()
+        wb = xlsxwriter.Workbook(buf, {'in_memory': True})
+        head = wb.add_format({'bold': True, 'bg_color': '#0b1f3a', 'font_color': '#ffffff', 'border': 1})
+        money = wb.add_format({'num_format': '#,##0.00'})
+        pct = wb.add_format({'num_format': '0.0"%"'})
+        title = wb.add_format({'bold': True, 'font_size': 13})
+        ws = wb.add_worksheet('Pedidos por cobrar')
+        modo = {'todos': 'Todos los pedidos con saldo', 'sin': 'Sin un solo pago', 'con': 'Con anticipo y saldo'}[data['mode']]
+        f = data['filters']
+        ws.write(0, 0, 'Cobranza de pedidos · SOM Analytics · %s' % modo, title)
+        ws.write(1, 0, 'Periodo: %s a %s · montos sin IVA en MXN (USD al TC congelado o del día %.4f) · generado %s' % (
+            f.get('date_from') or 'sin límite', f.get('date_to') or 'hoy', data['rate'], fields.Datetime.now().strftime('%Y-%m-%d %H:%M')))
+        headers = [('Pedido', 12), ('Fecha', 11), ('Días', 6), ('Antigüedad', 11), ('Cliente', 34), ('Teléfono', 16), ('Correo', 28),
+                   ('Vendedor', 22), ('Moneda', 8), ('Total sin IVA', 15), ('Pagado sin IVA', 15), ('Saldo sin IVA', 15), ('% pagado', 9), ('Facturación', 12), ('Ref. cliente', 14)]
+        for c, (h, w) in enumerate(headers):
+            ws.write(3, c, h, head); ws.set_column(c, c, w)
+        for i, r in enumerate(data['rows'], start=4):
+            ws.write(i, 0, r['name']); ws.write(i, 1, r['fecha']); ws.write(i, 2, r['dias']); ws.write(i, 3, r['bucket'])
+            ws.write(i, 4, r['cliente']); ws.write(i, 5, r['telefono']); ws.write(i, 6, r['email']); ws.write(i, 7, r['vendedor']); ws.write(i, 8, r['moneda'])
+            ws.write(i, 9, r['total'], money); ws.write(i, 10, r['pagado'], money); ws.write(i, 11, r['saldo'], money); ws.write(i, 12, r['pct_pagado'], pct)
+            ws.write(i, 13, r['invoice_status']); ws.write(i, 14, r['ref'])
+        n = len(data['rows'])
+        ws.write(n + 5, 10, 'Total', head); ws.write(n + 5, 11, data['kpis']['saldo_mxn'], money)
+        ws.autofilter(3, 0, max(4, n + 3), len(headers) - 1); ws.freeze_panes(4, 1)
+        ws2 = wb.add_worksheet('Por vendedor')
+        for c, h in enumerate(['Vendedor', 'Pedidos', 'Sin anticipo', 'Saldo sin IVA']):
+            ws2.write(0, c, h, head)
+        ws2.set_column(0, 0, 28); ws2.set_column(3, 3, 16)
+        for i, s in enumerate(data['by_seller'], start=1):
+            ws2.write(i, 0, s['name']); ws2.write(i, 1, s['pedidos']); ws2.write(i, 2, s['sin_anticipo']); ws2.write(i, 3, s['saldo'], money)
+        ws3 = wb.add_worksheet('Por antigüedad')
+        for c, h in enumerate(['Antigüedad (días)', 'Pedidos', 'Saldo sin IVA']):
+            ws3.write(0, c, h, head)
+        ws3.set_column(0, 0, 20); ws3.set_column(2, 2, 16)
+        for i, b in enumerate(data['by_bucket'], start=1):
+            ws3.write(i, 0, b['bucket']); ws3.write(i, 1, b['pedidos']); ws3.write(i, 2, b['saldo'], money)
+        wb.close()
+        return buf.getvalue()

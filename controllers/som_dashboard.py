@@ -14,7 +14,7 @@ import re
 from markupsafe import Markup
 
 from odoo import http
-from odoo.http import request
+from odoo.http import request, content_disposition
 
 GROUPS = ('inventory_shopping_cart.group_dashboard_viewer',
           'inventory_shopping_cart.group_price_authorizer')
@@ -27,6 +27,7 @@ _RPC_WHITELIST = {
     'order_lines': ('get_order_lines', 1),
     'time_to_sell': ('get_time_to_sell', 1),
     'set_cost': ('set_product_cost', 3),
+    'cobranza': ('get_collections', 2),
 }
 
 
@@ -86,3 +87,46 @@ class SomDashboardController(http.Controller):
         args = list(args or [])[:max_args]
         self._apply_company_context()
         return getattr(request.env['som.analytics'], fname)(*args)
+
+    # ── Cobranza: pedidos por cobrar (un nivel abajo de la banda de anticipos) ──
+    def _cobranza_filters(self, kw):
+        f = {}
+        for key in ('date_from', 'date_to', 'source'):
+            value = (kw.get(key) or '').strip()
+            if value:
+                if key != 'source':
+                    if not re.fullmatch(r'\d{4}-\d{2}-\d{2}', value):
+                        continue
+                elif value not in ('odoo', 'sps', 'mixto'):
+                    continue
+                f[key] = value
+        mode = kw.get('mode') if kw.get('mode') in ('todos', 'sin', 'con') else 'todos'
+        return f, mode
+
+    @http.route('/som/analytics/cobranza', type='http', auth='user')
+    def cobranza_page(self, **kw):
+        if not self._check_group():
+            return request.redirect('/odoo')
+        companies = self._apply_company_context()
+        f, mode = self._cobranza_filters(kw)
+        data = request.env['som.analytics'].get_collections(f, mode)
+        mod = request.env['ir.module.module'].sudo().search([('name', '=', 'stock_transit_allocation')], limit=1)
+        boot = dict(data, user=request.env.user.name, company=' + '.join(companies.mapped('name')),
+                    xlsx_url='/som/analytics/cobranza.xlsx?' + '&'.join('%s=%s' % (k, v) for k, v in dict(f, mode=mode).items()))
+        payload = json.dumps(boot, default=str).replace('<', '\\u003c')
+        return request.render('stock_transit_allocation.som_cobranza_page', {
+            'boot_json': Markup(payload),
+            'asset_v': (mod.installed_version or mod.latest_version or '0'),
+        })
+
+    @http.route('/som/analytics/cobranza.xlsx', type='http', auth='user')
+    def cobranza_xlsx(self, **kw):
+        if not self._check_group():
+            return request.redirect('/odoo')
+        self._apply_company_context()
+        f, mode = self._cobranza_filters(kw)
+        content = request.env['som.analytics'].get_collections_xlsx(f, mode)
+        name = 'cobranza_%s_%s.xlsx' % (mode, (f.get('date_to') or 'hoy'))
+        return request.make_response(content, headers=[
+            ('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
+            ('Content-Disposition', content_disposition(name)), ('Cache-Control', 'no-store')])
