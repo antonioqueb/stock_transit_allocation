@@ -42,6 +42,35 @@
     if (state.q) { const q = state.q.toLowerCase(); r = r.filter(x => (x.name + " " + x.cliente + " " + x.ref).toLowerCase().includes(q)); }
     const k = state.sort; return [...r].sort((a, b) => (a[k] > b[k] ? 1 : a[k] < b[k] ? -1 : 0) * state.dir);
   }
+  const COLS = [["name", "Pedido"], ["fecha", "Fecha"], ["dias", "Días"], ["cliente", "Cliente"], ["vendedor", "Vendedor"], ["total", "Total sin IVA"], ["pagado", "Pagado"], ["saldo", "Saldo"], ["pct_pagado", "% pagado"], ["invoice_status", "Facturación"]];
+  const RIGHT = new Set(["total", "pagado", "saldo", "pct_pagado", "dias"]);
+  function headHtml() {
+    return COLS.map(([k2, l]) => `<th class="sort ${RIGHT.has(k2) ? "r" : ""}" data-sort="${k2}">${l}${state.sort === k2 ? (state.dir < 0 ? " ▾" : " ▴") : ""}</th>`).join("");
+  }
+  function bodyHtml(list) {
+    return list.map(r => `<tr>
+      <td class="name"><a href="${orderUrl(r.id)}" target="_blank">${esc(r.name)}</a>${r.ref ? `<br><span class="mut">${esc(r.ref)}</span>` : ""}</td>
+      <td>${esc(r.fecha)}</td><td class="r"><span class="pill ${r.dias > 90 ? "bad" : r.dias > 30 ? "mid" : "good"}">${r.dias}</span></td>
+      <td class="ell"><span class="strong">${esc(r.cliente)}</span><br><span class="contact">${r.telefono ? `<a href="tel:${esc(r.telefono)}">${esc(r.telefono)}</a>` : ""}${r.telefono && r.email ? " · " : ""}${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : ""}</span></td>
+      <td>${esc(r.vendedor)}</td><td class="r">${money(r.total)}</td><td class="r">${money(r.pagado)}</td><td class="r strong ${r.pagado <= 0.01 ? "neg" : ""}">${money(r.saldo)}</td>
+      <td class="r"><div class="bar"><span style="width:${Math.min(100, r.pct_pagado)}%"></span></div><span class="mut">${num(r.pct_pagado, 1)}%</span></td>
+      <td><span class="pill ${r.invoice_status === "invoiced" ? "good" : r.invoice_status === "to invoice" ? "mid" : ""}">${esc(r.invoice_status || "—")}</span></td>
+    </tr>`).join("") || `<tr><td colspan="10" class="mut">Sin pedidos por cobrar en este alcance.</td></tr>`;
+  }
+  // Solo tabla y contador: la búsqueda y el orden NO repintan la página
+  // (repintar recreaba el input y el cursor volvía al inicio: el texto
+  // salía al revés).
+  function refreshTable() {
+    const list = rows();
+    root.querySelector("thead tr").innerHTML = headHtml();
+    root.querySelector("tbody").innerHTML = bodyHtml(list);
+    root.querySelector(".count").textContent = state.busy ? "Consultando…" : num(list.length) + " pedidos · " + money(list.reduce((a, r) => a + r.saldo, 0));
+    bindTableHead();
+    if (charts.seller) { charts.seller.data.datasets[0].backgroundColor = (state.data.by_seller || []).map(x => (x.name === state.seller ? "#0b57d0" : "rgba(11,87,208,.55)")); charts.seller.update(); }
+  }
+  function bindTableHead() {
+    root.querySelectorAll("th.sort").forEach(th => th.onclick = () => { const k2 = th.dataset.sort; state.dir = state.sort === k2 ? -state.dir : -1; state.sort = k2; refreshTable(); });
+  }
   function render() {
     const d = state.data, k = d.kpis || {}, f = state.filters;
     const sellers = (d.by_seller || []).map(s => s.name);
@@ -74,28 +103,16 @@
           <input id="q" placeholder="Buscar pedido, cliente o referencia" value="${esc(state.q)}"/>
           <span class="count">${state.busy ? "Consultando…" : num(list.length) + " pedidos · " + money(list.reduce((a, r) => a + r.saldo, 0))}</span>
         </div>
-        <div class="tablewrap tall"><table class="cb-table"><thead><tr>
-          ${[["name", "Pedido"], ["fecha", "Fecha"], ["dias", "Días"], ["cliente", "Cliente"], ["vendedor", "Vendedor"], ["total", "Total sin IVA"], ["pagado", "Pagado"], ["saldo", "Saldo"], ["pct_pagado", "% pagado"], ["invoice_status", "Facturación"]]
-            .map(([k2, l]) => `<th class="sort ${["total", "pagado", "saldo", "pct_pagado", "dias"].includes(k2) ? "r" : ""}" data-sort="${k2}">${l}${state.sort === k2 ? (state.dir < 0 ? " ▾" : " ▴") : ""}</th>`).join("")}
-        </tr></thead><tbody>
-          ${list.map(r => `<tr>
-            <td class="name"><a href="${orderUrl(r.id)}" target="_blank">${esc(r.name)}</a>${r.ref ? `<br><span class="mut">${esc(r.ref)}</span>` : ""}</td>
-            <td>${esc(r.fecha)}</td><td class="r"><span class="pill ${r.dias > 90 ? "bad" : r.dias > 30 ? "mid" : "good"}">${r.dias}</span></td>
-            <td class="ell"><span class="strong">${esc(r.cliente)}</span><br><span class="contact">${r.telefono ? `<a href="tel:${esc(r.telefono)}">${esc(r.telefono)}</a>` : ""}${r.telefono && r.email ? " · " : ""}${r.email ? `<a href="mailto:${esc(r.email)}">${esc(r.email)}</a>` : ""}</span></td>
-            <td>${esc(r.vendedor)}</td><td class="r">${money(r.total)}</td><td class="r">${money(r.pagado)}</td><td class="r strong ${r.pagado <= 0.01 ? "neg" : ""}">${money(r.saldo)}</td>
-            <td class="r"><div class="bar"><span style="width:${Math.min(100, r.pct_pagado)}%"></span></div><span class="mut">${num(r.pct_pagado, 1)}%</span></td>
-            <td><span class="pill ${r.invoice_status === "invoiced" ? "good" : r.invoice_status === "to invoice" ? "mid" : ""}">${esc(r.invoice_status || "—")}</span></td>
-          </tr>`).join("") || `<tr><td colspan="10" class="mut">Sin pedidos por cobrar en este alcance.</td></tr>`}
-        </tbody></table></div>
+        <div class="tablewrap tall"><table class="cb-table"><thead><tr>${headHtml()}</tr></thead><tbody>${bodyHtml(list)}</tbody></table></div>
         <p class="cb-note">Pedido confirmado con saldo = total sin IVA menos lo pagado en facturas publicadas (llevado a neto en proporción al IVA del pedido). USD al tipo de cambio congelado del pedido o al del día. La foto viva no tiene corte de fechas; con periodo, solo pedidos con fecha de orden dentro del rango.</p>
       </div>`;
     root.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => { state.mode = b.dataset.mode; reload(); });
     root.querySelectorAll("[data-preset]").forEach(b => b.onclick = () => preset(b.dataset.preset));
     root.querySelector("#df").onchange = (e) => { state.filters.date_from = e.target.value; state.preset = ""; reload(); };
     root.querySelector("#dt").onchange = (e) => { state.filters.date_to = e.target.value; state.preset = ""; reload(); };
-    root.querySelector("#seller").onchange = (e) => { state.seller = e.target.value; render(); };
-    root.querySelector("#q").oninput = (e) => { state.q = e.target.value; const tb = root.querySelector("tbody"); render(); root.querySelector("#q").focus(); };
-    root.querySelectorAll("th.sort").forEach(th => th.onclick = () => { const k2 = th.dataset.sort; state.dir = state.sort === k2 ? -state.dir : -1; state.sort = k2; render(); });
+    root.querySelector("#seller").onchange = (e) => { state.seller = e.target.value; refreshTable(); };
+    root.querySelector("#q").oninput = (e) => { state.q = e.target.value; refreshTable(); };
+    bindTableHead();
     root.querySelector("#theme").onclick = () => { const t = document.documentElement.dataset.theme === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = t; try { localStorage.setItem("som_theme", t); } catch (e) {} render(); };
     drawCharts();
   }
@@ -134,7 +151,8 @@
           if (!els.length) return;
           const n = sellers[els[0].index].name;
           state.seller = state.seller === n ? "" : n;
-          render();
+          root.querySelector("#seller").value = state.seller;
+          refreshTable();
         },
       },
     });
@@ -173,7 +191,8 @@
         onClick: (_e, els) => {
           if (!els.length) return;
           state.q = customers[els[0].index].name;
-          render();
+          root.querySelector("#q").value = state.q;
+          refreshTable();
         },
       },
     });
