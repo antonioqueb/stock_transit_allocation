@@ -100,21 +100,83 @@
     drawCharts();
   }
   function drawCharts() {
-    Object.values(charts).forEach(c => c.destroy());
-    const d = state.data, txt = css("--mut", "#334155"), line = css("--line", "rgba(15,23,42,.1)");
-    const common = { responsive: true, maintainAspectRatio: false, animation: { duration: 200 }, plugins: { legend: { display: false }, tooltip: { callbacks: { label: (c) => " " + money(c.parsed.x ?? c.parsed.y) } } } };
-    const axes = (horizontal) => ({ x: { ticks: { color: txt, font: { size: 11 }, callback: (v) => horizontal ? num(v / 1e6, 1) + " M" : v }, grid: { color: line } }, y: { ticks: { color: txt, font: { size: 11 }, callback: (v) => horizontal ? v : num(v / 1e6, 1) + " M" }, grid: { color: line } } });
+    Object.values(charts).forEach((c) => c.destroy());
+    const d = state.data;
+    const txt = css("--mut", "#334155");
+    const line = css("--line", "rgba(15,23,42,.1)");
+    const millions = (v) => num(v / 1e6, 1) + " M";
+    const base = (extraTooltip) => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 200 },
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: extraTooltip } },
+      },
+    });
+
     const sellers = d.by_seller || [];
-    charts.seller = new Chart(document.getElementById("c-seller"), { type: "bar", data: { labels: sellers.map(s => s.name), datasets: [{ data: sellers.map(s => s.saldo), backgroundColor: sellers.map(s => s.name === state.seller ? "#0b57d0" : "rgba(11,87,208,.55)"), borderRadius: 5 }] },
-      options: { ...common, indexAxis: "y", scales: { x: { ticks: { color: txt, callback: (v) => num(v / 1e6, 1) + " M" }, grid: { color: line } }, y: { ticks: { color: txt, font: { size: 11 } }, grid: { display: false } } },
-        onClick: (_e, els) => { if (els.length) { const n = sellers[els[0].index].name; state.seller = state.seller === n ? "" : n; render(); } } } });
+    charts.seller = new Chart(document.getElementById("c-seller"), {
+      type: "bar",
+      data: {
+        labels: sellers.map((x) => x.name),
+        datasets: [{ data: sellers.map((x) => x.saldo), borderRadius: 5,
+          backgroundColor: sellers.map((x) => (x.name === state.seller ? "#0b57d0" : "rgba(11,87,208,.55)")) }],
+      },
+      options: {
+        ...base((c) => " " + money(c.parsed.x) + " · " + sellers[c.dataIndex].pedidos + " pedidos · " + sellers[c.dataIndex].sin_anticipo + " sin anticipo"),
+        indexAxis: "y",
+        scales: {
+          x: { ticks: { color: txt, callback: millions }, grid: { color: line } },
+          y: { ticks: { color: txt, font: { size: 11 } }, grid: { display: false } },
+        },
+        onClick: (_e, els) => {
+          if (!els.length) return;
+          const n = sellers[els[0].index].name;
+          state.seller = state.seller === n ? "" : n;
+          render();
+        },
+      },
+    });
+
     const buckets = d.by_bucket || [];
-    charts.bucket = new Chart(document.getElementById("c-bucket"), { type: "bar", data: { labels: buckets.map(b => b.bucket + " días"), datasets: [{ data: buckets.map(b => b.saldo), backgroundColor: ["#059669cc", "#0284c7cc", "#d97706cc", "#dc2626b3", "#dc2626"], borderRadius: 5 }] },
-      options: { ...common, scales: axes(false), plugins: { ...common.plugins, tooltip: { callbacks: { label: (c) => " " + money(c.parsed.y) + " · " + buckets[c.dataIndex].pedidos + " pedidos" } } } } } });
+    charts.bucket = new Chart(document.getElementById("c-bucket"), {
+      type: "bar",
+      data: {
+        labels: buckets.map((b) => b.bucket + " días"),
+        datasets: [{ data: buckets.map((b) => b.saldo), borderRadius: 5,
+          backgroundColor: ["#059669cc", "#0284c7cc", "#d97706cc", "#dc2626b3", "#dc2626"] }],
+      },
+      options: {
+        ...base((c) => " " + money(c.parsed.y) + " · " + buckets[c.dataIndex].pedidos + " pedidos"),
+        scales: {
+          x: { ticks: { color: txt, font: { size: 11 } }, grid: { color: line } },
+          y: { ticks: { color: txt, font: { size: 11 }, callback: millions }, grid: { color: line } },
+        },
+      },
+    });
+
     const customers = d.by_customer || [];
-    charts.customer = new Chart(document.getElementById("c-customer"), { type: "bar", data: { labels: customers.map(c => c.name.slice(0, 30)), datasets: [{ data: customers.map(c => c.saldo), backgroundColor: customers.map(c => c.max_dias > 90 ? "rgba(220,38,38,.75)" : c.max_dias > 30 ? "rgba(217,119,6,.75)" : "rgba(5,150,105,.75)"), borderRadius: 5 }] },
-      options: { ...common, scales: axes(false), plugins: { ...common.plugins, tooltip: { callbacks: { label: (c) => " " + money(c.parsed.y) + " · " + customers[c.dataIndex].pedidos + " pedidos · más antiguo " + customers[c.dataIndex].max_dias + " d" } } },
-        onClick: (_e, els) => { if (els.length) { state.q = customers[els[0].index].name; render(); } } } });
+    charts.customer = new Chart(document.getElementById("c-customer"), {
+      type: "bar",
+      data: {
+        labels: customers.map((c) => c.name.slice(0, 30)),
+        datasets: [{ data: customers.map((c) => c.saldo), borderRadius: 5,
+          backgroundColor: customers.map((c) => (c.max_dias > 90 ? "rgba(220,38,38,.75)" : c.max_dias > 30 ? "rgba(217,119,6,.75)" : "rgba(5,150,105,.75)")) }],
+      },
+      options: {
+        ...base((c) => " " + money(c.parsed.y) + " · " + customers[c.dataIndex].pedidos + " pedidos · más antiguo " + customers[c.dataIndex].max_dias + " d"),
+        scales: {
+          x: { ticks: { color: txt, font: { size: 11 } }, grid: { color: line } },
+          y: { ticks: { color: txt, font: { size: 11 }, callback: millions }, grid: { color: line } },
+        },
+        onClick: (_e, els) => {
+          if (!els.length) return;
+          state.q = customers[els[0].index].name;
+          render();
+        },
+      },
+    });
   }
   render();
 })();
