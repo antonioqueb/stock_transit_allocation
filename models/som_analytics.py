@@ -4961,18 +4961,6 @@ class SomAnalytics(models.AbstractModel):
         out.sort(key=lambda x: -(x['edad_stock'] or x['dias_venta'] or 0))
         return self._scrub_profit(out[:200])
 
-class ProductTemplateCostCurrency(models.Model):
-    _inherit = 'product.template'
-
-    x_costo_divisa = fields.Selection([
-        ('MXN', 'MXN'),
-        ('USD', 'USD'),
-        ('EUR', 'EUR'),
-    ], string='Divisa del costo all-in', default='USD',
-        help='Divisa en la que se captura/visualiza el costo all-in en el '
-             'dashboard. El costo siempre se GUARDA en MXN (EUR convierte '
-             'primero a USD y luego a MXN con TC Banorte).')
-
     # ══════════════════════════════════════════════════════════════════
     # COBRANZA (16 sep 2026): pedidos confirmados que aún no se cobran,
     # un nivel abajo de la banda de anticipos. Misma base sin IVA que el
@@ -5098,3 +5086,16 @@ class ProductTemplateCostCurrency(models.Model):
             ws3.write(i, 0, b['bucket']); ws3.write(i, 1, b['pedidos']); ws3.write(i, 2, b['saldo'], money)
         wb.close()
         return buf.getvalue()
+
+
+class ProductTemplateCostCurrency(models.Model):
+    _inherit = 'product.template'
+
+    x_costo_divisa = fields.Selection([
+        ('MXN', 'MXN'),
+        ('USD', 'USD'),
+        ('EUR', 'EUR'),
+    ], string='Divisa del costo all-in', default='USD',
+        help='Divisa en la que se captura/visualiza el costo all-in en el '
+             'dashboard. El costo siempre se GUARDA en MXN (EUR convierte '
+             'primero a USD y luego a MXN con TC Banorte).')
