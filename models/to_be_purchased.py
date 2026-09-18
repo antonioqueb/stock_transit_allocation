@@ -1566,19 +1566,35 @@ class AllocationHubPaymentMixin(models.AbstractModel):
         return row
 
     def _hub_partial_note(self, product, metrics):
-        """Texto de la tarjeta para una línea parcial:
-        To Be Allocated → '141.93 de 208.45 disponibles · 66.52 en compra'
-        To Be Purchased → '66.52 (141.93 ya asignables en bodega)'."""
+        """Etiqueta corta + tooltip para una línea parcial (una parte se
+        asigna hoy desde bodega y el resto va a compra). El número grande de
+        la celda ya es la cantidad del tablero, así que la etiqueta NO lo
+        repite: solo da el contexto que falta.
+
+            To Be Allocated → etiqueta 'de 45 · 35.89 a compra'
+            To Be Purchased → etiqueta 'de 45 · 9.11 en bodega'
+
+        El detalle completo (pendiente, solicitado, asignable, a compra) va
+        en el tooltip (`*_tip`)."""
         if metrics.get('hub_state') != 'partial':
             return ''
         unit = self._get_product_unit_label(product) or ''
         alloc = metrics.get('allocatable_qty', 0.0)
         pend = metrics.get('pending_qty', 0.0)
+        req = metrics.get('requested_qty', pend)
         buy = metrics.get('to_purchase_qty', 0.0)
         fmt = lambda v: ('%.2f' % v).rstrip('0').rstrip('.')
+        if self._hub_float_gt_zero(abs(req - pend)):
+            base = 'Pendiente %s %s de %s solicitados.' % (fmt(pend), unit, fmt(req))
+        else:
+            base = 'Pedido de %s %s.' % (fmt(pend), unit)
+        tip = '%s %s %s se pueden asignar hoy desde bodega; a compra van %s %s.' % (
+            base, fmt(alloc), unit, fmt(buy), unit)
         return {
-            'allocated': '%s de %s %s disponibles · %s en compra' % (fmt(alloc), fmt(pend), unit, fmt(buy)),
-            'purchase': '%s %s (%s ya asignables en bodega)' % (fmt(buy), unit, fmt(alloc)),
+            'allocated': 'de %s · %s a compra' % (fmt(pend), fmt(buy)),
+            'allocated_tip': tip + ' (Ver To Be Purchased)',
+            'purchase': 'de %s · %s en bodega' % (fmt(pend), fmt(alloc)),
+            'purchase_tip': tip + ' (Ver To Be Allocated)',
         }
 
 

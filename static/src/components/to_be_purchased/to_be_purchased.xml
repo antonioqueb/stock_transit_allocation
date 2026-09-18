@@ -360,7 +360,7 @@
                                                     <t t-esc="fmtPendingLine(so)"/>
                                                     <div t-if="so.hub_state === 'partial' and so.partial_note"
                                                          class="small text-warning-emphasis o_tbp_partial_note"
-                                                         t-att-title="so.partial_note.purchase">
+                                                         t-att-title="so.partial_note.purchase_tip">
                                                         <i class="fa fa-adjust me-1"/><t t-esc="so.partial_note.purchase"/>
                                                     </div>
                                                 </td>
