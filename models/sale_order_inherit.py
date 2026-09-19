@@ -1087,8 +1087,9 @@ class SaleOrderLine(models.Model):
         - Lotes ajenos solo cuentan si están sin reservar, sin hold y no están
           comprometidos en otras órdenes.
 
-        Sirve como cota superior: no se puede asignar/cobrar más material del que
-        existe disponible para la orden; el faltante se manda a pedir."""
+        Desde 19 sep 2026 ya no limita el Solicitado (que puede quedar por
+        arriba del stock con el faltante pendiente o en compras); solo acota
+        lo físicamente asignado en placas."""
         self.ensure_one()
 
         if not self.product_id:
@@ -1175,16 +1176,22 @@ class SaleOrderLine(models.Model):
         return sum(transit_lines.mapped('product_uom_qty'))
 
     def _tc_validate_assignment_stock_cap(self):
-        """REGLA DE NEGOCIO (cotización Y orden de venta):
+        """REGLA DE NEGOCIO (cotización Y orden de venta), desde 19 sep 2026:
 
-        En modo 'Asignar' (la línea NO está marcada como 'Mandar a pedir'), la
-        cantidad solicitada/asignada:
-          - no puede asignarse si el stock disponible es 0, y
-          - no puede superar el stock físico disponible para la orden.
+        El Solicitado de una línea PUEDE superar el stock disponible. Lo que
+        no alcance a cubrirse con placas queda pendiente de asignar (y los
+        tableros lo llevan a To Be Purchased); nada obliga a encender
+        'Pedir' para poder asignar lo que sí hay. Caso V/268: solicitado 288,
+        stock 261.83, bodega quería dejar 250.48 asignados y el candado lo
+        frenaba porque comparaba el pedido COMPLETO contra el stock.
 
-        Lo que falte se manda a pedir con 'Pedir'. Las líneas en 'Mandar a
-        pedir' (auto_transit_assign) quedan exentas: pedir más que el stock es
-        justamente su propósito."""
+        Lo único que se valida es lo FÍSICAMENTE asignado: las placas
+        ligadas a la línea (menos lo entregado) no pueden superar el stock
+        disponible para la orden más el tránsito reservado. Es un chequeo
+        defensivo contra datos inconsistentes (placa asignada que ya no está
+        en bodega ni en tránsito); con placas tomadas del grid nunca dispara.
+        Las líneas en 'Pedir' (auto_transit_assign) quedan exentas como
+        antes."""
         if self.env.context.get('skip_tc_stock_cap'):
             return
 
@@ -1272,38 +1279,44 @@ class SaleOrderLine(models.Model):
                 continue
 
             rounding = line._tc_get_qty_rounding()
-            # ENTREGA PARCIAL (caso V/332): lo ya entregado salió del stock y
-            # no vuelve a necesitar material. El tope se valida sobre lo
-            # PENDIENTE por entregar (solicitado − entregado), no sobre el
-            # solicitado completo; antes una línea de 468 con 138 entregados
-            # pedía 468 contra 269 en bodega y se bloqueaba aunque el faltante
-            # real fuera 60.
-            pending, available = line._tc_stock_cap_pending_and_available()
-            if line._tc_float_le_zero(pending):
+            # Solo se topa lo FÍSICAMENTE asignado (placas ligadas menos lo
+            # entregado) contra el stock disponible para la orden más el
+            # tránsito reservado. El Solicitado ya no se compara: el faltante
+            # queda pendiente de asignar o se manda a pedir.
+            assigned, cap = line._tc_stock_cap_assigned_and_cap()
+            if line._tc_float_le_zero(assigned):
                 continue
 
-            if float_compare(available, 0.0, precision_rounding=rounding) <= 0:
+            if float_compare(assigned, cap, precision_rounding=rounding) > 0:
                 raise UserError(_(
-                    'No puedes asignar stock en "%(prod)s": el stock disponible '
-                    'es 0. No hay material para asignar; usa "Pedir" para '
-                    'solicitarlo a compras.'
-                ) % {'prod': line.product_id.display_name})
-
-            if float_compare(pending, available, precision_rounding=rounding) > 0:
-                delivered = line.qty_delivered or 0.0
-                raise UserError(_(
-                    'No puedes asignar %(pend).3f pendientes de "%(prod)s" '
-                    '(solicitado %(req).3f, entregado %(dlv).3f): supera el '
-                    'stock disponible para la orden (%(stock).3f).\n\n'
-                    'Asigna como máximo el stock disponible. Si necesitas más, '
-                    'usa "Pedir" para solicitar el faltante a compras.'
+                    'Las placas asignadas a "%(prod)s" suman %(asg).3f, más '
+                    'que el stock disponible para la orden (%(stock).3f). '
+                    'Alguna placa ya no está en bodega ni en tránsito; '
+                    'revisa la asignación de la línea (solicitado %(req).3f, '
+                    'entregado %(dlv).3f).'
                 ) % {
-                    'pend': pending,
+                    'asg': assigned,
                     'req': requested,
-                    'dlv': delivered,
+                    'dlv': line.qty_delivered or 0.0,
                     'prod': line.product_id.display_name,
-                    'stock': available,
+                    'stock': cap,
                 })
+
+    def _tc_stock_cap_assigned_and_cap(self):
+        """(asignado físico no entregado, techo) para el tope de asignación.
+
+        - asignado = m² de las placas ligadas a la línea − entregado (las
+          placas entregadas siguen ligadas pero ya salieron de bodega).
+        - techo = stock físico interno asignable a la orden (las placas
+          propias cuentan completas) + tránsito reservado a la orden.
+        A diferencia de `_tc_stock_cap_pending_and_available`, el techo NO
+        usa lo asignado como piso: así el chequeo sí detecta una placa
+        ligada que ya no existe en bodega ni en tránsito."""
+        self.ensure_one()
+        delivered = self.qty_delivered or 0.0
+        assigned = max(self._tc_get_assigned_lot_qty() - delivered, 0.0)
+        cap = self._tc_get_max_assignable_qty() + self._tc_get_in_transit_reserved_qty()
+        return assigned, cap
 
     def _tc_stock_cap_pending_and_available(self):
         """(pendiente por entregar, disponible para cubrirlo) para el tope
@@ -3148,9 +3161,10 @@ class SaleOrderLine(models.Model):
 
     @api.onchange('product_uom_qty')
     def _onchange_tc_qty_over_stock(self):
-        """Aviso inmediato cuando, en modo 'Asignar', la cantidad supera el
-        stock disponible. El bloqueo real (UserError) ocurre al guardar en
-        create()/write(); aquí solo se advierte para no dejar guardar a ciegas."""
+        """Aviso informativo cuando, en modo 'Asignar', el pendiente por
+        entregar supera el stock disponible. Desde 19 sep 2026 NO bloquea
+        al guardar: el faltante queda pendiente de asignar (To Be Purchased)
+        o se manda a pedir. Solo avisa cuánto quedará sin cubrir."""
         if self.display_type or not self.product_id or self.auto_transit_assign:
             return
         if self._tc_is_service_product():
@@ -3166,8 +3180,6 @@ class SaleOrderLine(models.Model):
             return
 
         rounding = self._tc_get_qty_rounding()
-        # Misma regla que el candado al guardar: pendiente por entregar
-        # contra disponible (entrega parcial, caso V/332).
         pending, available = self._tc_stock_cap_pending_and_available()
         if self._tc_float_le_zero(pending):
             return
@@ -3178,16 +3190,17 @@ class SaleOrderLine(models.Model):
                     'title': _('Cantidad mayor al stock'),
                     'message': _(
                         'Faltan por entregar %(pend).3f de "%(prod)s" '
-                        '(solicitado %(req).3f, entregado %(dlv).3f) pero el '
-                        'stock disponible es %(stock).3f. No podrás guardar '
-                        'hasta asignar como máximo el stock; usa "Pedir" para '
-                        'el faltante.'
+                        '(solicitado %(req).3f, entregado %(dlv).3f) y el '
+                        'stock disponible es %(stock).3f. Puedes guardar y '
+                        'asignar lo que sí hay; %(gap).3f quedarán pendientes '
+                        'de asignar (o usa "Pedir" para mandarlos a compras).'
                     ) % {
                         'pend': pending,
                         'req': requested,
                         'dlv': self.qty_delivered or 0.0,
                         'prod': self.product_id.display_name,
                         'stock': available,
+                        'gap': pending - available,
                     },
                 }
             }
