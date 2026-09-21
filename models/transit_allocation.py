@@ -1286,6 +1286,30 @@ class StockTransitLineTransitAllocationSync(models.Model):
             ('lot_id', '!=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ], order='voyage_id asc, id asc')
+        # VIAJE YA ENTREGADO (21 sep 2026, V/674 / EMBARQUE/2026/0148): la
+        # asignación hecha desde el embarque DESPUÉS de recibir a bodega
+        # también vale, mientras el lote siga físicamente en almacén interno
+        # de la compañía (no entregado a otro cliente). Antes se ignoraba:
+        # la venta se quedaba sin lotes, el embarque decía "reservado" y To
+        # Be Purchased seguía pidiendo 15.57 con 20.46 "disponibles".
+        delivered_lines = TransitLine.search([
+            ('order_id', '=', order.id),
+            ('product_id', '=', product.id),
+            ('allocation_status', '=', 'reserved'),
+            ('lot_id', '!=', False),
+            ('voyage_id.custom_status', '=', 'delivered'),
+        ])
+        if delivered_lines:
+            Quant = self.env['stock.quant'].sudo()
+            in_stock = delivered_lines.filtered(lambda tl: Quant.search_count([
+                ('lot_id', '=', tl.lot_id.id),
+                ('quantity', '>', 0),
+                ('location_id.usage', '=', 'internal'),
+                ('company_id', '=', order.company_id.id),
+            ]) > 0)
+            if in_stock:
+                reserved_transit_lines = (reserved_transit_lines | in_stock).sorted(
+                    lambda tl: (tl.voyage_id.id, tl.id))
 
         active_transit_lot_ids = set(TransitLine.search([
             ('company_id', '=', order.company_id.id),
