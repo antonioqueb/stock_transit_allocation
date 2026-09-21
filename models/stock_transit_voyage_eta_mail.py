@@ -194,6 +194,40 @@ class StockTransitVoyageEtaMail(models.Model):
         return ('<table role="presentation" width="100%%" cellpadding="0" '
                 'cellspacing="0">%s</table>' % ''.join(out))
 
+    def _tc_eta_mail_logistics(self):
+        """Puertos, naviera y forwarder del viaje.
+
+        El viaje no guarda puertos ni catálogos: viven en el embarque del
+        portal del proveedor (supplier.shipment) ligado al viaje. Sin
+        embarque ligado se regresan cadenas vacías (el correo debe salir
+        igual).
+        """
+        self.ensure_one()
+        ship = None
+        try:
+            shipments = self._tc_linked_portal_shipments()
+            ship = shipments[:1] if shipments else None
+        except Exception:  # el correo de ETA nunca debe abortar por esto
+            ship = None
+
+        def _txt(rec, name):
+            val = getattr(rec, name, False) if rec else False
+            if not val:
+                return ''
+            if isinstance(val, str):
+                return val
+            return getattr(val, 'name', '') or ''
+
+        return {
+            'port_origin': _txt(ship, 'port_origin') or _txt(ship, 'pol_id'),
+            'port_destination': (
+                _txt(ship, 'port_destination') or _txt(ship, 'pod_id')),
+            'shipping_line': (
+                self.shipping_line or _txt(ship, 'shipping_line')
+                or _txt(ship, 'naviera_id')),
+            'forwarder': _txt(ship, 'forwarder_id'),
+        }
+
     def _tc_eta_mail_inner(self, kind, today=None):
         """Cuerpo del aviso. ``kind``: 'overdue' | 'warning'."""
         self.ensure_one()
@@ -264,17 +298,17 @@ class StockTransitVoyageEtaMail(models.Model):
         ]))
 
         # ---- Logística --------------------------------------------------
+        logistics = self._tc_eta_mail_logistics()
         route = ' → '.join(x for x in [
-            self.port_origin or (self.pol_id.name if self.pol_id else ''),
-            self.port_destination or (self.pod_id.name if self.pod_id else ''),
+            logistics['port_origin'], logistics['port_destination'],
         ] if x)
         vessel = ' / '.join(x for x in [self.vessel_name or '', self.voyage_number or ''] if x)
         parts.append(self._tc_eta_mail_section('Logística'))
         parts.append(self._tc_eta_mail_rows([
             ('Ruta', _esc(route)),
-            ('Puerto destino', _esc(self.port_destination or (self.pod_id.name if self.pod_id else ''))),
-            ('Naviera', _esc(self.shipping_line or (self.naviera_id.name if self.naviera_id else ''))),
-            ('Forwarder', _esc(self.forwarder_id.name) if self.forwarder_id else ''),
+            ('Puerto destino', _esc(logistics['port_destination'])),
+            ('Naviera', _esc(logistics['shipping_line'])),
+            ('Forwarder', _esc(logistics['forwarder'])),
             ('Buque / viaje', _esc(vessel)),
             ('B/L', _esc(self.bl_number or '')),
             ('ETD', _esc(som_format_date(self.etd, empty='')) if self.etd else ''),
