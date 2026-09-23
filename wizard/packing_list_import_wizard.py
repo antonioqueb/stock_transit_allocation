@@ -1697,34 +1697,34 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 "paired": len(pairing),
             })
 
-        for line in omitted_lines:
-            if line.quant_id and line.quant_id.exists():
-                qty_to_remove = line.quant_id.quantity or 0.0
-                if qty_to_remove > 0:
-                    self.env["stock.quant"].sudo()._update_available_quantity(
-                        line.product_id,
-                        line.quant_id.location_id,
-                        -qty_to_remove,
-                        lot_id=line.lot_id,
-                    )
-
-            try:
-                line._execute_release_logic()
-            except Exception as e:
-                _logger.warning(
-                    "[TC_PHYSICAL_PL] No se pudo liberar hold de lote omitido %s: %s",
-                    line.lot_id.display_name,
-                    e,
+        # Las omitidas NO se evaporan: quant de tránsito, línea del viaje y
+        # reserva quedan intactos y su existencia se suma a la demanda de la
+        # recepción, así que validar deja backorder con ellas. Caso
+        # EMBARQUE/2026/0156 (C152/C153, 13 sep 2026): el portal capturó los
+        # contenedores como TGBU3935760, el PL físico del primero (81
+        # placas) dejó a las otras 252 "en alcance" y el ajuste directo de
+        # quant borró ~1,143 m² de SOM/TRANSIT sin ningún movimiento. La
+        # demanda solo muere con '✂ Cerrar demanda' (que purga el tránsito).
+        pending_by_product = {}
+        omitted_qty = 0.0
+        pending_lines = omitted_lines | out_of_scope.filtered(
+            lambda l: l.lot_id.id not in used_lot_ids
+            and l.lot_id.id not in fully_received_lot_ids
+        )
+        if not self._tc_is_extra_reception():
+            quant_cache = self._tc_row_caches()["quants"]
+            for line in pending_lines:
+                qty = sum(
+                    quant_cache.get(
+                        (line.product_id.id, line.lot_id.id),
+                        self.env["stock.quant"].browse(),
+                    ).exists().mapped("quantity")
                 )
-
-            line.with_context(skip_reservation_logic=True).write({
-                "product_uom_qty": 0.0,
-                "quant_id": False,
-                "allocation_status": "available",
-                "partner_id": False,
-                "order_id": False,
-                "notes": ((line.notes or "") + "\n[Recepción Física] Omitido en PL físico corregido.").strip(),
-            })
+                if qty > 0:
+                    pending_by_product[line.product_id.id] = (
+                        pending_by_product.get(line.product_id.id, 0.0) + qty)
+                    if line in omitted_lines:
+                        omitted_qty += qty
 
         # Reconstruir únicamente las líneas de la recepción física.
         if picking.move_line_ids:
@@ -1736,7 +1736,10 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
 
         _mark('omitidas')
 
-        move_map = self._tc_prepare_moves(product_totals)
+        demand_totals = dict(product_totals)
+        for product_id, qty in pending_by_product.items():
+            demand_totals[product_id] = demand_totals.get(product_id, 0.0) + qty
+        move_map = self._tc_prepare_moves(demand_totals)
 
         created = 0
 
@@ -1807,6 +1810,12 @@ class PackingListImportWizardPhysicalReception(models.TransientModel):
                 " Placas de contenedores no incluidos en este PL que siguen "
                 "en tránsito para la siguiente recepción parcial: %s."
             ) % len(out_of_scope)
+        if omitted_lines:
+            pending_note += _(
+                " Placas del mismo contenedor que NO vienen en este PL: %s "
+                "(%.2f). Siguen en tránsito y quedarán como pendiente al "
+                "validar; si no llegarán, usa ✂ Cerrar demanda."
+            ) % (len(omitted_lines), omitted_qty)
 
         picking.message_post(body=_(
             "📋 PL físico conciliado desde Torre de Control. "
