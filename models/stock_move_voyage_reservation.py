@@ -14,6 +14,18 @@ estuvo planificado en el embarque acabó dentro de su recepción.
    ese producto. Si el viaje no trae lotes del producto, NO reserva nada
    ajeno (queda en espera y se avisa), jamás "lo que haya en tránsito".
 
+   1b) PL FÍSICO CONCILIADO = SIN RESERVA AUTOMÁTICA (EMBARQUE/2026/0156,
+   23 sep 2026). Una vez procesado el PL físico, las move lines de la
+   recepción son EXACTAMENTE las placas del contenedor que llegó; la
+   demanda restante es el material que sigue en el mar. El cron
+   "Procurement: run scheduler" (08:49 UTC) corría _action_assign sobre el
+   move partially_available y le colgaba las 252 placas no llegadas desde
+   SOM/TRANSIT: el worksheet solo midió 81, la validación vio capturado =
+   demanda, no preguntó parcialidad, NO nació backorder y el viaje se cerró
+   con 333 placas "en bodega". Con packing_list_imported=True la reserva
+   nativa/planificador NO toca la recepción (solo la fuerza el contexto
+   tc_force_voyage_reservation).
+
 2) LIGA PERSISTENTE EN BACKORDERS (stock.picking._create_backorder_picking)
    tc_reception_voyage_id es copy=False; el backorder nativo la perdía. Se
    hereda explícitamente para que el candado 1 lo cubra siempre.
@@ -109,16 +121,44 @@ class StockMoveVoyageReservation(models.Model):
         elif taken_total or not float_is_zero(move.quantity, precision_rounding=rounding):
             move.write({'state': 'partially_available'})
 
+    def _tc_physical_pl_frozen(self):
+        """True si la recepción física ya conció su PL físico: sus move
+        lines son las placas que llegaron y NADIE (planificador, Comprobar
+        disponibilidad, confirmación) debe colgarle lotes del viaje que
+        siguen en tránsito. Ver 1b) arriba."""
+        self.ensure_one()
+        if self.env.context.get('tc_force_voyage_reservation'):
+            return False
+        picking = self.picking_id
+        if not picking or 'packing_list_imported' not in picking._fields:
+            return False
+        return bool(picking.packing_list_imported)
+
     def _action_assign(self, force_qty=False):
         guarded = {}
+        frozen = self.env['stock.move']
         for move in self:
             try:
                 voyage = move._tc_reception_voyage()
             except Exception:  # noqa: BLE001 - el candado jamás tumba una reserva normal
                 _logger.exception('[TC_RECEPTION] resolviendo viaje de %s', move.id)
                 voyage = False
-            if voyage and move.product_id.tracking in ('lot', 'serial'):
+            if not voyage:
+                continue
+            if move._tc_physical_pl_frozen():
+                frozen |= move
+                continue
+            if move.product_id.tracking in ('lot', 'serial'):
                 guarded[move.id] = voyage
+        if frozen:
+            _logger.info(
+                '[TC_RECEPTION_GUARD] Sin reserva automática: la recepción '
+                'física ya tiene PL físico conciliado; sus líneas son las '
+                'placas que llegaron. moves=%s pickings=%s',
+                frozen.ids, frozen.mapped('picking_id.name'))
+            self = self - frozen
+            if not self:
+                return True
         regular = self.filtered(lambda m: m.id not in guarded)
         res = None
         if regular:

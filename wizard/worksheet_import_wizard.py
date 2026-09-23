@@ -256,10 +256,12 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
         updated = 0
         missing = 0
         not_found = 0
+        ws_lot_names = set()
 
         for data in rows_data:
             product = data["product"]
             lot_name = data["lot_name"]
+            ws_lot_names.add(lot_name)
 
             domain = [
                 ("picking_id", "=", picking.id),
@@ -356,6 +358,34 @@ class WorksheetImportWizardPhysicalReception(models.TransientModel):
                 })
 
             updated += 1
+
+        # LÍNEAS AJENAS AL WORKSHEET = PENDIENTES (EMBARQUE/2026/0156, 23 sep
+        # 2026): el worksheet nace del PL físico, así que toda move line
+        # con lote que NO venga en él la colgó alguien más después del PL
+        # (el planificador nocturno reservó desde tránsito las 252 placas
+        # que seguían en el mar). Si se quedan, el recompute sube la
+        # demanda a lo reservado, la validación ve capturado = demanda,
+        # no pregunta parcialidad y el viaje se cierra con material que
+        # jamás llegó. Se retiran igual que una fila sin captura: quant de
+        # tránsito, línea del viaje y demanda del move intactos.
+        foreign = picking.move_line_ids.filtered(
+            lambda ml: ml.lot_id and ml.lot_id.name not in ws_lot_names
+            and ml.state not in ("done", "cancel"))
+        if foreign:
+            foreign_names = ", ".join(sorted(foreign.mapped("lot_id.name"))[:15])
+            if len(foreign) > 15:
+                foreign_names += ", …"
+            _logger.warning(
+                "[TC_RECEPTION] %s: %s move line(s) con lote fuera del worksheet "
+                "se retiran como pendientes (%s).",
+                picking.name, len(foreign), foreign_names)
+            picking.message_post(body=_(
+                "⚠️ %(n)s placa(s) estaban en la recepción sin venir en el "
+                "Worksheet (reservadas desde tránsito después del PL físico): "
+                "se retiran y quedan pendientes para la siguiente recepción. "
+                "%(lots)s") % {"n": len(foreign), "lots": foreign_names})
+            missing += len(foreign)
+            foreign.with_context(ctx).unlink()
 
         self._tc_recompute_moves_from_move_lines()
 
