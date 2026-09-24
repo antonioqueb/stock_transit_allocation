@@ -1427,6 +1427,10 @@ class StockTransitLineTransitAllocationSync(models.Model):
             # (solicitado > disponible) no aplica aquí; bloquearía asignar
             # material real en tránsito solo porque la demanda total es mayor.
             skip_tc_stock_cap=True,
+            # Sin decisión free/bill del popup del Viaje, fusionar la reserva
+            # de tránsito no sube el Solicitado (con tc_over_assignment_action
+            # en el contexto el ratchet sí aplica la decisión).
+            tc_skip_qty_ratchet=True,
         ).write(vals)
 
         # Si la línea ya quedó cubierta, limpia intención de compra.

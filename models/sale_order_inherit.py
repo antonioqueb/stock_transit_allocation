@@ -589,7 +589,44 @@ class SaleOrderLine(models.Model):
         if lot and 'x_tipo' in lot._fields and lot.x_tipo:
             return str(lot.x_tipo).lower()
 
+        # Lote sin x_tipo capturado: se infiere de la unidad del producto.
+        # Caer a 'placa' a ciegas sacaba al formato/pieza de la exención del
+        # ratchet y hacía contar el físico completo del lote como asignado.
+        product = (lot.product_id if lot else False) or self.product_id
+        tmpl = product.product_tmpl_id if product else False
+        unit = str(getattr(tmpl, 'x_unidad_del_producto', '') or '').strip().lower() if tmpl else ''
+        if unit in ('formato', 'pieza'):
+            return unit
+
         return 'placa'
+
+    def _tc_get_lot_line_move_qty(self, lot):
+        """Cantidad de un lote FORMATO/PIEZA que los movimientos de ESTA línea
+        ya comprometen: entregado neto (salidas a cliente − devoluciones) más
+        lo pendiente de la entrega viva. Lo pendiente se toma como el MÁXIMO
+        por picking (PICK y OUT cargan la misma cantidad; sumarlos duplicaba).
+        Sirve cuando el lote no tiene entrada en el desglose: sin esto contaba
+        el físico completo del palet como asignado a la línea."""
+        self.ensure_one()
+        if not lot or 'move_ids' not in self._fields:
+            return 0.0
+        delivered = 0.0
+        pending_by_picking = {}
+        moves = self.sudo().move_ids.filtered(lambda m: m.state != 'cancel')
+        for ml in moves.mapped('move_line_ids'):
+            if ml.lot_id.id != lot.id:
+                continue
+            qty = ml.quantity or 0.0
+            if ml.state == 'done':
+                if ml.location_dest_id.usage == 'customer':
+                    delivered += qty
+                elif ml.location_id.usage == 'customer':
+                    delivered -= qty
+            else:
+                key = ml.picking_id.id or ('m', ml.move_id.id)
+                pending_by_picking[key] = pending_by_picking.get(key, 0.0) + qty
+        pending = max(pending_by_picking.values()) if pending_by_picking else 0.0
+        return max(delivered, 0.0) + pending
 
     def _tc_get_lot_internal_qty(self, lot):
         self.ensure_one()
@@ -721,6 +758,15 @@ class SaleOrderLine(models.Model):
                     return float(resolved or 0.0)
             except Exception:
                 pass
+
+        # FORMATO/PIEZA SIN ENTRADA EN EL DESGLOSE: lo asignado es lo que los
+        # movimientos de la línea comprometen, no el físico completo del palet
+        # (un palet contaba entero en una línea que solo tomaba una parte).
+        # Sin movimientos, se conserva la cadena de respaldo.
+        if lot_type in ('formato', 'pieza'):
+            line_qty = self._tc_get_lot_line_move_qty(lot)
+            if self._tc_float_gt_zero(line_qty):
+                return line_qty
 
         qty = self._tc_get_lot_internal_qty(lot)
 
@@ -2434,6 +2480,21 @@ class SaleOrderLine(models.Model):
         force = self.env.context.get('tc_force_qty_to_selection')
         over_action = self.env.context.get('tc_over_assignment_action')
         over_reason = self.env.context.get('tc_over_assignment_reason')
+
+        # PLOMERÍA NO SUBE EL SOLICITADO (V/088 400→490, V/179 511→651 por
+        # 'Administrator', V/150): recepciones, preselección/asignación desde
+        # tránsito, sincronización picking→línea y crons escriben lot_ids como
+        # consecuencia de un movimiento, no de una decisión comercial. Con
+        # tc_skip_qty_ratchet el ratchet silencioso NO corre; lo asignado de
+        # más queda visible como sobre-asignación para decisión humana. El
+        # ajuste forzado ('Ajustar') y la decisión explícita free/bill del
+        # popup del Viaje sí siguen aplicando.
+        if (self.env.context.get('tc_skip_qty_ratchet')
+                and not force and over_action not in ('free', 'bill')):
+            _logger.info(
+                '[TC_RATCHET] líneas %s omitidas: escritura de sistema '
+                '(tc_skip_qty_ratchet)', self.ids)
+            return
 
         for line in self:
             if line.display_type or not line.product_id:

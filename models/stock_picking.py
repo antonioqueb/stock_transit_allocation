@@ -229,6 +229,7 @@ class StockPicking(models.Model):
             'skip_transit_sale_sync': True,
             'skip_procurement': True,
             'skip_tc_allocation_recovery': True,
+            'tc_skip_qty_ratchet': True,
         })
         return ctx
 
@@ -1222,6 +1223,9 @@ class StockPicking(models.Model):
             # bloqueaba recibir embarques asignados (p. ej. 2422 llegando
             # con 1729 libres previos).
             skip_tc_stock_cap=True,
+            # Oficializar en la recepción lo que ya venía asignado en tránsito
+            # no es decisión comercial: no sube el Solicitado.
+            tc_skip_qty_ratchet=True,
         ).write(vals)
 
         if hasattr(sale_line, '_tc_get_pending_allocation_qty'):

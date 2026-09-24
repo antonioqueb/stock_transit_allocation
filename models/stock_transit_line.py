@@ -550,6 +550,7 @@ class StockTransitLine(models.Model):
             skip_hold_validation=True,
             skip_picking_clean=True,
             skip_transit_sale_sync=True,
+            tc_skip_qty_ratchet=True,
         ).write(vals)
 
         _logger.info(

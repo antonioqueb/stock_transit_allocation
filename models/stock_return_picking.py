@@ -25,6 +25,21 @@ _logger = logging.getLogger(__name__)
 class StockReturnPicking(models.TransientModel):
     _inherit = 'stock.return.picking'
 
+    @api.model
+    def _som_customer_return_target(self, origin):
+        """Destino correcto de una devolución de cliente: el ORIGEN de la
+        entrega; si esa entrega salió de tránsito (OUT de regeneración o de
+        recepción directa), el stock del almacén del tipo de operación. Una
+        devolución de cliente jamás regresa a tránsito."""
+        src = origin.location_id if origin else False
+        if src and not src._som_is_transit():
+            return src
+        warehouse = origin.picking_type_id.warehouse_id if origin else False
+        stock = warehouse.lot_stock_id if warehouse else False
+        if stock and not stock._som_is_transit():
+            return stock
+        return False
+
     def _som_fix_transit_return_wizard(self):
         """Compatibilidad con builds donde el wizard SÍ expone location_id."""
         for wiz in self:
@@ -34,10 +49,9 @@ class StockReturnPicking(models.TransientModel):
             if not picking or picking.picking_type_id.code != 'outgoing':
                 continue
             loc = wiz.location_id
-            src = picking.location_id
-            if (src and not src._som_is_transit()
-                    and (not loc or loc._som_is_transit())):
-                wiz.location_id = src.id
+            target = wiz._som_customer_return_target(picking)
+            if target and (not loc or loc._som_is_transit()):
+                wiz.location_id = target.id
 
     @api.model_create_multi
     def create(self, vals_list):
@@ -69,10 +83,10 @@ class StockReturnPicking(models.TransientModel):
                 ], order='id desc', limit=1)
             for ret in candidates:
                 dest = ret.location_dest_id
-                src = origin.location_id
+                src = wiz._som_customer_return_target(origin)
                 if not dest or not src:
                     continue
-                if dest._som_is_transit() and not src._som_is_transit():
+                if dest._som_is_transit():
                     ret.write({'location_dest_id': src.id})
                     ret.move_ids.filtered(
                         lambda m: m.state not in ('done', 'cancel')
