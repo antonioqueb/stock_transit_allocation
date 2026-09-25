@@ -274,6 +274,58 @@
     </record>
 
     <!-- ───────────────────────────────────────────────────────────── -->
+    <!-- OC ligada a la venta: SOLO compras (groups en campo y vista;   -->
+    <!-- el vendedor no ve ni la columna ni el campo).                  -->
+    <!-- ───────────────────────────────────────────────────────────── -->
+    <record id="view_order_form_tc_purchase_orders" model="ir.ui.view">
+        <field name="name">sale.order.form.tc.purchase.orders</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='order_details']" position="inside">
+                <field name="tc_purchase_order_ids"
+                       string="Orden de Compra"
+                       widget="som_record_links"
+                       readonly="1"
+                       invisible="not tc_purchase_order_ids"
+                       groups="purchase.group_purchase_user"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_order_tree_tc_purchase_orders" model="ir.ui.view">
+        <field name="name">sale.order.list.tc.purchase.orders</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="tc_purchase_order_ids"
+                       string="OC"
+                       widget="som_record_links"
+                       readonly="1"
+                       optional="show"
+                       groups="purchase.group_purchase_user"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_quotation_tree_tc_purchase_orders" model="ir.ui.view">
+        <field name="name">sale.order.quotation.list.tc.purchase.orders</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_quotation_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='name']" position="after">
+                <field name="tc_purchase_order_ids"
+                       string="OC"
+                       widget="som_record_links"
+                       readonly="1"
+                       optional="show"
+                       groups="purchase.group_purchase_user"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ───────────────────────────────────────────────────────────── -->
     <!-- Vista de búsqueda: filtro y agrupación                         -->
     <!-- ───────────────────────────────────────────────────────────── -->
     <record id="view_sales_order_filter_transit_inherit" model="ir.ui.view">

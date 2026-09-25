@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_transit_allocation.SomRecordLinks">
+        <span class="o_som_record_links">
+            <t t-foreach="links" t-as="link" t-key="link.id">
+                <a t-att-href="link.href"
+                   t-att-title="'Abrir ' + link.name"
+                   t-on-click="(ev) => this.onClick(ev, link)"
+                   t-esc="link.name"/>
+                <t t-if="!link_last">, </t>
+            </t>
+        </span>
+    </t>
+</templates>

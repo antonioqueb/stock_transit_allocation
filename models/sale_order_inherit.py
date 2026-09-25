@@ -192,6 +192,37 @@ class SaleOrder(models.Model):
                 if not line.display_type
             )
 
+    # Órdenes de compra ligadas a la venta (allocations del To Be
+    # Purchased). SOLO compras: con groups= el campo no existe para el
+    # vendedor (ni en vistas ni por RPC).
+    tc_purchase_order_ids = fields.Many2many(
+        'purchase.order',
+        string='Orden de Compra',
+        compute='_compute_tc_purchase_order_ids',
+        compute_sudo=True,
+        groups='purchase.group_purchase_user',
+    )
+
+    def _compute_tc_purchase_order_ids(self):
+        empty = self.env['purchase.order']
+        order_ids = [oid for oid in self.ids if isinstance(oid, int)]
+        pos_by_order = {}
+        if order_ids:
+            allocations = self.env['purchase.order.line.allocation'].sudo().search([
+                ('sale_order_id', 'in', order_ids),
+                ('state', '!=', 'cancelled'),
+                ('purchase_order_id.state', '!=', 'cancel'),
+            ], order='id')
+            for alloc in allocations:
+                pos_by_order.setdefault(alloc.sale_order_id.id, empty)
+                pos_by_order[alloc.sale_order_id.id] |= alloc.purchase_order_id
+        for order in self:
+            # Misma compañía que la venta: una OC de otra compañía no se
+            # podría leer (display_name) sin esa compañía activa.
+            order.tc_purchase_order_ids = pos_by_order.get(order.id, empty).filtered(
+                lambda po: po.company_id == order.company_id
+            )
+
 
 class SaleOrderLine(models.Model):
     _inherit = 'sale.order.line'
