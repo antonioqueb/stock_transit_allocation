@@ -4,6 +4,7 @@ import logging
 
 from odoo import models, fields, api, _
 from odoo.exceptions import UserError
+from odoo.tools import SQL
 from odoo.tools.float_utils import float_compare, float_round
 
 _logger = logging.getLogger(__name__)
@@ -232,6 +233,26 @@ class SaleOrder(models.Model):
             )
             return [('id', 'in', allocations.sale_order_id.ids)]
         return NotImplemented
+
+    def _order_field_to_sql(self, alias, field_name, direction, nulls, query):
+        # Ordenar la columna OC por folio (el primero si hay varias). Un
+        # many2many no es ordenable en Odoo; con esto el ORM lo marca
+        # sortable. _check_field_access respeta groups= (vendedor: no).
+        if field_name == 'tc_purchase_order_ids':
+            self._check_field_access(self._fields[field_name], 'read')
+            sql_field = SQL(
+                """(SELECT MIN(po.name)
+                      FROM purchase_order_line_allocation alloc
+                      JOIN purchase_order po ON po.id = alloc.purchase_order_id
+                     WHERE alloc.sale_order_id = %s
+                       AND alloc.state != 'cancelled'
+                       AND po.state != 'cancel'
+                       AND po.company_id = %s)""",
+                SQL.identifier(alias, 'id'),
+                SQL.identifier(alias, 'company_id'),
+            )
+            return SQL("%s %s %s", sql_field, direction, nulls)
+        return super()._order_field_to_sql(alias, field_name, direction, nulls, query)
 
     def _compute_tc_purchase_order_ids(self):
         empty = self.env['purchase.order']
