@@ -199,9 +199,39 @@ class SaleOrder(models.Model):
         'purchase.order',
         string='Orden de Compra',
         compute='_compute_tc_purchase_order_ids',
+        search='_search_tc_purchase_order_ids',
         compute_sudo=True,
         groups='purchase.group_purchase_user',
     )
+
+    def _search_tc_purchase_order_ids(self, operator, value):
+        """Buscar/filtrar por la OC ligada (folio, id, con/sin OC).
+        Operadores negativos: NotImplemented y el ORM los niega solo."""
+        alloc_domain = [
+            ('state', '!=', 'cancelled'),
+            ('purchase_order_id.state', '!=', 'cancel'),
+        ]
+        if operator == 'in':
+            values = list(value) if isinstance(value, (list, tuple, set)) else [value]
+            po_ids = [v for v in values if v and isinstance(v, int)]
+            want_empty = any(v is False or v is None for v in values)
+            Allocation = self.env['purchase.order.line.allocation'].sudo()
+            order_ids = set()
+            if po_ids:
+                order_ids |= set(Allocation.search(
+                    alloc_domain + [('purchase_order_id', 'in', po_ids)]
+                ).sale_order_id.ids)
+            domain = [('id', 'in', list(order_ids))]
+            if want_empty:
+                with_po = Allocation.search(alloc_domain).sale_order_id.ids
+                domain = ['|', ('id', 'not in', with_po)] + domain
+            return domain
+        if operator in ('ilike', '=ilike', 'like', '=like', 'any'):
+            allocations = self.env['purchase.order.line.allocation'].sudo().search(
+                alloc_domain + [('purchase_order_id', operator, value)]
+            )
+            return [('id', 'in', allocations.sale_order_id.ids)]
+        return NotImplemented
 
     def _compute_tc_purchase_order_ids(self):
         empty = self.env['purchase.order']

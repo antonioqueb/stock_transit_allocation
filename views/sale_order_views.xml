@@ -342,6 +342,21 @@
                         string="Agrupar por Mandar a pedir"
                         context="{'group_by': 'has_mandar_pedir'}"/>
             </xpath>
+            <!-- OC ligada: solo compras (mismo candado que la columna). -->
+            <xpath expr="//search" position="inside">
+                <field name="tc_purchase_order_ids"
+                       string="Orden de Compra"
+                       groups="purchase.group_purchase_user"/>
+                <separator groups="purchase.group_purchase_user"/>
+                <filter name="tc_with_purchase_order"
+                        string="Con Orden de Compra"
+                        domain="[('tc_purchase_order_ids', '!=', False)]"
+                        groups="purchase.group_purchase_user"/>
+                <filter name="tc_without_purchase_order"
+                        string="Sin Orden de Compra"
+                        domain="[('tc_purchase_order_ids', '=', False)]"
+                        groups="purchase.group_purchase_user"/>
+            </xpath>
         </field>
     </record>
 </odoo>
