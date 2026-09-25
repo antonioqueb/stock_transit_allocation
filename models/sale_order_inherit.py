@@ -1188,6 +1188,7 @@ class SaleOrderLine(models.Model):
             if excluded_lot_ids:
                 domain.append(('lot_id', 'not in', excluded_lot_ids))
 
+        partial_ids, partial_free = self._tc_partial_lots_free(safe_ids)
         total = 0.0
         for quant in Quant.search(domain):
             if quant.lot_id and quant.lot_id.id in safe_ids:
@@ -1197,10 +1198,44 @@ class SaleOrderLine(models.Model):
                     (quant.quantity or 0.0) - (quant.reserved_quantity or 0.0),
                     0.0,
                 )
+            elif quant.lot_id and quant.lot_id.id in partial_ids:
+                continue
             elif not quant.reserved_quantity:
                 # Lotes ajenos: criterio estricto, solo sin reservar.
                 total += quant.quantity or 0.0
-        return total
+        return total + partial_free
+
+    def _tc_partial_lots_free(self, safe_ids):
+        """Lotes FORMATO/PIEZA ajenos: cuentan su remanente libre real
+        (físico − asignado pendiente − holds), no todo-o-nada como placa.
+        Un palet de 26 pzas con 7 reservadas aportaba 0 en vez de 19.
+        Devuelve (ids de esos lotes, libre total)."""
+        Quant = self.env['stock.quant'].sudo()
+        if not hasattr(Quant, '_som_stone_free_by_lot'):
+            return set(), 0.0
+        domain = [
+            ('product_id', '=', self.product_id.id),
+            ('location_id.usage', '=', 'internal'),
+            ('quantity', '>', 0),
+            ('lot_id', '!=', False),
+        ]
+        company_ids = None
+        if 'company_id' in Quant._fields and self.order_id and self.order_id.company_id:
+            company_ids = [False, self.order_id.company_id.id]
+            domain.append(('company_id', 'in', company_ids))
+        lots = Quant.search(domain).mapped('lot_id')
+        if 'x_tipo' not in lots._fields:
+            return set(), 0.0
+        lot_ids = [
+            lot.id for lot in lots
+            if str(lot.x_tipo or '').lower() in ('formato', 'pieza')
+            and lot.id not in safe_ids
+        ]
+        if not lot_ids:
+            return set(), 0.0
+        free = Quant._som_stone_free_by_lot(
+            self.product_id.id, lot_ids, company_ids=company_ids)
+        return set(lot_ids), sum(v['libre'] for v in free.values())
 
     def _tc_get_max_assignable_qty(self):
         """Techo de asignación para esta línea: máximo que puede quedar como
@@ -1258,15 +1293,18 @@ class SaleOrderLine(models.Model):
             if excluded_lot_ids:
                 domain.append(('lot_id', 'not in', excluded_lot_ids))
 
+        partial_ids, partial_free = self._tc_partial_lots_free(safe_ids)
         total = 0.0
         for quant in Quant.search(domain):
             if quant.lot_id and quant.lot_id.id in safe_ids:
                 # Material de la propia orden: cuenta su físico completo.
                 total += quant.quantity or 0.0
+            elif quant.lot_id and quant.lot_id.id in partial_ids:
+                continue
             elif not quant.reserved_quantity:
                 # Lotes ajenos: solo lo que está libre (sin reservar).
                 total += quant.quantity or 0.0
-        return total
+        return total + partial_free
 
     def _tc_get_in_transit_reserved_qty(self):
         """Cantidad reservada EN TRÁNSITO para esta orden/producto.
