@@ -1317,6 +1317,11 @@ class StockTransitLineTransitAllocationSync(models.Model):
             ('lot_id', '!=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
         ]).mapped('lot_id').ids)
+        # Lotes que acaban de salir de esta orden (reasignar/liberar) cuentan
+        # como tránsito aunque su viaje ya esté entregado: se quitan de la
+        # venta salvo que otra línea (gemela) siga reservada para la orden.
+        active_transit_lot_ids |= set(
+            self.env.context.get('tc_left_transit_lot_ids') or ())
 
         # ATRIBUCIÓN POR LÍNEA: la línea estampada en sale_line_id MANDA
         # (la eligió el usuario al asignar y es estable entre eventos). El

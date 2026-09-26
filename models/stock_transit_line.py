@@ -652,6 +652,10 @@ class StockTransitLine(models.Model):
         if assignment_changed:
             sync_targets = set()
             released_lines = self.env['stock.transit.line']
+            # Lotes que SALIERON de cada (orden, producto): el sync los quita
+            # de la venta aunque el viaje ya esté entregado (ahí el sync los
+            # trataría como asignación manual de stock y los conservaría).
+            left_lots = {}
 
             for line in self:
                 old = old_assignments.get(line.id, {})
@@ -685,6 +689,16 @@ class StockTransitLine(models.Model):
                     line._execute_reservation_logic(new_partner, new_order)
                     line._tc_link_allocation_after_manual_assignment(order=new_order)
                     sync_targets.add((line.id, new_order.id, line.product_id.id))
+                    # REASIGNAR A→B: el pedido viejo también se sincroniza
+                    # para que suelte la placa. Antes solo se sincronizaba B
+                    # y la placa quedaba en lot_ids de los DOS pedidos.
+                    if old_order_id and old_product_id and (
+                            old_order_id != new_order.id
+                            or old_product_id != line.product_id.id):
+                        sync_targets.add((line.id, old_order_id, old_product_id))
+                        if line.lot_id:
+                            left_lots.setdefault(
+                                (old_order_id, old_product_id), set()).add(line.lot_id.id)
                 else:
                     if line.allocation_id:
                         super(StockTransitLine, line).write({
@@ -694,6 +708,9 @@ class StockTransitLine(models.Model):
                     released_lines |= line
                     if old_order_id and old_product_id:
                         sync_targets.add((line.id, old_order_id, old_product_id))
+                        if line.lot_id:
+                            left_lots.setdefault(
+                                (old_order_id, old_product_id), set()).add(line.lot_id.id)
 
                 if line.voyage_id:
                     if new_partner and new_order:
@@ -728,7 +745,9 @@ class StockTransitLine(models.Model):
                 product = self.env['product.product'].browse(product_id)
 
                 if line.exists() and order.exists() and product.exists():
-                    line._tc_sync_sale_line_lots_from_transit_assignment(
+                    line.with_context(
+                        tc_left_transit_lot_ids=list(left_lots.get(key, ())),
+                    )._tc_sync_sale_line_lots_from_transit_assignment(
                         order=order,
                         product=product,
                     )

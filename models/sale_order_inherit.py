@@ -2897,6 +2897,17 @@ class SaleOrderLine(models.Model):
                 ('allocation_id', '=', allocation.id),
                 ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
             ])
+            # Se cancela el PENDIENTE, no lo ya asignado: las placas concretas
+            # reservadas para este pedido cubren parte de la venta y el cierre
+            # en corto las cuenta como asignadas. Antes se liberaban con
+            # skip_reservation_logic y la venta las conservaba en lot_ids
+            # mientras el hub las ofrecía a otro pedido (doble asignación).
+            transit_lines = transit_lines.filtered(
+                lambda tl: not (
+                    tl.lot_id
+                    and tl.allocation_status == 'reserved'
+                    and tl.order_id == self.order_id
+                ))
 
             if transit_lines:
                 for transit_line in transit_lines:
@@ -2916,6 +2927,7 @@ class SaleOrderLine(models.Model):
                 ).write({
                     'partner_id': False,
                     'order_id': False,
+                    'sale_line_id': False,
                     'allocation_id': False,
                     'allocation_status': 'available',
                     'notes': (reason or 'Liberado por cancelación desde To Be Purchased'),
