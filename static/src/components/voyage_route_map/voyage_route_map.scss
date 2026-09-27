@@ -1,4 +1,13 @@
 // Seguimiento del viaje: Leaflet nativo en el formulario.
+
+// El contenedor de un campo en Odoo 19 es inline-block: fuera de un <group>
+// se encoge a su contenido y el mapa (100% de ancho) quedaba en 0 px —
+// "el mapa no se visualiza". Bloque a todo lo ancho, también vacío.
+.o_field_widget.o_field_som_voyage_route_map {
+    display: block !important;
+    width: 100%;
+}
+
 .vrm {
     width: 100%;
     margin-bottom: 8px;
