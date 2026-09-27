@@ -1339,7 +1339,8 @@ class SaleOrderLine(models.Model):
             transit_lines = transit_lines.filtered(
                 lambda tl: not tl.sale_line_id or tl.sale_line_id.id == self.id)
 
-        return sum(transit_lines.mapped('product_uom_qty'))
+        # Fuente única del asignado en tránsito (min captura / quant real).
+        return sum(tl._tc_operational_qty() for tl in transit_lines)
 
     def _tc_validate_assignment_stock_cap(self):
         """REGLA DE NEGOCIO (cotización Y orden de venta), desde 19 sep 2026:
@@ -2527,12 +2528,17 @@ class SaleOrderLine(models.Model):
         res = super(SaleOrderLine, self).write(vals)
 
         if _tc_lots_before:
+            # Sin silenciar: si la liberación falla, el write entero se
+            # revierte. Tragarse el error dejaba el lote fuera de la venta
+            # pero todavía 'reserved' en el viaje (el limbo que este hook
+            # existe para evitar).
             try:
                 self._tc_release_transit_for_removed_lots(_tc_lots_before)
             except Exception:
                 _logger.exception(
                     '[TC_LOT_RELEASE] Fallo liberando tránsito al quitar '
                     'lotes de la línea de venta.')
+                raise
 
         if must_recover:
             self._tc_after_lot_assignment_change(old_lots_by_line)

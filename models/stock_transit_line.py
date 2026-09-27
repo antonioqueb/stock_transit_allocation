@@ -5,6 +5,8 @@ from odoo import models, fields, api, _
 from odoo.exceptions import UserError, ValidationError
 from odoo.tools.float_utils import float_compare, float_round
 
+from .utils.decision_savepoint import run_reverting_unfinished
+
 import logging
 
 _logger = logging.getLogger(__name__)
@@ -1125,6 +1127,18 @@ class StockTransitLine(models.Model):
     def tc_voyage_assign(self, transit_line_ids, partner_id, order_id,
                          over_action=False, over_reason=False,
                          partial_qty_by_line=False):
+        # Split de parcialidad + decisión de excedente en un savepoint: si
+        # la asignación no se completa, el split se revierte.
+        return run_reverting_unfinished(
+            self.env, self._tc_voyage_assign_impl,
+            transit_line_ids, partner_id, order_id,
+            over_action=over_action, over_reason=over_reason,
+            partial_qty_by_line=partial_qty_by_line,
+        )
+
+    def _tc_voyage_assign_impl(self, transit_line_ids, partner_id, order_id,
+                               over_action=False, over_reason=False,
+                               partial_qty_by_line=False):
         """Asignación desde el formulario del Viaje con control de excedente.
 
         Detecta si asignar estos lotes a la orden supera lo SOLICITADO en la
@@ -1264,6 +1278,7 @@ class StockTransitLine(models.Model):
 
         # Excedente agregado por producto contra su línea de venta destino.
         total_over = 0.0
+        sale_line_by_product = {}
         for product in transit_lines.mapped('product_id'):
             product_lines = transit_lines.filtered(lambda l: l.product_id == product)
             sale_line = product_lines[:1]._tc_get_sale_line_for_assignment(
@@ -1278,11 +1293,12 @@ class StockTransitLine(models.Model):
                     ) % {'order': order.name, 'prod': product.display_name},
                 }
 
+            sale_line_by_product[product.id] = sale_line
             requested = sale_line.product_uom_qty or 0.0
             assigned_before = sale_line._tc_get_assigned_lot_qty()
             already_assigned = set(sale_line.lot_ids.ids) if 'lot_ids' in sale_line._fields else set()
             new_qty = sum(
-                tl.product_uom_qty or 0.0
+                tl._tc_operational_qty()
                 for tl in product_lines
                 if tl.lot_id and tl.lot_id.id not in already_assigned
             )
@@ -1310,13 +1326,20 @@ class StockTransitLine(models.Model):
 
         # La decisión viaja por contexto: _tc_sync_requested_qty_from_lots la
         # aplica (cantidad + descuento) en vez del ratchet automático.
-        transit_lines.with_context(
-            tc_over_assignment_action=over_action or False,
-            tc_over_assignment_reason=over_reason or False,
-        ).write({
-            'partner_id': partner_id,
-            'order_id': order_id,
-        })
+        # Se ESTAMPA la línea de venta contra la que se midió el excedente:
+        # sin ella el sync repartía por capacidad y podía asignar a una línea
+        # hermana distinta de la validada.
+        for product_id, sale_line in sale_line_by_product.items():
+            transit_lines.filtered(
+                lambda l, pid=product_id: l.product_id.id == pid,
+            ).with_context(
+                tc_over_assignment_action=over_action or False,
+                tc_over_assignment_reason=over_reason or False,
+            ).write({
+                'partner_id': partner_id,
+                'order_id': order_id,
+                'sale_line_id': sale_line.id,
+            })
 
         _logger.info(
             "[TC_VOYAGE_ASSIGN] ESCRITO partner_id=%s order_id=%s total_over=%.3f "
@@ -1354,26 +1377,34 @@ class StockTransitLine(models.Model):
             _logger.info("TransitLine %s: Ya existe hold activo, verificando...", self.id)
             hold_partner = existing_hold.partner_id if hasattr(existing_hold, 'partner_id') else False
 
-            if hold_partner and hold_partner == partner:
+            if hold_partner and partner and (
+                    hold_partner.commercial_partner_id == partner.commercial_partner_id):
                 return True
 
-            try:
-                existing_hold.action_cancelar_hold()
-            except Exception as e:
-                _logger.warning("No se pudo cancelar hold existente: %s", e)
+            # Lote FÍSICO apartado para OTRO cliente: antes se cancelaba el
+            # apartado en silencio y la placa cambiaba de dueño sin aviso.
+            if hold_partner:
+                raise UserError(_(
+                    "El lote %(lot)s está APARTADO para %(holder)s. Cancela ese "
+                    "apartado antes de asignarlo a %(order)s."
+                ) % {
+                    'lot': self.lot_id.display_name,
+                    'holder': hold_partner.display_name,
+                    'order': order.name if order else '',
+                })
+            existing_hold.action_cancelar_hold()
 
-        try:
-            from .utils.transit_manager import TransitManager
+        # Sin silenciar: tragarse el error dejaba la línea 'reserved' sin su
+        # reserva física (estado a medias); el write completo se revierte.
+        from .utils.transit_manager import TransitManager
 
-            TransitManager.reassign_lot(
-                self.env,
-                self,
-                partner,
-                order,
-                notes="Asignación directa desde Torre de Control",
-            )
-        except Exception as e:
-            _logger.error("Error creando reserva: %s", e, exc_info=True)
+        TransitManager.reassign_lot(
+            self.env,
+            self,
+            partner,
+            order,
+            notes="Asignación directa desde Torre de Control",
+        )
 
         return True
 

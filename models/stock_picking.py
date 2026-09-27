@@ -1145,6 +1145,31 @@ class StockPicking(models.Model):
 
         return (pending_lines or lines)[:1]
 
+    def _tc_skip_stale_preassignment(self, voyage, order, product, transit_lines, reason):
+        """Una preasignación RANCIA (pedido desconfirmado, sin línea del
+        producto o sin entrega pendiente) ya no tumba la recepción del
+        embarque completo: antes el UserError revertía button_validate de
+        todo el contenedor. Se salta ese pedido, la placa llega al bin sin
+        move line de entrega y queda constancia en el viaje y en la orden
+        para resolverla (liberar o reasignar)."""
+        lots = ', '.join(transit_lines.mapped('lot_id.name')) or '-'
+        _logger.warning(
+            "[TC_ASSIGN] %s: se omite la preasignación de %s (%s) a %s: %s.",
+            self.name, product.display_name, lots, order.name, reason)
+        body = Markup(
+            '⚠️ <b>Preasignación omitida al recibir %s</b><br/>'
+            'Pedido: %s · Producto: %s<br/>Lotes: %s<br/>Motivo: %s.<br/>'
+            'Las placas quedaron en almacén sin entrega: libéralas o '
+            'reasígnalas desde el viaje.'
+        ) % (self.name, order.name, product.display_name, lots, reason)
+        for record in (voyage, order):
+            if record:
+                try:
+                    with self.env.cr.savepoint():
+                        record.message_post(body=body)
+                except Exception:  # noqa: BLE001
+                    _logger.exception('[TC_ASSIGN] No se pudo avisar en %s', record)
+
     def _tc_build_lot_breakdown_from_transit_lines(self, transit_lines):
         breakdown = {}
 
@@ -1158,7 +1183,11 @@ class StockPicking(models.Model):
                 lot_type = str(lot.x_tipo).lower()
 
             if lot_type in ('formato', 'pieza'):
-                breakdown[str(lot.id)] = transit_line.product_uom_qty or 0.0
+                # ACUMULA: dos gemelas del mismo formato reservadas al mismo
+                # pedido (20 + 30) quedaban en 30 y aparecía un pendiente
+                # fantasma de 20 (mismo fix que transit_allocation).
+                key = str(lot.id)
+                breakdown[key] = breakdown.get(key, 0.0) + (transit_line.product_uom_qty or 0.0)
 
         return breakdown
 
@@ -1734,9 +1763,10 @@ class StockPicking(models.Model):
                 continue
 
             if order.state not in ('sale', 'done'):
-                raise UserError(_(
-                    "El pedido %s tiene lotes preasignados desde tránsito, pero no está confirmado."
-                ) % order.name)
+                self._tc_skip_stale_preassignment(
+                    voyage, order, product, transit_lines,
+                    _('el pedido no está confirmado'))
+                continue
 
             sale_line = (
                 self.env['sale.order.line'].browse(sale_line_id).exists()
@@ -1744,12 +1774,10 @@ class StockPicking(models.Model):
             ) or self._tc_get_sale_line_for_assignment(order, product)
 
             if not sale_line:
-                raise UserError(_(
-                    "El pedido %(order)s no tiene una línea vigente para el producto %(product)s."
-                ) % {
-                    'order': order.name,
-                    'product': product.display_name,
-                })
+                self._tc_skip_stale_preassignment(
+                    voyage, order, product, transit_lines,
+                    _('el pedido ya no tiene línea de este producto'))
+                continue
 
             delivery = self._tc_find_delivery_for_order(
                 order=order,
@@ -1759,10 +1787,10 @@ class StockPicking(models.Model):
             )
 
             if not delivery:
-                raise UserError(_(
-                    "No se encontró una operación de venta pendiente para el pedido %s.\n\n"
-                    "Confirme que el pedido tenga un picking activo vinculado a la línea de venta."
-                ) % order.name)
+                self._tc_skip_stale_preassignment(
+                    voyage, order, product, transit_lines,
+                    _('el pedido no tiene entrega pendiente'))
+                continue
 
             total_qty = 0.0
 

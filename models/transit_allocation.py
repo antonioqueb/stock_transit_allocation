@@ -7,6 +7,8 @@ from odoo import models, fields, api, _
 from odoo.exceptions import UserError, MissingError
 from odoo.tools.float_utils import float_compare, float_round
 
+from .utils.decision_savepoint import run_reverting_unfinished
+
 _logger = logging.getLogger(__name__)
 
 
@@ -174,8 +176,14 @@ class TransitAllocationLogic(models.AbstractModel):
             return ''
         return dict(voyage._fields['custom_status'].selection).get(voyage.custom_status, voyage.custom_status)
 
-    def _tal_transit_line_qty(self, transit_line):
-        quant = self._tal_resolve_valid_transit_quant(transit_line)
+    def _tal_transit_line_qty(self, transit_line, quant_map=None):
+        # Con quant_map (resuelto en bloque por _tal_batch_valid_transit_quants)
+        # no se resuelve ni se ESCRIBE quant_id línea por línea: antes el
+        # get_data del hub hacía un search + write por línea con quant rancio.
+        if quant_map is not None:
+            quant = quant_map.get(transit_line.id) or False
+        else:
+            quant = self._tal_resolve_valid_transit_quant(transit_line)
         if quant:
             qty = min(quant.quantity or 0.0, transit_line.product_uom_qty or 0.0)
         else:
@@ -188,11 +196,14 @@ class TransitAllocationLogic(models.AbstractModel):
 
         return float_round(qty, precision_rounding=rounding)
 
-    def _tal_make_transit_line_row(self, transit_line):
+    def _tal_make_transit_line_row(self, transit_line, quant_map=None):
         product = transit_line.product_id
         voyage = transit_line.voyage_id
-        quant = self._tal_resolve_valid_transit_quant(transit_line)
-        qty = self._tal_transit_line_qty(transit_line)
+        if quant_map is not None:
+            quant = quant_map.get(transit_line.id) or False
+        else:
+            quant = self._tal_resolve_valid_transit_quant(transit_line)
+        qty = self._tal_transit_line_qty(transit_line, quant_map=quant_map)
         unit_label = self._get_product_unit_label(product)
         qty_m2, qty_pieces = self._split_qty_by_unit(product, qty)
 
@@ -448,6 +459,9 @@ class TransitAllocationLogic(models.AbstractModel):
         products = self.env['product.product'].browse(
             list(product_ids_with_transit | set(workshop_rows_by_base.keys()))
         ).exists()
+        quant_map = self._tal_batch_valid_transit_quants(
+            self.env['stock.transit.line'].union(*transit_lines_by_product.values())
+            if transit_lines_by_product else self.env['stock.transit.line'])
         result = []
 
         for product in products:
@@ -455,7 +469,10 @@ class TransitAllocationLogic(models.AbstractModel):
             if not transit_lines and product.id not in workshop_rows_by_base:
                 continue
 
-            transit_rows = [self._tal_make_transit_line_row(line) for line in transit_lines]
+            transit_rows = [
+                self._tal_make_transit_line_row(line, quant_map=quant_map)
+                for line in transit_lines
+            ]
             available_qty = sum(item['qty'] for item in transit_rows)
 
             so_details = []
@@ -992,6 +1009,27 @@ class TransitAllocationLogic(models.AbstractModel):
 
     @api.model
     def assign_transit_lines(
+        self,
+        transit_line_ids,
+        sale_line_id,
+        reason=False,
+        over_assignment_action=False,
+        over_assignment_reason=False,
+        partial_qty_by_line=False,
+    ):
+        # Split de parcialidad + decisión de excedente en un savepoint: si
+        # la asignación no se completa, el split se revierte.
+        return run_reverting_unfinished(
+            self.env, self._assign_transit_lines_impl,
+            transit_line_ids, sale_line_id,
+            reason=reason,
+            over_assignment_action=over_assignment_action,
+            over_assignment_reason=over_assignment_reason,
+            partial_qty_by_line=partial_qty_by_line,
+        )
+
+    @api.model
+    def _assign_transit_lines_impl(
         self,
         transit_line_ids,
         sale_line_id,
