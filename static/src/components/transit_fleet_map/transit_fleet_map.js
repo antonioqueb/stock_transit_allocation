@@ -85,9 +85,10 @@ export class TransitFleetMap extends Component {
         }).setView([23.0, -60.0], 3);
         L.control.zoom({ position: "bottomright" }).addTo(this.map);
         L.tileLayer(
-            "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png",
+            // OpenStreetMap sin llave: CARTO pinta "API key required" sin cuenta.
+            "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
             {
-                attribution: "&copy; OpenStreetMap &copy; CARTO",
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>',
                 maxZoom: 19,
                 updateWhenZooming: false,
             }

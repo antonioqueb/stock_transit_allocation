@@ -26,6 +26,13 @@ except ImportError:
     _logger.warning("Folium no está instalado. pip install folium --break-system-packages")
 
 
+# Fondo de TODOS los mapas: OpenStreetMap, sin llave. CARTO (basemaps.
+# cartocdn.com / 'cartodbpositron') ahora pinta "API key required" encima
+# del mapa cuando se usa sin cuenta (27 sep 2026).
+OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+OSM_ATTR = ('&copy; <a href="https://www.openstreetmap.org/copyright" '
+            'target="_blank">OpenStreetMap</a>')
+
 ETA_DRAMATIC_CHANGE_DAYS = 5
 ETA_WARNING_DAYS_BEFORE = 1
 ETA_OVERDUE_DAYS_AFTER = 1
@@ -611,7 +618,9 @@ class StockTransitVoyage(models.Model):
         m = folium.Map(
             location=center,
             zoom_start=zoom,
-            tiles='cartodbpositron',
+            tiles=OSM_TILES,
+            attr=OSM_ATTR,
+            max_zoom=19,
             width='100%',
             height='600px',
             scrollWheelZoom=False,
@@ -744,7 +753,7 @@ class StockTransitVoyage(models.Model):
         dest_name = map_data.get('destination', {}).get('name', 'Destino')
 
         markers_js = ""
-        bounds_js = "var bounds = [];\n"
+        bounds_js = ""  # `bounds` se declara en el documento, antes de los marcadores
 
         if origin_loc:
             markers_js += f"""
@@ -775,23 +784,31 @@ class StockTransitVoyage(models.Model):
         else if(bounds.length === 1) map.setView(bounds[0], 5);
         """
 
-        return f"""
-        <div style="width:100%;height:1200px;position:relative;">
-            <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-            <div id="fallback_map" style="width:100%;height:100%;"></div>
-            <script>
-                (function() {{
-                    var map = L.map('fallback_map', {{scrollWheelZoom: false}}).setView([20, -40], 2);
-                    L.tileLayer('https://{{s}}.basemaps.cartocdn.com/rastertiles/voyager/{{z}}/{{x}}/{{y}}{{r}}.png', {{
-                        attribution: '&copy; OpenStreetMap &copy; CARTO', maxZoom: 19
-                    }}).addTo(map);
-                    {markers_js}
-                    {bounds_js}
-                }})();
-            </script>
-        </div>
-        """
+        # Documento propio dentro de un iframe (srcdoc), como Folium: un
+        # <script> suelto en un campo Html no se ejecuta en el formulario.
+        doc = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>html,body,#fallback_map{{margin:0;width:100%;height:100%;}}</style>
+</head><body>
+<div id="fallback_map"></div>
+<script>
+    (function() {{
+        var map = L.map('fallback_map', {{scrollWheelZoom: false}}).setView([20, -40], 2);
+        L.tileLayer('{OSM_TILES}', {{
+            attribution: '{OSM_ATTR}', maxZoom: 19
+        }}).addTo(map);
+        var bounds = [];
+        {markers_js}
+        {bounds_js}
+    }})();
+</script>
+</body></html>"""
+        return (
+            '<iframe srcdoc="%s" style="width:100%%;height:600px;border:0;" '
+            'loading="lazy"></iframe>' % html_escape(doc)
+        )
 
     def action_sync_shipsgo(self):
         self.ensure_one()
