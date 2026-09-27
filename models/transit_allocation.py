@@ -889,6 +889,14 @@ class TransitAllocationLogic(models.AbstractModel):
                 invalid.append(_('%s: embarque cerrado o cancelado') % (transit_line.lot_id.display_name or transit_line.id))
                 continue
 
+            line_company = transit_line.company_id or transit_line.voyage_id.company_id
+            order_company = sale_line.order_id.company_id
+            if line_company and order_company and line_company != order_company:
+                invalid.append(_('%s: el embarque es de %s y el pedido de %s') % (
+                    transit_line.lot_id.display_name or transit_line.id,
+                    line_company.name, order_company.name))
+                continue
+
             if transit_line.allocation_status != 'available' or transit_line.partner_id or transit_line.order_id:
                 invalid.append(_('%s: ya no está disponible') % (transit_line.lot_id.display_name or transit_line.id))
                 continue

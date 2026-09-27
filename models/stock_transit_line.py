@@ -325,6 +325,14 @@ class StockTransitLine(models.Model):
 
         return (pending_lines or lines)[:1]
 
+    def _tc_is_workshop_reserved(self):
+        """La línea está comprometida a TALLER (módulo puente instalado)."""
+        self.ensure_one()
+        return bool(
+            'workshop_sale_line_id' in self._fields
+            and self.workshop_sale_line_id
+        )
+
     def _tc_validate_assignment_target(self, partner=False, order=False):
         """
         Valida la regla de negocio antes de aceptar la asignación a pedido.
@@ -347,6 +355,22 @@ class StockTransitLine(models.Model):
             ) % {
                 'lot': self.lot_id.display_name if self.lot_id else self.product_id.display_name,
                 'order': order.name,
+            })
+
+        # Multiempresa: la placa de un viaje de A no puede quedar en una venta
+        # de B (al recibir no hay entrega de B en la recepción de A y la
+        # validación del embarque completo truena).
+        line_company = self.company_id or self.voyage_id.company_id
+        if (line_company and order.company_id and line_company != order.company_id
+                and self.order_id != order):
+            raise UserError(_(
+                "No puede asignar el lote %(lot)s (compañía %(lc)s) al pedido %(order)s "
+                "de otra compañía (%(oc)s)."
+            ) % {
+                'lot': self.lot_id.display_name if self.lot_id else self.product_id.display_name,
+                'lc': line_company.name,
+                'order': order.name,
+                'oc': order.company_id.name,
             })
 
         if partner and order.partner_id.id != partner.id:
@@ -645,6 +669,20 @@ class StockTransitLine(models.Model):
                     )
 
                 if new_order:
+                    # Reserva de TALLER: deja order_id vacío y vive en
+                    # workshop_sale_line_id; los candados que solo miraban
+                    # order_id la dejaban tomar desde el viaje para otra venta.
+                    if line._tc_is_workshop_reserved() and not (
+                            'workshop_sale_line_id' in vals
+                            and not vals['workshop_sale_line_id']):
+                        raise UserError(_(
+                            "El lote %(lot)s está reservado para TALLER (%(so)s). "
+                            "Libéralo del taller antes de asignarlo a %(order)s."
+                        ) % {
+                            'lot': line.lot_id.display_name or line.product_id.display_name,
+                            'so': line.workshop_sale_line_id.order_id.name or '',
+                            'order': new_order.name,
+                        })
                     line._tc_validate_assignment_target(new_partner, new_order)
 
         res = super(StockTransitLine, self).write(vals)
@@ -992,7 +1030,8 @@ class StockTransitLine(models.Model):
             product = line.product_id
 
             # Ya reservada a OTRA orden: no es candidata (se salta sin romper).
-            if line.order_id and line.order_id.id != order.id:
+            if line.order_id and line.order_id.id != order.id \
+                    or line._tc_is_workshop_reserved():
                 skipped += 1
                 continue
 
@@ -1197,7 +1236,8 @@ class StockTransitLine(models.Model):
         # por desasignar/reasignar explícitamente. Reasignar a la MISMA orden es
         # idempotente y se permite.
         locked = transit_lines.filtered(
-            lambda l: l.order_id and l.order_id.id != order.id
+            lambda l: (l.order_id and l.order_id.id != order.id)
+            or l._tc_is_workshop_reserved()
         )
         if locked:
             return {
@@ -1206,7 +1246,11 @@ class StockTransitLine(models.Model):
                     'Estos lotes ya están reservados a otra orden: %s. '
                     'Desasígnalos primero (botón "Desasignar") antes de reasignar.'
                 ) % ', '.join(
-                    '%s→%s' % (l.lot_id.name or l.id, l.order_id.name)
+                    '%s→%s' % (
+                        l.lot_id.name or l.id,
+                        l.order_id.name if l.order_id else _('TALLER %s') % (
+                            l.workshop_sale_line_id.order_id.name or ''),
+                    )
                     for l in locked
                 ),
             }

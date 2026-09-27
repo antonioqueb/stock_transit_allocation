@@ -1371,13 +1371,27 @@ class StockPicking(models.Model):
                 ]
             )
 
-        # 7) Origin flexible.
+        # 7) Origin compuesto ("V/15, V/20"): el nombre debe aparecer como
+        # TOKEN completo y el picking no puede ser de otra venta. Con ilike a
+        # pelo 'V/15' encontraba la entrega de V/150 o V/1500 y la placa
+        # preasignada se reservaba para el cliente equivocado.
         if not delivery:
-            delivery = _search(
-                base_domain + [
-                    ('origin', 'ilike', order.name),
-                ]
-            )
+            candidates = Picking.search(
+                base_domain + [('origin', 'ilike', order.name)],
+                order='id asc')
+            has_sale_id = 'sale_id' in Picking._fields
+            for cand in candidates:
+                tokens = {t.strip() for t in re.split(r'[,;\s]+', cand.origin or '')}
+                if order.name not in tokens:
+                    continue
+                if has_sale_id and cand.sale_id and cand.sale_id != order:
+                    continue
+                if has_sale_line_id and any(
+                        m.sale_line_id and m.sale_line_id.order_id != order
+                        for m in cand.move_ids):
+                    continue
+                delivery = cand
+                break
 
         if delivery:
             _logger.info(

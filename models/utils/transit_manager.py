@@ -68,7 +68,14 @@ class TransitManager:
         })
 
         if not quant:
-            return True 
+            return True
+
+        # En tránsito NO existe On Hold: la asignación vive solo en la línea
+        # del viaje (el write del paso 3 ya canceló holds de tránsito vía
+        # stock_transit_publication). Crear aquí una Orden de Reserva
+        # ensuciaba Inventario Visual con un apartado que nadie pidió.
+        if quant.location_id._som_is_transit():
+            return True
 
         # =====================================================================
         # 4. GESTIÓN DE LA ORDEN DE RESERVA (Hold Order)

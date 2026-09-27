@@ -149,7 +149,7 @@ class StockTransitLinePublication(models.Model):
         self.ensure_one()
 
         quant = quant or self.quant_id
-        if not quant or not quant.exists() or quant.location_id.usage != "transit":
+        if not quant or not quant.exists() or not quant.location_id._som_is_transit():
             return
 
         if "stock.lot.hold" not in self.env.registry.models:
@@ -247,7 +247,7 @@ class StockTransitLinePublication(models.Model):
         if not quant or not quant.exists():
             quant = self._tc_resolve_transit_quant()
 
-        if quant and quant.location_id.usage == "transit":
+        if quant and quant.location_id._som_is_transit():
             self._tc_cancel_transit_holds(quant)
 
             if self.inventory_published or self.voyage_id.transit_inventory_published:
@@ -269,7 +269,7 @@ class StockTransitLinePublication(models.Model):
         self.ensure_one()
 
         quant = self.quant_id
-        if quant and quant.exists() and quant.location_id.usage == "transit":
+        if quant and quant.exists() and quant.location_id._som_is_transit():
             self._tc_cancel_transit_holds(quant)
 
             if self.inventory_published or self.voyage_id.transit_inventory_published:
@@ -511,7 +511,7 @@ class StockTransitVoyagePublication(models.Model):
             lines = voyage.line_ids.filtered(lambda line: line.inventory_published)
 
             quants = lines.mapped("quant_id").filtered(
-                lambda quant: quant and quant.exists() and quant.location_id.usage == "transit"
+                lambda quant: quant and quant.exists() and quant.location_id._som_is_transit()
             )
 
             lines.with_context(
