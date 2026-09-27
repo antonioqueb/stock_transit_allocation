@@ -1,0 +1,51 @@
+// Seguimiento del viaje: Leaflet nativo en el formulario.
+.vrm {
+    width: 100%;
+    margin-bottom: 8px;
+
+    .vrm-map {
+        width: 100%;
+        height: 420px;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        overflow: hidden;
+        z-index: 0; // los paneles de Leaflet no tapan los popups de Odoo
+    }
+    .vrm-empty {
+        min-height: 200px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        text-align: center;
+        color: #6b7280;
+        background: #f1f5f9;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 24px;
+    }
+}
+
+.vrm-ship-icon { background: transparent; border: none; }
+.vrm-ship {
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: #ffffff;
+    border: 2.5px solid #2563eb;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+}
+.vrm-pop { min-width: 150px; line-height: 1.45; }
+.vrm-pop-ship { text-align: center; min-width: 170px; }
+.vrm-badge {
+    display: inline-block;
+    background: #2563eb;
+    color: #fff;
+    padding: 1px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    margin: 2px 0;
+}

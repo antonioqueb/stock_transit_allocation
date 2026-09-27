@@ -18,21 +18,6 @@ fields = fields_module
 
 _logger = logging.getLogger(__name__)
 
-try:
-    import folium
-    HAS_FOLIUM = True
-except ImportError:
-    HAS_FOLIUM = False
-    _logger.warning("Folium no está instalado. pip install folium --break-system-packages")
-
-
-# Fondo de TODOS los mapas: OpenStreetMap, sin llave. CARTO (basemaps.
-# cartocdn.com / 'cartodbpositron') ahora pinta "API key required" encima
-# del mapa cuando se usa sin cuenta (27 sep 2026).
-OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
-OSM_ATTR = ('&copy; <a href="https://www.openstreetmap.org/copyright" '
-            'target="_blank">OpenStreetMap</a>')
-
 ETA_DRAMATIC_CHANGE_DAYS = 5
 ETA_WARNING_DAYS_BEFORE = 1
 ETA_OVERDUE_DAYS_AFTER = 1
@@ -343,6 +328,8 @@ class StockTransitVoyage(models.Model):
         readonly=True,
     )
 
+    # OBSOLETO (27 sep 2026): el mapa ya no se guarda como HTML (Folium);
+    # lo dibuja el widget Leaflet som_voyage_route_map desde shipsgo_payload.
     shipsgo_map_html = fields_module.Html(
         string="Mapa de Seguimiento",
         sanitize=False,
@@ -586,230 +573,6 @@ class StockTransitVoyage(models.Model):
         except (ValueError, TypeError):
             return None
 
-    def _generate_folium_map(self, map_data):
-        if not HAS_FOLIUM:
-            return self._generate_fallback_map_html(map_data)
-
-        origin_loc = map_data.get('origin', {}).get('loc')
-        dest_loc = map_data.get('destination', {}).get('loc')
-        current_loc = map_data.get('current_loc')
-
-        all_points = []
-
-        if origin_loc and len(origin_loc) == 2:
-            all_points.append(origin_loc)
-        if dest_loc and len(dest_loc) == 2:
-            all_points.append(dest_loc)
-        if current_loc and len(current_loc) == 2:
-            all_points.append(current_loc)
-
-        if current_loc and len(current_loc) == 2:
-            center = current_loc
-            zoom = 6
-        elif all_points:
-            avg_lat = sum(p[0] for p in all_points) / len(all_points)
-            avg_lng = sum(p[1] for p in all_points) / len(all_points)
-            center = [avg_lat, avg_lng]
-            zoom = 4
-        else:
-            center = [20, -40]
-            zoom = 2
-
-        m = folium.Map(
-            location=center,
-            zoom_start=zoom,
-            tiles=OSM_TILES,
-            attr=OSM_ATTR,
-            max_zoom=19,
-            width='100%',
-            height='600px',
-            scrollWheelZoom=False,
-        )
-
-        if origin_loc and len(origin_loc) == 2:
-            origin_name = map_data.get('origin', {}).get('name', 'Puerto Origen')
-            origin_country = map_data.get('origin', {}).get('country', '')
-            origin_date = map_data.get('origin', {}).get('date', '')
-
-            popup_html = (
-                f"<div style='min-width:150px'>"
-                f"<b>⚓ Origen</b><br/>"
-                f"<b>{origin_name}</b>"
-                f"{'<br/>' + origin_country if origin_country else ''}"
-                f"{'<br/>Salida: ' + origin_date if origin_date else ''}"
-                f"</div>"
-            )
-
-            folium.Marker(
-                location=origin_loc,
-                popup=folium.Popup(popup_html, max_width=250),
-                tooltip=f"Origen: {origin_name}",
-                icon=folium.Icon(color='green', icon='anchor', prefix='fa'),
-            ).add_to(m)
-
-        if dest_loc and len(dest_loc) == 2:
-            dest_name = map_data.get('destination', {}).get('name', 'Puerto Destino')
-            dest_country = map_data.get('destination', {}).get('country', '')
-            dest_date = map_data.get('destination', {}).get('date', '')
-
-            popup_html = (
-                f"<div style='min-width:150px'>"
-                f"<b>🏁 Destino</b><br/>"
-                f"<b>{dest_name}</b>"
-                f"{'<br/>' + dest_country if dest_country else ''}"
-                f"{'<br/>Llegada est.: ' + dest_date if dest_date else ''}"
-                f"</div>"
-            )
-
-            folium.Marker(
-                location=dest_loc,
-                popup=folium.Popup(popup_html, max_width=250),
-                tooltip=f"Destino: {dest_name}",
-                icon=folium.Icon(color='red', icon='flag', prefix='fa'),
-            ).add_to(m)
-
-        if current_loc and len(current_loc) == 2:
-            container = map_data.get('container', 'N/A')
-            vessel = map_data.get('vessel', 'N/A')
-            status = map_data.get('status', 'En tránsito')
-            pct = map_data.get('transit_pct', 0)
-
-            popup_html = (
-                f"<div style='min-width:180px;text-align:center'>"
-                f"<b>🚢 {container}</b><br/>"
-                f"<span style='background:#2563eb;color:#fff;padding:2px 8px;"
-                f"border-radius:12px;font-size:11px'>{status}</span><br/>"
-                f"<small>Buque: {vessel}</small><br/>"
-                f"<small>Progreso: {pct}%</small>"
-                f"</div>"
-            )
-
-            ship_icon = folium.DivIcon(
-                html='<div style="font-size:28px;text-align:center;'
-                     'filter:drop-shadow(0 2px 3px rgba(0,0,0,0.3))">🚢</div>',
-                icon_size=(32, 32),
-                icon_anchor=(16, 16),
-            )
-
-            folium.Marker(
-                location=current_loc,
-                popup=folium.Popup(popup_html, max_width=250),
-                tooltip=f"{container} - {status}",
-                icon=ship_icon,
-            ).add_to(m)
-
-        route = map_data.get('route', {})
-
-        for line_coords in route.get('past', []):
-            if len(line_coords) >= 2:
-                folium.PolyLine(
-                    locations=line_coords,
-                    color='#6b7280',
-                    weight=3,
-                    opacity=0.7,
-                ).add_to(m)
-
-        current_past = route.get('current_past', [])
-        if len(current_past) >= 2:
-            folium.PolyLine(
-                locations=current_past,
-                color='#2563eb',
-                weight=4,
-                opacity=0.85,
-            ).add_to(m)
-
-        current_future = route.get('current_future', [])
-        if len(current_future) >= 2:
-            folium.PolyLine(
-                locations=current_future,
-                color='#2563eb',
-                weight=3,
-                opacity=0.5,
-                dash_array='8 10',
-            ).add_to(m)
-
-        for line_coords in route.get('future', []):
-            if len(line_coords) >= 2:
-                folium.PolyLine(
-                    locations=line_coords,
-                    color='#9ca3af',
-                    weight=3,
-                    opacity=0.5,
-                    dash_array='8 10',
-                ).add_to(m)
-
-        return m._repr_html_()
-
-    def _generate_fallback_map_html(self, map_data):
-        origin_loc = map_data.get('origin', {}).get('loc')
-        dest_loc = map_data.get('destination', {}).get('loc')
-        current_loc = map_data.get('current_loc')
-
-        container = map_data.get('container', 'N/A')
-        vessel = map_data.get('vessel', 'N/A')
-        status = map_data.get('status', 'En tránsito')
-        pct = map_data.get('transit_pct', 0)
-        origin_name = map_data.get('origin', {}).get('name', 'Origen')
-        dest_name = map_data.get('destination', {}).get('name', 'Destino')
-
-        markers_js = ""
-        bounds_js = ""  # `bounds` se declara en el documento, antes de los marcadores
-
-        if origin_loc:
-            markers_js += f"""
-            L.marker([{origin_loc[0]}, {origin_loc[1]}], {{
-                icon: L.divIcon({{html:'⚓', className:'', iconSize:[22,22], iconAnchor:[11,11]}})
-            }}).addTo(map).bindPopup('<b>Origen:</b> {origin_name}');
-            bounds.push([{origin_loc[0]}, {origin_loc[1]}]);
-            """
-
-        if dest_loc:
-            markers_js += f"""
-            L.marker([{dest_loc[0]}, {dest_loc[1]}], {{
-                icon: L.divIcon({{html:'🏁', className:'', iconSize:[22,22], iconAnchor:[11,11]}})
-            }}).addTo(map).bindPopup('<b>Destino:</b> {dest_name}');
-            bounds.push([{dest_loc[0]}, {dest_loc[1]}]);
-            """
-
-        if current_loc:
-            markers_js += f"""
-            L.marker([{current_loc[0]}, {current_loc[1]}], {{
-                icon: L.divIcon({{html:'🚢', className:'', iconSize:[28,28], iconAnchor:[14,14]}})
-            }}).addTo(map).bindPopup('<b>{container}</b><br/>{status}<br/>Buque: {vessel}<br/>Progreso: {pct}%').openPopup();
-            bounds.push([{current_loc[0]}, {current_loc[1]}]);
-            """
-
-        bounds_js += """
-        if(bounds.length > 1) map.fitBounds(bounds, {padding:[50,50], maxZoom:8});
-        else if(bounds.length === 1) map.setView(bounds[0], 5);
-        """
-
-        # Documento propio dentro de un iframe (srcdoc), como Folium: un
-        # <script> suelto en un campo Html no se ejecuta en el formulario.
-        doc = f"""<!DOCTYPE html>
-<html><head><meta charset="utf-8"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<style>html,body,#fallback_map{{margin:0;width:100%;height:100%;}}</style>
-</head><body>
-<div id="fallback_map"></div>
-<script>
-    (function() {{
-        var map = L.map('fallback_map', {{scrollWheelZoom: false}}).setView([20, -40], 2);
-        L.tileLayer('{OSM_TILES}', {{
-            attribution: '{OSM_ATTR}', maxZoom: 19
-        }}).addTo(map);
-        var bounds = [];
-        {markers_js}
-        {bounds_js}
-    }})();
-</script>
-</body></html>"""
-        return (
-            '<iframe srcdoc="%s" style="width:100%%;height:600px;border:0;" '
-            'loading="lazy"></iframe>' % html_escape(doc)
-        )
-
     def action_sync_shipsgo(self):
         self.ensure_one()
 
@@ -1028,12 +791,6 @@ class StockTransitVoyage(models.Model):
             },
         }
 
-        try:
-            map_html = self._generate_folium_map(map_data)
-        except Exception as e:
-            _logger.error("[ShipsGo] Error generando mapa Folium: %s", e)
-            map_html = False
-
         old_eta = self.eta
         new_eta_from_api = False
 
@@ -1053,8 +810,9 @@ class StockTransitVoyage(models.Model):
 
         vals = {
             'shipsgo_last_sync': fields_module.Datetime.now(),
+            # El mapa lo dibuja el widget Leaflet del formulario
+            # (som_voyage_route_map) directo desde este payload.
             'shipsgo_payload': json.dumps(map_data),
-            'shipsgo_map_html': map_html,
             'transit_progress': int(transit_pct),
         }
 

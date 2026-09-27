@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="stock_transit_allocation.VoyageRouteMap">
+        <div class="vrm">
+            <div t-if="!hasData" class="vrm-empty">
+                <i class="fa fa-map-o fa-3x mb-2" title="Mapa de seguimiento"/>
+                <p class="mb-1">Sin datos de rastreo.</p>
+                <small>Presione “Sincronizar API” para cargar ubicación.</small>
+            </div>
+            <div t-att-class="{ 'd-none': !hasData }" class="vrm-map" t-ref="map"/>
+        </div>
+    </t>
+</templates>

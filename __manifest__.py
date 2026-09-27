@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.104.122.0',
+    'version': '19.0.104.123.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -60,9 +60,6 @@
         'stock_lot_packing_import',
         'inventory_visual_enhanced',
     ],
-    'external_dependencies': {
-        'python': ['folium'],
-    },
     'data': [
         'security/transit_security.xml',
         'security/ir.model.access.csv',
@@ -146,6 +143,12 @@
 
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.js',
             'stock_transit_allocation/static/src/components/transit_voyage_form/transit_voyage_form.xml',
+
+            # Mapa de seguimiento del viaje: Leaflet nativo (carga Leaflet
+            # del bundle perezoso de hubs solo al abrir un viaje).
+            'stock_transit_allocation/static/src/components/voyage_route_map/voyage_route_map.js',
+            'stock_transit_allocation/static/src/components/voyage_route_map/voyage_route_map.xml',
+            'stock_transit_allocation/static/src/components/voyage_route_map/voyage_route_map.scss',
 
             'stock_transit_allocation/static/src/components/hub_lazy_loaders.js',
 
