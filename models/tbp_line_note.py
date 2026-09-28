@@ -6,7 +6,8 @@ botón (i) del tablero las lista de la más nueva a la más vieja y agrega
 nuevas sin pisar las anteriores. `sale.order.line.tbp_note*` queda como
 copia de la ÚLTIMA entrada (tooltip, búsqueda y color del botón).
 """
-from odoo import api, fields, models, tools
+from odoo import api, fields, models
+from odoo.tools.sql import column_exists
 
 
 class TbpLineNote(models.Model):
@@ -28,7 +29,7 @@ class TbpLineNote(models.Model):
     def init(self):
         # Migración: la observación única que ya existía (versión anterior
         # del (i)) pasa a ser la primera entrada del historial. Idempotente.
-        if not tools.column_exists(self.env.cr, "sale_order_line", "tbp_note"):
+        if not column_exists(self.env.cr, "sale_order_line", "tbp_note"):
             return
         self.env.cr.execute("""
             INSERT INTO tbp_line_note (sale_line_id, note, note_date, user_id,
