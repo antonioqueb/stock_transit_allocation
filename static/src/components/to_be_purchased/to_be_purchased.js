@@ -31,6 +31,16 @@ export class ToBePurchased extends Component {
             showOnlyPending: true,
             groupBy: "product", // product | sale_order | vendor | salesperson | customer | unit_type
 
+            // Tiempo (fecha de la orden, date_order): orden y rango.
+            // sortMode: 'priority' (orden del servidor: % pagado y fecha
+            // requerida) | 'oldest' (más viejo primero) | 'newest'.
+            sortMode: "priority",
+            dateFrom: "",
+            dateTo: "",
+
+            // Observaciones de compra por línea (botón (i)).
+            noteModal: { open: false, line: null, text: "", saving: false },
+
             // Modal state
             showModal: false,
             allVendors: [],
@@ -104,6 +114,7 @@ export class ToBePurchased extends Component {
                     line.customer || "",
                     line.description || "",
                     line.note || "",
+                    line.tbp_note || "",
                     line.po_name || "",
                 ].join(" ")).join(" ");
 
@@ -145,6 +156,29 @@ export class ToBePurchased extends Component {
                 const keptLines = allLines.filter((line) => {
                     const hasRef = !!(line.client_ref || "").trim();
                     return refMode === "with" ? hasRef : !hasRef;
+                });
+                if (keptLines.length === 0) {
+                    return null;
+                }
+                if (keptLines.length === allLines.length) {
+                    return product;
+                }
+                return this._productWithLines(product, keptLines);
+            }).filter((product) => product !== null);
+        }
+
+        // Rango de fechas de la orden (YYYY-MM-DD compara como texto).
+        const dateFrom = this.state.dateFrom || "";
+        const dateTo = this.state.dateTo || "";
+        if (dateFrom || dateTo) {
+            result = result.map((product) => {
+                const allLines = product.so_lines || [];
+                const keptLines = allLines.filter((line) => {
+                    const date = line.date || "";
+                    if (!date) {
+                        return false;
+                    }
+                    return (!dateFrom || date >= dateFrom) && (!dateTo || date <= dateTo);
                 });
                 if (keptLines.length === 0) {
                     return null;
@@ -234,6 +268,149 @@ export class ToBePurchased extends Component {
             this.state.filteredData = this._groupByCustomer(result);
         } else if (this.state.groupBy === "unit_type") {
             this.state.filteredData = this._groupByUnitType(result);
+        }
+
+        this._applyTimeSort();
+    }
+
+    // ------------------------------------------------------------------
+    // Orden por tiempo (fecha de la orden)
+    // ------------------------------------------------------------------
+
+    _compareByDate(a, b, direction) {
+        const da = a.date || "";
+        const db = b.date || "";
+        // Sin fecha siempre al final, en cualquier dirección.
+        if (da !== db) {
+            if (!da) return 1;
+            if (!db) return -1;
+            return direction * da.localeCompare(db);
+        }
+        return String(a.so_name || "").localeCompare(String(b.so_name || ""));
+    }
+
+    _edgeDate(items, direction) {
+        // El grupo se ordena por su línea más vieja (o más nueva).
+        const dates = (items || []).map((item) => item.date || "").filter(Boolean).sort();
+        if (!dates.length) return "";
+        return direction > 0 ? dates[0] : dates[dates.length - 1];
+    }
+
+    _applyTimeSort() {
+        const mode = this.state.sortMode;
+        if (mode !== "oldest" && mode !== "newest") {
+            return;
+        }
+        const direction = mode === "oldest" ? 1 : -1;
+        const listKey = this.state.groupBy === "product" ? "so_lines" : "products";
+        const groups = this.state.filteredData.map((group) => {
+            const items = [...(group[listKey] || [])].sort(
+                (a, b) => this._compareByDate(a, b, direction));
+            return {
+                ...group,
+                [listKey]: items,
+                _sortDate: this._edgeDate(items, direction),
+            };
+        });
+        groups.sort((a, b) => this._compareByDate(
+            { date: a._sortDate, so_name: a.name || a.so_name || a.group_name },
+            { date: b._sortDate, so_name: b.name || b.so_name || b.group_name },
+            direction,
+        ));
+        this.state.filteredData = groups;
+    }
+
+    setSortMode(mode) {
+        this.state.sortMode = mode;
+        this.applyFilters();
+    }
+
+    onDateFrom(ev) {
+        this.state.dateFrom = ev.target.value || "";
+        this.applyFilters();
+    }
+
+    onDateTo(ev) {
+        this.state.dateTo = ev.target.value || "";
+        this.applyFilters();
+    }
+
+    clearDates() {
+        this.state.dateFrom = "";
+        this.state.dateTo = "";
+        this.applyFilters();
+    }
+
+    // ------------------------------------------------------------------
+    // Observaciones de compra (botón (i))
+    // ------------------------------------------------------------------
+
+    hasTbpNote(line) {
+        return !!String((line && line.tbp_note) || "").trim();
+    }
+
+    tbpNoteTitle(line) {
+        if (!this.hasTbpNote(line)) {
+            return "Agregar observaciones";
+        }
+        const who = [line.tbp_note_user, line.tbp_note_date].filter(Boolean).join(" · ");
+        return who ? `${line.tbp_note}\n— ${who}` : line.tbp_note;
+    }
+
+    openNote(line, ev) {
+        if (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+        this.state.noteModal = {
+            open: true,
+            line,
+            text: line.tbp_note || "",
+            saving: false,
+        };
+    }
+
+    closeNote() {
+        this.state.noteModal = { open: false, line: null, text: "", saving: false };
+    }
+
+    onNoteInput(ev) {
+        this.state.noteModal.text = ev.target.value;
+    }
+
+    async saveNote() {
+        const modal = this.state.noteModal;
+        if (!modal.line || modal.saving) {
+            return;
+        }
+        modal.saving = true;
+        try {
+            const payload = await this.orm.call(
+                "purchase.manager.logic",
+                "set_tbp_note",
+                [modal.line.id, modal.text || ""],
+            );
+            // Las filas agrupadas son copias: se actualiza la fuente y se
+            // re-aplican filtros para que el (i) cambie en todas las vistas.
+            for (const product of this.state.data || []) {
+                for (const line of product.so_lines || []) {
+                    if (line.id === modal.line.id) {
+                        Object.assign(line, payload);
+                    }
+                }
+            }
+            this.applyFilters();
+            this.closeNote();
+            this.notification.add(
+                payload.tbp_note ? "Observación guardada" : "Observación borrada",
+                { type: "success" },
+            );
+        } catch (error) {
+            modal.saving = false;
+            this.notification.add(
+                "No se pudo guardar la observación: " + ((error.data && error.data.message) || error.message || error),
+                { type: "danger" },
+            );
         }
     }
 

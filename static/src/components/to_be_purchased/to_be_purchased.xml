@@ -47,6 +47,43 @@
                     <t t-else="">Mostrar todo</t>
                 </button>
 
+                <!-- Tiempo: orden por fecha de la orden y rango Desde/Hasta. -->
+                <div class="o_tbp_group_buttons" title="Ordenar por fecha de la orden">
+                    <button t-attf-class="o_tbp_group_btn #{state.sortMode === 'priority' ? 'active' : ''}"
+                            t-on-click="() => this.setSortMode('priority')"
+                            title="Orden normal: % pagado y fecha requerida">
+                        <i class="fa fa-sort-amount-desc me-1"/> Prioridad
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.sortMode === 'oldest' ? 'active' : ''}"
+                            t-on-click="() => this.setSortMode('oldest')"
+                            title="Primero las órdenes más viejas">
+                        <i class="fa fa-hourglass-end me-1"/> Más viejo
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.sortMode === 'newest' ? 'active' : ''}"
+                            t-on-click="() => this.setSortMode('newest')"
+                            title="Primero las órdenes más nuevas">
+                        <i class="fa fa-hourglass-start me-1"/> Más nuevo
+                    </button>
+                </div>
+
+                <div class="o_tbp_date_range" title="Filtrar por fecha de la orden">
+                    <i class="fa fa-calendar"/>
+                    <label class="o_tbp_date_label">Desde</label>
+                    <input type="date" class="o_tbp_date_input"
+                           t-att-value="state.dateFrom"
+                           t-on-change="onDateFrom"/>
+                    <label class="o_tbp_date_label">Hasta</label>
+                    <input type="date" class="o_tbp_date_input"
+                           t-att-value="state.dateTo"
+                           t-on-change="onDateTo"/>
+                    <button t-if="state.dateFrom or state.dateTo"
+                            class="o_tbp_search_clear o_tbp_date_clear"
+                            t-on-click="clearDates"
+                            title="Quitar filtro de fechas">
+                        <i class="fa fa-times"/>
+                    </button>
+                </div>
+
                 <div class="o_tbp_group_buttons">
                     <button t-attf-class="o_tbp_group_btn #{state.groupBy === 'product' ? 'active' : ''}"
                             t-on-click="() => this.setGroupBy('product')"
@@ -306,7 +343,7 @@
                                             <th>Descripción</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
-                                            <th style="width: 130px;">Nota</th>
+                                            <th class="text-center" style="width: 64px;">Obs.</th>
                                             <th style="width: 160px;">OC vinculada</th>
                                             <th class="text-end" style="width: 132px;">Acciones</th>
                                         </tr>
@@ -364,12 +401,10 @@
                                                         <i class="fa fa-adjust me-1"/><t t-esc="so.partial_note.purchase"/>
                                                     </div>
                                                 </td>
-                                                <td>
-                                                    <div t-if="so.note" class="o_tbp_cell_note" t-att-title="so.note">
-                                                        <i class="fa fa-sticky-note-o me-1"/>
-                                                        Nota
-                                                    </div>
-                                                    <span t-else="" class="o_tbp_empty_text">—</span>
+                                                <td class="text-center">
+                                                    <t t-call="stock_transit_allocation.ToBePurchasedNoteBtn">
+                                                        <t t-set="line" t-value="so"/>
+                                                    </t>
                                                 </td>
                                                 <td>
                                                     <t t-if="so.po_id">
@@ -465,6 +500,7 @@
                                             <th class="text-end" style="width: 190px;">Tránsito libre</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
+                                            <th class="text-center" style="width: 64px;">Obs.</th>
                                             <th style="width: 160px;">OC vinculada</th>
                                             <th class="text-end" style="width: 132px;">Acciones</th>
                                         </tr>
@@ -497,6 +533,11 @@
                                                 </td>
                                                 <td class="text-end"><t t-esc="fmtDays(prod.days_unassigned || 0)"/></td>
                                                 <td class="text-end o_tbp_pending_qty"><t t-esc="fmtPendingLine(prod)"/></td>
+                                                <td class="text-center">
+                                                    <t t-call="stock_transit_allocation.ToBePurchasedNoteBtn">
+                                                        <t t-set="line" t-value="prod"/>
+                                                    </t>
+                                                </td>
                                                 <td>
                                                     <t t-if="prod.po_id">
                                                         <a href="#"
@@ -580,6 +621,7 @@
                                             <th class="text-end" style="width: 190px;">Tránsito libre</th>
                                             <th class="text-end" style="width: 92px;">Días</th>
                                             <th class="text-end" style="width: 76px;">Pend.</th>
+                                            <th class="text-center" style="width: 64px;">Obs.</th>
                                             <th style="width: 160px;">OC vinculada</th>
                                             <th class="text-end" style="width: 132px;">Acciones</th>
                                         </tr>
@@ -620,6 +662,11 @@
                                                 </td>
                                                 <td class="text-end"><t t-esc="fmtDays(prod.days_unassigned || 0)"/></td>
                                                 <td class="text-end o_tbp_pending_qty"><t t-esc="fmtPendingLine(prod)"/></td>
+                                                <td class="text-center">
+                                                    <t t-call="stock_transit_allocation.ToBePurchasedNoteBtn">
+                                                        <t t-set="line" t-value="prod"/>
+                                                    </t>
+                                                </td>
                                                 <td>
                                                     <t t-if="prod.po_id">
                                                         <a href="#"
@@ -836,6 +883,84 @@
                     </div>
                 </div>
             </t>
+
+            <!-- ================================================================ -->
+            <!-- MODAL - OBSERVACIONES DE COMPRA (botón (i))                     -->
+            <!-- ================================================================ -->
+            <t t-if="state.noteModal.open">
+                <div class="o_tbp_modal_backdrop" t-on-click="closeNote">
+                    <div class="o_tbp_modal_dialog o_tbp_note_dialog" t-on-click.stop="">
+                        <div class="o_tbp_modal_header">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="o_tbp_modal_icon">
+                                    <i class="fa fa-info-circle"/>
+                                </div>
+                                <div>
+                                    <h4 class="mb-0 fw-bold">Observaciones</h4>
+                                    <div class="text-muted small">
+                                        <t t-esc="state.noteModal.line.so_name"/>
+                                        · <t t-esc="state.noteModal.line.customer"/>
+                                        · <t t-esc="state.noteModal.line.product_name"/>
+                                    </div>
+                                </div>
+                            </div>
+                            <button class="o_tbp_modal_close" t-on-click="closeNote" title="Cerrar">
+                                <i class="fa fa-times"/>
+                            </button>
+                        </div>
+
+                        <div class="o_tbp_modal_body">
+                            <div t-if="state.noteModal.line.note" class="o_tbp_note_order">
+                                <div class="o_tbp_note_order_label">
+                                    <i class="fa fa-sticky-note-o me-1"/> Nota de la orden de venta
+                                </div>
+                                <div class="o_tbp_note_order_text"><t t-esc="state.noteModal.line.note"/></div>
+                            </div>
+                            <label class="o_tbp_note_label">Observaciones de compra</label>
+                            <textarea class="form-control o_tbp_note_textarea"
+                                      rows="7"
+                                      placeholder="Ej.: proveedor sin existencia hasta noviembre; cliente acepta otro bloque; confirmar medidas antes de pedir..."
+                                      t-att-value="state.noteModal.text"
+                                      t-on-input="onNoteInput"/>
+                            <div t-if="state.noteModal.line.tbp_note_user or state.noteModal.line.tbp_note_date"
+                                 class="o_tbp_note_meta">
+                                Última edición:
+                                <t t-esc="state.noteModal.line.tbp_note_user"/>
+                                <t t-if="state.noteModal.line.tbp_note_date"> · <t t-esc="state.noteModal.line.tbp_note_date"/></t>
+                            </div>
+                        </div>
+
+                        <div class="o_tbp_modal_footer">
+                            <button class="btn btn-light btn-lg px-4" t-on-click="closeNote">
+                                Descartar
+                            </button>
+                            <button class="btn btn-primary btn-lg px-4"
+                                    t-on-click="saveNote"
+                                    t-att-disabled="state.noteModal.saving">
+                                <i t-attf-class="fa #{state.noteModal.saving ? 'fa-spinner fa-spin' : 'fa-check'} me-2"/>
+                                Guardar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </t>
+        </div>
+    </t>
+
+    <!-- Botón (i) de observaciones: rojo si la línea tiene observación de
+         compra (mismo lenguaje que el (i) del Inventario Visual). La nota de
+         la orden de venta se marca aparte con el icono de papel. -->
+    <t t-name="stock_transit_allocation.ToBePurchasedNoteBtn">
+        <div class="o_tbp_note_cell">
+            <button type="button"
+                    t-attf-class="o_tbp_info_btn #{this.hasTbpNote(line) ? 'has-notes' : 'no-notes'}"
+                    t-att-title="this.tbpNoteTitle(line)"
+                    t-on-click="(ev) => this.openNote(line, ev)">
+                <i class="fa fa-info-circle"/>
+            </button>
+            <i t-if="line.note"
+               class="fa fa-sticky-note-o o_tbp_order_note_flag"
+               t-att-title="'Nota de la orden: ' + line.note"/>
         </div>
     </t>
 </templates>

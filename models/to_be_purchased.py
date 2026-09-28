@@ -5,7 +5,8 @@ import logging
 import time
 
 from odoo.tools import float_compare
-from odoo import models, fields, api
+from odoo import models, fields, api, _
+from odoo.exceptions import UserError
 from odoo.addons.stock_transit_allocation.models.som_date_format import som_format_date
 
 _logger = logging.getLogger(__name__)
@@ -1746,6 +1747,40 @@ class ToBePurchasedLogic(models.AbstractModel):
     _inherit = 'allocation.hub.payment.mixin'
     _description = 'Lógica para el Tablero To Be Purchased'
 
+    # ------------------------------------------------------------------
+    # Observaciones de compra por línea (botón (i) del tablero)
+    # ------------------------------------------------------------------
+
+    def _tbp_note_payload(self, sale_line):
+        date = sale_line.tbp_note_date
+        label = ''
+        if date:
+            label = som_format_date(
+                fields.Datetime.context_timestamp(self, date), with_time=True)
+        return {
+            'tbp_note': sale_line.tbp_note or '',
+            'tbp_note_date': label,
+            'tbp_note_user': sale_line.tbp_note_user_id.name or '',
+        }
+
+    @api.model
+    def set_tbp_note(self, sale_line_id, note):
+        """Guarda la observación de Compras de una línea del TBP. Mismo
+        candado que el menú del tablero (Compras / Usuario); se escribe con
+        sudo para no exigir permiso de edición sobre la venta."""
+        if not self.env.user.has_group('purchase.group_purchase_user'):
+            raise UserError(_('Solo Compras puede escribir observaciones en To Be Purchased.'))
+        line = self.env['sale.order.line'].browse(int(sale_line_id)).exists()
+        if not line:
+            raise UserError(_('La línea ya no existe. Actualiza el tablero.'))
+        text = (note or '').strip()
+        line.sudo().write({
+            'tbp_note': text or False,
+            'tbp_note_date': fields.Datetime.now() if text else False,
+            'tbp_note_user_id': self.env.user.id if text else False,
+        })
+        return self._tbp_note_payload(line.sudo())
+
     @api.model
     def get_data(self):
         t0 = time.time()
@@ -1808,6 +1843,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'qty_purchase_pending': purchase_pending,
                     'qty_purchase_covered': purchase_covered,
                 })
+                row.update(self._tbp_note_payload(sol))
                 row.update(self._split_qty_fields(product, 'qty_raw_pending', raw_pending))
                 row.update(self._split_qty_fields(product, 'qty_purchase_pending', purchase_pending))
                 row.update(self._split_qty_fields(product, 'qty_purchase_covered', purchase_covered))

@@ -311,6 +311,14 @@ class SaleOrderLine(models.Model):
         store=True,
     )
 
+    # Observaciones de Compras en el tablero To Be Purchased (botón (i),
+    # 28 sep 2026). Se escriben con sudo desde purchase.manager.logic:
+    # compras no necesita permiso de escritura sobre la venta.
+    tbp_note = fields.Text(string='Observaciones de compra (TBP)', copy=False)
+    tbp_note_date = fields.Datetime(string='Observación TBP actualizada', copy=False, readonly=True)
+    tbp_note_user_id = fields.Many2one(
+        'res.users', string='Observación TBP por', copy=False, readonly=True)
+
     tc_stock_rejected = fields.Boolean(
         string='Stock rechazado por vendedor',
         default=False,
