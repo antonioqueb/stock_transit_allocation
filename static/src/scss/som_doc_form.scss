@@ -1,0 +1,338 @@
+// ═══ Orden de Venta y Orden de Compra: estilo SOM (tarjetas azules) ═══
+// Misma línea visual que la orden de reserva (inventory_shopping_cart
+// hold_order_form.scss). Todo vive bajo .o_som_doc_form, clase que agregan
+// las vistas views/som_doc_form_views.xml al <form> (Odoo 19 la pone en la
+// raíz .o_form_view): no toca otros formularios. Sin min()/max() de
+// unidades mixtas (tumban el bundle).
+$sd-blue: #0b57d0;
+$sd-blue-dark: #083b8f;
+$sd-blue-soft: #eaf1fe;
+$sd-blue-line: #cfe0fb;
+$sd-ink: #0f172a;
+$sd-mut: #64748b;
+$sd-line: #e2e8f0;
+$sd-bg: #f3f6fb;
+
+.o_form_view.o_som_doc_form {
+    // ─── Lienzo ───
+    .o_form_sheet_bg {
+        background: $sd-bg;
+    }
+    .o_form_sheet {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        max-width: 1320px;
+        margin: 0 auto;
+        padding: 18px 20px 28px;
+    }
+
+    // ─── Barra de estado ───
+    .o_form_statusbar {
+        background: #fff;
+        border-bottom: 1px solid $sd-line;
+        padding: 8px 16px;
+        .o_statusbar_buttons .btn {
+            border-radius: 10px;
+            font-weight: 600;
+        }
+        .o_statusbar_status .o_arrow_button_current {
+            background: $sd-blue !important;
+            color: #fff !important;
+        }
+    }
+
+    // ─── Avisos nativos y de módulos: franjas redondeadas ───
+    .alert {
+        border-radius: 12px;
+        border-width: 1px;
+        font-size: 13.5px;
+    }
+
+    // ─── Botones inteligentes como píldoras ───
+    .oe_button_box {
+        margin-bottom: 12px;
+        .oe_stat_button {
+            background: #fff;
+            border: 1px solid $sd-line !important;
+            border-radius: 12px;
+            margin-left: 8px;
+            min-height: 48px;
+            color: $sd-blue-dark;
+            &:hover { border-color: $sd-blue !important; background: #f6f9ff; }
+            .o_button_icon { color: $sd-blue; }
+            .o_stat_text { color: $sd-mut; font-size: 11.5px; }
+            .o_stat_value { color: $sd-ink; font-weight: 700; }
+        }
+    }
+
+    // El título nativo se repite en el encabezado azul.
+    .o_form_sheet > .oe_title {
+        display: none;
+    }
+
+    // ─── Encabezado ───
+    .o_sdf_hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+        gap: 18px;
+        align-items: stretch;
+        padding: 22px 24px;
+        margin-bottom: 14px;
+        border-radius: 18px;
+        color: #fff;
+        background: linear-gradient(135deg, $sd-blue 0%, $sd-blue-dark 100%);
+        box-shadow: 0 10px 28px rgba(11, 87, 208, 0.25);
+    }
+    .o_sdf_hero_main {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+    }
+    .o_sdf_kicker {
+        font-size: 12px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.8;
+        .fa { margin-right: 2px; }
+    }
+    .o_sdf_title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        color: #fff;
+        font-size: 32px;
+        font-weight: 800;
+        margin: 0;
+        letter-spacing: -0.01em;
+        .o_field_widget, span { color: #fff; font-size: inherit; }
+        .o_sdf_priority {
+            font-size: 22px;
+            .o_priority_star { color: rgba(255, 255, 255, 0.55); }
+            .o_priority_star.fa-star { color: #fcd34d; }
+        }
+    }
+    .o_sdf_badges {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        .o_field_widget { display: inline-block; }
+        .badge {
+            font-size: 12.5px;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 999px;
+            background: #fff !important;
+            color: $sd-blue-dark !important;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.15);
+            &.text-bg-success { color: #0e7a4f !important; }
+            &.text-bg-muted, &.text-bg-secondary { color: $sd-mut !important; }
+        }
+    }
+    .o_sdf_meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-top: 2px;
+    }
+    .o_sdf_meta_item {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 100%;
+        background: rgba(255, 255, 255, 0.14);
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 999px;
+        padding: 4px 12px;
+        font-size: 12.5px;
+        font-weight: 600;
+        .fa { opacity: 0.85; }
+        .o_field_widget, span, a {
+            color: #fff !important;
+            display: inline;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+    }
+    .o_sdf_kpis {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+    }
+    .o_sdf_kpi {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        min-width: 0;
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.25);
+        border-radius: 14px;
+        padding: 12px 14px;
+    }
+    .o_sdf_kpi_label {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        opacity: 0.8;
+    }
+    .o_sdf_kpi_value {
+        display: block;
+        color: #fff;
+        font-size: 22px;
+        font-weight: 800;
+        line-height: 1.2;
+        font-variant-numeric: tabular-nums;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        span { color: #fff; }
+    }
+
+    // ─── Bloques de datos como tarjetas ───
+    // El grupo principal (bootstrap row de dos col-lg-6) pasa a rejilla de
+    // dos tarjetas; cada grupo interno es una tarjeta con su título.
+    .o_group.o_sdf_cards {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 14px;
+        margin: 0 0 14px;
+        > * {
+            width: auto;
+            max-width: none;
+            margin: 0;
+        }
+    }
+    .o_inner_group.o_sdf_card {
+        background: #fff;
+        border: 1px solid $sd-line;
+        border-top: 3px solid $sd-blue;
+        border-radius: 16px;
+        padding: 6px 20px 12px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        min-width: 0;
+        align-content: start;
+        .o_horizontal_separator {
+            color: $sd-blue-dark;
+            font-size: 13px;
+            font-weight: 800;
+            letter-spacing: 0.05em;
+            margin: 10px 0 8px !important;
+            padding-bottom: 8px;
+            border-bottom: 1px solid $sd-line;
+        }
+        .o_wrap_label .o_form_label,
+        .o_td_label .o_form_label,
+        > .o_cell > .o_form_label {
+            font-size: 11.5px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: $sd-mut;
+        }
+        .o_field_widget {
+            font-size: 14px;
+            color: $sd-ink;
+        }
+        .o_cell { padding-top: 4px; padding-bottom: 4px; }
+    }
+
+    // ─── Notebook y líneas ───
+    .o_form_sheet > .o_notebook {
+        background: #fff;
+        border: 1px solid $sd-line;
+        border-radius: 16px;
+        padding: 14px 18px 18px;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+        > .o_notebook_headers {
+            margin: 0 0 14px;
+            .nav-tabs {
+                border-bottom: 0;
+                gap: 6px;
+                flex-wrap: wrap;
+            }
+            .nav-link {
+                border: 1px solid $sd-line !important;
+                border-radius: 999px !important;
+                padding: 6px 16px;
+                font-weight: 700;
+                color: $sd-mut;
+                background: #fff;
+                white-space: nowrap;
+                &:hover { color: $sd-blue; border-color: $sd-blue-line !important; }
+                &.active {
+                    background: $sd-blue;
+                    border-color: $sd-blue !important;
+                    color: #fff;
+                }
+            }
+        }
+        > .o_notebook_content > .tab-content,
+        > .o_notebook_content { border: 0; padding: 0; }
+
+        .o_field_one2many .o_list_renderer,
+        .o_field_section_and_note_one2many .o_list_renderer {
+            border: 1px solid $sd-line;
+            border-radius: 12px;
+        }
+        .o_field_one2many .o_list_table,
+        .o_field_section_and_note_one2many .o_list_table {
+            margin: 0;
+            thead th {
+                background: #f5f8fe;
+                color: $sd-blue-dark;
+                font-size: 11.5px;
+                font-weight: 700;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                border-bottom: 1px solid $sd-blue-line !important;
+            }
+            tbody td {
+                font-variant-numeric: tabular-nums;
+                vertical-align: middle;
+            }
+            tbody td[name="product_id"],
+            tbody td[name="product_template_id"] { font-weight: 600; }
+            tbody td[name="price_subtotal"],
+            tbody td[name="price_total"] { font-weight: 700; color: $sd-ink; }
+            tfoot td { background: #f5f8fe; font-weight: 700; }
+        }
+        .o_field_x2many_list_row_add a {
+            color: $sd-blue;
+            font-weight: 700;
+        }
+    }
+
+    // Totales como resumen azul.
+    .oe_subtotal_footer {
+        background: $sd-blue-soft;
+        border: 1px solid $sd-blue-line;
+        border-radius: 14px;
+        padding: 10px 18px;
+        margin-top: 14px;
+        .o_form_label, label { color: $sd-blue-dark; font-weight: 600; }
+        .o_field_widget { font-variant-numeric: tabular-nums; color: $sd-ink; }
+        .o_tax_group_amount_value, .oe_subtotal_footer_separator { font-weight: 700; }
+    }
+
+    // ─── Responsivo ───
+    @media (max-width: 1199.98px) {
+        .o_sdf_hero { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 991.98px) {
+        .o_form_sheet { min-width: 0; }
+        .o_group.o_sdf_cards { grid-template-columns: minmax(0, 1fr); }
+    }
+    @media (max-width: 575.98px) {
+        .o_form_sheet { padding: 10px 8px 20px; min-width: 0; max-width: 100%; }
+        .o_sdf_hero { padding: 16px; border-radius: 14px; }
+        .o_sdf_title { font-size: 24px; }
+        .o_sdf_kpi_value { font-size: 18px; }
+        .o_inner_group.o_sdf_card { padding: 4px 12px 10px; }
+        .o_form_sheet > .o_notebook { padding: 14px 12px; }
+    }
+}

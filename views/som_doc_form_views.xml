@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ═══ Formularios de Orden de Venta y Orden de Compra con el estilo SOM ═══
+         Mismo diseño que la orden de reserva (tarjetas azules): encabezado con
+         folio, estatus y cifras; bloques de datos como tarjetas; notebook,
+         líneas y totales estilizados (static/src/scss/som_doc_form.scss).
+         Estas vistas SOLO agregan: clase del <form>, el encabezado y clases
+         en los grupos. No mueven ni quitan nodos, así los ~60 heredados de
+         ambos formularios conservan sus anclajes. El título nativo (oe_title)
+         se oculta por CSS: su contenido se repite en el encabezado.
+         priority 99: se aplican al final, sobre la vista ya combinada. -->
+
+    <record id="view_sale_order_form_som_doc" model="ir.ui.view">
+        <field name="name">sale.order.form.som.doc</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <xpath expr="/form" position="attributes">
+                <attribute name="class" add="o_som_doc_form" separator=" "/>
+            </xpath>
+            <xpath expr="//div[hasclass('oe_title')]" position="before">
+                <div class="o_sdf_hero">
+                    <div class="o_sdf_hero_main">
+                        <div class="o_sdf_kicker">
+                            <i class="fa fa-file-text-o"/>
+                            <span invisible="state not in ('draft', 'sent')"> Cotización</span>
+                            <span invisible="state in ('draft', 'sent')"> Orden de venta</span>
+                        </div>
+                        <h1 class="o_sdf_title"><field name="name" readonly="1"/></h1>
+                        <div class="o_sdf_badges">
+                            <field name="state" widget="badge" readonly="1"
+                                   decoration-info="state in ('draft', 'sent')"
+                                   decoration-success="state == 'sale'"
+                                   decoration-muted="state == 'cancel'"/>
+                        </div>
+                        <div class="o_sdf_meta">
+                            <span class="o_sdf_meta_item"><i class="fa fa-user"/>
+                                <field name="partner_id" readonly="1" options="{'no_open': True}"/></span>
+                            <span class="o_sdf_meta_item" invisible="not x_project_id"><i class="fa fa-building-o"/>
+                                <field name="x_project_id" readonly="1" options="{'no_open': True}"/></span>
+                            <span class="o_sdf_meta_item" invisible="not user_id"><i class="fa fa-id-badge"/>
+                                <field name="user_id" readonly="1" options="{'no_open': True}"/></span>
+                        </div>
+                    </div>
+                    <div class="o_sdf_kpis">
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Subtotal</span>
+                            <field name="amount_untaxed" widget="monetary" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Impuestos</span>
+                            <field name="amount_tax" widget="monetary" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Total</span>
+                            <field name="amount_total" widget="monetary" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Fecha</span>
+                            <field name="date_order" widget="som_date_cell" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+            <xpath expr="//group[@name='sale_header']" position="attributes">
+                <attribute name="class" add="o_sdf_cards" separator=" "/>
+            </xpath>
+            <xpath expr="//group[@name='partner_details']" position="attributes">
+                <attribute name="string">Cliente y proyecto</attribute>
+                <attribute name="class" add="o_sdf_card" separator=" "/>
+            </xpath>
+            <xpath expr="//group[@name='order_details']" position="attributes">
+                <attribute name="string">Condiciones y precio</attribute>
+                <attribute name="class" add="o_sdf_card" separator=" "/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_purchase_order_form_som_doc" model="ir.ui.view">
+        <field name="name">purchase.order.form.som.doc</field>
+        <field name="model">purchase.order</field>
+        <field name="inherit_id" ref="purchase.purchase_order_form"/>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <xpath expr="/form" position="attributes">
+                <attribute name="class" add="o_som_doc_form" separator=" "/>
+            </xpath>
+            <xpath expr="//div[hasclass('oe_title')]" position="before">
+                <div class="o_sdf_hero">
+                    <div class="o_sdf_hero_main">
+                        <div class="o_sdf_kicker">
+                            <i class="fa fa-truck"/>
+                            <span invisible="state not in ('draft', 'sent')"> Solicitud de cotización</span>
+                            <span invisible="state in ('draft', 'sent')"> Orden de compra</span>
+                        </div>
+                        <h1 class="o_sdf_title">
+                            <field name="priority" widget="priority" class="o_sdf_priority"/>
+                            <field name="name" readonly="1"/>
+                        </h1>
+                        <div class="o_sdf_badges">
+                            <field name="state" widget="badge" readonly="1"
+                                   decoration-info="state in ('draft', 'sent', 'to approve')"
+                                   decoration-success="state == 'purchase'"
+                                   decoration-muted="state == 'cancel'"/>
+                        </div>
+                        <div class="o_sdf_meta">
+                            <span class="o_sdf_meta_item"><i class="fa fa-industry"/>
+                                <field name="partner_id" readonly="1" options="{'no_open': True}"/></span>
+                            <span class="o_sdf_meta_item" invisible="not partner_ref"><i class="fa fa-hashtag"/>
+                                <field name="partner_ref" readonly="1"/></span>
+                            <span class="o_sdf_meta_item" invisible="not user_id"><i class="fa fa-id-badge"/>
+                                <field name="user_id" readonly="1" options="{'no_open': True}"/></span>
+                        </div>
+                    </div>
+                    <div class="o_sdf_kpis">
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Subtotal</span>
+                            <field name="amount_untaxed" widget="monetary" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Impuestos</span>
+                            <field name="amount_tax" widget="monetary" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Total</span>
+                            <field name="amount_total" widget="monetary" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                        <div class="o_sdf_kpi">
+                            <span class="o_sdf_kpi_label">Fecha de la orden</span>
+                            <field name="date_order" widget="som_date_cell" readonly="1" class="o_sdf_kpi_value"/>
+                        </div>
+                    </div>
+                </div>
+            </xpath>
+            <xpath expr="//sheet/group[1]" position="attributes">
+                <attribute name="class" add="o_sdf_cards" separator=" "/>
+            </xpath>
+            <xpath expr="//sheet/group[1]/group[1]" position="attributes">
+                <attribute name="string">Proveedor</attribute>
+                <attribute name="class" add="o_sdf_card" separator=" "/>
+            </xpath>
+            <xpath expr="//sheet/group[1]/group[2]" position="attributes">
+                <attribute name="string">Fechas y ruta</attribute>
+                <attribute name="class" add="o_sdf_card" separator=" "/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
