@@ -1751,35 +1751,90 @@ class ToBePurchasedLogic(models.AbstractModel):
     # Observaciones de compra por línea (botón (i) del tablero)
     # ------------------------------------------------------------------
 
-    def _tbp_note_payload(self, sale_line):
-        date = sale_line.tbp_note_date
-        label = ''
-        if date:
-            label = som_format_date(
-                fields.Datetime.context_timestamp(self, date), with_time=True)
+    # Cada observación es una entrada de `tbp.line.note` con fecha y hora;
+    # se muestran de la más nueva a la más vieja. Todo con sudo: Compras no
+    # necesita permiso de edición sobre la venta; el candado es el grupo
+    # del menú del tablero (Compras / Usuario).
+
+    def _tbp_fmt_dt(self, value):
+        if not value:
+            return ''
+        return som_format_date(fields.Datetime.context_timestamp(self, value), with_time=True)
+
+    def _tbp_notes_by_line(self, sale_line_ids):
+        """{línea: [entradas, más nueva primero]} en UNA consulta."""
+        result = defaultdict(list)
+        if not sale_line_ids:
+            return result
+        me = self.env.user.id
+        can_manage = self.env.user.has_group('purchase.group_purchase_manager')
+        notes = self.env['tbp.line.note'].sudo().search(
+            [('sale_line_id', 'in', list(sale_line_ids))], order='note_date desc, id desc')
+        for note in notes:
+            result[note.sale_line_id.id].append({
+                'id': note.id,
+                'note': note.note or '',
+                'date': self._tbp_fmt_dt(note.note_date),
+                'user': note.user_id.name or '',
+                'can_delete': can_manage or note.user_id.id == me,
+            })
+        return result
+
+    def _tbp_note_payload(self, sale_line, notes=None):
+        if notes is None:
+            notes = self._tbp_notes_by_line([sale_line.id]).get(sale_line.id, [])
+        last = notes[0] if notes else {}
         return {
-            'tbp_note': sale_line.tbp_note or '',
-            'tbp_note_date': label,
-            'tbp_note_user': sale_line.tbp_note_user_id.name or '',
+            'tbp_notes': notes,
+            'tbp_note_count': len(notes),
+            'tbp_note': last.get('note', ''),
+            'tbp_note_date': last.get('date', ''),
+            'tbp_note_user': last.get('user', ''),
         }
 
-    @api.model
-    def set_tbp_note(self, sale_line_id, note):
-        """Guarda la observación de Compras de una línea del TBP. Mismo
-        candado que el menú del tablero (Compras / Usuario); se escribe con
-        sudo para no exigir permiso de edición sobre la venta."""
+    def _tbp_check_access(self):
         if not self.env.user.has_group('purchase.group_purchase_user'):
             raise UserError(_('Solo Compras puede escribir observaciones en To Be Purchased.'))
-        line = self.env['sale.order.line'].browse(int(sale_line_id)).exists()
+
+    @api.model
+    def add_tbp_note(self, sale_line_id, note):
+        """Agrega una observación nueva (con su fecha y hora) a la línea."""
+        self._tbp_check_access()
+        line = self.env['sale.order.line'].sudo().browse(int(sale_line_id)).exists()
         if not line:
             raise UserError(_('La línea ya no existe. Actualiza el tablero.'))
         text = (note or '').strip()
-        line.sudo().write({
-            'tbp_note': text or False,
-            'tbp_note_date': fields.Datetime.now() if text else False,
-            'tbp_note_user_id': self.env.user.id if text else False,
+        if not text:
+            raise UserError(_('Escribe la observación antes de guardar.'))
+        Note = self.env['tbp.line.note'].sudo()
+        Note.create({
+            'sale_line_id': line.id,
+            'note': text,
+            'note_date': fields.Datetime.now(),
+            'user_id': self.env.user.id,
         })
-        return self._tbp_note_payload(line.sudo())
+        Note._som_sync_line_cache(line)
+        return self._tbp_note_payload(line)
+
+    @api.model
+    def delete_tbp_note(self, note_id):
+        """Borra una entrada: su autor o un administrador de Compras."""
+        self._tbp_check_access()
+        note = self.env['tbp.line.note'].sudo().browse(int(note_id)).exists()
+        if not note:
+            raise UserError(_('Esa observación ya no existe. Actualiza el tablero.'))
+        if note.user_id.id != self.env.user.id \
+                and not self.env.user.has_group('purchase.group_purchase_manager'):
+            raise UserError(_('Solo quien la escribió (o un administrador de Compras) puede borrarla.'))
+        line = note.sale_line_id
+        note.unlink()
+        self.env['tbp.line.note'].sudo()._som_sync_line_cache(line)
+        return self._tbp_note_payload(line)
+
+    @api.model
+    def set_tbp_note(self, sale_line_id, note):
+        """Compatibilidad con la versión anterior del (i): ahora agrega."""
+        return self.add_tbp_note(sale_line_id, note)
 
     @api.model
     def get_data(self):
@@ -1802,6 +1857,7 @@ class ToBePurchasedLogic(models.AbstractModel):
         free_transit_info_by_product = self._hub_get_free_transit_info_by_product(product_ids)
         open_po_qty_by_product = self._hub_get_open_po_qty_by_product(product_ids)
         allocation_info_by_line = self._hub_get_active_allocation_info_map(sale_lines.ids)
+        notes_by_line = self._tbp_notes_by_line(sale_lines.ids)
 
         lines_by_product = defaultdict(lambda: self.env['sale.order.line'])
         for line in sale_lines:
@@ -1843,7 +1899,7 @@ class ToBePurchasedLogic(models.AbstractModel):
                     'qty_purchase_pending': purchase_pending,
                     'qty_purchase_covered': purchase_covered,
                 })
-                row.update(self._tbp_note_payload(sol))
+                row.update(self._tbp_note_payload(sol, notes=notes_by_line.get(sol.id, [])))
                 row.update(self._split_qty_fields(product, 'qty_raw_pending', raw_pending))
                 row.update(self._split_qty_fields(product, 'qty_purchase_pending', purchase_pending))
                 row.update(self._split_qty_fields(product, 'qty_purchase_covered', purchase_covered))

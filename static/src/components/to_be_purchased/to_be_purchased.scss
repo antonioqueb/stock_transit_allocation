@@ -2242,3 +2242,69 @@ $o-tbp-pill: 999px;
     font-size: 12px;
     color: $o-tbp-muted;
 }
+
+// Historial de observaciones (más nueva primero), 28 sep 2026.
+.o_tbp_note_history {
+    margin-top: 18px;
+
+    .o_tbp_note_count {
+        display: inline-block;
+        min-width: 20px;
+        padding: 0 6px;
+        margin-left: 4px;
+        border-radius: $o-tbp-pill;
+        background: #ef4444;
+        color: #fff;
+        font-size: 11px;
+        text-align: center;
+    }
+}
+
+.o_tbp_note_entry {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    border-radius: 12px;
+    border: 1px solid rgba(215, 232, 242, 0.96);
+    background: #fff;
+
+    &:first-of-type {
+        border-color: rgba(239, 68, 68, 0.45);
+    }
+}
+
+.o_tbp_note_entry_head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 12px;
+    color: $o-tbp-muted;
+    margin-bottom: 4px;
+}
+
+.o_tbp_note_entry_date {
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.o_tbp_note_entry_user {
+    flex: 1 1 auto;
+}
+
+.o_tbp_note_entry_del {
+    border: 0;
+    background: transparent;
+    color: #b91c1c;
+    padding: 2px 6px;
+    border-radius: 8px;
+    cursor: pointer;
+
+    &:hover:not(:disabled) {
+        background: rgba(239, 68, 68, 0.10);
+    }
+}
+
+.o_tbp_note_entry_text {
+    white-space: pre-wrap;
+    font-size: 13px;
+    color: #1f2937;
+}

@@ -916,29 +916,53 @@
                                 </div>
                                 <div class="o_tbp_note_order_text"><t t-esc="state.noteModal.line.note"/></div>
                             </div>
-                            <label class="o_tbp_note_label">Observaciones de compra</label>
+                            <label class="o_tbp_note_label">Nueva observación</label>
                             <textarea class="form-control o_tbp_note_textarea"
-                                      rows="7"
+                                      rows="4"
                                       placeholder="Ej.: proveedor sin existencia hasta noviembre; cliente acepta otro bloque; confirmar medidas antes de pedir..."
                                       t-att-value="state.noteModal.text"
                                       t-on-input="onNoteInput"/>
-                            <div t-if="state.noteModal.line.tbp_note_user or state.noteModal.line.tbp_note_date"
-                                 class="o_tbp_note_meta">
-                                Última edición:
-                                <t t-esc="state.noteModal.line.tbp_note_user"/>
-                                <t t-if="state.noteModal.line.tbp_note_date"> · <t t-esc="state.noteModal.line.tbp_note_date"/></t>
+
+                            <!-- Historial: la más nueva primero, cada una con fecha y hora. -->
+                            <div class="o_tbp_note_history">
+                                <div class="o_tbp_note_label">
+                                    Historial
+                                    <span class="o_tbp_note_count"><t t-esc="tbpNotes(state.noteModal.line).length"/></span>
+                                </div>
+                                <div t-if="!tbpNotes(state.noteModal.line).length" class="o_tbp_note_meta">
+                                    Sin observaciones todavía.
+                                </div>
+                                <t t-foreach="tbpNotes(state.noteModal.line)" t-as="entry" t-key="entry.id">
+                                    <div class="o_tbp_note_entry">
+                                        <div class="o_tbp_note_entry_head">
+                                            <span class="o_tbp_note_entry_date">
+                                                <i class="fa fa-clock-o me-1" title="Fecha y hora"/><t t-esc="entry.date"/>
+                                            </span>
+                                            <span class="o_tbp_note_entry_user"><t t-esc="entry.user"/></span>
+                                            <button t-if="entry.can_delete"
+                                                    type="button"
+                                                    class="o_tbp_note_entry_del"
+                                                    t-att-disabled="state.noteModal.saving"
+                                                    t-on-click="() => this.deleteNote(entry)"
+                                                    title="Borrar esta observación">
+                                                <i class="fa fa-trash-o" title="Borrar"/>
+                                            </button>
+                                        </div>
+                                        <div class="o_tbp_note_entry_text"><t t-esc="entry.note"/></div>
+                                    </div>
+                                </t>
                             </div>
                         </div>
 
                         <div class="o_tbp_modal_footer">
                             <button class="btn btn-light btn-lg px-4" t-on-click="closeNote">
-                                Descartar
+                                Cerrar
                             </button>
                             <button class="btn btn-primary btn-lg px-4"
                                     t-on-click="saveNote"
                                     t-att-disabled="state.noteModal.saving">
                                 <i t-attf-class="fa #{state.noteModal.saving ? 'fa-spinner fa-spin' : 'fa-check'} me-2"/>
-                                Guardar
+                                Agregar observación
                             </button>
                         </div>
                     </div>

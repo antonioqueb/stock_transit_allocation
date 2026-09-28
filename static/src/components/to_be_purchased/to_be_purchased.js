@@ -114,7 +114,7 @@ export class ToBePurchased extends Component {
                     line.customer || "",
                     line.description || "",
                     line.note || "",
-                    line.tbp_note || "",
+                    (line.tbp_notes || []).map((n) => n.note).join(" ") || line.tbp_note || "",
                     line.po_name || "",
                 ].join(" ")).join(" ");
 
@@ -345,16 +345,26 @@ export class ToBePurchased extends Component {
     // Observaciones de compra (botón (i))
     // ------------------------------------------------------------------
 
+    // Historial: cada observación con su fecha y hora, la más nueva
+    // primero (así llega del servidor). Guardar AGREGA una entrada.
+
+    tbpNotes(line) {
+        return (line && line.tbp_notes) || [];
+    }
+
     hasTbpNote(line) {
-        return !!String((line && line.tbp_note) || "").trim();
+        return this.tbpNotes(line).length > 0 || !!String((line && line.tbp_note) || "").trim();
     }
 
     tbpNoteTitle(line) {
-        if (!this.hasTbpNote(line)) {
+        const notes = this.tbpNotes(line);
+        if (!notes.length) {
             return "Agregar observaciones";
         }
-        const who = [line.tbp_note_user, line.tbp_note_date].filter(Boolean).join(" · ");
-        return who ? `${line.tbp_note}\n— ${who}` : line.tbp_note;
+        const last = notes[0];
+        const who = [last.user, last.date].filter(Boolean).join(" · ");
+        const more = notes.length > 1 ? `\n(${notes.length} observaciones)` : "";
+        return `${last.note}\n— ${who}${more}`;
     }
 
     openNote(line, ev) {
@@ -362,12 +372,7 @@ export class ToBePurchased extends Component {
             ev.preventDefault();
             ev.stopPropagation();
         }
-        this.state.noteModal = {
-            open: true,
-            line,
-            text: line.tbp_note || "",
-            saving: false,
-        };
+        this.state.noteModal = { open: true, line, text: "", saving: false };
     }
 
     closeNote() {
@@ -378,39 +383,74 @@ export class ToBePurchased extends Component {
         this.state.noteModal.text = ev.target.value;
     }
 
+    _applyNotePayload(lineId, payload) {
+        // Las filas agrupadas son copias: se actualiza la fuente y se
+        // re-aplican filtros para que el (i) cambie en todas las vistas.
+        for (const product of this.state.data || []) {
+            for (const line of product.so_lines || []) {
+                if (line.id === lineId) {
+                    Object.assign(line, payload);
+                }
+            }
+        }
+        if (this.state.noteModal.line && this.state.noteModal.line.id === lineId) {
+            Object.assign(this.state.noteModal.line, payload);
+        }
+        this.applyFilters();
+    }
+
+    _noteError(prefix, error) {
+        this.notification.add(
+            prefix + ((error.data && error.data.message) || error.message || error),
+            { type: "danger" },
+        );
+    }
+
     async saveNote() {
         const modal = this.state.noteModal;
         if (!modal.line || modal.saving) {
+            return;
+        }
+        if (!String(modal.text || "").trim()) {
+            this.notification.add("Escribe la observación antes de guardar.", { type: "warning" });
             return;
         }
         modal.saving = true;
         try {
             const payload = await this.orm.call(
                 "purchase.manager.logic",
-                "set_tbp_note",
-                [modal.line.id, modal.text || ""],
+                "add_tbp_note",
+                [modal.line.id, modal.text],
             );
-            // Las filas agrupadas son copias: se actualiza la fuente y se
-            // re-aplican filtros para que el (i) cambie en todas las vistas.
-            for (const product of this.state.data || []) {
-                for (const line of product.so_lines || []) {
-                    if (line.id === modal.line.id) {
-                        Object.assign(line, payload);
-                    }
-                }
-            }
-            this.applyFilters();
-            this.closeNote();
-            this.notification.add(
-                payload.tbp_note ? "Observación guardada" : "Observación borrada",
-                { type: "success" },
-            );
+            this._applyNotePayload(modal.line.id, payload);
+            // La ventana sigue abierta: la nueva queda arriba del historial.
+            modal.text = "";
+            modal.saving = false;
+            this.notification.add("Observación guardada", { type: "success" });
         } catch (error) {
             modal.saving = false;
-            this.notification.add(
-                "No se pudo guardar la observación: " + ((error.data && error.data.message) || error.message || error),
-                { type: "danger" },
+            this._noteError("No se pudo guardar la observación: ", error);
+        }
+    }
+
+    async deleteNote(entry) {
+        const modal = this.state.noteModal;
+        if (!modal.line || modal.saving || !entry) {
+            return;
+        }
+        modal.saving = true;
+        try {
+            const payload = await this.orm.call(
+                "purchase.manager.logic",
+                "delete_tbp_note",
+                [entry.id],
             );
+            this._applyNotePayload(modal.line.id, payload);
+            modal.saving = false;
+            this.notification.add("Observación borrada", { type: "success" });
+        } catch (error) {
+            modal.saving = false;
+            this._noteError("No se pudo borrar la observación: ", error);
         }
     }
 
