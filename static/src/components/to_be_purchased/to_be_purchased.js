@@ -948,8 +948,13 @@ export class ToBePurchased extends Component {
 
         const query = this.state.vendorSearch.toLowerCase().trim();
         return this.state.allVendors.filter((vendor) =>
-            String(vendor.name || "").toLowerCase().includes(query)
+            [vendor.name, vendor.vat, vendor.ref, vendor.city, vendor.country]
+                .some((v) => String(v || "").toLowerCase().includes(query))
         );
+    }
+
+    vendorMeta(vendor) {
+        return [vendor.country, vendor.city, vendor.vat, vendor.ref].filter(Boolean).join(" · ");
     }
 
     onVendorSearchInput(ev) {

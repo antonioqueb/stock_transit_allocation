@@ -728,6 +728,7 @@
                                                 </div>
                                                 <div class="o_tbp_vendor_info">
                                                     <div class="o_tbp_vendor_name"><t t-esc="vendor.name"/></div>
+                                                    <div class="o_tbp_vendor_meta" t-if="vendorMeta(vendor)"><t t-esc="vendorMeta(vendor)"/></div>
                                                 </div>
                                                 <i t-if="state.selectedVendor === vendor.id"
                                                    class="fa fa-check text-primary ms-auto"/>

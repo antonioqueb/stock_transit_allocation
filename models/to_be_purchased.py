@@ -1941,7 +1941,16 @@ class ToBePurchasedLogic(models.AbstractModel):
             ('active', '=', True),
         ], order='name')
 
-        return [{'id': partner.id, 'name': partner.name} for partner in partners]
+        # País, ciudad, RFC/Tax ID y referencia: el popup de TBP los muestra bajo
+        # el nombre y también se buscan (proveedores homónimos o por país).
+        return [{
+            'id': partner.id,
+            'name': partner.name,
+            'country': partner.country_id.name or '',
+            'city': partner.city or '',
+            'vat': partner.vat or '',
+            'ref': partner.ref or '',
+        } for partner in partners]
 
     def _get_transit_picking_type(self, company=None):
         """Tipo de operación de recepción a tránsito de la COMPAÑÍA dada

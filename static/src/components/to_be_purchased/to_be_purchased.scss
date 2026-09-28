@@ -925,6 +925,9 @@ $o-tbp-pill: 999px;
     width: 60%;
     max-width: 60%;
     min-width: 720px;
+    // Alto fijo y amplio (28 sep 2026): antes crecía con el contenido y, con
+    // solo el buscador, la lista de proveedores quedaba recortada.
+    height: 88vh;
     max-height: 92vh;
     display: flex;
     flex-direction: column;
@@ -991,6 +994,8 @@ $o-tbp-pill: 999px;
 .o_tbp_modal_body {
     padding: 22px 24px;
     overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
     background:
         radial-gradient(circle at top left, rgba(92, 185, 242, 0.10), transparent 28%),
         #ffffff;
@@ -1056,7 +1061,7 @@ $o-tbp-pill: 999px;
     left: 0;
     right: 0;
     z-index: 1080;
-    max-height: 260px;
+    max-height: 55vh;
     overflow-y: auto;
     background: #ffffff;
     border: 1px solid rgba(215, 232, 242, 0.98);
@@ -1095,6 +1100,15 @@ $o-tbp-pill: 999px;
 .o_tbp_vendor_info {
     min-width: 0;
     flex: 1;
+}
+
+.o_tbp_vendor_meta {
+    font-size: 11.5px;
+    color: $o-tbp-muted;
+    margin-top: 1px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .o_tbp_vendor_name {
@@ -1598,6 +1612,7 @@ $o-tbp-pill: 999px;
         width: 100%;
         max-width: 100%;
         min-width: 0;
+        height: auto;
         max-height: 96vh;
         border-radius: 18px 18px 0 0;
     }
@@ -1932,7 +1947,7 @@ $o-tbp-pill: 999px;
 }
 
 .o_tbp_transit_shipments_table_wrap {
-    max-height: 260px;
+    max-height: 40vh;
     overflow: auto;
     border: 1px solid rgba(215, 232, 242, 0.96);
     border-radius: 14px;
