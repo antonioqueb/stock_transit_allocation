@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'Gestión de Asignación en Tránsito (Control Tower)',
-    'version': '19.0.104.124.0',
+    'version': '19.0.104.125.0',
     'category': 'Inventory/Logistics',
     'summary': 'Torre de control para gestión de contenedores y asignación de pedidos',
     'description': """
@@ -82,7 +82,6 @@
         'views/purchase_picking_ui_tweaks.xml',
         'views/sale_order_views.xml',
         'views/purchase_order_views.xml',
-        'views/som_doc_form_views.xml',
         'views/to_be_purchased_views.xml',
         'views/transit_allocation_views.xml',
         'views/supplier_proforma_views.xml',
@@ -115,7 +114,6 @@
             # to_be_purchased: va antes que los componentes.
             'stock_transit_allocation/static/src/utils/som_progress.js',
             'stock_transit_allocation/static/src/utils/som_progress.scss',
-            'stock_transit_allocation/static/src/scss/som_doc_form.scss',
             'stock_transit_allocation/static/src/utils/som_slow_button_progress.js',
             'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.scss',
             'stock_transit_allocation/static/src/components/receptions_dashboard/receptions_dashboard.xml',
