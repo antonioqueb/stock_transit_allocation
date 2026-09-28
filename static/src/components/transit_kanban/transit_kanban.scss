@@ -1213,14 +1213,6 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     &.tk-age--late { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
 }
 
-.tk-age-step {
-    font-size:   10.5px;
-    color:       #64748b;
-    white-space: nowrap;
-
-    b { color: #334155; }
-}
-
 .tk-age-filter {
     display:       inline-flex;
     align-items:   center;

@@ -1541,7 +1541,7 @@ class StockTransitVoyage(models.Model):
     TK_GROUP_ORDER = ('solicitud', 'booking', 'on_sea', 'puerto_destino', 'delivered')
 
     def _tk_stage_timeline(self, voyages):
-        """{viaje: fechas de entrada a cada columna + días en la actual}.
+        """{viaje: días en la columna ACTUAL} (solo la etapa en la que está).
 
         Fuente: el historial de `custom_status` (tracking=True, guarda la
         ETIQUETA del estatus). Respaldo cuando no hay historial: creación
@@ -1617,10 +1617,6 @@ class StockTransitVoyage(models.Model):
                 'stage_key': stage_key,
                 'stage_since': current_since.isoformat() if current_since else False,
                 'days_in_stage': (today - current_since).days if current_since else 0,
-                'days_since_request': (today - created).days if created else 0,
-                'stage_days': {
-                    g: (today - d).days for g, d in since.items()
-                },
             }
         return result
 
@@ -1679,8 +1675,6 @@ class StockTransitVoyage(models.Model):
             out.append({
                 'days_in_stage': ages.get('days_in_stage', 0),
                 'stage_since': ages.get('stage_since', False),
-                'days_since_request': ages.get('days_since_request', 0),
-                'stage_days': ages.get('stage_days', {}),
                 'id': v.id,
                 'name': v.name or '',
                 'custom_status': v.custom_status,

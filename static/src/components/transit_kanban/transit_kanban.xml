@@ -185,19 +185,14 @@
                             </div>
 
                             <!-- ANTIGÜEDAD (siempre visible, sin abrir detalle):
-                                 días en la columna actual + días desde que
-                                 entró a cada etapa ya alcanzada. -->
+                                 SOLO los días en la etapa actual (sin historial
+                                 de etapas anteriores, pedido del usuario). -->
                             <div class="tk-card__ages">
                                 <span t-attf-class="tk-age #{ageClass(card)}"
                                       t-att-title="ageTitle(card)">
                                     <i class="fa fa-clock-o" title="Días en este estatus"/>
                                     <t t-esc="ageMainLabel(card)"/>
                                 </span>
-                                <t t-foreach="ageMilestones(card)" t-as="m" t-key="m.key">
-                                    <span class="tk-age-step" t-att-title="m.title">
-                                        <t t-esc="m.label"/> <b t-esc="m.days"/> d
-                                    </span>
-                                </t>
                             </div>
 
                             <!-- Recibida: la TARJETA entera se tiñe por el

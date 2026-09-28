@@ -373,30 +373,11 @@ export class TransitKanbanView extends Component {
         return `${this._daysLabel(card.days_in_stage)} en ${col ? col.label : "este estatus"}`;
     }
 
+    // Solo la etapa ACTUAL: no se muestran etapas anteriores.
     ageTitle(card) {
         const col = this._cardColumn(card);
         const since = card.stage_since ? ` (desde el ${this._fmtDate(card.stage_since)})` : "";
-        return `Lleva ${this._daysLabel(card.days_in_stage)} en ${col ? col.label : "este estatus"}${since}. `
-            + `Solicitado hace ${this._daysLabel(card.days_since_request)}.`;
-    }
-
-    // Días desde que ENTRÓ a cada etapa ya alcanzada (sin la actual, que ya
-    // la dice la etiqueta principal): Solicitado · Booking · Mar · ...
-    ageMilestones(card) {
-        const stageDays = card.stage_days || {};
-        const current = this._cardColumn(card);
-        const out = [];
-        for (const s of this.activeStages) {
-            if (s.virtual || !(s.key in stageDays)) continue;
-            if (current && current.key === s.key) continue;
-            out.push({
-                key: s.key,
-                label: s.key === "solicitud" ? "Solicitado" : s.label,
-                days: stageDays[s.key],
-                title: `${s.key === "solicitud" ? "Solicitado" : "Entró a " + s.label} hace ${this._daysLabel(stageDays[s.key])}`,
-            });
-        }
-        return out;
+        return `Lleva ${this._daysLabel(card.days_in_stage)} en ${col ? col.label : "este estatus"}${since}.`;
     }
 
     onSearch(ev) {
