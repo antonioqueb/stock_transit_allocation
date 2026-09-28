@@ -1673,6 +1673,8 @@ class StockTransitVoyage(models.Model):
             supplier = v.tc_supplier_id
             ages = timeline.get(v.id, {})
             out.append({
+                # Sin PL: el clic abre el resumen del pedido, no el embarque.
+                'has_pl': v._tk_has_pl(),
                 'days_in_stage': ages.get('days_in_stage', 0),
                 'stage_since': ages.get('stage_since', False),
                 'id': v.id,
@@ -1720,6 +1722,83 @@ class StockTransitVoyage(models.Model):
                 'company_id': v.company_id.id if v.company_id else False,
             })
         return out
+
+    def _tk_has_pl(self):
+        """¿El embarque ya tiene PL cargado? El PL es el que crea los LOTES de
+        las líneas de tránsito (las líneas en sí pueden nacer antes, desde la
+        orden de compra); también cuenta la marca de la recepción."""
+        self.ensure_one()
+        if self.line_ids.filtered('lot_id'):
+            return True
+        pickings = self._tc_component_pickings() | self.reception_picking_id
+        return any(
+            'packing_list_imported' in p._fields and p.packing_list_imported
+            for p in pickings
+        )
+
+    @api.model
+    def tk_get_order_summary(self, voyage_id):
+        """Resumen del pedido para la tarjeta de un embarque SIN PL: qué
+        materiales y cuántos vienen según la(s) orden(es) de compra. Mismo
+        espíritu que el popup de materiales del tablero de Recepciones."""
+        voyage = self.browse(int(voyage_id)).exists()
+        if not voyage:
+            raise UserError(_('El embarque ya no existe. Actualiza el tablero.'))
+        purchases = voyage.purchase_id | voyage._tc_component_pickings().mapped('purchase_id')
+        purchases = purchases.filtered(lambda po: po.state != 'cancel')
+
+        mat_map = {}
+        for po in purchases:
+            for line in po.order_line:
+                # Solo material: fuera secciones, notas y servicios (fletes, etc.).
+                if line.display_type or not line.product_id \
+                        or line.product_id.type == 'service':
+                    continue
+                uom = (line.product_uom_id or line.product_id.uom_id).name or ''
+                key = (line.product_id.id, uom)
+                item = mat_map.setdefault(key, {
+                    'product': line.product_id.display_name,
+                    'uom': uom,
+                    'qty': 0.0,
+                    'orders': [],
+                })
+                item['qty'] += line.product_qty or 0.0
+                if po.name not in item['orders']:
+                    item['orders'].append(po.name)
+        materials = sorted(mat_map.values(), key=lambda m: (-m['qty'], m['product']))
+        for m in materials:
+            m['qty'] = round(m['qty'], 2)
+            m['orders'] = ', '.join(m['orders'])
+
+        totals = {}
+        for m in materials:
+            totals[m['uom']] = totals.get(m['uom'], 0.0) + m['qty']
+        qty_label = ' · '.join(
+            '%s %s' % ('{:,.2f}'.format(q).rstrip('0').rstrip('.'), u or 'uds')
+            for u, q in sorted(totals.items(), key=lambda x: -x[1])
+        )
+
+        status_labels = dict(self._fields['custom_status']._description_selection(self.env))
+        ages = self._tk_stage_timeline(voyage).get(voyage.id, {})
+        return {
+            'id': voyage.id,
+            'name': voyage.name or '',
+            'supplier': voyage.tc_supplier_id.display_name or '',
+            'status_label': status_labels.get(voyage.custom_status, voyage.custom_status or ''),
+            'days_in_stage': ages.get('days_in_stage', 0),
+            'container': voyage.container_number or '',
+            'bl': voyage.bl_number or '',
+            'etd': som_format_date(voyage.etd, empty='') if voyage.etd else '',
+            'eta': som_format_date(voyage.eta, empty='') if voyage.eta else '',
+            'orders': [
+                {'id': po.id, 'name': po.name, 'proforma': po.partner_ref or ''}
+                for po in purchases
+            ],
+            'materials': materials,
+            'products': len(materials),
+            'qty_label': qty_label,
+            'has_pl': voyage._tk_has_pl(),
+        }
 
     def action_open_unassign_wizard(self):
         """Abre el wizard de desasignación masiva para este viaje.

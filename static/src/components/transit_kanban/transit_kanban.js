@@ -159,6 +159,8 @@ export class TransitKanbanView extends Component {
             // por días en el estatus (las más viejas arriba).
             ageFilter:    0,
             oldestFirst:  false,
+            // Resumen del pedido (embarque SIN PL): { card, data, loading }.
+            summary:      null,
             columns:      {},   // { stageKey: [records] }
             totals:          {},   // { stageKey: { count, m2 } }
             collapsed:       { labeled_done: true },   // { stageKey: bool } — Etiquetados nace colapsada
@@ -482,7 +484,7 @@ export class TransitKanbanView extends Component {
             ev.stopPropagation();
         }
         this.state.searchOpen = false;
-        this.openVoyage(r.id);
+        this.onCardClick(r);
     }
 
     toggleCollapse(key) {
@@ -762,6 +764,69 @@ export class TransitKanbanView extends Component {
 
     _fmtDate(val) {
         return somFormatDate(val);
+    }
+
+    // ─── Clic en tarjeta: SIN PL → resumen del pedido; CON PL → embarque ─────
+
+    onCardClick(card, ev) {
+        if (ev) ev.stopPropagation();
+        if (!card || !card.id) return;
+        if (card.has_pl) {
+            this.openVoyage(card.id);
+            return;
+        }
+        this.openOrderSummary(card);
+    }
+
+    async openOrderSummary(card) {
+        this.state.summary = { card, data: null, loading: true };
+        try {
+            const data = await this.orm.call(
+                "stock.transit.voyage", "tk_get_order_summary", [card.id]
+            );
+            // Si en el inter el PL ya se cargó, ir directo al embarque.
+            if (data && data.has_pl) {
+                this.state.summary = null;
+                card.has_pl = true;
+                this.openVoyage(card.id);
+                return;
+            }
+            if (this.state.summary && this.state.summary.card === card) {
+                this.state.summary = { card, data, loading: false };
+            }
+        } catch (e) {
+            this.state.summary = null;
+            this.notification.add(
+                (e && e.data && e.data.message) || "No se pudo cargar el resumen del pedido.",
+                { type: "danger" }
+            );
+        }
+    }
+
+    closeOrderSummary() {
+        this.state.summary = null;
+    }
+
+    openVoyageFromSummary() {
+        const card = this.state.summary && this.state.summary.card;
+        this.state.summary = null;
+        if (card) this.openVoyage(card.id);
+    }
+
+    openSummaryPurchase(order, ev) {
+        if (ev) {
+            ev.preventDefault();
+            ev.stopPropagation();
+        }
+        if (!order || !order.id) return;
+        this.state.summary = null;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            res_model: "purchase.order",
+            res_id: order.id,
+            views: [[false, "form"]],
+            target: "current",
+        });
     }
 
     openPurchase(card, ev) {

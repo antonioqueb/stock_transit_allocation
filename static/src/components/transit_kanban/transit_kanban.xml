@@ -160,7 +160,7 @@
                              title="Arrastrar para cambiar de estado"
                              t-on-dragstart="(ev) => this.onCardDragStart(card, ev)"
                              t-on-dragend="onCardDragEnd"
-                             t-on-click="(ev) => this.openVoyage(card.id, ev)">
+                             t-on-click="(ev) => this.onCardClick(card, ev)">
 
                             <!-- COMPACTO: proveedor + días + desplegar -->
                             <div class="tk-card__header">
@@ -177,6 +177,13 @@
                                     <!-- En recibidas la etiqueta 'Recibido'
                                          sobraba: el chip de etiquetado ya
                                          dice el estado. -->
+                                    <!-- Sin packing list: el clic muestra el
+                                         resumen del pedido en vez del embarque. -->
+                                    <span t-if="!card.has_pl and !isReceived(card)"
+                                          class="tk-nopl"
+                                          title="Todavía no hay packing list: clic para ver qué materiales vienen en el pedido">
+                                        <i class="fa fa-list-alt" title="Sin PL"/> Sin PL
+                                    </span>
                                     <span t-if="!isReceived(card)"
                                           t-attf-class="tk-eta #{etaClass(card)}"
                                           t-att-title="etaTitle(card)"
@@ -299,6 +306,86 @@
             </div><!-- /tk-column -->
         </t>
     </div><!-- /tk-board -->
+
+    <!-- ══════════════════════════════════════════════════════
+         RESUMEN DEL PEDIDO (embarque SIN packing list)
+         Mismo formato que el popup de materiales de Recepciones.
+    ══════════════════════════════════════════════════════ -->
+    <t t-if="state.summary">
+        <t t-set="sum" t-value="state.summary.data"/>
+        <div class="o_rcp_modal_bg" t-on-click="closeOrderSummary">
+            <div class="o_rcp_modal tk-sum" t-on-click.stop="">
+                <div class="o_rcp_modal_head">
+                    <div>
+                        <div class="t" t-esc="(sum and sum.supplier) or strOf(state.summary.card.tc_supplier_id) or state.summary.card.name"/>
+                        <div class="s">
+                            <t t-esc="state.summary.card.name"/>
+                            <t t-if="sum"> · <t t-esc="sum.status_label"/> · <t t-esc="sum.days_in_stage"/> días</t>
+                        </div>
+                        <div class="s muted" t-if="sum">
+                            <t t-if="sum.container">Contenedor <t t-esc="sum.container"/></t>
+                            <t t-if="sum.etd or sum.eta">
+                                <t t-if="sum.container"> · </t>ETD <t t-esc="sum.etd or '—'"/> → ETA <t t-esc="sum.eta or '—'"/>
+                            </t>
+                        </div>
+                    </div>
+                    <button class="o_rcp_modal_x" title="Cerrar" t-on-click="closeOrderSummary">✕</button>
+                </div>
+
+                <div class="tk-sum__notice">
+                    <i class="fa fa-info-circle" title="Información"/>
+                    <span>
+                        Este embarque <b>todavía no tiene packing list</b>. Aquí ves lo que se pidió en la orden de compra.
+                        Cuando se cargue el PL, al hacer clic en la tarjeta se abrirá el embarque directo.
+                    </span>
+                </div>
+
+                <div t-if="sum and sum.orders.length" class="tk-sum__orders">
+                    <t t-foreach="sum.orders" t-as="po" t-key="po.id">
+                        <a href="#" class="tk-sum__po" t-on-click="(ev) => this.openSummaryPurchase(po, ev)"
+                           t-att-title="'Abrir la orden de compra ' + po.name">
+                            <i class="fa fa-file-text-o" title="Orden de compra"/>
+                            <t t-esc="po.name"/>
+                            <small t-if="po.proforma"> · PI <t t-esc="po.proforma"/></small>
+                        </a>
+                    </t>
+                </div>
+
+                <div class="o_rcp_modal_body">
+                    <div t-if="state.summary.loading" class="tk-sum__loading">
+                        <i class="fa fa-spinner fa-spin" title="Cargando"/> Cargando materiales…
+                    </div>
+                    <t t-elif="sum">
+                        <div class="o_rcp_mat_row head">
+                            <span>Material</span><b>Cantidad pedida</b>
+                        </div>
+                        <div class="o_rcp_mat_row" t-foreach="sum.materials" t-as="m" t-key="m.product + '|' + m.uom">
+                            <span t-att-title="m.product + (sum.orders.length > 1 ? ' (' + m.orders + ')' : '')">
+                                <t t-esc="m.product"/>
+                                <small t-if="sum.orders.length > 1" class="tk-sum__mat-po"> · <t t-esc="m.orders"/></small>
+                            </span>
+                            <b><t t-esc="fmtNum(m.qty)"/> <small t-esc="m.uom"/></b>
+                        </div>
+                        <div t-if="!sum.materials.length" class="tk-sum__loading">
+                            Este embarque aún no tiene orden de compra con materiales.
+                        </div>
+                    </t>
+                </div>
+
+                <div class="o_rcp_modal_foot" t-if="sum">
+                    <span><b t-esc="sum.products"/> producto(s) · <b t-esc="sum.orders.length"/> orden(es)</span>
+                    <span class="tot" t-esc="sum.qty_label or '—'"/>
+                </div>
+
+                <div class="tk-sum__actions">
+                    <button class="tk-sum__btn" t-on-click="closeOrderSummary">Cerrar</button>
+                    <button class="tk-sum__btn tk-sum__btn--primary" t-on-click="openVoyageFromSummary">
+                        <i class="fa fa-ship" title="Embarque"/> Abrir embarque
+                    </button>
+                </div>
+            </div>
+        </div>
+    </t>
 
 </div>
 </t>
