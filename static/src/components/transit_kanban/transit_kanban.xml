@@ -61,6 +61,24 @@
         </div>
 
         <div class="tk-toolbar__right">
+            <!-- Antigüedad en el estatus actual: filtra las que llevan N
+                 días o más y ordena las más viejas arriba. -->
+            <div class="tk-age-filter" title="Días en el estatus actual">
+                <i class="fa fa-clock-o" title="Antigüedad"/>
+                <t t-foreach="[7, 15, 30]" t-as="d" t-key="d">
+                    <button t-attf-class="tk-age-filter__btn #{state.ageFilter === d ? 'tk-age-filter__btn--on' : ''}"
+                            t-on-click="() => this.setAgeFilter(d)"
+                            t-att-title="'Solo las que llevan ' + d + ' días o más en su estatus'">
+                        +<t t-esc="d"/> d
+                        <span class="tk-age-filter__count" t-esc="ageCount(d)"/>
+                    </button>
+                </t>
+                <button t-attf-class="tk-age-filter__btn #{state.oldestFirst ? 'tk-age-filter__btn--on' : ''}"
+                        t-on-click="toggleOldestFirst"
+                        title="Ordenar cada columna por días en el estatus: las más viejas arriba">
+                    <i class="fa fa-sort-amount-desc" title="Ordenar"/> Más viejas primero
+                </button>
+            </div>
             <button t-attf-class="tk-btn-pending #{state.pendingOnly ? 'tk-btn-pending--active' : ''}"
                     t-on-click="togglePendingOnly"
                     title="PL procesado, en Puerto Origen o superior, pasados los días configurados y el inventario sigue SIN publicar. El objetivo es que este filtro esté vacío.">
@@ -164,6 +182,22 @@
                                           t-att-title="etaTitle(card)"
                                           t-esc="etaLabel(card)"/>
                                 </span>
+                            </div>
+
+                            <!-- ANTIGÜEDAD (siempre visible, sin abrir detalle):
+                                 días en la columna actual + días desde que
+                                 entró a cada etapa ya alcanzada. -->
+                            <div class="tk-card__ages">
+                                <span t-attf-class="tk-age #{ageClass(card)}"
+                                      t-att-title="ageTitle(card)">
+                                    <i class="fa fa-clock-o" title="Días en este estatus"/>
+                                    <t t-esc="ageMainLabel(card)"/>
+                                </span>
+                                <t t-foreach="ageMilestones(card)" t-as="m" t-key="m.key">
+                                    <span class="tk-age-step" t-att-title="m.title">
+                                        <t t-esc="m.label"/> <b t-esc="m.days"/> d
+                                    </span>
+                                </t>
                             </div>
 
                             <!-- Recibida: la TARJETA entera se tiñe por el

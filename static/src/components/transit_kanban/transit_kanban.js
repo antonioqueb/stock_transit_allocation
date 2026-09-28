@@ -154,6 +154,11 @@ export class TransitKanbanView extends Component {
             searchOpen:   false,  // dropdown de sugerencias visible
             searchIndex:  0,      // sugerencia resaltada (teclado)
             pendingOnly:  false,  // filtro "Pendiente de publicar"
+            // Antigüedad en el estatus actual: 0 = todas, 7 / 15 / 30 = solo
+            // las que llevan al menos N días; oldestFirst ordena cada columna
+            // por días en el estatus (las más viejas arriba).
+            ageFilter:    0,
+            oldestFirst:  false,
             columns:      {},   // { stageKey: [records] }
             totals:          {},   // { stageKey: { count, m2 } }
             collapsed:       { labeled_done: true },   // { stageKey: bool } — Etiquetados nace colapsada
@@ -214,6 +219,9 @@ export class TransitKanbanView extends Component {
             // Filtro "Pendiente de publicar": PL procesado + Puerto Origen o
             // superior + X días + inventario sin publicar. Meta: verlo vacío.
             if (this.state.pendingOnly && !r.tc_publication_pending) continue;
+
+            // Filtro de antigüedad: solo las que llevan N días o más en su estatus.
+            if (this.state.ageFilter && (r.days_in_stage || 0) < this.state.ageFilter) continue;
 
             // Filtro búsqueda
             if (q && !this._voyageHaystack(r).includes(q)) continue;
@@ -278,6 +286,10 @@ export class TransitKanbanView extends Component {
             } else {
                 arr.sort(byNewest);
             }
+            // "Más viejas primero" manda sobre la regla de la columna.
+            if (this.state.oldestFirst) {
+                arr.sort((a, b) => ((b.days_in_stage || 0) - (a.days_in_stage || 0)) || (b.id - a.id));
+            }
         }
 
         this.state.columns = cols;
@@ -315,6 +327,76 @@ export class TransitKanbanView extends Component {
     togglePendingOnly() {
         this.state.pendingOnly = !this.state.pendingOnly;
         this._buildColumns(this.state.records);
+    }
+
+    // ─── Antigüedad por etapa (siempre visible en la tarjeta) ─────────────────
+
+    setAgeFilter(days) {
+        this.state.ageFilter = this.state.ageFilter === days ? 0 : days;
+        this._buildColumns(this.state.records);
+    }
+
+    toggleOldestFirst() {
+        this.state.oldestFirst = !this.state.oldestFirst;
+        this._buildColumns(this.state.records);
+    }
+
+    ageCount(days) {
+        const national = this.state.boardMode === "national";
+        return this.state.records.filter((r) =>
+            !!r.is_national === national && (r.days_in_stage || 0) >= days).length;
+    }
+
+    _daysLabel(days) {
+        const d = Number(days || 0);
+        return d === 1 ? "1 día" : `${d} días`;
+    }
+
+    ageClass(card) {
+        const d = Number(card.days_in_stage || 0);
+        if (d >= 30) return "tk-age--late";
+        if (d >= 15) return "tk-age--warn";
+        if (d >= 7) return "tk-age--mid";
+        return "tk-age--ok";
+    }
+
+    _cardColumn(card) {
+        if (card.custom_status === "delivered" && card.labeling_status === "labeled") {
+            return this.activeStages.find((s) => s.key === "labeled_done");
+        }
+        const map = this.state.boardMode === "national" ? NATIONAL_STAGE_MAP : STAGE_MAP;
+        return map[card.custom_status];
+    }
+
+    ageMainLabel(card) {
+        const col = this._cardColumn(card);
+        return `${this._daysLabel(card.days_in_stage)} en ${col ? col.label : "este estatus"}`;
+    }
+
+    ageTitle(card) {
+        const col = this._cardColumn(card);
+        const since = card.stage_since ? ` (desde el ${this._fmtDate(card.stage_since)})` : "";
+        return `Lleva ${this._daysLabel(card.days_in_stage)} en ${col ? col.label : "este estatus"}${since}. `
+            + `Solicitado hace ${this._daysLabel(card.days_since_request)}.`;
+    }
+
+    // Días desde que ENTRÓ a cada etapa ya alcanzada (sin la actual, que ya
+    // la dice la etiqueta principal): Solicitado · Booking · Mar · ...
+    ageMilestones(card) {
+        const stageDays = card.stage_days || {};
+        const current = this._cardColumn(card);
+        const out = [];
+        for (const s of this.activeStages) {
+            if (s.virtual || !(s.key in stageDays)) continue;
+            if (current && current.key === s.key) continue;
+            out.push({
+                key: s.key,
+                label: s.key === "solicitud" ? "Solicitado" : s.label,
+                days: stageDays[s.key],
+                title: `${s.key === "solicitud" ? "Solicitado" : "Entró a " + s.label} hace ${this._daysLabel(stageDays[s.key])}`,
+            });
+        }
+        return out;
     }
 
     onSearch(ev) {

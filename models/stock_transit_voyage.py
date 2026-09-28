@@ -1528,6 +1528,102 @@ class StockTransitVoyage(models.Model):
             })
         return {'voyages': out}
 
+    # ── Antigüedad por etapa (tarjetas de Viajes y Contenedores) ──────────
+    # Cada estatus cae en una COLUMNA del tablero; los días se cuentan por
+    # columna (Solicitud y Producción son "Ordenado", etc.).
+    TK_STATUS_GROUP = {
+        'solicitud': 'solicitud', 'production': 'solicitud',
+        'booking': 'booking', 'puerto_origen': 'booking',
+        'on_sea': 'on_sea',
+        'puerto_destino': 'puerto_destino', 'arrived_port': 'puerto_destino',
+        'reception_pending': 'delivered', 'delivered': 'delivered',
+    }
+    TK_GROUP_ORDER = ('solicitud', 'booking', 'on_sea', 'puerto_destino', 'delivered')
+
+    def _tk_stage_timeline(self, voyages):
+        """{viaje: fechas de entrada a cada columna + días en la actual}.
+
+        Fuente: el historial de `custom_status` (tracking=True, guarda la
+        ETIQUETA del estatus). Respaldo cuando no hay historial: creación
+        del viaje (Ordenado), ETD (Salida a mar), llegada (Puerto destino),
+        recepción pendiente (Entrega) y etiquetado (Etiquetados)."""
+        result = {}
+        if not voyages:
+            return result
+        today = fields_module.Date.context_today(self)
+        selection = self._fields['custom_status']._description_selection(self.env)
+        key_by_label = {}
+        for key, label in selection:
+            key_by_label[(label or '').strip().lower()] = key
+            key_by_label[key] = key
+
+        def to_group(value):
+            key = key_by_label.get((value or '').strip().lower())
+            return self.TK_STATUS_GROUP.get(key) if key else None
+
+        def local_date(dt):
+            return fields_module.Datetime.context_timestamp(self, dt).date() if dt else None
+
+        rows_by_voyage = {}
+        field = self.env['ir.model.fields']._get(self._name, 'custom_status')
+        if field:
+            self.env.cr.execute("""
+                SELECT mm.res_id, mm.date, tv.old_value_char, tv.new_value_char
+                  FROM mail_tracking_value tv
+                  JOIN mail_message mm ON mm.id = tv.mail_message_id
+                 WHERE tv.field_id = %s AND mm.model = %s AND mm.res_id IN %s
+                 ORDER BY mm.date, tv.id
+            """, (field.id, self._name, tuple(voyages.ids)))
+            for res_id, date, old, new in self.env.cr.fetchall():
+                rows_by_voyage.setdefault(res_id, []).append((date, to_group(old), to_group(new)))
+
+        for v in voyages:
+            first_entry = {}
+            last_entry = {}
+            for date, old_group, new_group in rows_by_voyage.get(v.id, []):
+                if not new_group or new_group == old_group:
+                    continue
+                first_entry.setdefault(new_group, date)
+                last_entry[new_group] = date
+
+            since = {g: local_date(d) for g, d in first_entry.items()}
+            created = local_date(v.create_date)
+            since.setdefault('solicitud', created)
+            current_group = self.TK_STATUS_GROUP.get(v.custom_status)
+            reached = self.TK_GROUP_ORDER.index(current_group) if current_group in self.TK_GROUP_ORDER else -1
+            fallbacks = {
+                'on_sea': v.etd,
+                'puerto_destino': v.arrival_date,
+                'delivered': local_date(v.tc_reception_pending_at),
+            }
+            for idx, group in enumerate(self.TK_GROUP_ORDER):
+                if idx <= reached and group not in since and fallbacks.get(group) \
+                        and fallbacks[group] <= today:
+                    # Viajes migrados traen ETD anterior a su alta en el
+                    # sistema: ninguna etapa arranca antes de la solicitud.
+                    since[group] = max(fallbacks[group], created) if created else fallbacks[group]
+            # Solo etapas alcanzadas: un viaje regresado a Booking no
+            # presume días "en mar".
+            since = {g: d for g, d in since.items()
+                     if d and self.TK_GROUP_ORDER.index(g) <= max(reached, 0)}
+
+            current_since = local_date(last_entry.get(current_group)) or since.get(current_group) or created
+            stage_key = current_group
+            if v.custom_status == 'delivered' and v.tc_labeling_status == 'labeled' and v.tc_labeled_at:
+                current_since = local_date(v.tc_labeled_at)
+                stage_key = 'labeled_done'
+
+            result[v.id] = {
+                'stage_key': stage_key,
+                'stage_since': current_since.isoformat() if current_since else False,
+                'days_in_stage': (today - current_since).days if current_since else 0,
+                'days_since_request': (today - created).days if created else 0,
+                'stage_days': {
+                    g: (today - d).days for g, d in since.items()
+                },
+            }
+        return result
+
     @api.model
     def tk_get_kanban_records(self):
         """Tarjetas del kanban Viajes y Contenedores en UNA llamada.
@@ -1573,11 +1669,18 @@ class StockTransitVoyage(models.Model):
             if sh.shipment_type == 'land':
                 land_voyage_ids.add(sh.voyage_id.id)
 
+        timeline = self._tk_stage_timeline(voyages)
+
         out = []
         for v in voyages:
             po = v.purchase_id
             supplier = v.tc_supplier_id
+            ages = timeline.get(v.id, {})
             out.append({
+                'days_in_stage': ages.get('days_in_stage', 0),
+                'stage_since': ages.get('stage_since', False),
+                'days_since_request': ages.get('days_since_request', 0),
+                'stage_days': ages.get('stage_days', {}),
                 'id': v.id,
                 'name': v.name or '',
                 'custom_status': v.custom_status,

@@ -1182,3 +1182,86 @@ $tk-ease:          cubic-bezier(.22, .61, .36, 1);
     overflow:  hidden;
     text-overflow: ellipsis;
 }
+
+// ============================================================================
+// Antigüedad por etapa (siempre visible en la tarjeta) — 28 sep 2026
+// Color por días en el estatus actual: <7 verde · 7-14 azul · 15-29 ámbar · 30+ rojo.
+// ============================================================================
+
+.tk-card__ages {
+    display:     flex;
+    flex-wrap:   wrap;
+    align-items: center;
+    gap:         4px 6px;
+    margin:      6px 0 2px;
+}
+
+.tk-age {
+    display:       inline-flex;
+    align-items:   center;
+    gap:           5px;
+    padding:       2px 8px;
+    border-radius: $tk-radius-pill;
+    font-size:     11px;
+    font-weight:   700;
+    white-space:   nowrap;
+    border:        1px solid transparent;
+
+    &.tk-age--ok   { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+    &.tk-age--mid  { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+    &.tk-age--warn { background: #fffbeb; color: #b45309; border-color: #fde68a; }
+    &.tk-age--late { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+}
+
+.tk-age-step {
+    font-size:   10.5px;
+    color:       #64748b;
+    white-space: nowrap;
+
+    b { color: #334155; }
+}
+
+.tk-age-filter {
+    display:       inline-flex;
+    align-items:   center;
+    gap:           4px;
+    padding:       3px 6px 3px 10px;
+    border:        1px solid #e2e8f0;
+    border-radius: $tk-radius-pill;
+    background:    #fff;
+    color:         #64748b;
+    font-size:     11.5px;
+}
+
+.tk-age-filter__btn {
+    display:       inline-flex;
+    align-items:   center;
+    gap:           5px;
+    border:        0;
+    background:    transparent;
+    color:         #334155;
+    font-weight:   700;
+    padding:       5px 9px;
+    border-radius: $tk-radius-pill;
+    cursor:        pointer;
+    white-space:   nowrap;
+
+    &:hover { background: #f1f5f9; }
+
+    &.tk-age-filter__btn--on {
+        background: #b91c1c;
+        color:      #fff;
+
+        .tk-age-filter__count { background: rgba(255, 255, 255, .25); color: #fff; }
+    }
+}
+
+.tk-age-filter__count {
+    min-width:     18px;
+    padding:       0 5px;
+    border-radius: $tk-radius-pill;
+    background:    #f1f5f9;
+    color:         #475569;
+    font-size:     10.5px;
+    text-align:    center;
+}
