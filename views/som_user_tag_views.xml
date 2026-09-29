@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- ETIQUETAS DE USUARIO: columna y filtro en la lista de usuarios,
+         campo en el formulario y catálogo en Ajustes → Usuarios. Solo las
+         ve y edita quien administra usuarios (base.group_erp_manager). -->
+
+    <record id="view_som_user_tag_list" model="ir.ui.view">
+        <field name="name">som.user.tag.list</field>
+        <field name="model">som.user.tag</field>
+        <field name="arch" type="xml">
+            <list string="Etiquetas de usuario" editable="bottom">
+                <field name="name"/>
+                <field name="color" widget="color_picker"/>
+                <field name="user_count"/>
+                <field name="active" column_invisible="True"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="view_som_user_tag_search" model="ir.ui.view">
+        <field name="name">som.user.tag.search</field>
+        <field name="model">som.user.tag</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <filter name="inactive" string="Archivadas"
+                        domain="[('active', '=', False)]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="action_som_user_tag" model="ir.actions.act_window">
+        <field name="name">Etiquetas de usuario</field>
+        <field name="res_model">som.user.tag</field>
+        <field name="view_mode">list</field>
+    </record>
+
+    <menuitem id="menu_som_user_tag"
+              name="Etiquetas de usuario"
+              parent="base.menu_users"
+              action="action_som_user_tag"
+              groups="base.group_erp_manager"
+              sequence="2"/>
+
+    <!-- Lista de usuarios: columna de etiquetas (la vista base es corta y
+         estable; se ancla al campo login de primer nivel). -->
+    <record id="view_users_tree_som_tags" model="ir.ui.view">
+        <field name="name">res.users.list.som.tags</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//list/field[@name='login']" position="after">
+                <field name="som_tag_ids" widget="many2many_tags"
+                       options="{'color_field': 'color'}"
+                       optional="show"
+                       groups="base.group_erp_manager"/>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="view_users_search_som_tags" model="ir.ui.view">
+        <field name="name">res.users.search.som.tags</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//search" position="inside">
+                <field name="som_tag_ids" string="Etiqueta"
+                       groups="base.group_erp_manager"/>
+                <filter name="groupby_som_tag" string="Etiqueta"
+                        context="{'group_by': 'som_tag_ids'}"
+                        groups="base.group_erp_manager"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Formulario: debajo del teléfono (h5 con name propio; el form de
+         usuario cambia entre builds, no anclar por posición). -->
+    <record id="view_users_form_som_tags" model="ir.ui.view">
+        <field name="name">res.users.form.som.tags</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//h5[@name='h5_phone']" position="after">
+                <field name="som_tag_ids" widget="many2many_tags"
+                       options="{'color_field': 'color', 'no_create_edit': True}"
+                       placeholder="Etiquetas de usuario"
+                       groups="base.group_erp_manager"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
