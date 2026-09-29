@@ -530,10 +530,10 @@ export class TransitAllocation extends Component {
         this.dialog.add(ConfirmationDialog, {
             title: "Cerrar pico",
             body:
-                `${line.product_name} (${line.so_name}): el Solicitado del pedido ` +
-                `se ajustará a lo ASIGNADO (baja el pico pendiente de ` +
-                `${pending.toFixed(2)} ${line.unit_label || ""}) y esta demanda ` +
-                `desaparecerá de Transit Allocation. ¿Confirmas?`,
+                `${line.product_name} (${line.so_name}): el pico pendiente de ` +
+                `${pending.toFixed(2)} ${line.unit_label || ""} dejará de aparecer ` +
+                `en Transit Allocation y en To Be Purchased. El Solicitado del ` +
+                `pedido NO cambia. ¿Confirmas?`,
             confirmLabel: "Cerrar pico",
             cancelLabel: "Cancelar",
             confirm: async () => {
@@ -544,7 +544,7 @@ export class TransitAllocation extends Component {
                         [line.id]
                     );
                     this.notification.add(
-                        `Pico cerrado: solicitado ${result.qty_before.toFixed(2)} → ${result.qty_after.toFixed(2)}`,
+                        `Pico cerrado (${(result.closed_qty || 0).toFixed(2)}): el solicitado se queda en ${result.qty_after.toFixed(2)}`,
                         { type: "success" }
                     );
                     await this.loadData();

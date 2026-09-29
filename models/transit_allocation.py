@@ -938,14 +938,15 @@ class TransitAllocationLogic(models.AbstractModel):
 
     @api.model
     def close_line_demand(self, sale_line_id, reason=False):
-        """Cierra el PICO de una línea desde Transit Allocation: iguala el
-        Solicitado del pedido a lo efectivamente ASIGNADO (aunque baje) para
-        matar la demanda residual del hub.
+        """Cierra el PICO de una línea desde Transit Allocation: la demanda
+        residual deja de aparecer en los tableros SIN tocar el Solicitado
+        del pedido (29 sep 2026, pedido del usuario: antes igualaba el
+        Solicitado a lo asignado y bajaba la venta).
 
-        Es el mismo ajuste forzado de 'Ajustar cantidad a la selección',
-        pero apagando antes 'Mandar a pedir' (esa demanda manual nunca baja
-        sola por placas) — que es justo el modo típico de las líneas que
-        viven en este tablero."""
+        Usa el cierre administrativo existente ('Liquidar sin ajustar
+        cantidad'): marca tc_assignment_closed, que excluye la línea de
+        Transit Allocation y To Be Purchased. Se reabre con 'Reabrir
+        pendiente' de la línea o al cambiar su cantidad/placas."""
         if not (
             self.env.user.has_group('sales_team.group_sale_salesman')
             or self.env.user.has_group('purchase.group_purchase_user')
@@ -958,53 +959,18 @@ class TransitAllocationLogic(models.AbstractModel):
         if line.state not in ('sale', 'done'):
             raise UserError(_('Solo se pueden cerrar líneas de pedidos confirmados.'))
 
-        rounding = line._tc_get_qty_rounding() if hasattr(line, '_tc_get_qty_rounding') else 0.0001
-        assigned = line._tc_get_assigned_lot_qty() if hasattr(line, '_tc_get_assigned_lot_qty') else 0.0
-        before = line.product_uom_qty or 0.0
-
-        if float_compare(assigned, 0.0, precision_rounding=rounding) <= 0:
-            raise UserError(_(
-                'La línea no tiene nada asignado: cerrar dejaría el pedido '
-                'en 0. Asigna material primero o elimina la línea desde el '
-                'pedido.'))
-
-        if float_compare(assigned, before, precision_rounding=rounding) >= 0:
-            raise UserError(_(
-                'La línea no tiene pico que cerrar: lo asignado ya cubre '
-                'lo solicitado.'))
-
-        # 1) Apagar 'Mandar a pedir': su demanda manual nunca baja por
-        #    placas y bloquearía el ajuste hacia abajo.
-        if 'auto_transit_assign' in line._fields and line.auto_transit_assign:
-            line.with_context(skip_tc_stock_cap=True).write(
-                {'auto_transit_assign': False})
-
-        # 2) Ajuste forzado: Solicitado = Asignado (saca también del modo
-        #    'Asignar' si estaba activo). Idempotente si el paso 1 ya bajó.
-        line.with_context(
-            tc_force_qty_to_selection=True,
-            skip_tc_stock_cap=True,
-        )._tc_sync_requested_qty_from_lots()
-
-        after = line.product_uom_qty or 0.0
-
-        if hasattr(line, '_tc_post_plain_message'):
-            line._tc_post_plain_message(
-                _('✂️ Pico cerrado desde Transit Allocation'),
-                [
-                    _('Producto: %s') % (line.product_id.display_name or ''),
-                    _('Solicitado anterior: %.3f') % before,
-                    _('Solicitado actual: %.3f') % after,
-                    _('Asignado: %.3f') % assigned,
-                    _('Motivo: %s') % (reason or 'Cierre de demanda residual.'),
-                ],
-            )
+        requested = line.product_uom_qty or 0.0
+        pending = line._tc_get_raw_pending_allocation_qty()
+        line.action_tc_close_allocation_short(
+            reason=reason or _('Pico cerrado desde Transit Allocation'),
+            closure_action='settle',
+        )
 
         return {
             'success': True,
-            'qty_before': before,
-            'qty_after': after,
-            'assigned': assigned,
+            'qty_before': requested,
+            'qty_after': line.product_uom_qty or 0.0,
+            'closed_qty': pending,
         }
 
     @api.model
