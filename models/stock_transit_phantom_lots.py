@@ -45,7 +45,7 @@ class StockTransitLinePhantom(models.Model):
         string='Liquidada el', readonly=True, copy=False)
     tc_reception_state = fields.Selection(
         selection_add=[('liquidated', 'No llegó (liquidada)')],
-        ondelete={'liquidated': 'set default'})
+        ondelete={'liquidated': 'set null'})
 
     @api.depends('tc_liquidated')
     def _compute_tc_reception_state(self):
