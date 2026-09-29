@@ -39,3 +39,4 @@ from . import som_user_permission_log
 from . import tc_physical_pl_job
 from . import stock_move_voyage_reservation
 from . import tbp_line_note
+from . import stock_transit_phantom_lots

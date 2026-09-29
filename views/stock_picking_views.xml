@@ -48,6 +48,13 @@
                         groups="stock.group_stock_user"
                         invisible="not tc_reception_voyage_id or state in ('done', 'cancel')"
                         confirm="CERRAR LA DEMANDA del embarque: el material que aún no llega quedará CANCELADO y el embarque se dará por terminado. Esta es la ÚNICA forma de matar el pendiente — ¿confirmas?"/>
+                <field name="tc_phantom_lot_count" invisible="1"/>
+                <button name="action_tc_liquidate_phantom_lots"
+                        type="object" string="✂ Liquidar tarimas no llegadas"
+                        class="btn-warning"
+                        groups="stock.group_stock_user"
+                        invisible="not tc_phantom_lot_count or state != 'done'"
+                        confirm="¿Liquidar las tarimas que NO llegaron?&#10;&#10;Las tarimas de este embarque que siguen en tránsito sin recibirse se darán de baja: se cancelan sus apartados, salen de las ventas (el Solicitado NO cambia), su existencia en tránsito se ajusta a 0 y los lotes se archivan.&#10;&#10;Úsalo cuando llegó el metraje en menos paquetes o esas tarimas no van a llegar. Queda registrado con tu usuario y se revierte con Reabrir demanda cerrada."/>
                 <button name="action_print_reception_labels"
                         string="7. Imprimir Etiquetas"
                         type="object"

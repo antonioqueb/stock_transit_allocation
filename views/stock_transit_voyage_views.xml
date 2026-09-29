@@ -151,6 +151,13 @@
                             class="btn-warning"
                             invisible="not tc_reception_has_pending"
                             confirm="¿Cerrar el PENDIENTE de recepción de este embarque?&#10;&#10;Se cancelará la recepción abierta y el embarque quedará ENTREGADO solo con lo ya recibido. Lo no recibido NO entrará al inventario.&#10;&#10;Esta acción queda registrada con tu usuario."/>
+                    <field name="tc_phantom_lot_count" invisible="1"/>
+                    <button name="action_tc_liquidate_phantom_lots"
+                            type="object" string="✂ Liquidar tarimas no llegadas"
+                            class="btn-warning"
+                            groups="stock.group_stock_user"
+                            invisible="not tc_phantom_lot_count"
+                            confirm="¿Liquidar las tarimas que NO llegaron?&#10;&#10;Las tarimas de este embarque que siguen en tránsito sin recibirse se darán de baja: se cancelan sus apartados, salen de las ventas (el Solicitado NO cambia), su existencia en tránsito se ajusta a 0 y los lotes se archivan.&#10;&#10;Úsalo cuando llegó el metraje en menos paquetes o esas tarimas no van a llegar. Queda registrado con tu usuario y se revierte con Reabrir demanda cerrada."/>
 
                     <!-- Flujo post-entrega: imprimir (pone solo "En
                          Impresión") y el CHECK manual de etiquetado. -->
