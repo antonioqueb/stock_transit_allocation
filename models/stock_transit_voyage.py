@@ -3216,10 +3216,7 @@ class StockTransitVoyage(models.Model):
         ], order='id desc', limit=1)
 
         if picking:
-            self.write({
-                'reception_picking_id': picking.id,
-                'custom_status': 'reception_pending',
-            })
+            self.write(self._tc_reception_link_vals(picking))
 
             if not self._tc_reception_has_locked_physical_work(picking):
                 # Mismo guard de cadena: un backorder re-adoptado por la
@@ -3262,10 +3259,7 @@ class StockTransitVoyage(models.Model):
             self._tc_reception_safe_context()
         ).with_company(self.company_id).create(vals)
 
-        self.write({
-            'reception_picking_id': picking.id,
-            'custom_status': 'reception_pending',
-        })
+        self.write(self._tc_reception_link_vals(picking))
 
         self._sync_reception_picking_lines(
             picking,
@@ -3273,6 +3267,17 @@ class StockTransitVoyage(models.Model):
         )
 
         return self._tc_open_reception_action(picking)
+
+    def _tc_reception_link_vals(self, picking):
+        """Liga la recepción física al viaje. Con `tc_keep_status` (flujo del
+        portal al completar la captura) el estatus NO se mueve: el documento
+        nace, pero el barco sigue en su etapa. Antes solo la rama de recepción
+        existente lo respetaba y las creadas/adoptadas aquí brincaban el viaje
+        a Recepción (C198 / EMBARQUE/2026/0195 nació en Entrega en Sitio)."""
+        vals = {'reception_picking_id': picking.id}
+        if not self.env.context.get('tc_keep_status'):
+            vals['custom_status'] = 'reception_pending'
+        return vals
 
     def action_sync_reception_from_voyage(self):
         self.ensure_one()
