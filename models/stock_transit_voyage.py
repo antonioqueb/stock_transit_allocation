@@ -823,11 +823,15 @@ class StockTransitVoyage(models.Model):
         if date_discharge:
             vals['eta'] = date_discharge
 
-        no_more_coordinates = current_location is None
-        is_completed = int(transit_pct) >= 100
+        # Arribo SOLO cuando la API lo dice (ARRIVED/DISCHARGED o 100 %).
+        # "Sin coordenadas" NO es llegada: un tracking recién creado (NEW /
+        # INPROGRESS) o un transbordo no traen posición, y antes eso marcaba
+        # Arribo y apagaba el sync con el barco a medio camino (0015 al 59 %,
+        # 0174 recién creado) — el ETA se quedaba congelado.
+        is_completed = self._shipsgo_status_is_arrived(status_text, transit_pct)
 
         if (
-            (is_completed or no_more_coordinates)
+            is_completed
             and self.custom_status not in ('arrived_port', 'reception_pending', 'delivered', 'cancel')
         ):
             vals['custom_status'] = 'arrived_port'
@@ -4282,10 +4286,39 @@ class StockTransitVoyage(models.Model):
 
         return bool(has_container)
 
+    SHIPSGO_ARRIVED_STATUSES = ('ARRIVED', 'DISCHARGED')
+
+    @api.model
+    def _shipsgo_status_is_arrived(self, status, transit_pct):
+        return (str(status or '').upper() in self.SHIPSGO_ARRIVED_STATUSES
+                or int(transit_pct or 0) >= 100)
+
+    def _shipsgo_tracking_finished(self):
+        """El ETA deja de moverse cuando la API ya reportó la llegada del
+        MISMO contenedor que hoy tiene el viaje. Manda la API, no el estatus
+        del tablero: un viaje puesto en Recepción (a mano o por el portal)
+        con el barco en altamar sigue actualizando su ETA."""
+        self.ensure_one()
+        try:
+            payload = json.loads(self.shipsgo_payload or '{}')
+        except (TypeError, ValueError):
+            return False
+        if not self._shipsgo_status_is_arrived(
+                payload.get('status'), payload.get('transit_pct')):
+            return False
+        container = self._normalize_container_number(payload.get('container') or '')
+        current = self._normalize_container_number(self.container_number or '')
+        return bool(container) and container in current
+
+    def _shipsgo_sync_candidate(self):
+        self.ensure_one()
+        return (self.custom_status not in ('delivered', 'cancel')
+                and not self._shipsgo_tracking_finished())
+
     def _needs_shipsgo_sync(self):
         self.ensure_one()
 
-        if self.custom_status in ('arrived_port', 'reception_pending', 'delivered', 'cancel'):
+        if not self._shipsgo_sync_candidate():
             return False
 
         if not self.shipsgo_last_sync:
@@ -4297,10 +4330,12 @@ class StockTransitVoyage(models.Model):
     @api.model
     def action_cron_sync_shipsgo(self):
         voyages = self.search([
-            ('custom_status', 'not in', ['arrived_port', 'reception_pending', 'delivered', 'cancel']),
+            ('custom_status', 'not in', ['delivered', 'cancel']),
         ])
 
         for voyage in voyages:
+            if not voyage._shipsgo_sync_candidate():
+                continue
             if not voyage._has_valid_container():
                 continue
 
