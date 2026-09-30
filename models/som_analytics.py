@@ -2178,8 +2178,8 @@ class SomAnalytics(models.AbstractModel):
             SELECT state, COUNT(*) FROM workshop_order
             WHERE state != 'cancel' {co} GROUP BY 1
         """.format(co=_cow))
-        labels = {'draft': 'Borrador', 'in_workshop': 'En taller',
-                  'done': 'Terminada'}
+        labels = {'draft': 'Borrador', 'confirmed': 'Confirmada',
+                  'in_workshop': 'En taller', 'done': 'Terminada'}
         states = [{'state': labels.get(a, a), 'count': b}
                   for (a, b) in by_state]
 

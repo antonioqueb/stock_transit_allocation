@@ -705,7 +705,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
                 order = line.order_id
                 if order.state == 'in_workshop':
                     result.add(line.lot_id.id)
-                elif (order.sale_order_id and order.state == 'draft'
+                elif (order.sale_order_id and order.state in ('draft', 'confirmed')
                         and line.state in ('pending', 'reserved_for_workshop', 'in_progress')):
                     result.add(line.lot_id.id)
         if 'sale.stone.workshop.input.selection' in self.env:
