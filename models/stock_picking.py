@@ -876,6 +876,71 @@ class StockPicking(models.Model):
 
         return res
 
+    def _som_guard_transit_reception_validate(self):
+        """CANDADO del Validar MANUAL en recepciones a tránsito (C207,
+        1 oct 2026).
+
+        El candado C142 solo protegía la validación automática del portal.
+        En SOM/IN/00345 el PL estaba procesado completo (239 placas), el
+        renglón de TRAVERTINO quedó marcado como 'picked' y el de IMPERIAL
+        SILK no: al validar a mano el core procesó solo lo marcado y CANCELÓ
+        el otro producto sin backorder — 109 placas (569.72 m²) y un
+        contenedor entero fuera de tránsito, con la OC en 0 recibido.
+
+        En una recepción a tránsito el PL manda: toda placa cargada entra.
+        1) Marcado parcial: si algún renglón está marcado, se marcan todos
+           los que traen placas (jamás se cancela material capturado).
+        2) Producto con demanda y SIN placas, cuando otros sí traen: se
+           bloquea; validar así lo cancelaría."""
+        if self.env.context.get('som_allow_uncovered_transit_reception'):
+            return
+        for pick in self:
+            if pick.picking_type_code != 'incoming' \
+                    or pick.state in ('done', 'cancel'):
+                continue
+            dest = pick.location_dest_id
+            if not dest or not dest._som_is_transit():
+                continue
+            if pick.location_id.usage == 'customer' \
+                    or ('return_id' in pick._fields and pick.return_id):
+                continue
+
+            moves = pick.move_ids.filtered(
+                lambda m: m.state not in ('done', 'cancel'))
+            with_qty = moves.filtered(
+                lambda m: sum(m.move_line_ids.mapped('quantity')) > 0)
+            if not with_qty:
+                continue
+
+            unpicked = with_qty.filtered(lambda m: not m.picked)
+            if unpicked and len(unpicked) != len(with_qty):
+                unpicked.write({'picked': True})
+                _logger.info(
+                    "[TC_GUARD] %s: marcado parcial al validar; se marcan "
+                    "también %s (el PL manda).", pick.name,
+                    ', '.join(unpicked.mapped('product_id.display_name')))
+
+            uncovered = (moves - with_qty).filtered(
+                lambda m: float_compare(
+                    m.product_uom_qty or 0.0, 0.0,
+                    precision_rounding=m.product_uom.rounding or 0.01) > 0)
+            if uncovered:
+                raise UserError(_(
+                    'No se puede validar %(pick)s: el Packing List no trae '
+                    'placas para %(detail)s.\n\n'
+                    'Validar así CANCELARÍA ese material (sin backorder) y '
+                    'no entraría a tránsito.\n\n'
+                    'Revisa el PL en el portal (filas/contenedores de ese '
+                    'producto) y vuelve a procesarlo. Si ese producto no '
+                    'viene en este embarque, quítalo del PL para que su '
+                    'demanda quede en 0.') % {
+                        'pick': pick.name,
+                        'detail': '; '.join(
+                            '%s (demanda %.2f)' % (
+                                m.product_id.display_name, m.product_uom_qty)
+                            for m in uncovered),
+                    })
+
     def button_validate(self):
         """
         Validación protegida para recepción física.
@@ -887,6 +952,8 @@ class StockPicking(models.Model):
         Además, cuando la recepción física se valida, se pasan los lotes
         preasignados desde Torre de Control hacia la entrega del pedido.
         """
+        self._som_guard_transit_reception_validate()
+
         physical_voyage_by_pick = {}
 
         for pick in self:
