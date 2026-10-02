@@ -2615,7 +2615,8 @@ class SaleOrderLine(models.Model):
         APAGAR 'Mandar a pedir' (sin tocar placas en el mismo write) también
         entra por el camino forzado desde write(): la cantidad manual solo vive
         mientras el modo está activo, así que el Solicitado regresa a lo
-        asignado (0 asignado => 0 solicitado).
+        asignado. Sin placas asignadas el Solicitado se conserva: jamás baja
+        a 0 por no tener selección.
         """
         force = self.env.context.get('tc_force_qty_to_selection')
         over_action = self.env.context.get('tc_over_assignment_action')
@@ -2711,6 +2712,18 @@ class SaleOrderLine(models.Model):
             # salvo en 'Mandar a pedir', cuya demanda manual solo crece (ratchet)
             # y nunca baja por las placas.
             allow_force_down = force and not line.auto_transit_assign
+
+            # SIN PLACAS NO HAY SELECCIÓN A LA CUAL AJUSTAR (V/1205, 1 oct
+            # 2026): al borrar la selección y apagar 'Mandar a pedir', el
+            # ajuste forzado igualaba el Solicitado a lo asignado = 0 y la
+            # venta confirmada se quedaba sin cantidad. Lo vendido se
+            # conserva; solo se baja contra una selección real.
+            if allow_force_down and float_compare(
+                    assigned_qty, 0.0, precision_rounding=rounding) <= 0:
+                _logger.info(
+                    '[TC_RATCHET] línea %s: sin placas asignadas; el '
+                    'Solicitado (%.4f) se conserva', line.id, current_qty)
+                allow_force_down = False
 
             if allow_force_down:
                 target_qty = assigned_qty
