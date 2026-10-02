@@ -56,3 +56,4 @@ access_tbp_line_note_purchase,tbp.line.note purchase,model_tbp_line_note,purchas
 access_tbp_line_note_manager,tbp.line.note purchase manager,model_tbp_line_note,purchase.group_purchase_manager,1,1,1,1
 access_som_user_tag_manager,som.user.tag manager,model_som_user_tag,base.group_erp_manager,1,1,1,1
 access_som_user_tag_user,som.user.tag user,model_som_user_tag,base.group_user,1,0,0,0
+access_tc_portal_regen_confirm,tc.portal.regen.confirm,model_tc_portal_regen_confirm,base.group_user,1,1,1,1

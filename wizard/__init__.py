@@ -7,3 +7,4 @@ from . import packing_list_import_wizard
 from . import worksheet_import_wizard
 from . import transit_label_print_wizard
 from . import tc_partial_reception_confirm
+from . import tc_portal_regen_confirm

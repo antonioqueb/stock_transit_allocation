@@ -27,6 +27,23 @@ class SupplierShipment(models.Model):
         related='proforma_id.company_id', store=True, readonly=True, index=True,
     )
 
+    # REGENERACIÓN DE LIGA (embarque echado atrás desde Torre de Control).
+    # DUPLICADO INTENCIONAL con stock_lot_packing_import (patrón _name duplicado).
+    som_requires_purchase_validation = fields.Boolean(
+        string='Requiere validación de Compras', copy=False,
+        help='El embarque se regresó al proveedor para corregir el packing '
+             'list. Al volver a completar el portal, el PL se procesa pero '
+             'la recepción a tránsito NO se valida sola: la valida Compras.',
+    )
+    som_regen_count = fields.Integer(
+        string='Veces regenerado', copy=False, default=0)
+    som_regen_lot_ids = fields.Many2many(
+        'stock.lot', 'supplier_shipment_regen_lot_rel',
+        'shipment_id', 'lot_id', string='Lotes a reutilizar', copy=False,
+        help='Lotes de la recepción devuelta: al reprocesar el PL se '
+             'reutilizan (mismo folio) en lugar de crear lotes nuevos.',
+    )
+
     sequence = fields.Integer(string='Secuencia', default=10)
     name = fields.Char(
         string='Referencia', required=True, copy=False,
