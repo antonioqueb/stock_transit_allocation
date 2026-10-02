@@ -28,6 +28,10 @@ export class ToBePurchased extends Component {
             // Filtro por referencia de cliente: 'all' (mixto, default) |
             // 'with' (solo con referencia) | 'without' (solo sin referencia).
             refFilter: "all",
+            // Revisión de Compras: 'pending' (No revisado, default) |
+            // 'reviewed' (Revisado) | 'all'.
+            reviewFilter: "pending",
+            reviewing: {},
             showOnlyPending: true,
             groupBy: "product", // product | sale_order | vendor | salesperson | customer | unit_type
 
@@ -157,6 +161,24 @@ export class ToBePurchased extends Component {
                     const hasRef = !!(line.client_ref || "").trim();
                     return refMode === "with" ? hasRef : !hasRef;
                 });
+                if (keptLines.length === 0) {
+                    return null;
+                }
+                if (keptLines.length === allLines.length) {
+                    return product;
+                }
+                return this._productWithLines(product, keptLines);
+            }).filter((product) => product !== null);
+        }
+
+        // Revisado / No revisado (marca de Compras por línea).
+        const reviewMode = this.state.reviewFilter;
+        if (reviewMode === "pending" || reviewMode === "reviewed") {
+            result = result.map((product) => {
+                const allLines = product.so_lines || [];
+                const keptLines = allLines.filter((line) =>
+                    reviewMode === "reviewed" ? !!line.tbp_reviewed : !line.tbp_reviewed
+                );
                 if (keptLines.length === 0) {
                     return null;
                 }
@@ -740,6 +762,41 @@ export class ToBePurchased extends Component {
     setRefFilter(mode) {
         this.state.refFilter = mode;
         this.applyFilters();
+    }
+
+    setReviewFilter(mode) {
+        this.state.reviewFilter = mode;
+        this.applyFilters();
+    }
+
+    reviewedTitle(line) {
+        if (!line || !line.tbp_reviewed) {
+            return "Marcar como revisado";
+        }
+        const who = [line.tbp_reviewed_user, line.tbp_reviewed_date].filter(Boolean).join(" · ");
+        return "Revisado" + (who ? " — " + who : "") + ". Clic para desmarcar.";
+    }
+
+    async toggleReviewed(line, ev) {
+        if (ev) {
+            ev.stopPropagation();
+        }
+        if (!line || this.state.reviewing[line.id]) {
+            return;
+        }
+        this.state.reviewing[line.id] = true;
+        try {
+            const payload = await this.orm.call(
+                "purchase.manager.logic",
+                "set_tbp_reviewed",
+                [line.id, !line.tbp_reviewed],
+            );
+            this._applyNotePayload(line.id, payload);
+        } catch (error) {
+            this._noteError("No se pudo marcar la revisión: ", error);
+        } finally {
+            this.state.reviewing[line.id] = false;
+        }
     }
 
     setGroupBy(mode) {

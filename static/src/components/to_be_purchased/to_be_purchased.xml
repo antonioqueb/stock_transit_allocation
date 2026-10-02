@@ -40,6 +40,25 @@
                     </button>
                 </div>
 
+                <!-- Revisión de Compras: abre en No revisado. -->
+                <div class="o_tbp_group_buttons" title="Filtro por revisión de Compras">
+                    <button t-attf-class="o_tbp_group_btn #{state.reviewFilter === 'pending' ? 'active' : ''}"
+                            t-on-click="() => this.setReviewFilter('pending')"
+                            title="Solo líneas que Compras aún no revisa">
+                        <i class="fa fa-square-o me-1"/> No revisado
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.reviewFilter === 'reviewed' ? 'active' : ''}"
+                            t-on-click="() => this.setReviewFilter('reviewed')"
+                            title="Solo líneas ya revisadas por Compras">
+                        <i class="fa fa-check-square-o me-1"/> Revisado
+                    </button>
+                    <button t-attf-class="o_tbp_group_btn #{state.reviewFilter === 'all' ? 'active' : ''}"
+                            t-on-click="() => this.setReviewFilter('all')"
+                            title="Revisadas y no revisadas">
+                        <i class="fa fa-th-large me-1"/> Ambos
+                    </button>
+                </div>
+
                 <button t-attf-class="o_tbp_filter_btn #{state.showOnlyPending ? 'active' : ''}"
                         t-on-click="togglePendingFilter">
                     <i t-attf-class="fa #{state.showOnlyPending ? 'fa-filter' : 'fa-list'} me-1"/>
@@ -981,6 +1000,13 @@
                     t-att-title="this.tbpNoteTitle(line)"
                     t-on-click="(ev) => this.openNote(line, ev)">
                 <i class="fa fa-info-circle"/>
+            </button>
+            <button type="button"
+                    t-attf-class="o_tbp_info_btn o_tbp_review_btn #{line.tbp_reviewed ? 'is-reviewed' : 'no-notes'}"
+                    t-att-title="this.reviewedTitle(line)"
+                    t-att-disabled="state.reviewing[line.id] ? true : undefined"
+                    t-on-click="(ev) => this.toggleReviewed(line, ev)">
+                <i t-attf-class="fa #{line.tbp_reviewed ? 'fa-check' : 'fa-square-o'}"/>
             </button>
             <i t-if="line.note"
                class="fa fa-sticky-note-o o_tbp_order_note_flag"

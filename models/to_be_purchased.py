@@ -1791,7 +1791,32 @@ class ToBePurchasedLogic(models.AbstractModel):
             'tbp_note': last.get('note', ''),
             'tbp_note_date': last.get('date', ''),
             'tbp_note_user': last.get('user', ''),
+            **self._tbp_reviewed_payload(sale_line),
         }
+
+    def _tbp_reviewed_payload(self, sale_line):
+        return {
+            'tbp_reviewed': bool(sale_line.tbp_reviewed),
+            'tbp_reviewed_user': sale_line.tbp_reviewed_user_id.name or '',
+            'tbp_reviewed_date': (
+                self._tbp_fmt_dt(sale_line.tbp_reviewed_date)
+                if sale_line.tbp_reviewed_date else ''),
+        }
+
+    @api.model
+    def set_tbp_reviewed(self, sale_line_id, reviewed):
+        """Compras marca (o desmarca) la línea como revisada."""
+        self._tbp_check_access()
+        line = self.env['sale.order.line'].sudo().browse(int(sale_line_id)).exists()
+        if not line:
+            raise UserError(_('La línea ya no existe. Actualiza el tablero.'))
+        reviewed = bool(reviewed)
+        line.write({
+            'tbp_reviewed': reviewed,
+            'tbp_reviewed_date': fields.Datetime.now() if reviewed else False,
+            'tbp_reviewed_user_id': self.env.user.id if reviewed else False,
+        })
+        return self._tbp_reviewed_payload(line)
 
     def _tbp_check_access(self):
         if not self.env.user.has_group('purchase.group_purchase_user'):

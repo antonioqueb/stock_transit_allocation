@@ -2308,3 +2308,10 @@ $o-tbp-pill: 999px;
     font-size: 13px;
     color: #1f2937;
 }
+
+// Marca "Revisado" de Compras por línea.
+.o_tbp_review_btn.is-reviewed {
+    background: #dcfce7;
+    color: #15803d;
+    border-color: rgba(21, 128, 61, 0.35);
+}

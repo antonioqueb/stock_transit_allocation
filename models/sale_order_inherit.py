@@ -318,6 +318,12 @@ class SaleOrderLine(models.Model):
     tbp_note_date = fields.Datetime(string='Observación TBP actualizada', copy=False, readonly=True)
     tbp_note_user_id = fields.Many2one(
         'res.users', string='Observación TBP por', copy=False, readonly=True)
+    # Marca de Compras "ya lo revisé" en To Be Purchased (2 oct 2026): el
+    # tablero abre en No revisado para avanzar solo con lo que falta.
+    tbp_reviewed = fields.Boolean(string='Revisado en TBP', copy=False)
+    tbp_reviewed_date = fields.Datetime(string='Revisado TBP el', copy=False, readonly=True)
+    tbp_reviewed_user_id = fields.Many2one(
+        'res.users', string='Revisado TBP por', copy=False, readonly=True)
 
     tc_stock_rejected = fields.Boolean(
         string='Stock rechazado por vendedor',
