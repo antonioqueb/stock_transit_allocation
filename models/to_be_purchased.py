@@ -764,6 +764,7 @@ class AllocationHubPaymentMixin(models.AbstractModel):
             ('partner_id', '=', False),
             ('order_id', '=', False),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+            ('voyage_id.tc_portal_regen_pending', '=', False),
             ('company_id', 'in', [False] + self._hub_company_ids()),
         ], order='eta asc, voyage_id asc, product_id asc, id asc')
 

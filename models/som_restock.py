@@ -84,6 +84,7 @@ class SomRestock(models.AbstractModel):
                 ('product_id', '!=', False),
                 ('product_uom_qty', '>', 0),
                 ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+                ('voyage_id.tc_portal_regen_pending', '=', False),
                 ('company_id', 'in', [False] + self._cids()),
             ],
             ['product_id', 'product_uom_qty', 'allocation_status',

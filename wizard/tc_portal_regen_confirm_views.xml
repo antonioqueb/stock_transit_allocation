@@ -61,8 +61,16 @@ if record:
                     <b>Embarque en corrección.</b> Se regeneró la liga del
                     portal: el material se devolvió al proveedor y no está en
                     tránsito. Volverá cuando el proveedor complete el portal y
-                    Compras valide la recepción corregida.
+                    Compras valide la recepción corregida. Mientras tanto se
+                    oculta el desglose de placas y cobertura; la información
+                    se conserva y reaparece al validar.
                 </div>
+            </xpath>
+            <xpath expr="//div[hasclass('vf-exec-coverage')]" position="attributes">
+                <attribute name="invisible">tc_portal_regen_pending</attribute>
+            </xpath>
+            <xpath expr="//div[hasclass('vf-lots-section')]" position="attributes">
+                <attribute name="invisible">tc_portal_regen_pending</attribute>
             </xpath>
         </field>
     </record>

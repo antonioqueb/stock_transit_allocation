@@ -55,6 +55,9 @@ class TransitAllocationLogic(models.AbstractModel):
             ('product_id', '!=', False),
             ('product_uom_qty', '>', 0),
             ('voyage_id.custom_status', 'not in', ['delivered', 'cancel']),
+            # Embarque en corrección (liga del portal regenerada): sus placas
+            # están devueltas al proveedor y no se ofrecen para asignar.
+            ('voyage_id.tc_portal_regen_pending', '=', False),
         ]
 
         if product_ids:

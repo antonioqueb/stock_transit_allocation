@@ -295,6 +295,16 @@ class StockTransitVoyagePortalRegen(models.Model):
             pickings.mapped('name'), new_pickings.mapped('name'))
         return True
 
+    def action_generate_reception(self):
+        for voyage in self:
+            if voyage.tc_portal_regen_pending:
+                raise UserError(_(
+                    'El embarque %s está en corrección: su material se '
+                    'devolvió al proveedor. La recepción física se genera '
+                    'cuando Compras valide la recepción corregida.'
+                ) % voyage.name)
+        return super().action_generate_reception()
+
     # ------------------------------------------------------------------
     # Regreso a tránsito tras la corrección
     # ------------------------------------------------------------------
@@ -348,4 +358,25 @@ class StockTransitVoyagePortalRegen(models.Model):
                     'no se pudieron retirar solos; retíralos a mano: %s.'
                 ) % names
         voyage.write({'tc_portal_regen_pending': False})
+        # La recepción física se canceló al echar atrás: si el embarque ya
+        # estaba en 'Recepción', se vuelve a crear con el material corregido.
+        if voyage.custom_status == 'reception_pending' \
+                and not voyage.reception_picking_id:
+            try:
+                with self.env.cr.savepoint():
+                    voyage.with_context(
+                        tc_keep_status=True,
+                        tc_skip_auto_reception=True,
+                    ).action_generate_reception()
+                if voyage.reception_picking_id:
+                    note += Markup(
+                        '<br/>Recepción física creada de nuevo: %s.'
+                    ) % voyage.reception_picking_id.name
+            except Exception:
+                _logger.exception(
+                    '[TC_REGEN] %s: no se pudo recrear la recepción física.',
+                    voyage.name)
+                note += Markup(
+                    '<br/>⚠️ No se pudo recrear la recepción física; '
+                    'genérala desde el embarque.')
         voyage.message_post(body=note)
