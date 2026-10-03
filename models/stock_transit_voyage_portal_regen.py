@@ -341,6 +341,20 @@ class StockTransitVoyagePortalRegen(models.Model):
             names = ', '.join(stale.mapped('lot_id.name')[:40])
             try:
                 with self.env.cr.savepoint():
+                    # Los lotes retirados también salen de las ventas: si se
+                    # quedan en lot_ids, la línea cuenta placas que ya no
+                    # existen y el tope de stock bloquea asignar lo que falta
+                    # (V/417, 2 oct 2026).
+                    stale_lots = stale.mapped('lot_id')
+                    sale_lines = self.env['sale.order.line'].sudo().search(
+                        [('lot_ids', 'in', stale_lots.ids)])
+                    for sol in sale_lines:
+                        drop = sol.lot_ids & stale_lots
+                        sol.with_context(
+                            tc_qty_sync_from_lots=True,
+                            skip_tc_stock_cap=True,
+                            skip_hold_validation=True,
+                        ).write({'lot_ids': [(3, lot.id) for lot in drop]})
                     stale.unlink()
                 note += Markup(
                     '<br/>Lotes que ya no vienen en el PL corregido, retirados '
